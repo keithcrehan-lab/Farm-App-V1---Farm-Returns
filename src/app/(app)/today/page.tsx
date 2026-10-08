@@ -48,8 +48,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { ChevronRight, Radar, Settings } from "lucide-react";
+import { ChevronRight, Radar } from "lucide-react";
 import { MapHero } from "@/components/farm/MapHero";
 import { FarmLensControl } from "@/components/farm-spatial/FarmLensControl";
 import { FarmLensContext } from "@/components/farm-spatial/FarmLensContext";
@@ -63,7 +62,8 @@ import { DEFAULT_FARM_LENS, farmLensById, type FarmLensId } from "@/lib/farm-spa
 import { calculateActiveFarmAreaHa, calculateFarmObjectRailCounts, calculateFarmSetupProgress } from "@/domain/farm-stats";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { WeatherHeroChip } from "@/components/farm/WeatherHeroChip";
+import { FarmConditionsControl } from "@/components/farm-spatial/FarmConditionsControl";
+import { farmConditionsSummary, spreadingCalendarEntry, spreadingCalendarStatusLine } from "@/lib/farm-conditions-summary";
 import { NearbyFieldCard } from "@/components/farm/NearbyFieldCard";
 import { GpsActivityCandidateCard } from "@/components/farm/GpsActivityCandidateCard";
 import { useOneShotPosition } from "@/lib/location/use-one-shot-position";
@@ -476,24 +476,31 @@ export default function TodayPage() {
   const slurrySpreadingPrompts = spreadingPrompts.filter((p) => p.inputsSnapshot?.material === "organic_fertiliser_other_than_FYM");
   const calendarOpenCount = chemicalSpreadingPrompts.filter((p) => p.basis.status === "OK").length;
   const slurryOpenCount = slurrySpreadingPrompts.filter((p) => p.basis.status === "OK").length;
-  const chemicalFertiliserAmbientStatus =
-    mounted && chemicalSpreadingPrompts.length > 0
-      ? calendarOpenCount === 0
-        ? "Chemical fertiliser · Closed period"
-        : `Chemical fertiliser · Open ${calendarOpenCount}/${chemicalSpreadingPrompts.length}`
+  // Farm Home visual refresh v1 — one formatter for the calendar wording,
+  // shared by the compact conditions control and every existing consumer
+  // of the ambient status lines below.
+  const chemicalAssessedCount = chemicalSpreadingPrompts.length;
+  const slurryAssessedCount = slurrySpreadingPrompts.length;
+  const calendar = useMemo(() => {
+    const chemical = mounted
+      ? spreadingCalendarEntry({ id: "chemical", label: "Chemical fertiliser", openCount: calendarOpenCount, assessedCount: chemicalAssessedCount })
       : undefined;
+    const slurry = mounted ? spreadingCalendarEntry({ id: "slurry", label: "Slurry", openCount: slurryOpenCount, assessedCount: slurryAssessedCount }) : undefined;
+    return {
+      summary: farmConditionsSummary([chemical, slurry]),
+      chemicalLine: spreadingCalendarStatusLine(chemical),
+      slurryLine: spreadingCalendarStatusLine(slurry),
+    };
+  }, [mounted, calendarOpenCount, chemicalAssessedCount, slurryOpenCount, slurryAssessedCount]);
+  const conditionsSummary = calendar.summary;
+  const chemicalFertiliserAmbientStatus = calendar.chemicalLine;
   // Today Opportunity Priority Engine V1 — the same real, already-computed
   // fact as the chip/summary text above, as a plain boolean the priority
   // engine's own Fertiliser `blocked` situation reads directly (see
   // `today-opportunities.ts`'s `buildFertiliserOpportunity`), rather than
   // re-parsing the display string.
   const chemicalFertiliserClosed = mounted && chemicalSpreadingPrompts.length > 0 && calendarOpenCount === 0;
-  const slurryAmbientStatus =
-    mounted && slurrySpreadingPrompts.length > 0
-      ? slurryOpenCount === 0
-        ? "Slurry · Closed period"
-        : `Slurry · Open ${slurryOpenCount}/${slurrySpreadingPrompts.length}`
-      : undefined;
+  const slurryAmbientStatus = calendar.slurryLine;
   // Conditions lens context — the same real calendar facts as the
   // ambient strip, never a new suitability verdict.
   const conditionsFacts = [chemicalFertiliserAmbientStatus, slurryAmbientStatus].filter((f): f is string => Boolean(f));
@@ -625,15 +632,22 @@ export default function TodayPage() {
           `MapHero` is the dominant canvas; desktop places the persistent
           object rail in its own column to the right of the map, mobile
           places it as a band directly under the map. Map overlays:
-          identity (top-left), weather/calendar instrumentation + settings
-          (top-right), GPS/nearby field cards and the active lens caption
-          (bottom-left), and the five-lens band (flush along the bottom).
+          identity (top-left), the compact conditions control (top-right),
+          GPS/nearby field cards and the active lens caption (bottom-left),
+          and the lens mode switcher (bottom-centre).
 
           Phase 02B (spatial shell visual refinement): no global veil over
           the photo. Two local scrims (behind the identity and behind the
           lower lens information) carry legibility, so the aerial imagery
-          stays clearly visible across the middle of the farm. */}
-      <section className="-mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:grid lg:grid-cols-[minmax(0,1fr)_136px] lg:overflow-hidden lg:rounded-[4px] lg:border lg:border-fr-v2-rule">
+          stays clearly visible across the middle of the farm.
+
+          Farm Home visual refresh v1: the workspace runs edge to edge
+          beside the navigation (`data-farm-workspace` drops the app
+          shell's desktop gutters, see `AppShell`) and fills the viewport
+          height, so the map owns the screen rather than sitting in a page.
+          The former full-width weather/calendar strip is now the compact
+          `FarmConditionsControl`; the lens band is a compact mode switcher. */}
+      <section data-farm-workspace className="-mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:grid lg:grid-cols-[minmax(0,1fr)_120px] lg:overflow-hidden">
         <div className="relative min-w-0">
           <MapHero
             fields={fields}
@@ -678,55 +692,33 @@ export default function TodayPage() {
             center={farm.location.centroid}
             userPosition={position}
             plain
-            className="h-[78dvh] min-h-[520px] lg:h-[min(740px,calc(100dvh-5rem))] lg:min-h-[600px]"
+            className="h-[78dvh] min-h-[520px] lg:h-[max(600px,calc(100dvh-2.5rem))]"
           >
             <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between">
               <div aria-hidden className="absolute inset-x-0 top-0 h-56 bg-[radial-gradient(ellipse_70%_100%_at_0%_0%,rgba(10,14,11,0.5),transparent_70%)]" />
-              <div aria-hidden className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/50 via-black/15 to-transparent" />
+              <div aria-hidden className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black/45 via-black/12 to-transparent" />
 
-              <div className="relative flex flex-col gap-3 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] lg:flex-row lg:items-start lg:justify-between lg:p-6">
-                <div className="pointer-events-auto flex min-w-0 items-start justify-between gap-3 [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]">
-                  <div className="min-w-0">
-                    <p className={cn("text-[11px] font-bold uppercase tracking-[0.14em]", activeLens.kickerClassName)}>
-                      Farm Return · {activeLens.label}
-                    </p>
-                    <h1 className="mt-1 max-w-[18ch] text-balance font-display text-3xl leading-[1.05] text-white lg:text-[40px]">{farm.name}</h1>
-                    <p className="mt-1.5 text-xs font-semibold tabular-nums text-white/90">
-                      {fieldCountLabel}
-                      {farmAreaHa !== null ? ` · ${formatNumber(farmAreaHa, 1)} ha` : ""}
-                    </p>
-                    <p className="mt-0.5 text-xs text-white/75">
-                      {greetingText}, {farm.ownerName}
-                    </p>
-                  </div>
-                  <Link
-                    href="/settings"
-                    aria-label="Settings"
-                    className="flex size-8 shrink-0 items-center justify-center rounded-[2px] bg-fr-v2-graphite/60 text-white backdrop-blur-sm lg:hidden"
-                  >
-                    <Settings className="size-4" />
-                  </Link>
+              <div className="relative flex flex-col gap-3 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] sm:flex-row sm:items-start sm:justify-between lg:px-7 lg:pt-6">
+                <div className="pointer-events-auto min-w-0 [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]">
+                  <p className={cn("text-[10.5px] font-semibold uppercase tracking-[0.16em]", activeLens.kickerClassName)}>
+                    Farm Return · {activeLens.label}
+                  </p>
+                  <h1 className="mt-1.5 max-w-[18ch] text-balance font-display text-[32px] leading-[1.02] tracking-[-0.01em] text-white lg:text-[44px]">{farm.name}</h1>
+                  <p className="mt-2 text-xs font-medium tabular-nums tracking-[0.01em] text-white/90">
+                    {fieldCountLabel}
+                    {farmAreaHa !== null ? ` · ${formatNumber(farmAreaHa, 1)} ha` : ""}
+                  </p>
+                  <p className="mt-0.5 text-xs text-white/70">
+                    {greetingText}, {farm.ownerName}
+                  </p>
                 </div>
 
-                <div className="pointer-events-auto flex min-w-0 items-stretch gap-px lg:justify-end">
-                  {/* Ambient status — real weather plus the real farm-wide
-                      spreading-calendar openness (T3/T4). Phase 02B: a
-                      flat instrument strip (hairline separators, near-
-                      square corners), not a floating rounded pill. */}
-                  <div className="flex min-w-0 flex-wrap items-center gap-y-1 divide-x divide-white/20 rounded-[2px] bg-fr-v2-graphite/60 py-2 tabular-nums backdrop-blur-sm empty:hidden lg:rounded-r-none [&>*]:px-3">
-                    <WeatherHeroChip centroid={farm.location.centroid} bare />
-                    {chemicalFertiliserAmbientStatus ? (
-                      <span className="whitespace-nowrap text-xs font-medium text-white">{chemicalFertiliserAmbientStatus}</span>
-                    ) : null}
-                    {slurryAmbientStatus ? <span className="whitespace-nowrap text-xs font-medium text-white">{slurryAmbientStatus}</span> : null}
-                  </div>
-                  <Link
-                    href="/settings"
-                    aria-label="Settings"
-                    className="hidden w-9 shrink-0 items-center justify-center rounded-[2px] bg-fr-v2-graphite/60 text-white/85 backdrop-blur-sm transition-colors duration-[160ms] hover:text-white motion-reduce:transition-none lg:flex lg:rounded-l-none"
-                  >
-                    <Settings className="size-4" />
-                  </Link>
+                {/* Farm Home visual refresh v1 — real station weather and
+                    the real spreading-calendar restriction count (T3/T4),
+                    with the detail one disclosure away. Settings sits
+                    beside it at every width. */}
+                <div className="pointer-events-auto min-w-0 self-start sm:shrink-0">
+                  <FarmConditionsControl centroid={farm.location.centroid} summary={conditionsSummary} ready={mounted} />
                 </div>
               </div>
 
@@ -734,7 +726,7 @@ export default function TodayPage() {
                 {/* With a field selected the drawer carries the lens
                     information, so the farm-wide caption and GPS cards
                     step aside rather than stacking under it. */}
-                <div className={cn("flex flex-col gap-3 px-4 pb-4 transition-opacity duration-[180ms] motion-reduce:transition-none lg:px-6 lg:pb-5", selectedField && "invisible opacity-0")}>
+                <div className={cn("flex flex-col gap-3 px-4 pb-3 transition-opacity duration-[180ms] motion-reduce:transition-none lg:px-7 lg:pb-4", selectedField && "invisible opacity-0")}>
                   <div className="pointer-events-auto flex max-w-md flex-col gap-2">
                     <GpsActivityCandidateCard fields={fields} />
                     <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
@@ -746,11 +738,13 @@ export default function TodayPage() {
                 <div className="relative">
                   {/* Phase 3 field drawer — rises from the lens band, attached
                       to the map, never a full-screen modal. */}
-                  <div className="absolute inset-x-0 bottom-full overflow-hidden lg:left-6 lg:right-auto lg:w-96">
+                  <div className="absolute inset-x-0 bottom-full overflow-hidden lg:left-7 lg:right-auto lg:w-96">
                     <FarmFieldDrawer field={selectedField} lensId={lens} view={selectedFieldView} nutrientPlan={selectedNutrientPlan} onClose={() => setSelectedFieldId(undefined)} />
                   </div>
-                  <div className="pointer-events-auto">
-                    <FarmLensControl value={lens} onChange={setLens} />
+                  <div className="flex justify-center px-2 pb-3 sm:px-3 lg:pb-5">
+                    <div className="pointer-events-auto w-full sm:w-auto">
+                      <FarmLensControl value={lens} onChange={setLens} />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -758,7 +752,7 @@ export default function TodayPage() {
           </MapHero>
         </div>
 
-        <FarmObjectRail counts={objectRailCounts} livestockGroups={livestockGroups} housing={housingList} className="border-b border-fr-v2-rule lg:border-b-0 lg:border-l" />
+        <FarmObjectRail counts={objectRailCounts} livestockGroups={livestockGroups} housing={housingList} />
       </section>
 
       {/* Desktop plane under the map — the What Matters pilot (T7/T25)
@@ -767,7 +761,7 @@ export default function TodayPage() {
           map stays the dominant, uncluttered surface. Asymmetric columns
           and a rule, not a card grid. Mobile keeps its own section below
           (`lg:hidden`); never both at once. */}
-      <section className="mt-8 hidden gap-10 border-t border-fr-v2-rule pt-6 lg:grid lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+      <section className="hidden gap-10 px-10 pb-10 pt-8 lg:grid lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <div className="flex min-w-0 flex-col gap-3">
           {!mounted || (pilotLoading && !pilotState) ? (
             <div className="animate-pulse py-2">

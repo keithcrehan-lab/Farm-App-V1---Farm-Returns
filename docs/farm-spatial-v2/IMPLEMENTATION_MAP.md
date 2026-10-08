@@ -251,7 +251,7 @@ access path.
 |---|---|---|
 | T1 | Owner greeting, farm name, mapped-field count | `useFarm`, post-mount greeting |
 | T2 | Settings link | `/settings` |
-| T3 | Weather chip | `WeatherHeroChip` |
+| T3 | Weather chip | `WeatherHeroChip` (`useFarmWeatherReading`; on Farm shown in `FarmConditionsControl`, §17) |
 | T4 | Chemical fertiliser and slurry legal calendar status (open n/N, closed period) | `promptForSpreadingWindow` via `buildAllRealPrompts` |
 | T5 | GPS activity candidate (detected field work → job) | `GpsActivityCandidateCard` (`gps-activity-detection.ts`, `src/lib/location/gps-activity-candidate-controller.ts`) |
 | T6 | Nearby field (one-shot position) and user position dot | `NearbyFieldCard`, `useOneShotPosition`, `MapHero userPosition` |
@@ -496,3 +496,23 @@ Presentation only. Information architecture, routes, producers and §11 placemen
 - **Not changed:** any domain formula, frozen signature (`calculateShedOccupancy` is additive), schema or migration. Livestock moves
   (field or shed reassignment) remain PLACEHOLDER. The rendered 1440×900 / 390×844 inspection and the Playwright visual suite were
   not run in this build session.
+
+## 17. Farm Home visual refresh v1 (task `farm-home-visual-refresh-v1-20261008`)
+
+Presentation only. `MapHero`, its props and every lens/selection/camera behaviour are unchanged.
+
+- **Workspace:** the `/today` map section carries `data-farm-workspace`; `AppShell` drops its desktop gutters and max width for
+  that screen only (CSS `:has()`), so the map runs edge to edge beside the navigation at `max(600px, 100dvh − 2.5rem)`. The plane
+  below the map keeps its own gutters. The rail column is 120px, warm stone (`--fr-v2-stone`), without hairline separators.
+- **Conditions (T3/T4):** the full-width weather + calendar strip is replaced by `FarmConditionsControl` (top-right): station
+  temperature, name and a non-Live freshness word, plus a restriction count from `farmConditionsSummary`
+  (`src/lib/farm-conditions-summary.ts`). A restriction is a material with at least one assessed field not open; no assessed field
+  reads "Calendar not assessed", never 0. The disclosure (button `aria-expanded`, Escape/close/outside press) lists the regulatory
+  calendar per material and, separately, the station reading and freshness. The ambient lines other consumers read
+  (`chemicalFertiliserAmbientStatus`, `slurryAmbientStatus`) are formatted by the same module with unchanged wording.
+  `useFarmWeatherReading` is extracted from `WeatherHeroChip` (same fetch and freshness classification).
+- **Lens control:** a compact floating mode switcher (domain-colour underline, no dividers); behaviour unchanged.
+- **Navigation:** `DesktopSidebar` uses `--fr-v2-shell` (deep forest graphite), lower-contrast inactive items, a slim marker for
+  the current destination and no separator rules. Destinations and the More disclosure are unchanged.
+- **Not changed:** any domain formula, frozen signature, schema or migration. Rendered viewport inspection was not run in the
+  build session.

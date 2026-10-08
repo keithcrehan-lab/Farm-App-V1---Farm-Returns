@@ -76,9 +76,9 @@ export function FarmObjectRail({
   });
 
   return (
-    <nav aria-label="Farm objects" onKeyDown={onKeyDown} className={cn("relative bg-fr-v2-paper", className)}>
-      <div className="grid grid-cols-3 divide-x divide-fr-v2-rule lg:flex lg:flex-col lg:divide-x-0 lg:divide-y lg:px-3 lg:pt-5">
-        <p className="hidden pb-2.5 text-[10px] font-bold uppercase tracking-[0.14em] text-fr-v2-muted lg:block">On the farm</p>
+    <nav aria-label="Farm objects" onKeyDown={onKeyDown} className={cn("relative bg-fr-v2-stone", className)}>
+      <div className="grid grid-cols-3 gap-px px-1 py-1 lg:flex lg:flex-col lg:gap-1 lg:px-2.5 lg:pt-6">
+        <p className="hidden px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-fr-v2-muted lg:block">On the farm</p>
         <RailObject {...objectProps("cattle")} label="Cattle" value={counts.cattleGroupCount === 0 ? undefined : String(counts.cattleHeadCount)} detail={cattleDetail} ruleClassName="bg-fr-v2-plum" />
         <RailObject {...objectProps("sheep")} label="Sheep" detail="Not yet supported" ruleClassName="bg-fr-v2-plum/40" />
         <RailObject
@@ -116,7 +116,9 @@ function RailObject({
 }) {
   // Phase 02B: a left-aligned typographic row with a short domain-colour
   // rule beside the label — denser rhythm, no centred card stack. Phase 6:
-  // the rule lengthens and the row lifts to white while selected.
+  // the rule lengthens and the row lifts to white while selected. Farm
+  // Home visual refresh v1: warm stone surface, no hairline separators —
+  // rows are set apart by spacing and a soft tonal lift instead.
   return (
     <button
       type="button"
@@ -125,8 +127,8 @@ function RailObject({
       aria-controls={selected ? panelId : undefined}
       data-rail-object={label.toLowerCase()}
       className={cn(
-        "block min-w-0 px-3 py-3 text-left transition-colors duration-[160ms] hover:bg-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fr-v2-forest motion-reduce:transition-none lg:px-0 lg:py-3.5",
-        selected && "bg-white",
+        "block min-w-0 rounded-fr-v2-row px-3 py-2.5 text-left transition-colors duration-[160ms] hover:bg-white/55 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fr-v2-forest motion-reduce:transition-none lg:px-2 lg:py-3",
+        selected && "bg-white/80",
       )}
     >
       <span className="flex items-center gap-1.5 text-[11px] font-semibold text-fr-v2-graphite">
@@ -164,7 +166,7 @@ function FarmObjectPanel({
       id={id}
       aria-label={PANEL_TITLE[objectId]}
       data-object-panel={objectId}
-      className="flex border-t border-fr-v2-rule bg-white transition-[opacity,translate] duration-[160ms] ease-out starting:-translate-y-1 starting:opacity-0 motion-reduce:transition-none lg:absolute lg:inset-y-0 lg:right-full lg:z-30 lg:w-80 lg:overflow-y-auto lg:border-l lg:border-t-0 lg:shadow-[var(--fr-v2-shadow-overlay)]"
+      className="flex border-t border-fr-v2-rule bg-fr-v2-stone transition-[opacity,translate] duration-[160ms] ease-out starting:-translate-y-1 starting:opacity-0 motion-reduce:transition-none lg:absolute lg:inset-y-0 lg:right-full lg:z-30 lg:w-80 lg:overflow-y-auto lg:border-t-0 lg:shadow-[var(--fr-v2-shadow-overlay)]"
     >
       <span aria-hidden className={cn("w-[3px] shrink-0", PANEL_RULE[objectId])} />
       <div className="min-w-0 flex-1 px-4 pb-4 pt-3">

@@ -18,13 +18,60 @@ interface WeatherApiResponse {
   rollingRainfall: Array<{ windowHours: number; totalMm: number | null; complete: boolean }>;
 }
 
-const toneDot: Record<StatusTone, string> = {
+export const weatherToneDot: Record<StatusTone, string> = {
   good: "bg-fr-good",
   attention: "bg-fr-attention",
   risk: "bg-fr-risk",
   info: "bg-fr-info",
   neutral: "bg-white/50",
 };
+
+/** The farm-level station reading both this chip and the Farm map's
+ * compact conditions control show — one fetch of the same real
+ * `/api/weather/observations` contract. `undefined` while loading; `null`
+ * when the pipeline has no real reading (never a fabricated value). */
+export interface FarmWeatherReading {
+  status: WeatherApiResponse["status"];
+  freshness: string;
+  tone: StatusTone;
+  /** Unknown temperature stays "—", never 0. */
+  tempText: string;
+  stationName: string | null;
+  stationDistanceText: string | null;
+}
+
+export function useFarmWeatherReading(centroid: [number, number]): FarmWeatherReading | null | undefined {
+  const [data, setData] = useState<WeatherApiResponse | null | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/weather/observations?lat=${centroid[1]}&lng=${centroid[0]}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (!cancelled) setData(json);
+      })
+      .catch(() => {
+        if (!cancelled) setData(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- centroid is a tuple literal; compare by value
+  }, [centroid[0], centroid[1]]);
+
+  if (data === undefined) return undefined;
+  const latest = data?.observations?.[data.observations.length - 1];
+  if (!data || !latest || data.status === "UNAVAILABLE") return null;
+  const station = data.station ?? data.nearestGeographicStation ?? null;
+  return {
+    status: data.status,
+    freshness: weatherFreshnessLabel(data.status),
+    tone: weatherFreshnessTone(data.status),
+    tempText: latest.airTemperatureC !== null ? `${formatNumber(latest.airTemperatureC, 1)}°C` : "—",
+    stationName: station?.canonicalName ?? null,
+    stationDistanceText: station ? `${formatNumber(station.distanceKm, 1)}km` : null,
+  };
+}
 
 /**
  * Compact real-weather chip for `MapHero` overlays (Today, spec §8
@@ -69,31 +116,11 @@ export function WeatherHeroChip({
    * other light-surface chip in this header uses. */
   light?: boolean;
 }) {
-  const [data, setData] = useState<WeatherApiResponse | null>(null);
+  const reading = useFarmWeatherReading(centroid);
+  if (!reading) return null;
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/weather/observations?lat=${centroid[1]}&lng=${centroid[0]}`)
-      .then((res) => res.json())
-      .then((json) => {
-        if (!cancelled) setData(json);
-      })
-      .catch(() => {
-        if (!cancelled) setData(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- centroid is a tuple literal; compare by value
-  }, [centroid[0], centroid[1]]);
-
-  const latest = data?.observations[data.observations.length - 1];
-  const station = data?.station ?? data?.nearestGeographicStation ?? null;
-  if (!data || !latest || data.status === "UNAVAILABLE") return null;
-
-  const freshness = weatherFreshnessLabel(data.status);
-  const tempText = latest.airTemperatureC !== null ? `${formatNumber(latest.airTemperatureC, 1)}°C` : "—";
-  const stationText = station ? `${station.canonicalName} · ${formatNumber(station.distanceKm, 1)}km` : null;
+  const { freshness, tempText } = reading;
+  const stationText = reading.stationName ? `${reading.stationName} · ${reading.stationDistanceText}` : null;
 
   const dividerClass = light ? "bg-fr-border" : "bg-white/25";
 
@@ -119,7 +146,7 @@ export function WeatherHeroChip({
         </>
       ) : null}
       <span className={cn("h-3 w-px shrink-0", dividerClass)} aria-hidden="true" />
-      <span className={cn("size-1.5 shrink-0 rounded-full", toneDot[weatherFreshnessTone(data.status)])} aria-hidden="true" />
+      <span className={cn("size-1.5 shrink-0 rounded-full", weatherToneDot[reading.tone])} aria-hidden="true" />
       <span className="shrink-0">{freshness}</span>
     </span>
   );

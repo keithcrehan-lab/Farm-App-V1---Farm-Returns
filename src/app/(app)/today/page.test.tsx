@@ -235,6 +235,21 @@ function renderTodayRealMode() {
   );
 }
 
+/** Farm Home visual refresh v1 — the spreading-calendar detail now lives
+ * in the compact conditions control's disclosure, not an always-visible
+ * strip. Opens it (once the calendar is computed) and returns the panel. */
+async function openConditionsPanel(): Promise<HTMLElement> {
+  const trigger = await screen.findByRole("button", { name: /^conditions:/i });
+  await waitFor(() => expect(trigger.getAttribute("aria-label")).not.toMatch(/checking calendar/i));
+  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+  return screen.getByRole("group", { name: "Farm conditions" });
+}
+
+/** The panel's status for one material, e.g. "Closed period" — undefined when absent. */
+function calendarStatus(panel: HTMLElement, label: string): string | undefined {
+  return within(panel).queryByText(label, { selector: "dt" })?.nextElementSibling?.textContent ?? undefined;
+}
+
 /** Real `EngineOutcome<unknown>["status"]` shapes (`src/domain/evidence.ts`)
  * — never a hand-shortened fixture missing a real required field. */
 function chemicalFertiliserClosedPrompt(): Prompt {
@@ -279,7 +294,9 @@ describe("TodayPage — status-model product decision (chemical-fertiliser restr
     // stays a chip fact — now also legitimately echoed as the Fertiliser
     // opportunity card's own summary line, so `getAllByText` (not
     // `getByText`) since more than one real element carries it.
-    await waitFor(() => expect(screen.getAllByText(/chemical fertiliser.*closed period/i).length).toBeGreaterThan(0));
+    // Farm Home visual refresh v1: the chip fact is in the conditions
+    // disclosure.
+    expect(calendarStatus(await openConditionsPanel(), "Chemical fertiliser")).toBe("Closed period");
   });
 
   it("no longer lets that restriction suppress the field's real nutrient recommendation — it still reaches the tracker as a real Fertiliser opportunity", async () => {
@@ -289,7 +306,7 @@ describe("TodayPage — status-model product decision (chemical-fertiliser restr
     // ambient, non-tracker fact) AND has a real OK nutrient
     // recommendation (Fertiliser category, MEDIUM) at once — proving the
     // closed period doesn't suppress it, as the historical bug did.
-    await waitFor(() => expect(screen.getAllByText(/chemical fertiliser.*closed period/i).length).toBeGreaterThan(0));
+    expect(calendarStatus(await openConditionsPanel(), "Chemical fertiliser")).toBe("Closed period");
     const strip = await screen.findByRole("button", { name: /1 medium priority/i });
     expect(within(strip).getByText("Medium priority").previousElementSibling?.textContent).toBe("1");
     // The Fertiliser opportunity's own drill-down sheet carries the same
@@ -303,7 +320,7 @@ describe("TodayPage — status-model product decision (chemical-fertiliser restr
   it("never presents a field as generically restricted — the bare word 'Restricted' is gone from the status strip", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt(), fertiliserRecommendationOkPrompt()]);
     renderTodayRealMode();
-    await waitFor(() => expect(screen.getAllByText(/chemical fertiliser.*closed period/i).length).toBeGreaterThan(0));
+    expect(calendarStatus(await openConditionsPanel(), "Chemical fertiliser")).toBe("Closed period");
     expect(screen.queryByText("Restricted")).toBeNull();
   });
 
@@ -344,7 +361,10 @@ describe("TodayPage — status-model product decision (chemical-fertiliser restr
     };
     vi.mocked(buildAllRealPrompts).mockReturnValue([openPrompt]);
     renderTodayRealMode();
-    await waitFor(() => expect(screen.getAllByText(/chemical fertiliser.*open 1\/1/i).length).toBeGreaterThan(0));
+    const panel = await openConditionsPanel();
+    expect(calendarStatus(panel, "Chemical fertiliser")).toBe("Open 1/1");
+    // An open calendar is never counted as a restriction.
+    expect(screen.getByRole("button", { name: /^conditions:/i }).getAttribute("aria-label")).toMatch(/calendar open/i);
     // Chemical fertiliser isn't a tracker category at all, and this
     // fixture has no Slurry/Lime/Fertiliser/Soil Prompt — an honest
     // all-zero tracker, and no category cards at all.
@@ -401,8 +421,9 @@ describe("TodayPage — slurry closed-period wiring (2026-09-19)", () => {
     // not one shared count.
     vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt(), slurryOpenPrompt(), fertiliserRecommendationOkPrompt()]);
     renderTodayRealMode();
-    await waitFor(() => expect(screen.getAllByText(/chemical fertiliser.*closed period/i).length).toBeGreaterThan(0));
-    expect(screen.getAllByText(/slurry.*open 1\/1/i).length).toBeGreaterThan(0);
+    const panel = await openConditionsPanel();
+    expect(calendarStatus(panel, "Chemical fertiliser")).toBe("Closed period");
+    expect(calendarStatus(panel, "Slurry")).toBe("Open 1/1");
     const strip = await screen.findByRole("button", { name: /1 high priority, 1 medium priority, 0 low priority, 0 for later/i });
     expect(within(strip).getByText("High priority").previousElementSibling?.textContent).toBe("1");
     expect(within(strip).getByText("Medium priority").previousElementSibling?.textContent).toBe("1");
@@ -416,8 +437,9 @@ describe("TodayPage — slurry closed-period wiring (2026-09-19)", () => {
     };
     vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalOpenPrompt, slurryClosedPrompt(), fertiliserRecommendationOkPrompt()]);
     renderTodayRealMode();
-    await waitFor(() => expect(screen.getAllByText(/chemical fertiliser.*open 1\/1/i).length).toBeGreaterThan(0));
-    expect(screen.getAllByText(/slurry.*closed period/i).length).toBeGreaterThan(0);
+    const panel = await openConditionsPanel();
+    expect(calendarStatus(panel, "Chemical fertiliser")).toBe("Open 1/1");
+    expect(calendarStatus(panel, "Slurry")).toBe("Closed period");
     // Chemical fertiliser is genuinely open here, so Fertiliser's own
     // real OK recommendation is unblocked -> HIGH; Slurry's own real
     // closed-period Prompt has no field open -> blocked -> MEDIUM. Same
@@ -432,9 +454,10 @@ describe("TodayPage — slurry closed-period wiring (2026-09-19)", () => {
   it("never shows the 'Slurry' ambient chip when no real slurry Prompt exists — no fabricated fact for a farm/mock fixture without one, and the tracker's Slurry category honestly contributes nothing (not a fabricated zero-priority band)", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt(), fertiliserRecommendationOkPrompt()]);
     renderTodayRealMode();
-    await waitFor(() => expect(screen.getAllByText(/chemical fertiliser.*closed period/i).length).toBeGreaterThan(0));
-    // The chip uses "Slurry · Open"/"Slurry · Closed period" (a middle
-    // dot) — distinct from the tracker's own "High priority" etc. labels.
+    const panel = await openConditionsPanel();
+    expect(calendarStatus(panel, "Chemical fertiliser")).toBe("Closed period");
+    // No Slurry row at all — never a fabricated open/closed status.
+    expect(calendarStatus(panel, "Slurry")).toBeUndefined();
     expect(screen.queryByText(/slurry ·/i)).toBeNull();
     // Only Fertiliser (real OK recommendation) contributes — Slurry has
     // no real Prompt at all here, so it adds to no band whatsoever.
@@ -1362,8 +1385,9 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
   it("Conditions lens shows the real spreading-calendar facts and an honest SMD/workability note, never a suitability verdict", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt()]);
     renderTodayRealMode();
-    await waitFor(() => expect(screen.getAllByText(/chemical fertiliser.*closed period/i).length).toBeGreaterThan(0));
+    await openConditionsPanel();
     fireEvent.click(screen.getByRole("button", { name: "Conditions" }));
+    expect(screen.getByText("Chemical fertiliser · Closed period")).toBeTruthy();
     expect(screen.getByText(/soil moisture deficit and ground workability aren't available yet/i)).toBeTruthy();
     expect(screen.queryByText(/^suitable$/i)).toBeNull();
   });
@@ -1469,5 +1493,54 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     expect(screen.getByTestId("map-hero-stub")).toBeTruthy();
     fireEvent.keyDown(panel, { key: "Escape" });
     expect(within(rail).queryByRole("region", { name: "Cattle groups" })).toBeNull();
+  });
+});
+
+describe("TodayPage — Farm Home visual refresh v1", () => {
+  it("replaces the large ambient strip with a compact control whose restriction count comes from the real calendar Prompts", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt(), slurryClosedPrompt()]);
+    renderTodayRealMode();
+    const trigger = await screen.findByRole("button", { name: /^conditions:/i });
+    await waitFor(() => expect(within(trigger).getByText("2 restrictions")).toBeTruthy());
+    // The old strip printed each status line on the map; with the
+    // disclosure closed (Current lens) none is shown any more.
+    expect(screen.queryByText("Chemical fertiliser · Closed period")).toBeNull();
+    expect(screen.queryByText("Slurry · Closed period")).toBeNull();
+    const panel = await openConditionsPanel();
+    expect(calendarStatus(panel, "Chemical fertiliser")).toBe("Closed period");
+    expect(calendarStatus(panel, "Slurry")).toBe("Closed period");
+  });
+
+  it("counts only real restrictions: one closed material and one open is '1 restriction'", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt(), slurryOpenPrompt()]);
+    renderTodayRealMode();
+    const trigger = await screen.findByRole("button", { name: /^conditions:/i });
+    await waitFor(() => expect(within(trigger).getByText("1 restriction")).toBeTruthy());
+  });
+
+  it("says the calendar is not assessed when no spreading-window Prompt exists, never '0 restrictions'", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([]);
+    renderTodayRealMode();
+    const trigger = await screen.findByRole("button", { name: /^conditions:/i });
+    await waitFor(() => expect(within(trigger).getByText("Calendar not assessed")).toBeTruthy());
+    expect(within(trigger).queryByText(/0 restrictions/i)).toBeNull();
+  });
+
+  it("closing the disclosure with Escape leaves the selected field and its drawer alone", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt()]);
+    renderTodayRealMode();
+    await screen.findByTestId("map-hero-stub");
+    act(() => capturedMapHeroProps!.onSelectField!("field-home"));
+    const panel = await openConditionsPanel();
+    fireEvent.keyDown(panel, { key: "Escape" });
+    expect(screen.queryByRole("group", { name: "Farm conditions" })).toBeNull();
+    expect(document.querySelector("[data-field-drawer]")!.getAttribute("data-open")).toBe("true");
+    expect(capturedMapHeroProps!.selectedFieldId).toBe("field-home");
+  });
+
+  it("marks the Farm screen as the edge-to-edge map workspace", async () => {
+    renderToday();
+    await screen.findByTestId("map-hero-stub");
+    expect(document.querySelector("[data-farm-workspace]")).toBeTruthy();
   });
 });

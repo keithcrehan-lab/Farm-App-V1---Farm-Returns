@@ -51,6 +51,10 @@
   --fr-v2-muted: #69716b;
   --fr-v2-paper: #f8faf8;
   --fr-v2-rule: rgba(24, 31, 26, 0.16);
+  /* Farm Home visual refresh v1 — structural navigation (deep forest
+     graphite) and warm stone for light surfaces beside the map. */
+  --fr-v2-shell: #131a16;
+  --fr-v2-stone: #f3f0e8;
 
   /* Domain colour: cobalt = conditions/N, harvest = nutrients/P,
      teal = grass/organic/slurry, plum = livestock/K, clay = soil/housing. */
@@ -123,6 +127,8 @@
   --color-fr-v2-muted: var(--fr-v2-muted);
   --color-fr-v2-paper: var(--fr-v2-paper);
   --color-fr-v2-rule: var(--fr-v2-rule);
+  --color-fr-v2-shell: var(--fr-v2-shell);
+  --color-fr-v2-stone: var(--fr-v2-stone);
   --color-fr-v2-cobalt: var(--fr-v2-cobalt);
   --color-fr-v2-cobalt-tint: var(--fr-v2-cobalt-tint);
   --color-fr-v2-harvest: var(--fr-v2-harvest);

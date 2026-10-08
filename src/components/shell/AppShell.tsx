@@ -17,13 +17,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
        * content cleanly, without the sidebar/bottom-nav/banner around it.
        * Nothing here changes on-screen behaviour. */}
       <DesktopSidebar />
-      <main className="min-w-0 flex-1 px-4 pb-20 pt-4 lg:px-10 lg:pb-10 lg:pt-8 print:p-0">
+      {/* Farm Home visual refresh v1 — a screen that marks itself
+       * `data-farm-workspace` (the Farm map) runs edge to edge on desktop:
+       * CSS-only, every other screen keeps its gutters and max width. */}
+      <main className="min-w-0 flex-1 px-4 pb-20 pt-4 lg:px-10 lg:pb-10 lg:pt-8 lg:has-[[data-farm-workspace]]:p-0 print:p-0">
         {/* Codex remediation Priority 5 — real database mutation failures
          * are surfaced here, once, for every screen (not per-form), since
          * every real-mode write already funnels through farm-store.tsx's
          * one `persistRemote`. */}
         <SyncStatusBanner />
-        <div className="mx-auto w-full min-w-0 max-w-6xl print:max-w-none">{children}</div>
+        <div className="mx-auto w-full min-w-0 max-w-6xl lg:has-[[data-farm-workspace]]:max-w-none print:max-w-none">{children}</div>
       </main>
       <MobileBottomNav />
     </div>

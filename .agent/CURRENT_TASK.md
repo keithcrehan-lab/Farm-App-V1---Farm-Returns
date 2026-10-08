@@ -1,256 +1,363 @@
-# Task: Harness v3 — autonomous low-usage execution
+# Task: Farm Home — visual refresh v1
 
-Task ID: harness-v3-autonomous-low-usage-execution-20261008
-Starting HEAD: ebe9b4bdab5f06d83c42a9073c45e5c0671c3fa0
+Task ID: farm-home-visual-refresh-v1-20261008
+Starting HEAD: b5389a975493860aade23202704a8387ef3fd818
 Verify command: `npm run typecheck && npm run build`
 
-# Harness v3 — autonomous low-usage execution
+# Farm Home Visual Refresh v1
 
-## Goal
+## Objective
 
-Restore the hands-off user experience of the original Farm Return harness while
-preserving the lower Codex usage introduced by audit-budget v2.
+Implement the approved visual refresh of the Farm landing screen.
 
-Normal operator experience must be:
+This is a PRESENTATION-ONLY task.
 
-    ./scripts/agent-start ... --run
+The existing Mapbox map, real field boundaries, field selection, lens logic,
+data sources, domain logic and navigation behaviour are already approved and
+must not be reimplemented.
 
-Then no human intervention unless there is a genuine substantive blocker.
+The map is the interface.
 
-This is a HARNESS-ONLY task.
-Do not modify Farm Return product/domain/UI behaviour.
+## Design intent
 
-## Preserve from v2
+The current screen works functionally but the surrounding shell feels too
+flat, green-and-white, and dashboard-like.
 
-Keep all existing v2 guarantees:
+The revised design should feel:
 
-- default audit tier:
-  - gpt-6.1-sol
-  - medium reasoning
-- strict audit tier:
-  - gpt-6-astra
-  - high reasoning
-- explicit AGENT_CODEX_MODEL / AGENT_CODEX_REASONING overrides
-- invalid audit config fails before a model call
-- maximum one primary Codex audit by default
-- maximum one automatic fix
-- maximum one focused final Codex audit
-- Medium/Low do not trigger remediation
-- quota exhaustion stops immediately and remains resumable
-- task base pinning
-- read-only independent Codex auditing
-- UNKNOWN/zero protections
-- no publishing/deploy/database actions
+- modern;
+- distinctive;
+- calm;
+- premium;
+- spatial;
+- information-rich without feeling crowded.
 
-Normal phase maximum:
-- 1 Codex call if primary passes
-- 2 Codex calls if one Critical/High remediation is required
+Reference direction:
 
-Do not increase that budget.
+Swiss information design × agricultural mapping × editorial typography ×
+precision instrumentation.
 
-## Problem to solve
+Use the existing approved Farm Spatial visual language, but improve the shell,
+proportions and supporting UI around the map.
 
-The v2 harness is too eager to return HUMAN_DECISION_REQUIRED for deterministic
-verification failures that can safely be diagnosed and recovered without AI.
+## Immutable behaviour
 
-Recent real example:
+DO NOT alter:
 
-- complete repository suite:
-  4,817 tests passed
-  1 tooling timeout test failed
-- failing test:
-  test_timeout_cleanup_needs_no_process_enumeration
-- isolated rerun passed
-- harness wrapper rerun passed
-- targeted product tests passed
-- typecheck/lint/build passed
+- MapHero Mapbox implementation;
+- persisted field polygons;
+- centroids;
+- selected-field behaviour;
+- map fit/fly-to logic;
+- field highlighting/dimming;
+- field labels/data semantics;
+- Current / Grass / Nutrients / Soil / Conditions logic;
+- real farm data;
+- nutrient/science calculations;
+- Today capability behaviour;
+- domain calculations;
+- routing behaviour.
 
-The human then had to perform several manual recovery steps.
+No new mock production data.
 
-The old harness was more user friendly because it handled the phase end-to-end.
+UNKNOWN must never become zero.
 
-## Required behaviour
+## 1. Map proportions
 
-### 1. Deterministic verification recovery
+The map must become the dominant visual canvas.
 
-When verification fails, do not immediately hand control to the human.
+Current problem:
+the map feels placed inside a large white application page rather than being
+the primary Farm workspace.
 
-First classify the failure mechanically.
+Change the shell so:
 
-For test failures:
+- map occupies substantially more of the available viewport;
+- unnecessary white gutters around the map are removed/reduced;
+- map visually owns the central workspace;
+- proportions feel intentional at normal desktop widths;
+- map is not stretched, cropped incorrectly or behaviourally altered;
+- map may use a restrained radius, but must not look like a generic SaaS card.
 
-A. Capture the exact failing test file(s) and test name(s).
+Do not recreate the map from a screenshot.
 
-B. Only attempt automatic flaky recovery when:
-- the failure set is small and bounded;
-- maximum 2 failing test files;
-- there is no crash, OOM, syntax error, compile error, assertion indicating a
-  known product correctness failure, or other clearly deterministic failure;
-- the failure is reproducible as an individual test target.
+Use the real MapHero.
 
-C. Retry each failing test target exactly ONCE in isolation.
+## 2. Left navigation
 
-D. If any isolated retry fails:
-- stop HUMAN_DECISION_REQUIRED;
-- preserve all work and diagnostics;
-- do not disguise the failure as flaky.
+Keep the canonical primary navigation:
 
-E. If all isolated retries pass:
-- record FLAKY_RECOVERED;
-- preserve the original failure and isolated rerun evidence;
-- continue with the remaining deterministic gates automatically.
+Farm
+What Matters
+Plan
+Market
+Finance
 
-Do not delete or hide the original failure.
+Keep More for secondary navigation.
 
-### 2. Continue skipped quality gates automatically
+Refine presentation:
 
-If the normal quality gate stopped after tests and therefore skipped:
-- typecheck
-- lint
-- build
+- navigation should visually recede behind the Farm workspace;
+- deep forest/graphite rather than bright green;
+- lower-contrast inactive items;
+- selected Farm state remains obvious without a large bright block;
+- fewer decorative boundaries;
+- restrained spacing and icons;
+- preserve existing navigation functionality.
 
-then after a valid FLAKY_RECOVERED test result, run those skipped gates.
+The sidebar must not compete with the map.
 
-Only continue if all of them pass.
+## 3. Remove current large conditions strip
 
-### 3. Build/fix checkpoint recovery
+Remove the current prominent horizontal strip containing approximately:
 
-If Claude reports BUILD_RESULT: DONE but verification initially failed because
-of a subsequently recovered deterministic flake:
+temperature
+station
+stale
+chemical fertiliser closed period
+slurry closed period
 
-- verify the working tree coherently;
-- create the normal local checkpoint commit;
-- update run state exactly as if normal verification had passed;
-- continue automatically to the primary audit.
+Do not remove the underlying information.
 
-The operator must not need to manually git add/commit.
+The current treatment gives secondary information too much visual priority.
 
-Apply the same behaviour after agent-fix.
+## 4. New compact conditions control
 
-### 4. No extra AI calls for recovery
+Replace the large strip with a compact top-right control over/adjacent to the
+map.
 
-All flaky recovery and verification retry logic must be deterministic shell /
-Python / test-runner logic.
+Default compact state should communicate approximately:
 
-Do not invoke Claude or Codex merely to diagnose a verification failure.
+12.9° · Athenry
+2 restrictions
+[conditions/settings icon]
 
-### 5. Codex flow
+Use the actual existing temperature/station/status data, not hard-coded values.
 
-Normal autonomous flow:
+Requirements:
 
-BUILD
-→ deterministic verification
-→ optional deterministic FLAKY_RECOVERED recovery
-→ PRIMARY AUDIT (Sol medium)
-→ if 0 C/H: COMPLETE
+- temperature + station are immediately visible;
+- stale/fresh state remains represented honestly;
+- regulatory status remains available;
+- compact control must not dominate the map;
+- controls must remain legible against aerial imagery;
+- use restrained depth/material treatment, not a giant black bar.
 
-If C/H:
-→ one Claude fix
-→ deterministic verification
-→ optional deterministic FLAKY_RECOVERED recovery
-→ one focused FINAL AUDIT (Sol medium)
-→ if 0 C/H: COMPLETE
-→ otherwise HUMAN_DECISION_REQUIRED
+"2 restrictions" means the UI derives the number from the real available
+restriction/status entries; do not hard-code 2.
 
-Never automatically run audit #3.
+If the data cannot support a count, use an honest alternative rather than
+inventing one.
 
-### 6. Quota behaviour
+## 5. Conditions popover / disclosure
 
-If Codex returns usage/quota exhausted:
+Interaction with the restrictions/status control should reveal the detailed
+statuses currently exposed in the old strip, such as:
 
-- stop immediately;
-- reason = QUOTA_EXHAUSTED;
-- preserve exact audit stage;
-- preserve useful Codex-provided reset text;
-- no automatic retry;
-- later rerunning ./scripts/agent-run resumes at that audit;
-- never rebuild or refix unnecessarily.
+- Chemical fertiliser — Closed period
+- Slurry — Closed period
+- weather/station freshness such as Stale
 
-### 7. Observability
+Use only real existing state.
 
-Final run report must show, where applicable:
+A lightweight popover/disclosure is preferred.
 
-Verification:
-- tests: PASS / FAIL / FLAKY_RECOVERED
-- isolated retries performed
-- typecheck
-- lint
-- build
+It should:
 
-Model calls:
-- build
-- primary
-- fix
-- final
-- total
+- appear near the compact control;
+- close predictably;
+- be keyboard accessible;
+- not obstruct large portions of the map;
+- preserve the distinction between regulatory status and weather freshness.
 
-Codex:
-- effective tier
-- model
-- reasoning
+Do not invent suitability recommendations.
 
-If flaky recovery occurred, final COMPLETE report must explicitly say so.
+## 6. Farm identity
 
-### 8. Safety constraints
+Retain:
 
-Automatic flaky recovery must be conservative.
+- Farm Return / current lens context;
+- KC identity;
+- mapped field count;
+- farm area;
+- greeting where currently supported.
 
-It must NOT convert a genuine failing assertion into PASS simply because another
-broad rerun happens to pass.
+Refine spacing/typographic hierarchy so it sits naturally on the map rather
+than feeling like dashboard copy.
 
-Prefer exact test-name/file reruns.
+Serif may remain for the major KC display moment.
 
-Maximum one isolated retry.
+Operational metadata remains sans-serif.
 
-If reliable extraction of the exact failing target is impossible:
-HUMAN_DECISION_REQUIRED.
+## 7. On the Farm rail
 
-No arbitrary repeated retries.
+Keep:
 
-### 9. Tests
+Cattle
+Sheep
+Sheds
 
-Add deterministic tests proving at minimum:
+and the current real data semantics.
 
-A. normal clean phase remains one-command autonomous;
-B. single test timeout/failure that passes exact isolated retry becomes
-   FLAKY_RECOVERED and proceeds;
-C. isolated retry failure stops for human;
-D. >2 failing test files stops for human;
-E. typecheck/lint/build continue after recovered test flake;
-F. build work is checkpointed automatically after recovered verification;
-G. fix work is checkpointed automatically after recovered verification;
-H. primary clean audit closes with one Codex audit;
-I. primary C/H + fix + clean final closes with two Codex audits;
-J. remaining final C/H stops without audit #3;
-K. quota exhaustion remains resumable;
-L. no recovery path invokes extra Claude/Codex calls.
+Improve the visual integration with the map:
 
-Use fake/stub Codex and Claude processes where required.
+- narrower and calmer;
+- less like a separate white admin sidebar;
+- softer boundary treatment;
+- use warm neutral/off-white rather than stark white where appropriate;
+- preserve legibility;
+- no shed markers on the map;
+- no fabricated livestock location;
+- provenance/estimated labels from Phase 06 must remain intact.
 
-Do NOT make live Codex calls while implementing or testing this harness task.
+The rail may collapse/recede if an existing safe interaction pattern supports
+it, but do not add complexity merely for decoration.
 
-### 10. Documentation
+## 8. Lens navigation
 
-Update harness docs/help comments so the intended operator workflow is clear:
+Keep:
 
-    ./scripts/agent-start ... --run
+Current
+Grass
+Nutrients
+Soil
+Conditions
 
-should normally be sufficient.
+Do not change the underlying behaviour.
 
-Document FLAKY_RECOVERED and the conservative retry policy.
+Improve presentation so it feels like a map mode switcher rather than a
+full-width generic tab component.
 
-## Completion report
+Target:
+
+- visually lighter;
+- compact;
+- clearly selected state;
+- lens-specific accent can remain subtle;
+- map remains visible and dominant.
+
+Do not sacrifice discoverability merely to make it small.
+
+## 9. Colour direction
+
+Move away from flat green + pure white.
+
+Preferred palette direction:
+
+- deep forest / graphite for structural navigation;
+- warm stone / parchment neutrals for light surfaces;
+- aerial imagery provides much of the visual richness;
+- green represents Farm Return rather than colouring every surface;
+- existing contextual colours remain:
+  - nutrients / ochre
+  - organic / teal
+  - soil / clay
+  - livestock / plum
+  - conditions / blue
+
+No gradient-heavy generic SaaS styling.
+
+No excessive glassmorphism.
+
+Depth must be restrained.
+
+## 10. Borders and geometry
+
+Apply:
+
+"Structure should be felt, not seen."
+
+Reduce unnecessary borders and separators.
+
+Use:
+
+- alignment;
+- spacing;
+- typography;
+- tonal surface changes;
+- restrained shadows where genuinely useful.
+
+A container must earn its border.
+
+Avoid cardification.
+
+## 11. Responsive behaviour
+
+Verify desktop and narrower layouts.
+
+No:
+
+- clipped conditions controls;
+- lens navigation overflow;
+- rail obscuring critical map controls;
+- accidental horizontal page scroll;
+- inaccessible actions.
+
+Map remains the dominant workspace at supported sizes.
+
+## 12. Accessibility
+
+Interactive compact conditions control and disclosure must support:
+
+- keyboard interaction;
+- visible focus;
+- useful accessible labels;
+- appropriate button semantics.
+
+Do not encode status using colour alone.
+
+## Testing
+
+Update/add targeted tests for:
+
+- compact conditions control renders from real existing status data;
+- old large strip is no longer present;
+- restriction/status disclosure works;
+- unknown/missing state is honest;
+- Farm object rail semantics remain intact;
+- lens selection still works;
+- selected field flow remains intact;
+- navigation behaviour remains intact.
+
+Run appropriate:
+
+- Farm Spatial shell tests;
+- Today route tests;
+- object rail tests;
+- affected component tests;
+- typecheck;
+- lint;
+- production build.
+
+Do not alter domain science merely to satisfy UI tests.
+
+## Visual acceptance
+
+The implementation should match this approved visual intent:
+
+- map-first;
+- greatly reduced white framing;
+- subdued navigation;
+- integrated farm rail;
+- compact top-right weather/conditions cluster;
+- no large central status strip;
+- premium, calm, modern spatial-product feel.
+
+Do not redesign the actual map.
+
+## Completion
 
 Return:
 
-- files changed;
-- exact autonomous flow;
-- deterministic recovery policy;
-- model-call budget;
-- tests run and results;
-- commit SHA if committed;
-- explicit confirmation that no live Codex call occurred;
-- any circumstances that still require human intervention.
+1. starting SHA;
+2. ending SHA;
+3. files changed;
+4. summary of visual changes;
+5. confirmation MapHero/domain behaviour was preserved;
+6. tests/typecheck/lint/build;
+7. Codex audit counts;
+8. any deferred visual issues;
+9. confirmation no push/deploy/database change occurred.
 
 ## Scope
 
@@ -264,6 +371,16 @@ As stated in the task brief above; nothing beyond it.
 - pushes/deployments;
 - secrets;
 - external research unless explicitly allowed.
+
+## Acceptance criteria
+
+- The outcome stated in the task brief is delivered.
+- The verify command passes.
+
+## Required tests
+
+- Targeted tests for the changed behaviour.
+- The verify command.
 
 ## STOP conditions
 

@@ -1,11 +1,12 @@
 {
   "schema_version": 1,
-  "task_id": "harness-v3-autonomous-low-usage-execution-20261008",
-  "title": "Harness v3 — autonomous low-usage execution",
-  "base_sha": "ebe9b4bdab5f06d83c42a9073c45e5c0671c3fa0",
+  "task_id": "farm-home-visual-refresh-v1-20261008",
+  "title": "Farm Home — visual refresh v1",
+  "base_sha": "b5389a975493860aade23202704a8387ef3fd818",
   "domains": [
     "ui",
-    "agent-harness"
+    "slurry",
+    "nutrients"
   ],
   "expected_changed_files": [],
   "contracts": [
@@ -23,6 +24,7 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
+    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

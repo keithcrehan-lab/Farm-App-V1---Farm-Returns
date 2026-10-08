@@ -21,8 +21,8 @@ function weather(overrides: Record<string, unknown> = {}) {
 }
 
 const bothClosed = farmConditionsSummary([
-  spreadingCalendarEntry({ id: "chemical", label: "Chemical fertiliser", openCount: 0, assessedCount: 3 }),
-  spreadingCalendarEntry({ id: "slurry", label: "Slurry", openCount: 0, assessedCount: 3 }),
+  spreadingCalendarEntry({ id: "chemical", label: "Chemical fertiliser", openCount: 0, prohibitedCount: 3, assessedCount: 3 }),
+  spreadingCalendarEntry({ id: "slurry", label: "Slurry", openCount: 0, prohibitedCount: 3, assessedCount: 3 }),
 ]);
 
 afterEach(() => {

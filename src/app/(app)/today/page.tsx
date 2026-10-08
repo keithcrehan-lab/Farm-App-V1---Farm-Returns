@@ -476,6 +476,8 @@ export default function TodayPage() {
   const slurrySpreadingPrompts = spreadingPrompts.filter((p) => p.inputsSnapshot?.material === "organic_fertiliser_other_than_FYM");
   const calendarOpenCount = chemicalSpreadingPrompts.filter((p) => p.basis.status === "OK").length;
   const slurryOpenCount = slurrySpreadingPrompts.filter((p) => p.basis.status === "OK").length;
+  const chemicalProhibitedCount = chemicalSpreadingPrompts.filter((p) => p.basis.status === "LEGAL_PROHIBITION").length;
+  const slurryProhibitedCount = slurrySpreadingPrompts.filter((p) => p.basis.status === "LEGAL_PROHIBITION").length;
   // Farm Home visual refresh v1 — one formatter for the calendar wording,
   // shared by the compact conditions control and every existing consumer
   // of the ambient status lines below.
@@ -483,15 +485,15 @@ export default function TodayPage() {
   const slurryAssessedCount = slurrySpreadingPrompts.length;
   const calendar = useMemo(() => {
     const chemical = mounted
-      ? spreadingCalendarEntry({ id: "chemical", label: "Chemical fertiliser", openCount: calendarOpenCount, assessedCount: chemicalAssessedCount })
+      ? spreadingCalendarEntry({ id: "chemical", label: "Chemical fertiliser", openCount: calendarOpenCount, prohibitedCount: chemicalProhibitedCount, assessedCount: chemicalAssessedCount })
       : undefined;
-    const slurry = mounted ? spreadingCalendarEntry({ id: "slurry", label: "Slurry", openCount: slurryOpenCount, assessedCount: slurryAssessedCount }) : undefined;
+    const slurry = mounted ? spreadingCalendarEntry({ id: "slurry", label: "Slurry", openCount: slurryOpenCount, prohibitedCount: slurryProhibitedCount, assessedCount: slurryAssessedCount }) : undefined;
     return {
       summary: farmConditionsSummary([chemical, slurry]),
       chemicalLine: spreadingCalendarStatusLine(chemical),
       slurryLine: spreadingCalendarStatusLine(slurry),
     };
-  }, [mounted, calendarOpenCount, chemicalAssessedCount, slurryOpenCount, slurryAssessedCount]);
+  }, [mounted, calendarOpenCount, chemicalProhibitedCount, chemicalAssessedCount, slurryOpenCount, slurryProhibitedCount, slurryAssessedCount]);
   const conditionsSummary = calendar.summary;
   const chemicalFertiliserAmbientStatus = calendar.chemicalLine;
   // Today Opportunity Priority Engine V1 — the same real, already-computed

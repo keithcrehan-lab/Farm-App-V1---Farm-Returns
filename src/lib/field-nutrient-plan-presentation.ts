@@ -256,11 +256,22 @@ function legalGate(id: LegalGateView["id"], label: string, outcome: EngineOutcom
   }
 }
 
-function legalGatesView(plan: NutrientPlan): LegalGateView[] {
+// The engine compares a local override against `distanceM ?? 0`, so an
+// unrecorded distance yields a consequence quoting "0m". Keep the warning,
+// but never present that fallback as a measured distance.
+function localBufferGate(plan: NutrientPlan, field: Field): LegalGateView {
+  const gate = legalGate("local_buffer", "Local water buffer", plan.localBufferOverrideStatus, "National baseline applies");
+  if (gate.state !== "prohibited" || field.waterBufferContext?.value.distanceM !== undefined) return gate;
+  const overrideM = field.waterBufferContext?.value.localOverrideDistanceM;
+  const rule = overrideM !== undefined ? `A local authority buffer of ${overrideM}m applies` : "A local authority buffer applies";
+  return { ...gate, text: `Prohibited — ${rule}; the actual distance to water is not recorded` };
+}
+
+function legalGatesView(plan: NutrientPlan, field: Field): LegalGateView[] {
   return [
     legalGate("commonage", "Commonage", plan.commonageFertiliserGate, "Not commonage"),
     legalGate("less", "LESS spreading method", plan.lessMethodCompliance, "Compliant"),
-    legalGate("local_buffer", "Local water buffer", plan.localBufferOverrideStatus, "National baseline applies"),
+    localBufferGate(plan, field),
     legalGate("national_buffer", "National water buffer distance", plan.nationalBufferDistanceStatus, "Boundary met"),
   ];
 }
@@ -368,7 +379,7 @@ export function fieldNutrientPlanView(result: FieldNutrientPlanResult, field: Fi
     ...(provisional ? { provisional } : {}),
     organic: organicView(plan, planned),
     solution,
-    legalGates: legalGatesView(plan),
+    legalGates: legalGatesView(plan, field),
     evidence: evidenceView(plan, field, planned),
   };
 }

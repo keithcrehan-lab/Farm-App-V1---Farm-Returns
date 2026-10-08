@@ -147,4 +147,31 @@ describe("fieldNutrientPlanView — canonical pass-through, never recomputed", (
     expect(fieldNutrientPlanView(build(tillage), tillage)).toEqual({ status: "unavailable", message: expect.stringMatching(/tillage/) });
     expect(fieldNutrientPlanView(build(field(), [SPLASH], { livestockGroups: [] }), field())).toEqual({ status: "unavailable", message: expect.stringMatching(/livestock group/) });
   });
+
+  it("keeps a local buffer prohibition but never shows the engine's 0m fallback for an unrecorded distance", () => {
+    const f = field({ waterBufferContext: tracked({ localOverrideStatus: "authoritative_rule" as const, localOverrideDistanceM: 10 }, "farmer_adjusted", "Farmer") });
+    const result = build(f);
+    const prohibited: FieldNutrientPlanResult = {
+      ...result,
+      plan: {
+        ...result.plan,
+        localBufferOverrideStatus: {
+          status: "LEGAL_PROHIBITION",
+          reasonCode: "LOCAL_BUFFER_OVERRIDE_EXCEEDS_ACTUAL_DISTANCE",
+          consequence: "A local authority buffer of 10m applies and exceeds the actual distance of 0m.",
+        },
+      } as NutrientPlan,
+    };
+    const view = fieldNutrientPlanView(prohibited, f);
+    if (view.status !== "available") throw new Error("expected an available plan");
+    const gate = view.legalGates.find((g) => g.id === "local_buffer");
+    expect(gate?.state).toBe("prohibited");
+    expect(gate?.text).not.toMatch(/\b0m\b/);
+    expect(gate?.text).toMatch(/10m applies; the actual distance to water is not recorded/);
+
+    const measured = field({ waterBufferContext: tracked({ localOverrideStatus: "authoritative_rule" as const, localOverrideDistanceM: 10, distanceM: 4 }, "farmer_adjusted", "Farmer") });
+    const measuredView = fieldNutrientPlanView(build(measured), measured);
+    if (measuredView.status !== "available") throw new Error("expected an available plan");
+    expect(measuredView.legalGates.find((g) => g.id === "local_buffer")?.text).toMatch(/actual distance of 4m/);
+  });
 });

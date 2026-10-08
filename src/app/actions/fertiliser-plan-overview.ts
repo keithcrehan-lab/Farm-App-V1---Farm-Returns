@@ -50,6 +50,8 @@ import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
 import { FERTILISER_RECOMMENDATION_PROMPT_KIND, type FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
 import {
   aggregateFarmNutrientRequirementKg,
+  type FarmFertiliserAggregation,
+  type FarmFertiliserQuoteBasket,
   type FarmInputDemand,
   type FarmFertiliserPurchaseRequirementLine,
   type FarmLimeRequirement,
@@ -102,6 +104,11 @@ export interface FertiliserPlanOverview {
   limeStockBand: FertiliserStockBand;
   slurry: FarmSlurryStorageOverview;
   fieldBreakdown: FertiliserPlanFieldBreakdownRow[];
+  /** Farm Spatial V2 Phase 5 — `getFarmFertiliserDemandAction`'s canonical
+   * whole-farm aggregation and quote basket, passed through verbatim (the
+   * same single read as `demand` above; never recomputed). */
+  aggregation: FarmFertiliserAggregation;
+  basket: FarmFertiliserQuoteBasket;
 }
 
 function fieldRecommendationStatus(
@@ -252,6 +259,8 @@ export async function getFertiliserPlanOverviewAction(): Promise<FertiliserPlanO
     limeStockBand,
     slurry,
     fieldBreakdown,
+    aggregation: demandResult.aggregation,
+    basket: demandResult.basket,
   };
 }
 

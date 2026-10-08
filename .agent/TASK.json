@@ -1,11 +1,10 @@
 {
   "schema_version": 1,
-  "task_id": "farm-spatial-v2-real-fertiliser-field-integration-20261007",
-  "title": "Farm Spatial V2 — real fertiliser field integration",
-  "base_sha": "869d21724aa4e1bcbf0889586cba48fd6782b1de",
+  "task_id": "farm-spatial-v2-whole-farm-nutrient-plan-and-market-handoff-20261008",
+  "title": "Farm Spatial V2 — whole-farm nutrient plan and Market handoff",
+  "base_sha": "d265e72c0eab622c35ee2cd13452913987cf1ec9",
   "domains": [
     "ui",
-    "slurry",
     "nutrients"
   ],
   "expected_changed_files": [],

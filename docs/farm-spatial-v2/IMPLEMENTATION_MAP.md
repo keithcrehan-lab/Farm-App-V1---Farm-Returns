@@ -436,3 +436,41 @@ Presentation only. Information architecture, routes, producers and §11 placemen
   resolves to none.
 - **Not changed:** any fertiliser formula, constant, frozen contract, schema or migration. The contributing
   store name and slurry type (§6.3) are not shown yet.
+
+## 15. Phase 5 whole-farm nutrient plan and Market handoff (task `farm-spatial-v2-whole-farm-nutrient-plan-and-market-handoff-20261008`)
+
+- **Source:** `getFertiliserPlanOverviewAction` now also returns `getFarmFertiliserDemandAction`'s `aggregation`
+  (`aggregateFarmFertiliserPurchasing`) and `basket` (`buildFarmFertiliserQuoteBasket`), passed through verbatim from
+  the read it already made. Nothing is recomputed.
+- **Value trace** (`src/lib/whole-farm-nutrient-plan-presentation.ts`, selection only, never mutates):
+  | Displayed | Canonical source |
+  |---|---|
+  | Primary quantity (large) and supporting product lines | `aggregation.products[].displayTonnes` / `totalKg`, largest `totalKg` first |
+  | Status and whole-farm vs subtotal wording | `basketStatusPresentation(aggregation.status, …)`; INCOMPLETE is never presented as whole-farm |
+  | Farm summary (fields included, N/P/K nutrient kg, disclosures) | unchanged overview fields, now ruled off beside the composition |
+  | Field row requirement state | `fieldBreakdown[].status` (the per-field recompute the overview already runs) |
+  | Field row purchasing state and product kg | `aggregation.fields[].purchaseClass`, `products[].contributions[].quantityKg`; reason from `farmFieldGroups` |
+  | Purchase plan requirement | `aggregation.products` (tonnes, product kg, field count) |
+  | Still to buy after recorded applications | `purchaseRequirementTonnes[].remainingTotalTonnes`, gated on `remainingTotalKg` (`formatRemainingTonnes`) |
+  | Market quote | `createFertiliserQuoteRequestDraft(basket)` → existing `FertiliserQuoteRequestFlow` |
+- **Composition:** one paper plane with a status-coloured rule; the primary product quantity is large display type, and
+  the other products sit under hairline rules. The farm summary is a ruled column on the right on desktop and below on
+  mobile. The old two-card KPI grid was removed and its content kept. Field rows, the purchase table and still-to-buy
+  are ruled typographic rows, not cards. The Plan plane is a forest rule on a faint forest wash, and the Market plane is a
+  cobalt rule on `cobalt-tint`.
+- **Plan handoff, missing persistence contract:** Farm Return persists a fertiliser plan only per field (an accepted
+  Decision from "Plan this application" on `/nutrients?field=<id>`). There is no whole-farm plan or Plan-job record
+  (`/plan` documents that `jobs` has no date/window column). The Plan plane is labelled **Not saved**, says nothing on the
+  page is saved, and links each contributing field's row to its planner ("Plan application"). A whole-farm Plan needs a
+  new persistence contract (a plan/job record linking the canonical basket version to field Decisions) and a separately
+  authorised migration. None was created (STOP condition).
+- **Market handoff:** the request copies basket lines. `canonicalQuantityKg`/`canonicalDisplayTonnes` are never edited,
+  and `requestedTonnes` is the farmer's commercial figure. The request is held in component state only, so nothing
+  flows back to the aggregation, basket or page (tested). The existing actions row ("Request a quote" managed pilot,
+  "Review quote requests") is unchanged.
+- **Links:** field name → `/nutrients?field=<id>`, "Field plan" → `/today/field/<id>` (Phase 4), "Plan application" (INCLUDED
+  fields only) → `/nutrients?field=<id>`, "Open Plan" → `/plan`, "All quote requests" → `/quotes`.
+- **Not changed:** any fertiliser formula, constant, frozen contract signature, schema or migration. The slurry storage and
+  fertiliser stock sections are unchanged and now sit below the handoffs. Rendered mobile/desktop visual comparison was not
+  performed in this build session.
+

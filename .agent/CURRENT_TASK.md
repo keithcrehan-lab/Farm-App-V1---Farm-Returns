@@ -1,57 +1,47 @@
-# Task: Farm Spatial V2 — real fertiliser field integration
+# Task: Farm Spatial V2 — whole-farm nutrient plan and Market handoff
 
-Task ID: farm-spatial-v2-real-fertiliser-field-integration-20261007
-Starting HEAD: 869d21724aa4e1bcbf0889586cba48fd6782b1de
+Task ID: farm-spatial-v2-whole-farm-nutrient-plan-and-market-handoff-20261008
+Starting HEAD: d265e72c0eab622c35ee2cd13452913987cf1ec9
 Verify command: `npm run typecheck && npm run build`
 
-# Phase 4 — Real fertiliser vertical: field integration
+# Phase 5 — Whole-farm nutrient planner, Plan and Market handoff
 
 ## Objective
 
-Connect the approved field nutrient experience to the already-frozen canonical Fertiliser Vertical. This phase is a presentation/integration task, not a science task.
-
-## Non-negotiable rule
-
-**No nutrient requirement, slurry contribution, remaining requirement, product rate or quantity formula may be recreated in React/UI code.** Consume existing canonical domain/server-action outputs.
+Complete the first reference engine flow from physical Farm state through whole-farm fertiliser requirement into operational Plan and commercial Market handoff.
 
 ## Scope
 
-For a selected field, render the approved sequence:
+- Whole-farm nutrient/input planner using the existing canonical farm fertiliser aggregation.
+- Approved typography-led/asymmetrical outstanding quantity composition (large primary quantity; subordinate supporting values; no KPI tile grid).
+- Field rows showing real contribution/requirement states without recomputation.
+- Fertiliser purchase/application plan consuming canonical product quantities.
+- Add-to-Plan handoff using the safest existing plan/job architecture available; do not invent persistence if the app does not yet have a canonical one. If only a presentation handoff is currently possible, label it honestly and document the missing persistence contract.
+- Market handoff using the existing quote basket/request vertical. Scientific requirement and commercial supplier quote remain separate.
+- Preserve requested vs canonical quantities as separate concepts where the existing vertical does.
 
-1. total nutrient requirement;
-2. organic/slurry contribution;
-3. remaining requirement;
-4. product solution where the frozen vertical has a supported solution;
-5. evidence/provenance/unknown state.
+## Design
 
-Use the approved dense N/P/K composition and domain colours rather than metric cards.
-
-The field drawer should lead naturally into a field nutrient plan while preserving an obvious route back to the spatial Farm context.
-
-All provisional/incomplete/unknown states from the frozen vertical must remain visible. Unknown is never zero.
-
-## Required audit
-
-Trace each displayed value back to its canonical export/action/type in code and add/update tests proving the UI adapter does not recompute it.
+Use colour planes, rules and typography rather than card stacks. Market may use cobalt/light-blue domain surfaces. Plan uses restrained forest/neutral confirmation treatment.
 
 ## Out of scope
 
-- No change to fertiliser domain formulas or constants.
-- No new product-science logic.
-- No database migrations.
-- No price API work beyond consuming an existing approved placeholder/benchmark path.
+- No new procurement backend.
+- No supplier API integration.
+- No new pricing science.
+- No migrations unless an existing canonical persistence path explicitly requires one; if so STOP for separate authority.
 
 ## Acceptance
 
-- Real engine output reaches the new UI end to end for supported fields.
-- Unsupported/incomplete cases stay honest.
-- Existing fertiliser vertical tests continue to pass.
-- Presentation does not mutate canonical quantities.
+- Field → whole farm → fertiliser plan → Market works with real frozen vertical output.
+- Quote-ready quantities reconcile with canonical aggregation and existing end-to-end tests.
+- Plan does not silently claim persistence that does not exist.
+- Market cannot alter the scientific requirement.
 - Tests/typecheck/build pass.
 
 ## STOP
 
-Any need to modify frozen science/economic contracts is a STOP and requires a separate authorised task.
+STOP if completing Plan requires a new database contract or migration. Do not create one in this campaign.
 
 ## Required tests
 

@@ -77,6 +77,14 @@ export function formatDisplayTonnes(tonnes: number): string {
   return `${formatNumber(tonnes, 2)} t`;
 }
 
+/** "Still to buy" tonnes: a genuinely positive remainder that rounds to
+ * 0.00 t is shown as "< 0.01 t", never as an actionable zero. Callers gate
+ * inclusion on the exact `remainingTotalKg`, never on the rounded tonnes. */
+export function formatRemainingTonnes(remainingTotalTonnes: number, remainingTotalKg: number): string {
+  if (remainingTotalKg > 0 && remainingTotalTonnes === 0) return "< 0.01 t";
+  return `${formatNumber(remainingTotalTonnes, 2)} t`;
+}
+
 export function formatProductKg(kg: number): string {
   return `${formatNumber(kg, 1)} kg`;
 }

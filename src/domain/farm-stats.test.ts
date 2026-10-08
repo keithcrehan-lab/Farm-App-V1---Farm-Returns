@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateActiveFarmAreaHa, calculateFarmCoverageStats, calculateFarmObjectRailCounts, calculateFarmSetupProgress, calculateFarmSlurryAvailableM3 } from "./farm-stats";
+import { calculateActiveFarmAreaHa, calculateFarmCoverageStats, calculateFarmObjectRailCounts, calculateFarmSetupProgress, calculateFarmSlurryAvailableM3, calculateShedOccupancy } from "./farm-stats";
 import { tracked } from "./types";
 import type { Field, Housing, LivestockGroup } from "./types";
 
@@ -237,5 +237,25 @@ describe("calculateFarmObjectRailCounts", () => {
 
   it("reports zero only for genuinely empty persisted lists", () => {
     expect(calculateFarmObjectRailCounts(calculateFarmSetupProgress([], [], []))).toEqual({ cattleHeadCount: 0, cattleGroupCount: 0, shedCount: 0 });
+  });
+});
+
+describe("calculateShedOccupancy", () => {
+  it("sums only the groups the shed actually links", () => {
+    const groups = [makeLivestockGroup("a", 12), makeLivestockGroup("b", 8), makeLivestockGroup("c", 40)];
+    expect(calculateShedOccupancy(makeHousing({ linkedGroupIds: ["a", "b"] }), groups)).toEqual({ linkedGroupCount: 2, headCount: 20 });
+  });
+
+  it("ignores a linked id with no matching group rather than counting it", () => {
+    expect(calculateShedOccupancy(makeHousing({ linkedGroupIds: ["gone", "a"] }), [makeLivestockGroup("a", 5)])).toEqual({ linkedGroupCount: 1, headCount: 5 });
+  });
+
+  it("reports no linked group as zero groups, for the UI to state honestly", () => {
+    expect(calculateShedOccupancy(makeHousing(), [makeLivestockGroup("a", 5)])).toEqual({ linkedGroupCount: 0, headCount: 0 });
+  });
+
+  it("never turns an unavailable head count into a number", () => {
+    const unknown = makeLivestockGroup("a", 0, { count: tracked(0, "unavailable", "Not recorded") });
+    expect(calculateShedOccupancy(makeHousing({ linkedGroupIds: ["a", "b"] }), [unknown, makeLivestockGroup("b", 9)])).toEqual({ linkedGroupCount: 2, headCount: null });
   });
 });

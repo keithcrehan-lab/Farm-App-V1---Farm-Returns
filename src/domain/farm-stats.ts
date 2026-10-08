@@ -143,3 +143,30 @@ export function calculateFarmObjectRailCounts(
     shedCount: progress.housingCount,
   };
 }
+
+/**
+ * Farm Spatial V2 Phase 6 — one shed's real occupancy for the object rail's
+ * Sheds inspection (`IMPLEMENTATION_MAP.md` §8, "NEW PURE HELPER REQUIRED").
+ * Occupancy is the persisted `Housing.linkedGroupIds` resolved against the
+ * farm's groups (the same link `/housing`'s assigned-groups list reads);
+ * an id with no matching group is ignored, never counted. `headCount` is
+ * `null` when any linked group's head count is explicitly `"unavailable"`
+ * (UNKNOWN is never 0); with no linked group it is 0 groups / 0 head,
+ * which the UI states as "No groups assigned", not as a measurement.
+ * Head capacity is not modelled (`storageCapacityM3` is slurry storage).
+ */
+export interface ShedOccupancy {
+  linkedGroupCount: number;
+  headCount: number | null;
+}
+
+export function calculateShedOccupancy(
+  housing: Pick<Housing, "linkedGroupIds">,
+  livestockGroups: readonly Pick<LivestockGroup, "id" | "count">[],
+): ShedOccupancy {
+  const linked = livestockGroups.filter((g) => housing.linkedGroupIds.includes(g.id));
+  const headCount = linked.some((g) => g.count.status === "unavailable")
+    ? null
+    : linked.reduce((sum, g) => sum + g.count.value, 0);
+  return { linkedGroupCount: linked.length, headCount };
+}

@@ -5,6 +5,7 @@ import { FarmLensContext } from "./FarmLensContext";
 import { FarmObjectRail } from "./FarmObjectRail";
 import { FARM_LENSES, farmLensById } from "@/lib/farm-spatial-lenses";
 import { primaryNavItems, moreNavItems } from "@/components/shell/nav-items";
+import { tracked, type Housing, type LivestockGroup } from "@/domain/types";
 
 afterEach(cleanup);
 
@@ -75,27 +76,108 @@ describe("FarmLensContext", () => {
 });
 
 describe("FarmObjectRail", () => {
-  it("shows real cattle and shed counts with links, and Sheep as an unsupported shell with no count", () => {
-    render(<FarmObjectRail counts={{ cattleHeadCount: 35, cattleGroupCount: 2, shedCount: 1 }} />);
-    const rail = screen.getByRole("navigation", { name: "Farm objects" });
-    const cattle = within(rail).getByText("Cattle").closest("a")!;
-    expect(cattle.getAttribute("href")).toBe("/livestock");
+  const groups: LivestockGroup[] = [
+    { id: "g-wean", farmId: "f", category: "weanling", label: "Weanlings", count: tracked(15, "verified", "Farmer"), system: "housed", value: tracked(0, "estimated", "Farm Return assumption") },
+    { id: "g-cows", farmId: "f", category: "suckler_cow", label: "Cows", count: tracked(20, "estimated", "Farm Return assumption"), system: "grazing", value: tracked(0, "estimated", "Farm Return assumption") },
+  ];
+  // Only the fields the rail reads; slurry storage is not part of it.
+  const sheds = [
+    { id: "h-1", shedName: "Main shed", shedType: "slatted", linkedGroupIds: ["g-wean"] },
+    { id: "h-2", shedName: "Old shed", shedType: "straw_bedded", linkedGroupIds: [] },
+  ] as unknown as Housing[];
+
+  function renderRail(counts = { cattleHeadCount: 35, cattleGroupCount: 2, shedCount: 2 }, g = groups, h = sheds) {
+    render(<FarmObjectRail counts={counts} livestockGroups={g} housing={h} />);
+    return screen.getByRole("navigation", { name: "Farm objects" });
+  }
+
+  it("shows real cattle and shed counts as selectable objects, and Sheep as an unsupported shell with no count", () => {
+    const rail = renderRail();
+    const cattle = within(rail).getByRole("button", { name: /cattle/i });
+    expect(cattle.getAttribute("aria-expanded")).toBe("false");
     expect(within(cattle).getByText("35")).toBeTruthy();
     expect(within(cattle).getByText("2 groups")).toBeTruthy();
-    const sheds = within(rail).getByText("Sheds").closest("a")!;
-    expect(sheds.getAttribute("href")).toBe("/housing");
-    expect(within(sheds).getByText("1")).toBeTruthy();
-    const sheep = within(rail).getByText("Sheep").parentElement!;
-    expect(sheep.tagName).not.toBe("A");
-    expect(sheep.getAttribute("aria-disabled")).toBe("true");
+    const shedsButton = within(rail).getByRole("button", { name: /sheds/i });
+    expect(within(shedsButton).getByText("2")).toBeTruthy();
+    const sheep = within(rail).getByRole("button", { name: /sheep/i });
     expect(within(sheep).getByText("Not yet supported")).toBeTruthy();
     expect(within(sheep).queryByText(/^\d+$/)).toBeNull();
   });
 
   it("never shows a fabricated 0 when nothing is recorded", () => {
-    render(<FarmObjectRail counts={{ cattleHeadCount: 0, cattleGroupCount: 0, shedCount: 0 }} />);
+    renderRail({ cattleHeadCount: 0, cattleGroupCount: 0, shedCount: 0 }, [], []);
     expect(screen.getAllByText("None recorded")).toHaveLength(2);
     expect(screen.queryByText("0")).toBeNull();
+  });
+
+  it("Cattle lists real groups with provenance and honest locations, never a field", () => {
+    const rail = renderRail();
+    fireEvent.click(within(rail).getByRole("button", { name: /cattle/i }));
+    const panel = within(rail).getByRole("region", { name: "Cattle groups" });
+    const wean = within(panel).getByRole("link", { name: /weanlings/i });
+    expect(wean.getAttribute("href")).toBe("/livestock/g-wean");
+    expect(within(wean).getByText("15 head")).toBeTruthy();
+    expect(within(wean).getByText("Housed · Main shed")).toBeTruthy();
+    const cows = within(panel).getByRole("link", { name: /cows/i });
+    expect(within(cows).getByText("Estimated")).toBeTruthy();
+    expect(within(cows).getByText("Grazing · field not recorded")).toBeTruthy();
+    expect(within(panel).getByText(/moving groups between fields aren't available yet/i)).toBeTruthy();
+    expect(within(panel).getByRole("link", { name: /livestock/i }).getAttribute("href")).toBe("/livestock");
+  });
+
+  it("describes the planned individual animal detail without any animal record", () => {
+    const rail = renderRail();
+    fireEvent.click(within(rail).getByRole("button", { name: /cattle/i }));
+    const ia = rail.querySelector("[data-individual-animal-ia]") as HTMLElement;
+    for (const label of ["Tag", "Age", "Weight", "Target weight", "Group · location"]) expect(within(ia).getByText(label)).toBeTruthy();
+    expect(within(ia).getByText("Not yet supported")).toBeTruthy();
+    expect(within(ia).queryByText(/\d/)).toBeNull();
+  });
+
+  it("Sheds lists real sheds with canonical occupancy and states head capacity is not recorded", () => {
+    const rail = renderRail();
+    fireEvent.click(within(rail).getByRole("button", { name: /sheds/i }));
+    const panel = within(rail).getByRole("region", { name: "Sheds" });
+    expect(within(panel).getByText("Main shed")).toBeTruthy();
+    expect(within(panel).getByText("15 head · 1 group")).toBeTruthy();
+    expect(within(panel).getByText("Straw bedded")).toBeTruthy();
+    expect(within(panel).getByText("No groups assigned")).toBeTruthy();
+    expect(within(panel).getByText(/head capacity and spaces free aren't recorded yet/i)).toBeTruthy();
+    expect(within(panel).queryByText(/spaces free$/)).toBeNull();
+  });
+
+  it("Sheep opens an honest shell with no count and no destination", () => {
+    const rail = renderRail();
+    fireEvent.click(within(rail).getByRole("button", { name: /sheep/i }));
+    const panel = within(rail).getByRole("region", { name: "Sheep" });
+    expect(within(panel).getByText(/sheep groups aren't supported yet/i)).toBeTruthy();
+    expect(within(panel).queryByRole("link")).toBeNull();
+    expect(within(panel).queryByText(/\d/)).toBeNull();
+  });
+
+  it("one object at a time: selecting again, the close button or Escape closes it", () => {
+    const rail = renderRail();
+    const cattle = within(rail).getByRole("button", { name: /cattle/i });
+    fireEvent.click(cattle);
+    fireEvent.click(within(rail).getByRole("button", { name: /sheds/i }));
+    expect(within(rail).queryByRole("region", { name: "Cattle groups" })).toBeNull();
+    expect(cattle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(within(rail).getByRole("button", { name: "Close Sheds" }));
+    expect(within(rail).queryByRole("region")).toBeNull();
+    fireEvent.click(cattle);
+    fireEvent.keyDown(cattle, { key: "Escape" });
+    expect(within(rail).queryByRole("region")).toBeNull();
+    fireEvent.click(cattle);
+    fireEvent.click(cattle);
+    expect(within(rail).queryByRole("region")).toBeNull();
+  });
+
+  it("collapses its motion under reduced motion and uses no rounded cards", () => {
+    const rail = renderRail();
+    fireEvent.click(within(rail).getByRole("button", { name: /cattle/i }));
+    const panel = within(rail).getByRole("region", { name: "Cattle groups" });
+    expect(panel.className).toContain("motion-reduce:transition-none");
+    expect(panel.querySelectorAll("[class*='rounded-[1'], [class*='rounded-2xl'], [class*='rounded-xl']")).toHaveLength(0);
   });
 });
 

@@ -1454,4 +1454,20 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     expect(within(rail).getByText("Sheds")).toBeTruthy();
     expect(within(rail).getByText("Not yet supported")).toBeTruthy();
   });
+
+  it("Phase 6: selecting Cattle inspects the store's real groups in place, without leaving the map", async () => {
+    renderToday();
+    const rail = await screen.findByRole("navigation", { name: "Farm objects" });
+    const cattle = within(rail).getByRole("button", { name: /cattle/i });
+    fireEvent.click(cattle);
+    expect(cattle.getAttribute("aria-expanded")).toBe("true");
+    const panel = within(rail).getByRole("region", { name: "Cattle groups" });
+    const groupLinks = within(panel)
+      .getAllByRole("link")
+      .filter((link) => link.getAttribute("href")!.startsWith("/livestock/"));
+    expect(groupLinks.length).toBeGreaterThan(0);
+    expect(screen.getByTestId("map-hero-stub")).toBeTruthy();
+    fireEvent.keyDown(panel, { key: "Escape" });
+    expect(within(rail).queryByRole("region", { name: "Cattle groups" })).toBeNull();
+  });
 });

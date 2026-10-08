@@ -235,7 +235,7 @@ labelling (b), Phase 4 must confirm from `fertiliser-recommendation.ts` whether
 | Sheep count / list | `LivestockCategory` has no sheep category | PLACEHOLDER / NOT IMPLEMENTED: a "Sheep not yet supported" capability shell, no count |
 | Sheds count | `useHousingList().length` / `calculateFarmSetupProgress(...).housingCount` | REAL |
 | Shed name, type | `Housing.shedName`, `shedType` | REAL |
-| Shed occupancy (head) | `Housing.linkedGroupIds` → linked groups' `count.value` | NEW PURE HELPER REQUIRED (`farm-stats.ts`) |
+| Shed occupancy (head) | `Housing.linkedGroupIds` → linked groups' `count.value` via `calculateShedOccupancy` (`farm-stats.ts`, Phase 6; `null` head when a linked count is unavailable) | REAL |
 | Shed animal capacity / "spaces free" | No head-capacity column (`storageCapacityM3` is slurry storage) | PLACEHOLDER / NOT IMPLEMENTED |
 | Shed slurry storage | `buildSlurryTankView` / `buildFarmSlurryStorageOverview`; `storageFillStatus` / `storageFillRecordedAt` provenance | REAL |
 | Individual animals (tag, age, weight, target weight) | `IndividualAnimal` + `WeightObservation` exist (`listIndividualAnimalsForFarm`, `listWeightObservationsForFarm` in `src/lib/farm-data/individual-animals.ts`; `IndividualAnimalsCard` on `/livestock`; group detail `/livestock/[groupId]`): tag, DOB, sex, breed, weight history. **Target weight** has no individual-level field. `FutureIndividualAnimalLifecycleFields` is explicitly not persisted. | Tag, DOB and weight: REAL (link to `/livestock`). Target weight and lifecycle: PLACEHOLDER / NOT IMPLEMENTED. |
@@ -474,3 +474,25 @@ Presentation only. Information architecture, routes, producers and §11 placemen
   fertiliser stock sections are unchanged and now sit below the handoffs. Rendered mobile/desktop visual comparison was not
   performed in this build session.
 
+
+## 16. Phase 6 capability placeholders and final QA (task `farm-spatial-v2-polish-placeholders-and-final-qa-20261008`)
+
+- **Object before form:** each `FarmObjectRail` object is a button (`aria-expanded`) that opens one inspection panel at a
+  time. Re-selecting it, the close button or Escape closes the panel. It is a disclosure, not a modal, and the map stays put.
+  Desktop opens the panel over the map's right edge beside the 136px rail. Mobile opens it under the three-column band.
+  The rail counts are unchanged (`calculateFarmObjectRailCounts`).
+- **Value trace** (`src/lib/farm-spatial-object-rail.ts`, presentation only):
+  | Displayed | Canonical source |
+  |---|---|
+  | Cattle group label, category, head | `LivestockGroup.label`, `livestockCategoryLabel(category)`, `count.value` (an `"unavailable"` count reads "Unknown"; a non-verified count carries "Estimated"/"Farmer entered") |
+  | Cattle group location | housed: the shed whose `linkedGroupIds` holds the group, else `housingId`, else "shed not recorded"; grazing: "field not recorded" (§8: no field location exists) |
+  | Shed name, type, occupancy | `Housing.shedName`, `shedType`, `calculateShedOccupancy` (no linked group reads "No groups assigned") |
+  | Shed head capacity / spaces free | not shown: honest note (§8 PLACEHOLDER) |
+  | Sheep | honest unsupported shell, no count, no destination |
+  | Individual animal detail | information architecture only (`INDIVIDUAL_ANIMAL_FIELDS`): tag, age and weight live on `/livestock`; target weight and location are "Not yet supported". No animal record is read or shown. |
+- **Links:** each group → `/livestock/<id>`, "Livestock" → `/livestock`, "Housing" → `/housing`.
+- **Motion and access:** a 160ms fade/rise via `@starting-style`, removed under reduced motion; the selected row lifts to white
+  and its domain rule lengthens; `focus-visible` outlines on the rail, panel rows and close control.
+- **Not changed:** any domain formula, frozen signature (`calculateShedOccupancy` is additive), schema or migration. Livestock moves
+  (field or shed reassignment) remain PLACEHOLDER. The rendered 1440×900 / 390×844 inspection and the Playwright visual suite were
+  not run in this build session.

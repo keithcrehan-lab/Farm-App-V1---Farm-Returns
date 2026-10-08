@@ -758,7 +758,7 @@ export default function TodayPage() {
           </MapHero>
         </div>
 
-        <FarmObjectRail counts={objectRailCounts} className="border-b border-fr-v2-rule lg:border-b-0 lg:border-l" />
+        <FarmObjectRail counts={objectRailCounts} livestockGroups={livestockGroups} housing={housingList} className="border-b border-fr-v2-rule lg:border-b-0 lg:border-l" />
       </section>
 
       {/* Desktop plane under the map — the What Matters pilot (T7/T25)

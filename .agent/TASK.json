@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "task_id": "harness-efficiency-codex-audit-budget-v2-20261008",
-  "title": "Harness efficiency — Codex audit budget v2",
-  "base_sha": "4265e65835bd717b6ecaa9ee7fc95af7d2589ecf",
+  "task_id": "farm-spatial-v2-polish-placeholders-and-final-qa-20261008",
+  "title": "Farm Spatial V2 — polish placeholders and final QA",
+  "base_sha": "823261dacad020e5f5211e61b32d573267d61e6e",
   "domains": [
     "ui",
-    "agent-harness"
+    "nutrients"
   ],
   "expected_changed_files": [],
   "contracts": [
@@ -23,6 +23,7 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
+    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

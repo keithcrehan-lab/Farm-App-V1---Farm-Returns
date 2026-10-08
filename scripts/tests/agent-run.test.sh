@@ -31,7 +31,40 @@ setup() {
 Starting HEAD: auto
 Verify command: `test ! -e verify-fail`
 EOF
-  printf '#!/usr/bin/env bash\necho gate >> "$FAKE_DIR/gate.log"\nexit 0\n' > "$R/scripts/quality-gate.sh"
+  # Fake quality gate: passes, or (per line of $FAKE_DIR/gate.seq) fails on tests alone with
+  # Vitest-format output, exactly like the real gate (tail + QUALITY_GATE line + logs dir).
+  cat > "$R/scripts/quality-gate.sh" <<'EOF'
+#!/usr/bin/env bash
+echo gate >> "$FAKE_DIR/gate.log"
+n="$(wc -l < "$FAKE_DIR/gate.log" | tr -d ' ')"
+act="$(sed -n "${n}p" "$FAKE_DIR/gate.seq" 2>/dev/null)"
+TOOL='src/tooling/agent-run.test.ts > scripts/agent-run > passes the harness boundary/usage tests (agent-context.test.py)'
+TIMEOUT_BODY='AssertionError: ...........E..
+ERROR: test_timeout_cleanup_needs_no_process_enumeration (__main__.HarnessTests)
+subprocess.TimeoutExpired: Command sleep 20 timed out after 4.99 seconds
+FAILED (errors=1)
+: expected 1 to be +0 // Object.is equality'
+case "${act:-pass}" in
+  pass) exit 0;;
+  flaky1) targets=("$TOOL"); body="$TIMEOUT_BODY";;
+  flaky2) targets=("$TOOL" 'src/domain/calc.test.ts > calc > adds'); body='Error: Test timed out in 5000ms.';;
+  flaky3) targets=("$TOOL" 'src/a.test.ts > a > x' 'src/b.test.ts > b > y'); body="$TIMEOUT_BODY";;
+  crash) targets=("$TOOL"); body="$TIMEOUT_BODY
+FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory";;
+  product) targets=('src/domain/calc.test.ts > calc > adds'); body='AssertionError: expected 1 to be 2';;
+  producttimeout) targets=('src/domain/calc.test.ts > calc > adds'); body='Error: Test timed out in 5000ms.';;
+  suite) targets=('src/domain/calc.test.ts [ src/domain/calc.test.ts ]'); body='Error: boom';;
+esac
+d=".agent/history/quality-fake-$n"; mkdir -p "$d"
+files="$(printf '%s\n' "${targets[@]}" | sed 's/ .*//' | sort -u | wc -l | tr -d ' ')"
+{ echo " RUN  v4.1.11"; echo; echo "⎯⎯⎯⎯⎯⎯⎯ Failed Tests ${#targets[@]} ⎯⎯⎯⎯⎯⎯⎯"; echo
+  for t in "${targets[@]}"; do echo " FAIL  $t"; printf '%s\n\n' "$body"; done
+  echo " Test Files  $files failed | 277 passed (278)"
+  echo "      Tests  ${#targets[@]} failed | 4814 passed (4815)"; } > "$d/test.log"
+tail -n 60 "$d/test.log"
+echo "QUALITY_GATE fail — tests fail, typecheck skipped, lint skipped, build skipped — logs: $d"
+exit 1
+EOF
   mkdir -p "$R/docs/farm-return-next"
   printf '# Contracts\n\n## Frozen contract inventory (`src/domain/*.ts`)\n\n| Concern | Modules |\n|---|---|\n| Evidence | `evidence.ts`, `nutrients.ts` |\n| Shared | `types.ts`, `units.ts` |\n\n## Frozen contract inventory (`src/lib/farm-data/*.ts`)\n' \
     > "$R/docs/farm-return-next/DOMAIN_CONTRACTS.md"
@@ -117,8 +150,32 @@ EOF
   for t in supabase vercel psql; do
     printf '#!/usr/bin/env bash\necho "%s $*" >> "$FAKE_DIR/forbidden"; exit 97\n' "$t" > "$B/$t"
   done
+  # Fake npm/npx log what verification ran. `npm run X` fails if $FAKE_DIR/fail-X exists.
+  # `npx vitest run` (an isolated retry) replays $FAKE_DIR/retry.seq: pass | fail | none (no test ran);
+  # `npx vitest related` fails with a timeout-flake for each "flaky" line of $FAKE_DIR/related.seq.
   for t in npm npx; do
-    printf '#!/usr/bin/env bash\ncase " $* " in *" publish "*|*deploy*) echo "%s $*" >> "$FAKE_DIR/forbidden"; exit 97;; esac\necho "%s $*" >> "$FAKE_DIR/npm.log"\n' "$t" "$t" > "$B/$t"
+    cat > "$B/$t" <<EOF
+#!/usr/bin/env bash
+case " \$* " in *" publish "*|*deploy*) echo "$t \$*" >> "\$FAKE_DIR/forbidden"; exit 97;; esac
+echo "$t \$*" >> "\$FAKE_DIR/npm.log"
+[[ "\$1" == run && -e "\$FAKE_DIR/fail-\$2" ]] && { echo "\$2 failed"; exit 1; }
+if [[ "\$1 \$2" == "vitest run" ]]; then
+  m=\$(( \$(cat "\$FAKE_DIR/retry.n" 2>/dev/null || echo 0) + 1 )); echo "\$m" > "\$FAKE_DIR/retry.n"
+  case "\$(sed -n "\${m}p" "\$FAKE_DIR/retry.seq" 2>/dev/null)" in
+    fail) printf ' FAIL  %s > x\\n Test Files  1 failed (1)\\n      Tests  1 failed | 3 skipped (4)\\n' "\$3"; exit 1;;
+    none) printf ' Test Files  1 skipped (1)\\n      Tests  4 skipped (4)\\n';;
+    *) printf ' Test Files  1 passed (1)\\n      Tests  1 passed | 3 skipped (4)\\n';;
+  esac
+fi
+if [[ "\$1 \$2" == "vitest related" ]]; then
+  k=\$(( \$(cat "\$FAKE_DIR/related.n" 2>/dev/null || echo 0) + 1 )); echo "\$k" > "\$FAKE_DIR/related.n"
+  if [[ "\$(sed -n "\${k}p" "\$FAKE_DIR/related.seq" 2>/dev/null)" == flaky ]]; then
+    printf '⎯⎯ Failed Tests 1 ⎯⎯\\n FAIL  src/domain/calc.test.ts > calc > adds\\nError: Test timed out in 5000ms.\\n\\n Test Files  1 failed | 3 passed (4)\\n      Tests  1 failed | 20 passed (21)\\n'
+    exit 1
+  fi
+fi
+exit 0
+EOF
   done
   chmod +x "$B"/* "$R"/scripts/agent-* "$R/scripts/quality-gate.sh"
 
@@ -773,6 +830,97 @@ end
 begin "N10 unexpected working-tree change during audit → fail closed"
 setup "done" "stray 0 0 0 0"; agent_run
 stopped AUDIT_UNASSESSED; check "file kept" test -f "$R/stray.txt"
+end
+
+# ── harness v3: deterministic flaky-test recovery (no model call) ──────
+seq_file() { local f="$1"; shift; printf '%s\n' "$@" > "$T/$f"; }
+retried() { local n; n="$(grep -c 'npx vitest run' "$T/npm.log" 2>/dev/null)"; echo "${n:-0}"; }
+
+begin "V1 single tooling timeout in the full gate → exact isolated retry passes → FLAKY_RECOVERED, committed, 1 Codex"
+setup "shared" "0 0 0 0"; seq_file gate.seq flaky1; agent_run
+complete; check "1 claude" eq "$(calls claude)" 1; check "1 codex" eq "$(calls codex)" 1
+check "summary total 2" eq "$(sj model_calls.total)" 2
+check "build checkpoint committed" eq "$(commits)" 2; check "build DONE (normal path)" eq "$(sj build_result)" DONE
+check "tests FLAKY_RECOVERED" eq "$(sj verification.tests)" FLAKY_RECOVERED
+check "one isolated retry" eq "$(sj verification.isolated_retries)" 1; check "exactly one vitest run" eq "$(retried)" 1
+check "exact file + escaped test name" grep -qF 'npx vitest run src/tooling/agent-run.test.ts -t scripts\/agent-run passes the harness boundary\/usage tests \(agent-context\.test\.py\) --maxWorkers=1' "$T/npm.log"
+check "skipped typecheck ran" grep -q '^npm run typecheck' "$T/npm.log"; check "skipped lint ran" grep -q '^npm run lint' "$T/npm.log"
+check "skipped build ran" grep -q '^npm run build' "$T/npm.log"
+check "typecheck PASS" eq "$(sj verification.typecheck)" PASS; check "lint PASS" eq "$(sj verification.lint)" PASS
+check "build PASS" eq "$(sj verification.build)" PASS
+check "report says flaky recovery" has "Flaky recovery: FLAKY_RECOVERED"; check "report tests" has "tests=FLAKY_RECOVERED"
+check "report codex config" has "Codex: tier=standard model=gpt-6.1-sol reasoning=medium"
+check "original failure log kept" grep -q 'tests fail, typecheck skipped' "$R/$(sj flaky_recovered.0.original_log)"
+check "original test log kept" grep -q 'FAIL  src/tooling/agent-run.test.ts' "$R"/.agent/history/quality-fake-1/test.log
+check "inner test named" contains "$(sj flaky_recovered.0.inner)" test_timeout_cleanup_needs_no_process_enumeration
+check "gate ran once" eq "$(lines "$T/gate.log")" 1
+run_in_repo ./scripts/agent-status
+check "status shows tests" has "Tests: FLAKY_RECOVERED"; check "status shows retries" has "Isolated retries: 1"
+end
+
+begin "V2 isolated retry fails → VERIFICATION_FAILED, work kept, no audit, no extra model call"
+setup "shared" "0 0 0 0"; seq_file gate.seq flaky1; seq_file retry.seq fail; agent_run
+stopped VERIFICATION_FAILED; check "1 claude" eq "$(calls claude)" 1; check "no codex" eq "$(calls codex)" 0
+check "one retry only" eq "$(retried)" 1; check "reason named" has "RETRY_FAILED"
+check "skipped gates not run" test -z "$(grep 'run typecheck' "$T/npm.log")"
+check "work kept uncommitted" test -f "$R/src/lib/farm-data/query.ts"; check "no checkpoint" eq "$(commits)" 1
+end
+
+begin "V3 three failing test files → no retry, VERIFICATION_FAILED"
+setup "shared" "0 0 0 0"; seq_file gate.seq flaky3; agent_run
+stopped VERIFICATION_FAILED; check "no retry" eq "$(retried)" 0; check "why" has "3 failing test files"
+check "no codex" eq "$(calls codex)" 0
+end
+
+for kind in crash product suite; do
+  begin "V4 deterministic failure '$kind' → no retry, VERIFICATION_FAILED"
+  setup "shared" "0 0 0 0"; seq_file gate.seq "$kind"; agent_run
+  stopped VERIFICATION_FAILED; check "no retry" eq "$(retried)" 0; check "NOT_ELIGIBLE" has "NOT_ELIGIBLE"
+  check "1 claude, 0 codex" eq "$(calls claude)$(calls codex)" 10
+  end
+done
+
+begin "V5 two failing files (product test timeout) → two exact retries → FLAKY_RECOVERED"
+setup "shared" "0 0 0 0"; seq_file gate.seq flaky2; agent_run
+complete; check "two retries" eq "$(retried)" 2; check "summary retries" eq "$(sj verification.isolated_retries)" 2
+check "1 claude 1 codex" eq "$(calls claude)$(calls codex)" 11
+end
+
+begin "V6 retry that runs no test is not a pass"
+setup "shared" "0 0 0 0"; seq_file gate.seq flaky1; seq_file retry.seq none; agent_run
+stopped VERIFICATION_FAILED; check "RETRY_FAILED" has "RETRY_FAILED"
+end
+
+begin "V7 recovered flake but a skipped gate (build) then fails → VERIFICATION_FAILED"
+setup "shared" "0 0 0 0"; seq_file gate.seq flaky1; touch "$T/fail-build"; agent_run
+stopped VERIFICATION_FAILED; check "continued gates ran" grep -q '^npm run lint' "$T/npm.log"
+check "reason" has "CONTINUED_GATE_FAILED"; check "no codex" eq "$(calls codex)" 0
+end
+
+begin "V8 fix verification flake → recovered, fix committed, focused final → 2 Codex, COMPLETE"
+setup $'shared\nshared' $'0 1 0 0\n0 0 0 0'; seq_file gate.seq pass flaky1; agent_run
+complete; check "2 claude" eq "$(calls claude)" 2; check "2 codex" eq "$(calls codex)" 2
+check "build+fix commits" eq "$(commits)" 3; check "fix done" eq "$(sj fix_rounds)" 1
+check "recovery during fix" eq "$(sj flaky_recovered.0.phase)" fix; check "one retry" eq "$(retried)" 1
+end
+
+begin "V9 targeted Vitest flake (category D) → FLAKY_RECOVERED, later commands continue"
+setup "domain" "0 0 0 0"; seq_file related.seq flaky; agent_run
+complete; check "one retry" eq "$(retried)" 1; check "targeted recovered" eq "$(sj verification.targeted_tests)" FLAKY_RECOVERED
+check "build still ran" grep -q '^npm run build' "$T/npm.log"; check "1 codex" eq "$(calls codex)" 1
+end
+
+begin "V10 flake recovered, then quota in primary → resumable; rerun audits without rebuild or re-verify"
+setup "shared" $'quota\n0 0 0 0'; seq_file gate.seq flaky1; agent_run
+stopped QUOTA_EXHAUSTED; check "1 codex" eq "$(calls codex)" 1
+agent_run
+complete; check "no rebuild" eq "$(calls claude)" 1; check "gate not rerun" eq "$(lines "$T/gate.log")" 1
+check "no second retry" eq "$(retried)" 1; check "report keeps recovery" has "Flaky recovery: FLAKY_RECOVERED"
+end
+
+begin "V11 recovery code path never invokes a model CLI"
+setup "" ""
+check "no claude/codex in recovery" test -z "$(sed -n '/^# ── deterministic flaky-test recovery/,/^def verify(/p' "$SRC/scripts/agent-runstate.py" | grep -E "'(claude|codex)'|agent-(build|fix|audit)")"
 end
 
 echo

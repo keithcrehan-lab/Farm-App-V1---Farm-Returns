@@ -88,6 +88,27 @@ authorise migrations. `--full-tests` or TASK.json `"full_suite": true` forces E.
 whose relevant files (docs excluded for typecheck/lint/build) are unchanged since it passed
 in this run is reused, not rerun. `FULL_SUITE: NOT_REQUIRED` is recorded, not a gap.
 
+Normal operator workflow is one command: `./scripts/agent-start ... --run`. Nothing else is
+needed unless the run stops with HUMAN_DECISION_REQUIRED for a substantive reason.
+
+Deterministic flaky recovery (FLAKY_RECOVERED, no model call): when a verification command
+that is a test command (the quality gate failing on tests alone, the plan's targeted Vitest
+segment, or a plain `npm test`/`npx vitest` task verify) fails, the runner parses the Vitest
+output. It retries only when: at most 2 failing test files and 4 failing tests; every failing
+target is an exact `FILE > test name` that matches the summary counts; no crash/OOM/syntax/
+compile/module/unhandled-error marker; no suite-level failure; and no plain assertion in a
+product test (outside `src/tooling/` a failure must carry a timeout signature). Each failing
+test is retried exactly once in isolation (`npx vitest run FILE -t NAME --maxWorkers=1`); a
+retry that runs no test does not pass. All pass → the command is FLAKY_RECOVERED, the original
+failure log is kept and referenced, and for the quality gate its skipped typecheck, lint and
+build then run and must all pass. The build/fix is then committed by the normal checkpoint
+and the run continues to its audit. Any retry or continued gate failing, or any failure that
+cannot be extracted exactly → VERIFICATION_FAILED (with the reason in DETAIL), work kept.
+There is no second retry and no broad rerun. The run report shows `tests=PASS|FAIL|
+FLAKY_RECOVERED`, `isolated_retries`, typecheck/lint/build, a `Flaky recovery:` line naming
+the targets and the original log, model calls per stage and the effective Codex tier/model/
+reasoning. Budget is unchanged: 1 Codex audit on a clean primary, 2 with one C/H fix.
+
 ## Explicit broader and working-tree reviews
 
 ```sh

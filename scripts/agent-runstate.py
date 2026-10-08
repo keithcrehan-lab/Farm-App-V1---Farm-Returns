@@ -212,6 +212,124 @@ def fingerprint(scope):
     return digest.hexdigest()
 
 
+# ── deterministic flaky-test recovery (no model call) ──────────────────
+# A failed verification command whose failure is a small, exactly identified set of Vitest tests
+# is retried ONCE per failing test, in isolation (file + exact test-name pattern). Only if every
+# isolated retry passes is the command FLAKY_RECOVERED; the gates the quality gate skipped then run.
+# Anything else — crash, OOM, syntax/compile/module errors, unhandled errors, suite-level failures,
+# a plain assertion in a product test, more than FLAKY_MAX_FILES files, an unparseable failure —
+# stays FAIL. The original failure log is never altered.
+FLAKY_MAX_FILES, FLAKY_MAX_TESTS = 2, 4
+FLAKY_BLOCKERS = re.compile(
+    r'heap out of memory|FATAL ERROR|Segmentation fault|SIGSEGV|SIGABRT|core dumped|SyntaxError|Transform failed|'
+    r'Failed to load|Cannot find module|Failed to resolve import|error TS\d+|Unhandled (Errors|Rejection)|'
+    r'Worker exited unexpectedly|No test files found|^\s*Errors\s+\d+ errors?\b', re.M)
+TIMEOUT_SIGNATURE = re.compile(r'Test timed out|timed out after|TimeoutExpired|ETIMEDOUT|Timeout of \d+ms|exceeded timeout', re.I)
+TEST_FILE_RE = re.compile(r'(?!.*\.\.)[A-Za-z0-9_@][A-Za-z0-9_./@-]*\.(test|spec)\.[cm]?[jt]sx?')
+GATE_LINE_RE = re.compile(r'^QUALITY_GATE fail — tests fail, typecheck skipped, lint skipped, build skipped — logs: (\S+)$', re.M)
+SKIPPED_GATES = (('typecheck', 'npm run typecheck'), ('lint', 'npm run lint'), ('build', 'npm run build'))
+ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
+
+
+def recovery_mode(name, cmd):
+    """'gate' (quality gate: tests then skipped gates), 'vitest' (a test-only command), or None."""
+    cmd = cmd.strip()
+    if re.fullmatch(r'(bash )?(\./)?scripts/quality-gate\.sh', cmd): return 'gate'
+    # The plan's targeted command ends with its Vitest segment: earlier && parts passed if it ran.
+    if name == 'targeted_tests' and re.search(r'(^| && )npx vitest related --run --maxWorkers=1 [^&|;]*$', cmd): return 'vitest'
+    if re.fullmatch(r'(npm (run )?test|npx vitest( run)?)( [^&|;<>`$()]*)?', cmd): return 'vitest'
+    return None
+
+
+def vitest_failures(text):
+    """[(file, full test name, error block)] of a Vitest failure, or a reason string when the exact
+    failing targets cannot be extracted reliably or the failure is not eligible for a retry."""
+    text = ANSI_RE.sub('', text)
+    m = FLAKY_BLOCKERS.search(text)
+    if m: return 'deterministic failure marker %r' % m.group(0).strip()
+    files = re.search(r'^\s*Test Files\s+(\d+) failed\b', text, re.M)
+    tests = re.search(r'^\s*Tests\s+(\d+) failed\b', text, re.M)
+    if not files or not tests: return 'no Vitest failure summary (failing targets cannot be extracted)'
+    head = text.find('Failed Tests')
+    if head < 0: return 'no Vitest failed-tests section'
+    body = text[head:]
+    end = re.search(r'^\s*Test Files\s', body, re.M)
+    body = body[:end.start()] if end else body
+    marks = list(re.finditer(r'^\s*FAIL\s+(.+?)\s*$', body, re.M))
+    out, seen = [], set()
+    for i, mk in enumerate(marks):
+        target = mk.group(1)
+        if ' > ' not in target: return 'suite-level failure %r (no individual test target)' % target
+        f, name = target.split(' > ', 1)
+        if not TEST_FILE_RE.fullmatch(f): return 'unrecognised test file %r' % f
+        block = body[mk.end():marks[i + 1].start() if i + 1 < len(marks) else len(body)]
+        if (f, name) not in seen:
+            seen.add((f, name)); out.append((f, name.replace(' > ', ' '), block))
+    nfiles = len({f for f, _, _ in out})
+    if not out or len(out) != int(tests.group(1)) or nfiles != int(files.group(1)):
+        return 'failing targets (%d tests, %d files) do not match the summary (%s tests, %s files)' % (
+            len(out), nfiles, tests.group(1), files.group(1))
+    if nfiles > FLAKY_MAX_FILES: return '%d failing test files (max %d for a retry)' % (nfiles, FLAKY_MAX_FILES)
+    if len(out) > FLAKY_MAX_TESTS: return '%d failing tests (max %d for a retry)' % (len(out), FLAKY_MAX_TESTS)
+    for f, name, block in out:
+        if not f.startswith('src/tooling/') and not TIMEOUT_SIGNATURE.search(block):
+            return 'product test %s > %s failed without a timeout signature (treated as a correctness failure)' % (f, name)
+    return out
+
+
+def js_regex_escape(s):
+    return re.sub(r'([.*+?^${}()|\[\]\\/])', r'\\\1', s)
+
+
+def retry_passed(text):
+    text = ANSI_RE.sub('', text)
+    m = re.search(r'^\s*Tests\s+(.*)$', text, re.M)
+    return bool(m and re.match(r'([1-9]\d*) passed\b', m.group(1)) and 'failed' not in m.group(1))
+
+
+def recover_flaky(c, log, phase, run_id):
+    """(True|False, evidence dict) for a failed verification command; never invokes a model."""
+    mode = recovery_mode(c['name'], c['cmd'])
+    ev = dict(outcome='NOT_ELIGIBLE', original_log=str(log))
+    if not mode:
+        ev['why'] = 'command is not a recognised test command'; return False, ev
+    text = log.read_text(errors='replace')
+    if mode == 'gate':
+        g = GATE_LINE_RE.search(text)
+        if not g or not os.path.isfile(os.path.join(g.group(1), 'test.log')):
+            ev['why'] = 'quality gate did not fail on tests alone (or its test log is missing)'; return False, ev
+        ev['test_log'] = os.path.join(g.group(1), 'test.log')
+        text = Path(ev['test_log']).read_text(errors='replace')
+    found = vitest_failures(text)
+    if isinstance(found, str):
+        ev['why'] = found; return False, ev
+    ev['failures'] = [dict(file=f, name=n) for f, n, _ in found]
+    ev['inner'] = sorted(set(re.findall(r'^(?:ERROR|FAIL): (\w+) \(', text, re.M)))
+    ev['retries'] = []
+    for i, (f, name, _) in enumerate(found, 1):
+        cmd = 'npx vitest run %s -t %s --maxWorkers=1' % (shlex.quote(f), shlex.quote(js_regex_escape(name)))
+        rlog = HISTORY / ('verify-%s-%s-%s-retry-%d.log' % (run_id, phase, c['name'], i))
+        with open(rlog, 'w') as fh:
+            rrc = subprocess.run(['bash', '-c', cmd], stdout=fh, stderr=subprocess.STDOUT).returncode
+        ok = rrc == 0 and retry_passed(rlog.read_text(errors='replace'))
+        ev['retries'].append(dict(file=f, name=name, cmd=cmd, log=str(rlog), exit=rrc, result='PASS' if ok else 'FAIL'))
+        if not ok:
+            ev.update(outcome='RETRY_FAILED', why='isolated retry of %s > %s failed (%s)' % (f, name, rlog))
+            return False, ev
+    if mode == 'gate':
+        ev['continued'] = {}
+        for name, cmd in SKIPPED_GATES:
+            glog = HISTORY / ('verify-%s-%s-%s-%s.log' % (run_id, phase, c['name'], name))
+            with open(glog, 'w') as fh:
+                grc = subprocess.run(['bash', '-c', cmd], stdout=fh, stderr=subprocess.STDOUT).returncode
+            ev['continued'][name] = 'PASS' if grc == 0 else 'FAIL'
+            if grc:
+                ev.update(outcome='CONTINUED_GATE_FAILED', why='%s failed after the recovered test flake (%s)' % (name, glog))
+                return False, ev
+    ev['outcome'] = 'FLAKY_RECOVERED'
+    return True, ev
+
+
 def verify(phase, verify_cmd):
     st, path = load()
     if st is None: raise ValueError('AGENT_RUN_STATE does not name a run state')
@@ -220,6 +338,7 @@ def verify(phase, verify_cmd):
     st['verify_plan'] = p
     st['category'] = p['category']
     st['verify_gate'] = p['gate']
+    st['verify_note'] = None
     if p['gate']:
         write_json(path, st)
         print('agent-run verify: %s — category %s changes need explicit authority' % (p['gate'], p['category']), file=sys.stderr)
@@ -228,19 +347,33 @@ def verify(phase, verify_cmd):
     for c in [dict(name='task_verify', cmd=verify_cmd, scope='all')] + p['commands']:
         fp = fingerprint(c['scope'])
         base = dict(phase=phase, name=c['name'], cmd=c['cmd'], scope=c['scope'], fingerprint=fp, at=now())
-        if any(r['cmd'] == c['cmd'] and r['fingerprint'] == fp and r['result'] == 'PASS' and not r.get('reused')
-               for r in st['verification']):
-            st['verification'].append(dict(base, result='PASS', reused=True))
+        prior = next((r for r in st['verification'] if r['cmd'] == c['cmd'] and r['fingerprint'] == fp
+                      and r['result'] in ('PASS', 'FLAKY_RECOVERED') and not r.get('reused')), None)
+        if prior:
+            st['verification'].append(dict(base, result=prior['result'], reused=True,
+                                           **({'flaky': prior['flaky']} if 'flaky' in prior else {})))
             print('agent-run verify: reused %s (relevant files unchanged since it passed)' % c['name'])
             continue
         log = HISTORY / ('verify-%s-%s-%s.log' % (st['run_id'], phase, c['name']))
         with open(log, 'w') as f:
             rc = subprocess.run(['bash', '-c', c['cmd']], stdout=f, stderr=subprocess.STDOUT).returncode
-        st['verification'].append(dict(base, result='PASS' if rc == 0 else 'FAIL', reused=False, log=str(log)))
+        rec = dict(base, result='PASS' if rc == 0 else 'FAIL', reused=False, log=str(log))
+        st['verification'].append(rec)
         write_json(path, st)
         if rc:
             print('agent-run verify: %s FAILED (exit %d) — %s' % (c['name'], rc, log), file=sys.stderr)
             sys.stderr.write(''.join(log.read_text(errors='replace').splitlines(True)[-30:]))
+            ok, ev = recover_flaky(c, log, phase, st['run_id'])
+            rec['flaky'] = ev
+            if ok:
+                rec.update(result='FLAKY_RECOVERED', original_result='FAIL', original_exit=rc)
+                print('agent-run verify: %s FLAKY_RECOVERED — %d isolated retr%s passed; original failure kept in %s' % (
+                    c['name'], len(ev['retries']), 'y' if len(ev['retries']) == 1 else 'ies', log), file=sys.stderr)
+                write_json(path, st)
+                rc = 0
+                continue
+            st['verify_note'] = '%s: flaky recovery %s — %s' % (c['name'], ev['outcome'], ev.get('why', ''))
+            print('agent-run verify: no automatic recovery — %s' % st['verify_note'], file=sys.stderr)
             break
     write_json(path, st)
     return 1 if rc else 0
@@ -248,22 +381,38 @@ def verify(phase, verify_cmd):
 
 def verification_summary(st):
     records, p = st.get('verification', []), st.get('verify_plan')
-    latest = {}
-    for r in records: latest[r['name']] = r['result']
+    latest, rec = {}, {}
+    for r in records: latest[r['name']] = r['result']; rec[r['name']] = r
+    retries = sum(len((r.get('flaky') or {}).get('retries', [])) for r in records if not r.get('reused'))
     if not p: return dict(task_verify=latest.get('task_verify', 'NOT_RUN'), targeted_tests='NOT_RUN', typecheck='NOT_RUN',
-                          lint='NOT_RUN', build='NOT_RUN', full_suite='NOT_RUN')
+                          lint='NOT_RUN', build='NOT_RUN', full_suite='NOT_RUN', tests='NOT_RUN', isolated_retries=retries)
     names = [c['name'] for c in p['commands']]
     out = dict(task_verify=latest.get('task_verify', 'NOT_RUN'))
     if 'quality_gate' in names:
         gate = latest.get('quality_gate', 'NOT_RUN')
         out.update(targeted_tests=gate, typecheck=gate, lint=gate, build=gate, full_suite=gate)
+        if gate == 'FLAKY_RECOVERED':  # the skipped gates ran after the isolated retries
+            cont = rec['quality_gate']['flaky'].get('continued', {})
+            out.update({k: cont.get(k, 'NOT_RUN') for k in ('typecheck', 'lint', 'build')})
     else:
         for key in ('targeted_tests', 'typecheck', 'lint', 'build'):
             out[key] = latest.get(key, 'NOT_RUN') if key in names else 'NOT_REQUIRED'
         out['full_suite'] = 'NOT_REQUIRED'
     for key in ('diff_check', 'json_check'):
         if key in names: out[key] = latest.get(key, 'NOT_RUN')
+    tests = [latest[n] for n in ('targeted_tests', 'quality_gate') if n in names and n in latest]
+    if latest.get('task_verify') == 'FLAKY_RECOVERED' or rec.get('task_verify', {}).get('flaky', {}).get('failures'):
+        tests.append(latest['task_verify'])
+    out['tests'] = next((v for v in ('FAIL', 'FLAKY_RECOVERED', 'PASS') if v in tests),
+                        'NOT_REQUIRED' if not any(n in names for n in ('targeted_tests', 'quality_gate')) else 'NOT_RUN')
+    out['isolated_retries'] = retries
     return out
+
+
+def flaky_recoveries(st):
+    return [dict(phase=r['phase'], command=r['name'], original_log=r['log'], failures=r['flaky']['failures'],
+                 inner=r['flaky'].get('inner', []), retries=r['flaky']['retries'], continued=r['flaky'].get('continued'))
+            for r in st.get('verification', []) if r['result'] == 'FLAKY_RECOVERED' and not r.get('reused')]
 
 
 # ── lock ───────────────────────────────────────────────────────────────
@@ -346,7 +495,8 @@ def summary(st):
         build_result=st.get('build_result'),
         model_calls=dict(st['model_calls'], total=sum(st['model_calls'][k] for k in CALL_KEYS)),
         fix_rounds=st['completed']['fix'], audits=st.get('audits', []), category=st.get('category'),
-        verification=verification_summary(st),
+        verification=verification_summary(st), flaky_recovered=flaky_recoveries(st),
+        verify_note=st.get('verify_note'), codex=st.get('codex'),
         verification_commands_run=[r['cmd'] for r in records if not r.get('reused')],
         verification_commands_reused=[r['cmd'] for r in records if r.get('reused')],
         findings=st.get('findings'), open_medium_low=minor_titles(last.get('artifact')),
@@ -368,8 +518,15 @@ def report(st):
     lines.append('Task: %s  Base: %s  HEAD: %s  Stage: %s' % (s['task_id'], s['base_sha'][:7], s['final_head'][:7], s['stage']))
     lines.append('Model calls: build %d · primary %d · fix %d · final %d · total %d' % tuple(mc[k] for k in CALL_KEYS + ('total',)))
     if f: lines.append('Findings: CRITICAL=%s HIGH=%s MEDIUM=%s LOW=%s' % (f['critical'], f['high'], f['medium'], f['low']))
+    if s['codex']: lines.append('Codex: tier=%s model=%s reasoning=%s' % tuple(s['codex'].get(k, '?') for k in ('tier', 'model', 'reasoning')))
     lines.append('Build: %s · Category: %s · Verification: %s' % (
         s['build_result'] or '-', s['category'] or '-', ' '.join('%s=%s' % kv for kv in v.items())))
+    for r in s['flaky_recovered']:
+        lines.append('Flaky recovery: FLAKY_RECOVERED during %s %s — %s; %d isolated retr%s passed%s; original failure kept: %s' % (
+            r['phase'], r['command'], ', '.join('%s > %s' % (x['file'], x['name']) for x in r['failures']),
+            len(r['retries']), 'y' if len(r['retries']) == 1 else 'ies',
+            '; then ' + ' '.join('%s=%s' % kv for kv in r['continued'].items()) if r['continued'] else '', r['original_log']))
+    if s['verify_note'] and s['result'] != 'COMPLETE': lines.append('Verification note: ' + s['verify_note'])
     lines.append('Production changed: %s · Pushed: NO' % s['production_changed'])
     return '\n'.join(lines)
 
@@ -476,8 +633,13 @@ def status_text():
             '  Final audit: %d' % mc['final_audit'], '  Total: %d' % mc['total'], '', 'Audit']
     out += ['  %s: %s' % (k.capitalize(), f.get(k, '-')) for k in ('critical', 'high', 'medium', 'low')]
     label = dict(task_verify='Task verify', targeted_tests='Targeted tests', typecheck='Typecheck', lint='Lint',
-                 build='Build', full_suite='Full suite', diff_check='Diff check', json_check='JSON check')
+                 build='Build', full_suite='Full suite', diff_check='Diff check', json_check='JSON check',
+                 tests='Tests', isolated_retries='Isolated retries')
     out += ['', 'Verification'] + ['  %s: %s' % (label[k], val) for k, val in v.items()]
+    out += ['  Flaky recovery: FLAKY_RECOVERED (%s %s; original failure: %s)' % (r['phase'], r['command'], r['original_log'])
+            for r in s['flaky_recovered']]
+    if s['codex']:
+        out += ['', 'Codex: tier=%s model=%s reasoning=%s' % tuple(s['codex'].get(k, '?') for k in ('tier', 'model', 'reasoning'))]
     usage = s['usage']
     if usage:
         out += ['', 'Approx model usage']
@@ -506,6 +668,8 @@ def dry_run(full, maxfix):
     print('Verification category (current delta, %d file(s)): %s %s%s' % (
         len(files), p['category'], p['category_name'], ' — recomputed from the build diff' if not files else ''))
     print('Verification commands: task verify command + %s' % (', '.join(c['name'] for c in p['commands']) or 'none'))
+    print('Flaky recovery: a Vitest failure in <=%d files (<=%d tests, no crash/compile marker) is retried once per test '
+          'in isolation; all pass → FLAKY_RECOVERED, skipped gates run, flow continues (no model call)' % (FLAKY_MAX_FILES, FLAKY_MAX_TESTS))
     print('Potential human gates: build BLOCKED/STOP, preflight failure, migration/frozen-contract/scientific STOP, '
           'unassessed audit, Critical/High after %s fix round(s), ambiguous agent output' % maxfix)
     print('Would invoke: scripts/agent-build · scripts/agent-audit --primary · [scripts/agent-fix · scripts/agent-audit --final]')

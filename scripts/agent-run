@@ -14,6 +14,17 @@
 # PRECHECK. A Codex usage-limit error stops at once as QUOTA_EXHAUSTED (resumable, never
 # retried automatically): rerun only after the limit resets; it resumes at that audit.
 #
+# Normal operator workflow: ./scripts/agent-start ... --run — no further action unless the run
+# stops with HUMAN_DECISION_REQUIRED for a substantive reason.
+#
+# Verification after build/fix is deterministic (agent-runstate.py verify). A Vitest failure of
+# at most 2 test files (4 tests), exactly identified, with no crash/OOM/syntax/compile/module
+# marker and no plain assertion in a product test, is retried ONCE per failing test in isolation
+# (npx vitest run FILE -t NAME). All retries pass → FLAKY_RECOVERED: the original failure log is
+# kept, the gates the quality gate skipped (typecheck, lint, build) run, and the phase is
+# committed and continues as if verification had passed. Any retry or continued gate failing,
+# or any failure that cannot be extracted exactly → VERIFICATION_FAILED. No model call either way.
+#
 # Medium/Low findings are recorded, never fixed or re-audited automatically.
 # No remediation audits. A clean primary audit covers the complete task delta
 # at the closing HEAD, so it is the task's final audit and is not repeated.
@@ -166,6 +177,8 @@ else
   MAXFIX="$(rs get options.max_fix_rounds)"; AUTO="$(rs get options.auto_commit)"
   echo "agent-run: resuming task $TASK_ID at stage $(rs get stage)${inflight:+ (interrupted during $inflight)}"
 fi
+# The effective Codex configuration of this invocation, for the run report.
+rs set codex.tier "$CODEX_TIER"; rs set codex.model "$CODEX_MODEL"; rs set codex.reasoning "$CODEX_REASONING"
 
 # ── helpers ────────────────────────────────────────────────────────────
 check_task() {
@@ -194,7 +207,8 @@ recover() {
   if ! AGENT_PHASE="$kind" run_verify >>"$LOGDIR/run-$RUN_ID-recover.log" 2>&1; then
     local g; g="$(rs get verify_gate)"
     [[ -n "$g" ]] && human "$g" "$kind changed files that need explicit authority" "authorise the change in a dedicated task"
-    human VERIFICATION_FAILED "verification failed for recovered $kind work — see $LOGDIR/run-$RUN_ID-recover.log" "fix the failure or discard the edits yourself"
+    human VERIFICATION_FAILED "verification failed for recovered $kind work — see $LOGDIR/run-$RUN_ID-recover.log
+$(rs get verify_note)" "fix the failure or discard the edits yourself"
   fi
   if [[ "$kind" == build ]]; then msg="Agent checkpoint (build): $TITLE"
   else msg="Agent checkpoint (fix): $TITLE — findings from $(basename "$(state_get last_audit)")"; fi
@@ -229,7 +243,8 @@ settle() {
     *verify-failed)
       local g; g="$(rs get verify_gate)"
       [[ -n "$g" ]] && human "$g" "$kind changed files that need explicit authority (category $(rs get category))" "authorise the change in a dedicated task"
-      human VERIFICATION_FAILED "verification failed after $kind — edits left in the tree ($log)" "fix the failure or discard the edits yourself";;
+      human VERIFICATION_FAILED "verification failed after $kind — edits left in the tree ($log)
+$(rs get verify_note)" "fix the failure or discard the edits yourself";;
     *noop) human "$(gate_reason "$result" "${up}_BLOCKED")" "$kind reported DONE but changed nothing — $out" "read $out and decide";;
   esac
   if [[ -n "$log" ]] && grep -qE '^agent: claude timed out|not DONE \(exit 124' "$log" 2>/dev/null; then

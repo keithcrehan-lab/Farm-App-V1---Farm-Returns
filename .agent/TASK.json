@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "task_id": "farm-spatial-v2-polish-placeholders-and-final-qa-20261008",
-  "title": "Farm Spatial V2 — polish placeholders and final QA",
-  "base_sha": "823261dacad020e5f5211e61b32d573267d61e6e",
+  "task_id": "harness-v3-autonomous-low-usage-execution-20261008",
+  "title": "Harness v3 — autonomous low-usage execution",
+  "base_sha": "ebe9b4bdab5f06d83c42a9073c45e5c0671c3fa0",
   "domains": [
     "ui",
-    "nutrients"
+    "agent-harness"
   ],
   "expected_changed_files": [],
   "contracts": [
@@ -23,7 +23,6 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
-    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

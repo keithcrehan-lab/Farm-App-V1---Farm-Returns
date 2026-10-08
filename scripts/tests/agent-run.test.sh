@@ -14,6 +14,8 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REAL_GIT="$(command -v git)"
 PASSED=0; FAILED=0; FAILS=""
 export AGENT_CLAUDE_TIMEOUT=20 AGENT_CODEX_TIMEOUT=20
+# The operator's audit tier/model choice never leaks into the fixtures.
+unset AGENT_AUDIT_TIER AGENT_CODEX_MODEL AGENT_CODEX_REASONING
 
 # ── fixture ────────────────────────────────────────────────────────────
 # setup "claude actions" "codex results" — one action/result per line.
@@ -72,6 +74,7 @@ esac
 EOF
   cat > "$B/codex" <<'EOF'
 #!/usr/bin/env bash
+echo "$*" >> "$FAKE_DIR/codex.args"
 out=""; while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && { out="$2"; shift; }; shift; done
 cat >/dev/null
 # hold SIGNAL — announce "<tool> <call#>" in $FAKE_DIR/hanging, then block until interrupt_run
@@ -93,6 +96,9 @@ case "${1:-}" in
   stop) shift; printf '### [MEDIUM] [F001] Needs a product decision\nSTOP: human review required\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=%s HIGH=%s MEDIUM=%s LOW=%s\n' "$@" > "$out";;
   prose) shift; printf '### [MEDIUM] [F001] Runner should stop earlier\n- PROBLEM: the loop does not stop before the audit; STOP markers are honoured.\nStop conditions in the task were respected.\nSTOPPED is not a marker.\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=%s HIGH=%s MEDIUM=%s LOW=%s\n' "$@" > "$out";;
   hang) hold "codex $n"; printf 'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n' > "$out";;
+  quota) printf '{"type":"thread.started"}\n{"type":"error","message":"You have hit your usage limit. Try again at 4:12 PM."}\n{"type":"turn.failed","error":{"message":"usage limit"}}\n'; exit 1;;
+  quotatext) echo "ERROR: Quota exceeded. Check your plan and billing details."; exit 1;;
+  limitprose) printf '{"type":"item.completed","item":{"type":"agent_message","text":"Checks the usage limit handling"}}\n{"type":"error","message":"stream disconnected"}\n'; exit 1;;
   [0-9]*) { printf 'AUDIT_RESULT: FINDINGS\n'
             i=0; while (( i < $2 )); do i=$((i + 1)); printf '### [HIGH] [F%s%s] Defect\n- FILE:LINE: work.txt:1\n- PROBLEM: CONFIRMED, REGRESSION — x\n- WHY_IT_MATTERS: y\n- REQUIRED_FIX: z\n' "$n" "$i"; done
             i=0; while (( i < $3 )); do i=$((i + 1)); printf '### [MEDIUM] [M%s%s] Advisory title\n' "$n" "$i"; done
@@ -233,14 +239,14 @@ check "medium 3" eq "$(sj findings.medium)" 3; check "low 2" eq "$(sj findings.l
 check "medium titles recorded" contains "$(sj open_medium_low)" "Advisory title"
 end
 
-begin "4 final finds new High → second fix → second final clean → 6 calls, COMPLETE"
-setup $'done\ndone\ndone' $'0 1 0 0\n0 1 0 0\n0 0 0 0'; agent_run
+begin "4 opt-in --max-fix-rounds 2: final finds new High → second fix → second final clean → 6 calls"
+setup $'done\ndone\ndone' $'0 1 0 0\n0 1 0 0\n0 0 0 0'; agent_run --max-fix-rounds 2
 complete; check "6 calls" eq "$(sj model_calls.total)" 6; check "2 fixes" eq "$(sj model_calls.fix)" 2
 check "2 finals" eq "$(sj model_calls.final_audit)" 2
 end
 
-begin "5 High remains after second final → 6 calls, HUMAN_DECISION_REQUIRED"
-setup $'done\ndone\ndone' $'0 1 0 0\n0 1 0 0\n0 1 0 0'; agent_run
+begin "5 opt-in: High remains after second final → 6 calls, HUMAN_DECISION_REQUIRED"
+setup $'done\ndone\ndone' $'0 1 0 0\n0 1 0 0\n0 1 0 0'; agent_run --max-fix-rounds 2
 stopped REPEATED_HIGH_FINDING; check "3 claude" eq "$(calls claude)" 3; check "3 codex" eq "$(calls codex)" 3
 check "6 calls" eq "$(sj model_calls.total)" 6
 agent_run
@@ -252,6 +258,94 @@ end
 begin "5b --max-fix-rounds 1 → stop after first final with High (4 calls)"
 setup $'done\ndone' $'0 1 0 0\n0 1 0 0'; agent_run --max-fix-rounds 1
 stopped REPEATED_HIGH_FINDING; check "4 calls" eq "$(sj model_calls.total)" 4
+end
+
+# ── budget v2: at most two automatic Codex audits by default ───────────
+begin "G default: High remains after the focused final → stop at 2 Codex audits, no audit #3"
+setup $'done\ndone\ndone' $'0 1 0 0\n0 1 0 0\n0 0 0 0'; agent_run
+stopped REPEATED_HIGH_FINDING; check "2 codex" eq "$(calls codex)" 2; check "no second fix" eq "$(calls claude)" 2
+check "4 calls" eq "$(sj model_calls.total)" 4; check "explains explicit action" has "explicit human action"
+check "names the opt-in" has "--max-fix-rounds 2"; check "state kept" test -n "$(state_file)"
+check "default recorded" eq "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["options"]["max_fix_rounds"])' "$(state_file)")" 1
+agent_run
+check "plain rerun: exit 1" eq "$RC" 1; check "plain rerun makes no call" eq "$(calls claude)$(calls codex)" 22
+agent_run --max-fix-rounds 1
+check "rerun with 1: no call" eq "$(calls claude)$(calls codex)" 22
+agent_run --max-fix-rounds 2
+complete; check "authorised" has "additional remediation round authorised"
+check "exactly one more fix" eq "$(calls claude)" 3; check "exactly one more audit" eq "$(calls codex)" 3
+check "6 calls" eq "$(sj model_calls.total)" 6; check "build not repeated" eq "$(sj model_calls.build)" 1
+end
+
+begin "G2 Medium/Low in the focused final → COMPLETE, no further Codex call"
+setup $'done\ndone' $'0 1 2 1\n0 0 3 2'; agent_run
+complete; check "2 codex" eq "$(calls codex)" 2; check "medium recorded" eq "$(sj findings.medium)" 3
+end
+
+begin "T1 default tier → gpt-6.1-sol + medium, stated in preamble and artifact"
+setup "done" "0 0 0 0"; agent_run
+complete; check "model arg" grep -q -- '-m gpt-6.1-sol --config model_reasoning_effort=medium' "$T/codex.args"
+check "read-only sandbox kept" grep -q -- '--sandbox read-only' "$T/codex.args"
+check "preamble" has "tier=standard model=gpt-6.1-sol (tier) reasoning=medium (tier)"
+check "artifact names auditor" grep -q 'auditor: codex tier=standard model=gpt-6.1-sol' "$R/$(sj audits.0.artifact)"
+check "telemetry records effective model" grep -q '"requested_model": "gpt-6.1-sol", "requested_reasoning": "medium", "audit_tier": "standard"' "$R/.agent/history/usage.jsonl"
+end
+
+begin "T2 strict tier → gpt-6-astra + high"
+setup "done" "0 0 0 0"; run_in_repo env AGENT_AUDIT_TIER=strict ./scripts/agent-run
+complete; check "strict args" grep -q -- '-m gpt-6-astra --config model_reasoning_effort=high' "$T/codex.args"
+check "preamble" has "tier=strict model=gpt-6-astra (tier) reasoning=high (tier)"
+end
+
+begin "T3 explicit AGENT_CODEX_MODEL / AGENT_CODEX_REASONING override the tier"
+setup "done" "0 0 0 0"; run_in_repo env AGENT_AUDIT_TIER=strict AGENT_CODEX_MODEL=custom-model AGENT_CODEX_REASONING=low ./scripts/agent-run
+complete; check "override args" grep -q -- '-m custom-model --config model_reasoning_effort=low' "$T/codex.args"
+check "sources stated" has "tier=strict model=custom-model (AGENT_CODEX_MODEL) reasoning=low (AGENT_CODEX_REASONING)"
+teardown; setup "done" "0 0 0 0"; run_in_repo env AGENT_CODEX_REASONING=high ./scripts/agent-run
+complete; check "reasoning-only override keeps tier model" grep -q -- '-m gpt-6.1-sol --config model_reasoning_effort=high' "$T/codex.args"
+end
+
+for bad in "AGENT_AUDIT_TIER=bogus" "AGENT_AUDIT_TIER=STRICT" "AGENT_CODEX_REASONING=hi;gh" "AGENT_CODEX_MODEL=-oops"; do
+  begin "T4 invalid audit config '$bad' → rejected before any model call"
+  setup "done" "0 0 0 0"; run_in_repo env "$bad" ./scripts/agent-run
+  stopped PRECHECK_FAILED; check "0 calls" eq "$(calls claude)$(calls codex)" 00; check "no run state" test -z "$(state_file)"
+  run_in_repo env "$bad" ./scripts/agent-audit --primary
+  check "agent-audit exit 2" eq "$RC" 2; check "no codex" eq "$(calls codex)" 0
+  run_in_repo env "$bad" ./scripts/agent-run --dry-run
+  check "dry run refused" eq "$RC" 1
+  end
+done
+
+begin "T5 dry run states the effective tier and the 2-audit Codex budget"
+setup "done" "0 0 0 0"; agent_run --dry-run
+check "exit 0" eq "$RC" 0; check "tier" has "Codex audit: tier=standard model=gpt-6.1-sol (tier) reasoning=medium (tier)"
+check "budget" has "Codex audit budget: max 2 automatic"; check "0 calls" eq "$(calls claude)$(calls codex)" 00
+end
+
+# ── quota-aware stopping ───────────────────────────────────────────────
+begin "Q1 quota error in primary → QUOTA_EXHAUSTED, no retry, resumes at the same audit"
+setup "done" $'quota\n0 0 0 0'; agent_run
+stopped QUOTA_EXHAUSTED; check "one codex attempt, no retry" eq "$(calls codex)" 1; check "1 claude" eq "$(calls claude)" 1
+check "reset message surfaced" has "Try again at 4:12 PM"; check "do-not-rerun guidance" has "do not rerun until"
+check "not generic unassessed" hasnt "REASON: AUDIT_UNASSESSED"
+check "artifact marked" grep -q 'QUOTA_EXHAUSTED: You have hit your usage limit' "$(ls "$R"/.agent/history/audit-*.md | head -n1)"
+check "state resumable" grep -q '"resumable": true' "$(state_file)"
+check "stage kept at build" eq "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["stage"])' "$(state_file)")" BUILD_DONE
+agent_run
+complete; check "build not repeated" eq "$(calls claude)" 1; check "audit retried once on operator rerun" eq "$(calls codex)" 2
+check "build counted once" eq "$(sj model_calls.build)" 1
+end
+
+begin "Q2 quota (plain-text CLI error) in focused final → QUOTA_EXHAUSTED; rerun resumes at final, no refix"
+setup $'done\ndone' $'0 1 0 0\nquotatext\n0 0 0 0'; agent_run
+stopped QUOTA_EXHAUSTED; check "message surfaced" has "Quota exceeded"; check "2 claude" eq "$(calls claude)" 2
+agent_run
+complete; check "no refix" eq "$(calls claude)" 2; check "3 codex attempts" eq "$(calls codex)" 3
+end
+
+begin "Q3 agent message mentioning 'usage limit' on a generic failure → AUDIT_UNASSESSED, not quota"
+setup "done" $'limitprose\n0 0 0 0'; agent_run
+stopped AUDIT_UNASSESSED; check "not quota" hasnt "QUOTA_EXHAUSTED"
 end
 
 begin "5c Critical in primary → automatic fix threshold → final clean"

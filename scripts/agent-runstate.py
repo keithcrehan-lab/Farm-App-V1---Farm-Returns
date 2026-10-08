@@ -501,6 +501,8 @@ def dry_run(full, maxfix):
     print('      else agent-fix → agent-audit --final (repeat at most %s fix round(s)) → CLOSE | HUMAN_DECISION_REQUIRED' % maxfix)
     print('Model-call budget: build 1 · primary audit 1 · fix %s · final audit %s · max %d (clean path 2, one-fix path 4)'
           % (maxfix, maxfix, 2 + 2 * int(maxfix)))
+    print('Codex audit budget: max %d automatic (primary 1 + final %s)%s' % (
+        1 + int(maxfix), maxfix, '' if int(maxfix) > 1 else '; another round only by explicit --max-fix-rounds 2'))
     print('Verification category (current delta, %d file(s)): %s %s%s' % (
         len(files), p['category'], p['category_name'], ' — recomputed from the build diff' if not files else ''))
     print('Verification commands: task verify command + %s' % (', '.join(c['name'] for c in p['commands']) or 'none'))
@@ -554,6 +556,14 @@ def main():
             st.update(in_flight=None, stage=stage, head=head)
         elif cmd == 'resume':
             st.update(result=None, reason=None, detail=None, next_action=None, resumable=False, finished_at=None)
+        st['updated_at'] = now()
+        write_json(path, st)
+    elif cmd == 'authorise-round':  # explicit human --max-fix-rounds 2 after a default one-round stop
+        st, path = load()
+        if st.get('stage') != 'FINAL_1_DONE' or st['options'].get('max_fix_rounds') != 1:
+            raise ValueError('an additional round is only authorisable after final audit 1 of a one-round run')
+        st['options']['max_fix_rounds'] = 2
+        st['round_authorised_at'] = now()
         st['updated_at'] = now()
         write_json(path, st)
     elif cmd == 'consumed':  # is this audit artifact already recorded by the run?

@@ -8,11 +8,16 @@
 # a full review of task_base..HEAD.
 #
 #   scripts/agent-audit [--full|--verify] [--dry-run|--smoke-test]
-#   AGENT_CODEX_MODEL=<model>     optional fixed model (default: Codex config)
+#   AGENT_AUDIT_TIER=standard|strict  standard: gpt-6.1-sol, reasoning medium (default)
+#                                 strict: gpt-6-astra, reasoning high; unknown → exit 2, no call
+#   AGENT_CODEX_MODEL=<model>     explicit model, overrides the tier
+#   AGENT_CODEX_REASONING=<effort> explicit reasoning effort, overrides the tier
+#                                 (passed as --config model_reasoning_effort=<effort>)
 #   AGENT_CODEX_TIMEOUT=<secs>    wall-clock ceiling (default 1200, per AGENTS.md)
 #
-# Exit: 0 assessed with 0 Critical/High · 1 Critical/High found ·
-#       3 UNASSESSED (timeout/error/unparseable). Never counts as a pass.
+# Exit: 0 assessed with 0 Critical/High · 1 Critical/High found · 2 invalid tier/model config ·
+#       3 UNASSESSED (timeout/error/unparseable) · 4 QUOTA_EXHAUSTED (Codex usage limit; not
+#       retried — rerun only once the limit has reset). Neither 3 nor 4 ever counts as a pass.
 source "$(dirname "${BASH_SOURCE[0]}")/agent-lib.sh"
 
 KIND=""; DRY=false; SMOKE=false; EXPLICIT_BASE=""; WORKING=false; FINDING="all"
@@ -32,7 +37,8 @@ while [[ $# -gt 0 ]]; do
     *) die "usage: agent-audit [--primary|--final|--remediation ID|--campaign BASE|--release BASE|--repository BASE] [--working-tree] [--dry-run]";;
   esac
 done
-MODEL_ARGS=(); [[ -n "${AGENT_CODEX_MODEL:-}" ]] && MODEL_ARGS=(-m "$AGENT_CODEX_MODEL")
+codex_audit_config || exit 2
+MODEL_ARGS=(-m "$CODEX_MODEL" --config "model_reasoning_effort=$CODEX_REASONING")
 
 require_cli codex
 codex_exec() { # codex_exec PROMPT_FILE RAW_LOG LAST_MSG_FILE
@@ -42,6 +48,7 @@ codex_exec() { # codex_exec PROMPT_FILE RAW_LOG LAST_MSG_FILE
 }
 
 if $SMOKE; then
+  note "codex audit $CODEX_CONFIG_DESC"
   ts="$(stamp)"; p="$HISTORY_DIR/codex-smoke-$ts.prompt"; msg="$HISTORY_DIR/codex-smoke-$ts.md"
   echo 'Run `git rev-parse --short HEAD` and reply with exactly one line: CODEX_SMOKE_OK <that sha>' > "$p"
   rc=0; codex_exec "$p" "$HISTORY_DIR/codex-smoke-$ts.raw.log" "$msg" || rc=$?
@@ -113,26 +120,34 @@ PROMPT
 
 if $DRY; then
   note "audit pre-flight OK: kind=$KIND base=$(short "$base") head=$(short "$head")"
-  echo "would run: codex exec --sandbox read-only -C $REPO_ROOT --ephemeral --color never ${MODEL_ARGS[*]:-} -o $HISTORY_DIR/audit-$ts.md - < $prompt_file"
+  note "codex audit $CODEX_CONFIG_DESC"
+  echo "would run: codex exec --sandbox read-only -C $REPO_ROOT --ephemeral --color never ${MODEL_ARGS[*]} -o $HISTORY_DIR/audit-$ts.md - < $prompt_file"
   cat "$prompt_file"; rm -f "$prompt_file"; exit 0
 fi
 
 msg="$HISTORY_DIR/audit-$ts.md.tmp"; result="$HISTORY_DIR/audit-$ts.md"; raw="$HISTORY_DIR/audit-$ts.raw.log"
 note "codex $KIND audit $(short "$base")..$(short "$head") (ceiling ${AGENT_CODEX_TIMEOUT:-1200}s)"
+note "codex audit $CODEX_CONFIG_DESC"
 started="$(date +%s)"
 rc=0; codex_exec "$prompt_file" "$raw" "$msg" || rc=$?
 if [[ "$(git rev-parse HEAD)" != "$head" || "$(python3 scripts/agent-context.py inventory "$base" "$head" "$WORKING")" != "$inventory" ]]; then rc=6; fi
 if ! $WORKING && [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then rc=6; fi
 
 status="$(last_marker AUDIT_STATUS "$msg")"; summary="$(last_marker AUDIT_SUMMARY "$msg")"
-crit=""; high=""; verdict=UNASSESSED
+crit=""; high=""; verdict=UNASSESSED; quota=""
 if [[ $rc -eq 0 ]] && audit_output_valid "$msg"; then
   read -r crit high _ _ <<<"$(audit_counts "$summary")"; verdict=ASSESSED
+elif [[ $rc -ne 6 && $rc -ne 124 ]]; then
+  # A Codex usage-limit/quota error (from its error events, whatever its exit status) is its
+  # own class: stop, never retry automatically.
+  quota="$(python3 scripts/agent-context.py codex-quota "$raw")" || quota=""
 fi
 
 {
   echo "# Audit $ts — $KIND — $(task_title)"
-  echo "range: $base..$head · working-tree: $WORKING · codex exit: $rc$([[ $rc -eq 124 ]] && echo ' (TIMEOUT)') · verdict: $verdict"
+  echo "range: $base..$head · working-tree: $WORKING · codex exit: $rc$([[ $rc -eq 124 ]] && echo ' (TIMEOUT)') · verdict: $verdict$([[ -n "$quota" ]] && echo ' (QUOTA_EXHAUSTED)')"
+  echo "auditor: codex $CODEX_CONFIG_DESC"
+  [[ -z "$quota" ]] || echo "QUOTA_EXHAUSTED: $quota"
   echo
   cat "$msg" 2>/dev/null || echo "(no final message — see $raw)"
 } > "$result"
@@ -143,12 +158,21 @@ telemetry_mode=primary-audit
 [[ "$KIND" == final ]] && telemetry_mode=final-audit
 [[ "$KIND" == campaign || "$KIND" == release || "$KIND" == repository ]] && telemetry_mode="$KIND-audit"
 $WORKING && telemetry_mode=working-audit
-python3 scripts/agent-context.py telemetry "$telemetry_mode" "$base" "$head" "$raw" "$(( $(date +%s) - started ))" "$verdict" "$result"
+AGENT_CODEX_MODEL="$CODEX_MODEL" AGENT_CODEX_REASONING="$CODEX_REASONING" AGENT_AUDIT_TIER="$CODEX_TIER" \
+  python3 scripts/agent-context.py telemetry "$telemetry_mode" "$base" "$head" "$raw" "$(( $(date +%s) - started ))" "$([[ -n "$quota" ]] && echo QUOTA_EXHAUSTED || echo "$verdict")" "$result"
 state_set task "$(task_title)"
 state_set task_base "$TASK_BASE"
 state_set last_audit_head "$head"
 state_set last_audit "$result"
 state_set last_audit_kind "$KIND"
+if [[ -n "$quota" ]]; then
+  python3 scripts/agent-context.py receipt "$KIND" "$base" "$head" UNASSESSED "$result" "$WORKING" "$inventory"
+  state_set last_audit_result "UNASSESSED (QUOTA_EXHAUSTED, exit $rc) @ $(short "$head")"; state_touch
+  echo "audit QUOTA_EXHAUSTED — Codex usage limit reached; not a pass and not retried." >&2
+  echo "Codex said: $quota" >&2
+  echo "Do not rerun until the Codex usage window has reset or credits are available; a rerun resumes at this audit." >&2
+  exit 4
+fi
 if [[ "$verdict" == UNASSESSED ]]; then
   python3 scripts/agent-context.py receipt "$KIND" "$base" "$head" UNASSESSED "$result" "$WORKING" "$inventory"
   state_set last_audit_result "UNASSESSED (exit $rc) @ $(short "$head")"; state_touch

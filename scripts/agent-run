@@ -3,10 +3,16 @@
 # makes an orchestration decision. It only composes the existing scripts,
 # whose safeguards stay authoritative:
 #
-#   PRECHECK → agent-build → agent-audit --primary → CLOSE              2 calls
-#     primary Critical/High → agent-fix → agent-audit --final → CLOSE     4 calls
-#     final Critical/High   → agent-fix → agent-audit --final → CLOSE     6 calls (hard max)
+#   PRECHECK → agent-build → agent-audit --primary → CLOSE              2 calls (1 Codex)
+#     primary Critical/High → agent-fix → agent-audit --final → CLOSE     4 calls (2 Codex)
+#     final Critical/High   → HUMAN_DECISION_REQUIRED (REPEATED_HIGH_FINDING) — default stop
+#   Only with explicit --max-fix-rounds 2 (at start, or on a rerun of that stop):
+#     final Critical/High   → agent-fix → agent-audit --final → CLOSE     6 calls (3 Codex, hard max)
 #     still Critical/High   → HUMAN_DECISION_REQUIRED (REPEATED_HIGH_FINDING)
+#
+# Codex audits use AGENT_AUDIT_TIER (standard|strict, see agent-lib.sh), validated in
+# PRECHECK. A Codex usage-limit error stops at once as QUOTA_EXHAUSTED (resumable, never
+# retried automatically): rerun only after the limit resets; it resumes at that audit.
 #
 # Medium/Low findings are recorded, never fixed or re-audited automatically.
 # No remediation audits. A clean primary audit covers the complete task delta
@@ -16,6 +22,9 @@
 # model call. Verification follows the category policy in agent-runstate.py.
 #
 #   scripts/agent-run [--dry-run] [--full-tests] [--max-fix-rounds 1|2] [--no-auto-commit]
+#   --max-fix-rounds  automatic fix rounds (default 1). 2 is an explicit opt-in; passed on a
+#                     rerun of a run stopped after final audit 1 it authorises exactly one
+#                     more fix + final audit.
 #
 # Exit: 0 COMPLETE · 1 HUMAN_DECISION_REQUIRED · 2 usage · 3 another runner
 #       is live · 130 interrupted (rerun to resume).
@@ -27,13 +36,13 @@ SCRIPTS="$REPO_ROOT/scripts"
 rs() { python3 "$SCRIPTS/agent-runstate.py" "$@"; }
 usage() { echo "usage: scripts/agent-run [--dry-run] [--full-tests] [--max-fix-rounds 1|2] [--no-auto-commit]" >&2; exit 2; }
 
-DRY=false; FULL=false; MAXFIX=2; AUTO=true
+DRY=false; FULL=false; MAXFIX=1; MAXFIX_EXPLICIT=false; AUTO=true
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY=true;;
     --full-tests) FULL=true;;
     --no-auto-commit) AUTO=false;;
-    --max-fix-rounds) [[ "${2:-}" == 1 || "${2:-}" == 2 ]] || usage; MAXFIX="$2"; shift;;
+    --max-fix-rounds) [[ "${2:-}" == 1 || "${2:-}" == 2 ]] || usage; MAXFIX="$2"; MAXFIX_EXPLICIT=true; shift;;
     *) usage;;
   esac
   shift
@@ -41,7 +50,8 @@ done
 [[ -z "${MAX_FIX_ROUNDS+x}" ]] || { echo "agent-run: MAX_FIX_ROUNDS is retired; use --max-fix-rounds 1|2" >&2; exit 2; }
 
 if $DRY; then
-  out="$( { require_task && python3 "$SCRIPTS/agent-runstate.py" dry-run "$FULL" "$MAXFIX"; } 2>&1 )" || {
+  out="$( { require_task && codex_audit_config && python3 "$SCRIPTS/agent-runstate.py" dry-run "$FULL" "$MAXFIX" &&
+            echo "Codex audit: $CODEX_CONFIG_DESC"; } 2>&1 )" || {
     printf '%s\n' "$out"; echo "agent-run: dry run pre-flight failed (no model call)" >&2; exit 1; }
   printf '%s\n' "$out"; exit 0
 fi
@@ -96,6 +106,8 @@ pre="$( { require_task && require_not_main; } 2>&1 )" || fail_pre "${pre##*agent
 [[ -f "$AGENT_DIR/TASK.json" ]] || fail_pre "missing $AGENT_DIR/TASK.json"
 for s in agent-build agent-audit agent-fix; do [[ -x "$SCRIPTS/$s" ]] || fail_pre "missing or non-executable scripts/$s"; done
 for s in agent-lib.sh agent-context.py agent-runstate.py; do [[ -f "$SCRIPTS/$s" ]] || fail_pre "missing scripts/$s"; done
+pre="$(codex_audit_config 2>&1)" || fail_pre "${pre##*agent: }" "set AGENT_AUDIT_TIER to standard or strict (or unset it), then rerun"
+codex_audit_config; echo "agent-run: codex audit $CODEX_CONFIG_DESC"
 BASE="$(python3 "$SCRIPTS/agent-context.py" pin 2>&1)" || fail_pre "task metadata/immutable base lock invalid: ${BASE##*: }"
 TASK_ID="$(rs task-id 2>&1)" || fail_pre "task metadata does not parse: $TASK_ID"
 STATE_PATH="$(rs state-path)"
@@ -132,8 +144,16 @@ else
     FINISHED=true; rs report; echo "(already complete — no model call)"; exit 0
   fi
   if [[ "$result" == HUMAN_DECISION_REQUIRED && "$(rs get resumable)" != true ]]; then
-    FINISHED=true; rs report
-    echo "(stopped earlier; resolve it, then delete $STATE_PATH to start this task's run afresh)"; exit 1
+    # The one explicit opt-in: a human rerunning a default-budget stop after final audit 1
+    # with --max-fix-rounds 2 authorises exactly one more fix + final audit.
+    if $MAXFIX_EXPLICIT && [[ "$MAXFIX" == 2 && "$(rs get stage)" == FINAL_1_DONE &&
+          "$(rs get reason)" == REPEATED_HIGH_FINDING && "$(rs get options.max_fix_rounds)" == 1 ]]; then
+      rs authorise-round
+      echo "agent-run: explicit --max-fix-rounds 2 — one additional remediation round authorised (fix 2 + final audit 2)"
+    else
+      FINISHED=true; rs report
+      echo "(stopped earlier; resolve it, then delete $STATE_PATH to start this task's run afresh)"; exit 1
+    fi
   fi
   [[ "$(rs get branch)" == "$BRANCH" ]] || { STATE_READY=false; human UNEXPECTED_STATE_CHANGE "saved run is on branch $(rs get branch), now on $BRANCH" "return to the run's branch"; }
   inflight="$(rs get in_flight)"
@@ -281,6 +301,14 @@ do_audit() {
     echo "[$label] scripts/agent-audit --$([[ $kind == full ]] && echo primary || echo final)"
     "$SCRIPTS/agent-audit" "--$([[ $kind == full ]] && echo primary || echo final)" >"$log" 2>&1 || rc=$?
     art="$(state_get last_audit)"; res="$(state_get last_audit_result)"
+    if [[ $rc -eq 4 || "$res" == *QUOTA_EXHAUSTED* ]]; then
+      # Distinct from a generic UNASSESSED: stop now, no retry; a later rerun resumes at this audit.
+      local said=""; [[ -n "$art" && -f "$art" ]] && said="$(last_marker QUOTA_EXHAUSTED "$art")"
+      rs set in_flight ""
+      human QUOTA_EXHAUSTED "Codex usage limit reached during $label — not a pass, not retried ($log)
+Codex said: ${said:-(no message; see $log)}" \
+        "do not rerun until the Codex usage window has reset or credits are available; then rerun ./scripts/agent-run (resumes at this audit, no rebuild)" true
+    fi
     if [[ "$res" == UNASSESSED* ]]; then
       rs set in_flight ""
       human AUDIT_UNASSESSED "audit UNASSESSED ($res) — not a pass; see $art" "retry: rerun ./scripts/agent-run (resumes at this audit)" true
@@ -332,7 +360,9 @@ while :; do
     FIX_1_DONE) do_audit final final_audit FINAL_1_DONE "FINAL AUDIT 1";;
     FINAL_1_DONE)
       if ! blocking; then closeout; fi
-      (( MAXFIX >= 2 )) || human REPEATED_HIGH_FINDING "Critical/High remain after 1 fix round — $(state_get last_audit)" "review the findings and decide"
+      (( MAXFIX >= 2 )) || human REPEATED_HIGH_FINDING "Critical/High remain after the focused final audit — $(state_get last_audit)
+Automatic Codex budget used (primary + one final audit); a further round is never automatic." \
+        "review the findings; an additional remediation round requires explicit human action: rerun ./scripts/agent-run --max-fix-rounds 2 (exactly one more fix + final audit) or fix manually"
       do_fix 2;;
     FIX_2_DONE) do_audit final final_audit FINAL_2_DONE "FINAL AUDIT 2";;
     FINAL_2_DONE)

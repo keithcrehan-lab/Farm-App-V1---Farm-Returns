@@ -236,6 +236,27 @@ run_claude() {
   return "$rc"
 }
 
+# Codex audit tier (token budget). AGENT_AUDIT_TIER=standard|strict (default
+# standard) picks the model and reasoning effort; explicit AGENT_CODEX_MODEL /
+# AGENT_CODEX_REASONING always win. An unknown tier or malformed value is
+# rejected before any model call. Sets CODEX_TIER, CODEX_MODEL, CODEX_REASONING
+# and CODEX_CONFIG_DESC (call directly, not in a subshell, to keep them).
+#   standard → gpt-6.1-sol, medium · strict → gpt-6-astra, high
+codex_audit_config() {
+  local tier="${AGENT_AUDIT_TIER:-standard}" model effort msrc=tier rsrc=tier
+  case "$tier" in
+    standard) model=gpt-6.1-sol; effort=medium;;
+    strict) model=gpt-6-astra; effort=high;;
+    *) echo "agent: unknown AGENT_AUDIT_TIER '$tier' (expected standard|strict); no audit was run" >&2; return 2;;
+  esac
+  [[ -n "${AGENT_CODEX_MODEL:-}" ]] && { model="$AGENT_CODEX_MODEL"; msrc=AGENT_CODEX_MODEL; }
+  [[ -n "${AGENT_CODEX_REASONING:-}" ]] && { effort="$AGENT_CODEX_REASONING"; rsrc=AGENT_CODEX_REASONING; }
+  [[ "$model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || { echo "agent: invalid AGENT_CODEX_MODEL '$model'; no audit was run" >&2; return 2; }
+  [[ "$effort" =~ ^[a-z]+$ ]] || { echo "agent: invalid AGENT_CODEX_REASONING '$effort'; no audit was run" >&2; return 2; }
+  CODEX_TIER="$tier"; CODEX_MODEL="$model"; CODEX_REASONING="$effort"
+  CODEX_CONFIG_DESC="tier=$tier model=$model ($msrc) reasoning=$effort ($rsrc)"
+}
+
 # Last "KEY: value" line in a file.
 last_marker() { { grep -E "^$1:" "$2" 2>/dev/null || true; } | tail -n1 | sed "s/^$1: *//"; }
 # Number of "KEY:" lines in a file (0 if none or no file).

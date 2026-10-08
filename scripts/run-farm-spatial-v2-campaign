@@ -80,9 +80,9 @@ for item in "${phases[@]}"; do
 
   set +e
   if [[ "$mode" == full ]]; then
-    ./scripts/agent-run --max-fix-rounds 2 --full-tests 2>&1 | tee -a "$LOG"
+    ./scripts/agent-run --full-tests 2>&1 | tee -a "$LOG"
   else
-    ./scripts/agent-run --max-fix-rounds 2 2>&1 | tee -a "$LOG"
+    ./scripts/agent-run 2>&1 | tee -a "$LOG"
   fi
   rc=${PIPESTATUS[0]}
   set -e

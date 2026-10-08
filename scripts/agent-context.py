@@ -121,12 +121,40 @@ def telemetry(mode, base, head, raw, duration, result, output):
         models = results[0].get('modelUsage', {})
         if len(models) == 1: model = next(iter(models))
     counts = re.search(r'AUDIT_SUMMARY: CRITICAL=(\d+) HIGH=(\d+) MEDIUM=(\d+) LOW=(\d+)', Path(output).read_text(errors='replace')) if Path(output).exists() else None
-    record = dict(timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(), model=model, requested_model=requested_model,
+    audit = 'audit' in mode or mode == 'remediation'
+    extra = dict(requested_reasoning=os.environ.get('AGENT_CODEX_REASONING', 'UNKNOWN'),
+                 audit_tier=os.environ.get('AGENT_AUDIT_TIER', 'UNKNOWN')) if audit else {}
+    record = dict(timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(), model=model, requested_model=requested_model, **extra,
                   task_id=data['task_id'], task_base_sha=data['base_sha'], base_sha=base, head_sha=head,
                   mode=mode, duration_seconds=int(duration), result=result, **usage,
                   findings=dict(zip(('critical', 'high', 'medium', 'low'), map(int, counts.groups()))) if counts else 'UNKNOWN',
                   **inventory(base, head, mode in ('build', 'fix', 'working-audit')))
     with (HISTORY / 'usage.jsonl').open('a') as f: f.write(json.dumps(record) + '\n')
+
+
+# Codex usage-limit/quota errors (not transient rate limits). Matched only against Codex's own
+# error events and non-JSON CLI output, never against agent messages or command output.
+QUOTA_RE = re.compile(r'usage[ _-]limit|insufficient[ _]quota|quota[ _](exceeded|exhausted)|exceeded your (current )?quota|out of credits', re.I)
+
+
+def codex_quota(raw):
+    """The Codex usage-limit message in a raw `codex exec --json` log, or None. Reported verbatim
+    (whitespace-collapsed, credential-like strings redacted); no reset time is ever computed."""
+    if not Path(raw).is_file(): return None
+    for line in Path(raw).read_text(errors='replace').splitlines():
+        try: event = json.loads(line)
+        except (ValueError, TypeError): event = None
+        if isinstance(event, dict):
+            err = event.get('error')
+            text = (event.get('message') if event.get('type') == 'error'
+                    else (err.get('message') if isinstance(err, dict) else err) if event.get('type') == 'turn.failed' else None)
+            if not isinstance(text, str): continue
+        elif event is not None: continue
+        else: text = line
+        if QUOTA_RE.search(text):
+            text = re.sub(r'(sk-|ghp_|xox[bp]-)[A-Za-z0-9_-]{8,}|Bearer [A-Za-z0-9._-]+', '[redacted]', ' '.join(text.split()))
+            return text[:400]
+    return None
 
 
 def main():
@@ -185,6 +213,10 @@ def main():
         Path(out).write_text('# Open Critical/High findings from ' + audit + '\n\n' + '\n\n'.join('\n'.join(b).rstrip() for b in blocks) + '\n')
         print(len(blocks))
     elif cmd == 'telemetry': telemetry(*args)
+    elif cmd == 'codex-quota':  # RAW → prints the usage-limit message and exits 0, else exits 1
+        msg = codex_quota(args[0])
+        if msg is None: sys.exit(1)
+        print(msg)
     else: raise ValueError('unknown command')
 
 

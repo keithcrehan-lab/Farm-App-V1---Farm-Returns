@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "task_id": "farm-spatial-v2-whole-farm-nutrient-plan-and-market-handoff-20261008",
-  "title": "Farm Spatial V2 — whole-farm nutrient plan and Market handoff",
-  "base_sha": "d265e72c0eab622c35ee2cd13452913987cf1ec9",
+  "task_id": "harness-efficiency-codex-audit-budget-v2-20261008",
+  "title": "Harness efficiency — Codex audit budget v2",
+  "base_sha": "4265e65835bd717b6ecaa9ee7fc95af7d2589ecf",
   "domains": [
     "ui",
-    "nutrients"
+    "agent-harness"
   ],
   "expected_changed_files": [],
   "contracts": [
@@ -23,7 +23,6 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
-    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

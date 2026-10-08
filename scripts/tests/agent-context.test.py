@@ -231,6 +231,24 @@ class HarnessTests(unittest.TestCase):
         self.assertIn('[F001]', text); self.assertIn('[F003]', text); self.assertNotIn('[F002]', text)
         self.assertNotIn('AUDIT_SUMMARY', text)
 
+    def test_codex_quota_classifies_only_codex_errors(self):
+        raw = self.root / '.agent/history/raw.log'
+        def quota(text):
+            raw.write_text(text)
+            run = subprocess.run(['python3', 'scripts/agent-context.py', 'codex-quota', str(raw)], cwd=self.root, text=True, capture_output=True)
+            return run.stdout.strip() if run.returncode == 0 else None
+        self.assertEqual(quota('{"type":"error","message":"You have hit your usage limit. Try again at 4:12 PM."}\n'),
+                         'You have hit your usage limit. Try again at 4:12 PM.')
+        self.assertEqual(quota('{"type":"turn.failed","error":{"message":"insufficient_quota"}}\n'), 'insufficient_quota')
+        self.assertEqual(quota('ERROR: Quota exceeded for key sk-abcdefghijklmnop\n'), 'ERROR: Quota exceeded for key [redacted]')
+        # Agent messages / command output mentioning limits, and transient rate limits, are not quota.
+        self.assertIsNone(quota('{"type":"item.completed","item":{"type":"agent_message","text":"usage limit"}}\n'
+                                '{"type":"error","message":"rate_limit_exceeded, retry shortly"}\n'))
+        self.assertIsNone(quota(''))
+        raw.unlink()  # a missing raw log is simply "not quota"
+        run = subprocess.run(['python3', 'scripts/agent-context.py', 'codex-quota', str(raw)], cwd=self.root, text=True, capture_output=True)
+        self.assertEqual((run.returncode, run.stderr), (1, ''))
+
     def test_timeout_cleanup_needs_no_process_enumeration(self):
         import time
         shutil.copy(SOURCE / 'scripts/agent-lib.sh', self.root / 'scripts/agent-lib.sh')

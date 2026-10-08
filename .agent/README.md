@@ -57,8 +57,11 @@ Retry unavailable CLI calls; never replace independent review with self-review.
 
 `agent-run` is deterministic orchestration over the scripts above; no model decides flow.
 PRECHECK (shell only) → build → primary audit → CLOSE when CRITICAL=0 HIGH=0: 2 calls.
-Critical/High → fix → `--final` → CLOSE: 4 calls. Still Critical/High → second fix →
-second final → CLOSE, else HUMAN_DECISION_REQUIRED (REPEATED_HIGH_FINDING): max 6.
+Critical/High → fix → focused `--final` → CLOSE: 4 calls. By default that is the limit:
+at most **two automatic Codex audits** (`--max-fix-rounds 1`). Still Critical/High →
+HUMAN_DECISION_REQUIRED (REPEATED_HIGH_FINDING), state kept. Another remediation round is
+explicit human action: `--max-fix-rounds 2` at start, or on a rerun of that stop (authorises
+exactly one more fix + final; max 6 calls / 3 audits), or fix manually.
 Medium/Low are recorded, never fixed or re-audited automatically; no remediation audits.
 A clean primary audit reviewed the complete task delta at the closing HEAD, so it *is*
 the task's final audit and is not repeated. The fix receives only open Critical/High
@@ -68,7 +71,10 @@ rerunning resumes and never repeats a successful call (an unrecorded completed a
 same kind/HEAD is adopted). A run whose build/fix ended without `BUILD_RESULT` (or whose
 harness commit failed) but left coherent, verified work is committed as DONE_RECOVERED;
 `--no-auto-commit` turns that into a human stop. Terminal human stops are kept until you
-delete the run-state file; UNASSESSED audits and Ctrl+C resume on rerun. One runner per
+delete the run-state file; UNASSESSED audits and Ctrl+C resume on rerun. A Codex
+usage-limit/quota error is QUOTA_EXHAUSTED (agent-audit exit 4): distinct from UNASSESSED,
+never retried; the stop quotes Codex's own reset message (none is computed). Do not rerun
+until the limit resets or credits exist; the rerun resumes at that audit, no rebuild. One runner per
 worktree (`history/agent-run.lock`; a dead same-host owner is stale, anything else stops).
 Stops print `AGENT_RUN_RESULT`, `REASON`, `DETAIL`, `NEXT_RECOMMENDED_ACTION`; each run
 writes `history/run-<run_id>.json` (calls, findings, verification, usage, report paths).
@@ -131,8 +137,14 @@ IDs and audit artifacts allow analysis per resolved finding; do not invent attri
 whole-run usage to individual findings.
 
 Status, file extraction, scope, log formatting, pinning and summaries are deterministic.
-Implementation, architecture, science and independent audit retain current CLI model
-settings (`AGENT_CLAUDE_MODEL`, `AGENT_CODEX_MODEL` overrides); no automatic downgrade.
+Implementation, architecture and science retain current CLI model settings
+(`AGENT_CLAUDE_MODEL` override); no automatic downgrade. Codex audits use an explicit tier,
+`AGENT_AUDIT_TIER=standard|strict` (default standard): standard = `gpt-6.1-sol`, reasoning
+`medium`; strict = `gpt-6-astra`, reasoning `high` (passed as `-m <model> --config
+model_reasoning_effort=<effort>`). Explicit `AGENT_CODEX_MODEL` / `AGENT_CODEX_REASONING`
+override the tier. An unknown tier/malformed value is rejected before any model call; the
+console preamble, audit artifact (`auditor:` line) and usage telemetry state the effective
+tier/model/reasoning. Audit rules, read-only sandbox and the C/H gate are tier-independent.
 Jev implementation is absent at b24c266. Future routing can consume domains, scope size,
 stage, prior results and an explicit risk classification. It must not choose a weaker
 science/audit model merely because a diff is small. No Jev dependency is introduced.

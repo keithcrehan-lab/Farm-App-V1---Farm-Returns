@@ -245,6 +245,7 @@ export type RuleResolution =
   | { status: "RESOLVED"; rule: CattleRuleVersion }
   | { status: "NO_EFFECTIVE_VERSION"; ruleId: string; evaluationDate: string }
   | { status: "AMBIGUOUS_EFFECTIVE_VERSIONS"; ruleId: string; evaluationDate: string; versions: number[] }
+  | { status: "INVALID_SUPERSESSION_LINEAGE"; ruleId: string; evaluationDate: string; issues: string[] }
   | { status: "INVALID_EVALUATION_DATE"; ruleId: string; evaluationDate: string };
 
 function isEffectiveOn(rule: CattleRuleVersion, date: string): boolean {
@@ -252,10 +253,54 @@ function isEffectiveOn(rule: CattleRuleVersion, date: string): boolean {
 }
 
 /**
+ * Every version transitively superseded by `start`, walked through the
+ * complete PRODUCTION/SUPERSEDED `history` regardless of effective window, so
+ * an expired intermediate still links its successor to its predecessor. Each
+ * link must name exactly one history entry of the same rule with a strictly
+ * lower version; anything else (missing/unreleased target, duplicate version,
+ * cross-rule, non-decreasing or cyclic link) is reported, never skipped.
+ */
+function supersededAncestry(start: CattleRuleVersion, history: readonly CattleRuleVersion[]): { ancestors: Set<number>; issues: string[] } {
+  const ancestors = new Set<number>();
+  const issues: string[] = [];
+  const visited = new Set<number>([start.version]);
+  let current = start;
+  while (current.supersedes !== null) {
+    const link = `v${current.version}->${current.supersedes.ruleId}@v${current.supersedes.version}`;
+    if (current.supersedes.ruleId !== start.ruleId) {
+      issues.push(`CATTLE_RULE_SUPERSESSION_CROSS_RULE:${link}`);
+      break;
+    }
+    if (visited.has(current.supersedes.version)) {
+      issues.push(`CATTLE_RULE_SUPERSESSION_CYCLE:${link}`);
+      break;
+    }
+    if (!(current.supersedes.version < current.version)) {
+      issues.push(`CATTLE_RULE_SUPERSESSION_NOT_DECREASING:${link}`);
+      break;
+    }
+    const target = current.supersedes.version;
+    const matches = history.filter((r) => r.version === target);
+    if (matches.length !== 1) {
+      issues.push(`${matches.length === 0 ? "CATTLE_RULE_SUPERSESSION_TARGET_MISSING" : "CATTLE_RULE_SUPERSESSION_TARGET_DUPLICATED"}:${link}`);
+      break;
+    }
+    visited.add(target);
+    ancestors.add(target);
+    current = matches[0];
+  }
+  return { ancestors, issues };
+}
+
+/**
  * Selects the single PRODUCTION/SUPERSEDED version of `ruleId` effective on
- * `evaluationDate`. A version superseded by another effective candidate is
- * excluded; none left fails closed (NO_EFFECTIVE_VERSION), more than one
- * fails closed (AMBIGUOUS). Draft/unapproved versions are never selected.
+ * `evaluationDate`. A version transitively superseded by another effective
+ * candidate is excluded; ancestry follows the complete PRODUCTION/SUPERSEDED
+ * history, so expired intermediates still count. Malformed lineage reachable
+ * from an effective candidate fails closed (INVALID_SUPERSESSION_LINEAGE);
+ * none left fails closed (NO_EFFECTIVE_VERSION), more than one fails closed
+ * (AMBIGUOUS). Draft/unapproved versions are never selected and never
+ * establish lineage.
  */
 export function resolveEffectiveRuleVersion(
   versions: readonly CattleRuleVersion[],
@@ -263,12 +308,12 @@ export function resolveEffectiveRuleVersion(
   evaluationDate: string,
 ): RuleResolution {
   if (!isValidCalendarDate(evaluationDate)) return { status: "INVALID_EVALUATION_DATE", ruleId, evaluationDate };
-  const effective = versions.filter(
-    (r) => r.ruleId === ruleId && (r.productionState === "PRODUCTION" || r.productionState === "SUPERSEDED") && isEffectiveOn(r, evaluationDate),
-  );
-  const candidates = effective.filter(
-    (r) => !effective.some((s) => s.supersedes !== null && s.supersedes.ruleId === r.ruleId && s.supersedes.version === r.version),
-  );
+  const history = versions.filter((r) => r.ruleId === ruleId && (r.productionState === "PRODUCTION" || r.productionState === "SUPERSEDED"));
+  const effective = history.filter((r) => isEffectiveOn(r, evaluationDate));
+  const lineages = effective.map((r) => supersededAncestry(r, history));
+  const lineageIssues = sortedUnique(lineages.flatMap((l) => l.issues));
+  if (lineageIssues.length > 0) return { status: "INVALID_SUPERSESSION_LINEAGE", ruleId, evaluationDate, issues: lineageIssues };
+  const candidates = effective.filter((r) => !lineages.some((l) => l.ancestors.has(r.version)));
   if (candidates.length === 0) return { status: "NO_EFFECTIVE_VERSION", ruleId, evaluationDate };
   if (candidates.length > 1) {
     return { status: "AMBIGUOUS_EFFECTIVE_VERSIONS", ruleId, evaluationDate, versions: candidates.map((r) => r.version).sort((a, b) => a - b) };

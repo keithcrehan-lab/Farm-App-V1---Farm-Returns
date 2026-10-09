@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { evaluateCattleRule, evaluateEffectiveCattleRule, implementationRef, type RuleEvaluationContext } from "./evaluation";
+import {
+  evaluateCattleRule,
+  evaluateEffectiveCattleRule,
+  implementationRef,
+  type CattleRuleImplementation,
+  type CattleRulePredicate,
+  type RuleEvaluationContext,
+} from "./evaluation";
 import { sourceVersionRef } from "./source";
-import { CATALOGUE, LEGAL_SOURCE, approve, bindTo, descriptor, flagPredicate, hash, impl, item, synthRule, synthSource } from "./test-fixtures";
+import { CATALOGUE, LEGAL_SOURCE, SYNTH_IMPLEMENTATION_ID, approve, bindTo, descriptor, flagPredicate, hash, impl, item, synthRule, synthSource } from "./test-fixtures";
 
 const RULE = synthRule();
 const ctx = (overrides: Partial<RuleEvaluationContext> = {}): RuleEvaluationContext => ({
@@ -164,6 +171,68 @@ describe("evaluateCattleRule", () => {
     expect(fail).not.toHaveBeenCalled();
   });
 
+  it("an evaluate getter that swaps logic after fingerprinting never runs the swapped logic (F002)", () => {
+    const approvedPass = impl(() => "PASS");
+    const rule = synthRule({ implementation: bindTo(approvedPass) });
+    const c = ctx({ reviews: approve(rule) });
+    // Self-contained, so the first read fingerprints identically to the approved logic.
+    const pass: CattleRulePredicate = () => "PASS";
+    const fail: CattleRulePredicate = () => "FAIL";
+    let reads = 0;
+    const shifty = {
+      implementationId: SYNTH_IMPLEMENTATION_ID,
+      version: 1,
+      get evaluate(): CattleRulePredicate {
+        reads += 1;
+        return reads === 1 ? pass : fail;
+      },
+    } as CattleRuleImplementation;
+    const record = evaluateCattleRule(rule, shifty, c, hash);
+    expect(reads).toBe(1);
+    expect(record.state).toBe("PASS");
+    expect(record.implementation?.logicFingerprint).toEqual(rule.implementation.logicFingerprint);
+    expect(record.reviews).toEqual([{ dimension: "LEGAL", state: "APPROVED" }]);
+  });
+
+  it("the executed predicate is the exact fingerprinted reference, whichever one the getter yields first", () => {
+    const approvedPass = impl(() => "PASS");
+    const rule = synthRule({ implementation: bindTo(approvedPass) });
+    const c = ctx({ reviews: approve(rule) });
+    let reads = 0;
+    const first = vi.fn<CattleRulePredicate>(() => "FAIL");
+    const later = vi.fn<CattleRulePredicate>(() => "PASS");
+    const shifty = {
+      implementationId: SYNTH_IMPLEMENTATION_ID,
+      version: 1,
+      get evaluate(): CattleRulePredicate {
+        reads += 1;
+        return reads === 1 ? first : later;
+      },
+    } as CattleRuleImplementation;
+    const record = evaluateCattleRule(rule, shifty, c, hash);
+    expect(reads).toBe(1);
+    expect(record.state).toBe("UNSUPPORTED");
+    expect(record.reasonCodes).toEqual(["CATTLE_RULE_IMPLEMENTATION_LOGIC_MISMATCH"]);
+    expect(first).not.toHaveBeenCalled();
+    expect(later).not.toHaveBeenCalled();
+  });
+
+  it("identity getters are read once and the record reports the identity actually checked", () => {
+    let idReads = 0;
+    const shifty = {
+      get implementationId() {
+        idReads += 1;
+        return idReads === 1 ? SYNTH_IMPLEMENTATION_ID : "SYNTH-IMPL-OTHER";
+      },
+      version: 1,
+      evaluate: flagPredicate.evaluate,
+    } as CattleRuleImplementation;
+    const record = evaluateCattleRule(RULE, shifty, ctx(), hash);
+    expect(idReads).toBe(1);
+    expect(record.state).toBe("PASS");
+    expect(record.implementation).toEqual(bindTo(flagPredicate));
+  });
+
   it("a predicate whose source cannot be inspected can never be bound or run", () => {
     const bound = impl(flagPredicate.evaluate.bind(null));
     expect(implementationRef(bound, hash)).toBeNull();
@@ -201,5 +270,33 @@ describe("evaluateEffectiveCattleRule", () => {
     const record = evaluateEffectiveCattleRule([RULE], RULE.ruleId, flagPredicate, ctx(), hash);
     expect(record.rule).toEqual({ ruleId: RULE.ruleId, version: 1 });
     expect(record.ruleFingerprint?.digest).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("evaluateEffectiveCattleRule supersession lineage", () => {
+  const ID = RULE.ruleId;
+  const v1 = synthRule({ version: 1, effectiveTo: null, productionState: "SUPERSEDED" });
+  const v2 = synthRule({ version: 2, effectiveFrom: "2026-04-01", effectiveTo: "2026-07-01", supersedes: { ruleId: ID, version: 1 }, productionState: "SUPERSEDED" });
+  const v3 = synthRule({ version: 3, effectiveFrom: "2026-09-01", supersedes: { ruleId: ID, version: 2 } });
+
+  it("evaluates the current successor through an expired intermediate, requiring its own approval", () => {
+    const c = ctx({ evaluationDate: "2026-10-09" });
+    expect(evaluateEffectiveCattleRule([v1, v2, v3], ID, flagPredicate, { ...c, reviews: approve(v1) }, hash)).toMatchObject({
+      rule: { ruleId: ID, version: 3 },
+      state: "REVIEW_REQUIRED",
+    });
+    expect(evaluateEffectiveCattleRule([v1, v2, v3], ID, flagPredicate, { ...c, reviews: approve(v3) }, hash)).toMatchObject({
+      rule: { ruleId: ID, version: 3 },
+      state: "PASS",
+    });
+  });
+
+  it("malformed lineage is an explicit UNSUPPORTED record, never an invalid-date reason", () => {
+    const record = evaluateEffectiveCattleRule([v1, v3], ID, flagPredicate, ctx({ evaluationDate: "2026-10-09" }), hash);
+    expect(record).toMatchObject({
+      state: "UNSUPPORTED",
+      rule: null,
+      reasonCodes: ["CATTLE_RULE_INVALID_SUPERSESSION_LINEAGE", "CATTLE_RULE_SUPERSESSION_TARGET_MISSING:v3->SYNTH-RULE-GATE@v2"],
+    });
   });
 });

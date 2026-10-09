@@ -72,29 +72,47 @@ export interface CattleRuleImplementation {
   evaluate: CattleRulePredicate;
 }
 
+/** A frozen one-time snapshot of a supplied implementation. Each property
+ * of the caller's object is read exactly once, so an accessor cannot hand
+ * one function to the fingerprint and a different one to execution: the
+ * snapshot's `evaluate` is the only reference ever fingerprinted or run. */
+type CapturedImplementation = Readonly<CattleRuleImplementation>;
+
+function captureImplementation(implementation: CattleRuleImplementation): CapturedImplementation {
+  const { implementationId, version, evaluate } = implementation;
+  return Object.freeze({ implementationId, version, evaluate });
+}
+
+function fingerprintCaptured(captured: CapturedImplementation, hash: CattleHash): AssessmentFingerprint | null {
+  if (typeof captured.evaluate !== "function") return null;
+  const source = Function.prototype.toString.call(captured.evaluate);
+  if (/\[native code\]\s*\}\s*$/.test(source)) return null;
+  return computeCattleFingerprint(
+    "CATTLE_RULE_IMPLEMENTATION",
+    { implementationId: captured.implementationId, version: captured.version, source },
+    hash,
+  );
+}
+
 /** Fingerprint of the implementation's identity and its predicate's source
  * text. `null` when the source is not inspectable (native/bound function),
- * which can never be bound and so fails closed. */
+ * which can never be bound and so fails closed. The source text is a
+ * deterministic content binding only — not a signature, provenance proof or
+ * tamper resistance, and it does not cover captured closure state. */
 export function computeImplementationLogicFingerprint(
   implementation: CattleRuleImplementation,
   hash: CattleHash,
 ): AssessmentFingerprint | null {
-  if (typeof implementation.evaluate !== "function") return null;
-  const source = Function.prototype.toString.call(implementation.evaluate);
-  if (/\[native code\]\s*\}\s*$/.test(source)) return null;
-  return computeCattleFingerprint(
-    "CATTLE_RULE_IMPLEMENTATION",
-    { implementationId: implementation.implementationId, version: implementation.version, source },
-    hash,
-  );
+  return fingerprintCaptured(captureImplementation(implementation), hash);
 }
 
 /** The `RuleImplementationRef` to bind into a rule version for this
  * implementation; `null` when its logic cannot be fingerprinted. */
 export function implementationRef(implementation: CattleRuleImplementation, hash: CattleHash): RuleImplementationRef | null {
-  const logicFingerprint = computeImplementationLogicFingerprint(implementation, hash);
+  const captured = captureImplementation(implementation);
+  const logicFingerprint = fingerprintCaptured(captured, hash);
   if (logicFingerprint === null) return null;
-  return { implementationId: implementation.implementationId, version: implementation.version, logicFingerprint };
+  return { implementationId: captured.implementationId, version: captured.version, logicFingerprint };
 }
 
 /** The implementation actually supplied for an evaluation. */
@@ -137,7 +155,7 @@ export interface RuleEvaluationContext {
   reviews: readonly RuleReviewRecord[];
 }
 
-function unresolvedRecord(ruleId: string, evaluationDate: string, reasonCode: string): RuleEvaluationRecord {
+function unresolvedRecord(ruleId: string, evaluationDate: string, reasonCodes: string[]): RuleEvaluationRecord {
   return {
     architectureVersion: CATTLE_EVIDENCE_ARCHITECTURE_VERSION,
     requestedRuleId: ruleId,
@@ -148,7 +166,7 @@ function unresolvedRecord(ruleId: string, evaluationDate: string, reasonCode: st
     gateRole: null,
     evaluationDate,
     state: "UNSUPPORTED",
-    reasonCodes: [reasonCode],
+    reasonCodes: sortedUnique(reasonCodes),
     usedInputs: [],
     missingInputs: [],
     conflictingInputs: [],
@@ -159,7 +177,9 @@ function unresolvedRecord(ruleId: string, evaluationDate: string, reasonCode: st
 }
 
 /** Evaluates one specific rule version. Never mutates the rule, inputs,
- * catalogue or reviews. */
+ * catalogue or reviews. The implementation is captured once on entry; the
+ * identity check, logic fingerprint, record and execution all use that same
+ * captured predicate, and `implementation` is never read again. */
 export function evaluateCattleRule(
   rule: CattleRuleVersion,
   implementation: CattleRuleImplementation,
@@ -167,6 +187,7 @@ export function evaluateCattleRule(
   hash: CattleHash,
 ): RuleEvaluationRecord {
   const reasons: string[] = [];
+  const captured = captureImplementation(implementation);
 
   const validation = validateRuleVersion(rule, context.catalogue);
   const validDate = isValidCalendarDate(context.evaluationDate);
@@ -177,9 +198,9 @@ export function evaluateCattleRule(
   if (!validDate) reasons.push("CATTLE_EVALUATION_INVALID_DATE");
   else if (!effective) reasons.push("CATTLE_RULE_NOT_EFFECTIVE_ON_DATE");
   const implementationMatches =
-    implementation.implementationId === rule.implementation.implementationId && implementation.version === rule.implementation.version;
+    captured.implementationId === rule.implementation.implementationId && captured.version === rule.implementation.version;
   if (!implementationMatches) reasons.push("CATTLE_RULE_IMPLEMENTATION_MISMATCH");
-  const suppliedLogic = computeImplementationLogicFingerprint(implementation, hash);
+  const suppliedLogic = fingerprintCaptured(captured, hash);
   const logicMatches =
     suppliedLogic !== null && validation.valid && sameFingerprint(suppliedLogic, rule.implementation.logicFingerprint);
   if (validation.valid && !logicMatches) reasons.push("CATTLE_RULE_IMPLEMENTATION_LOGIC_MISMATCH");
@@ -236,7 +257,8 @@ export function evaluateCattleRule(
   else if (conflicting.length > 0) state = rule.unknownPolicy.conflictingInput;
   else if (missing.length > 0) state = rule.unknownPolicy.missingRequiredInput;
   else {
-    state = implementation.evaluate(Object.freeze({ ...values }));
+    const predicate = captured.evaluate;
+    state = predicate(Object.freeze({ ...values }));
     if (state === "UNSUPPORTED") reasons.push("CATTLE_RULE_PREDICATE_UNSUPPORTED_SCENARIO");
   }
   if (applicabilityGap === "NOT_APPLICABLE") reasons.push("CATTLE_RULE_NOT_APPLICABLE");
@@ -253,7 +275,7 @@ export function evaluateCattleRule(
     requestedRuleId: rule.ruleId,
     rule: ruleVersionRef(rule),
     ruleFingerprint: computeRuleFingerprint(rule, hash),
-    implementation: { implementationId: implementation.implementationId, version: implementation.version, logicFingerprint: suppliedLogic },
+    implementation: { implementationId: captured.implementationId, version: captured.version, logicFingerprint: suppliedLogic },
     classification: rule.classification,
     gateRole: rule.gateRole,
     evaluationDate: context.evaluationDate,
@@ -271,7 +293,8 @@ export function evaluateCattleRule(
 }
 
 /** Resolves the version effective on the evaluation date, then evaluates
- * it. No effective (or more than one) version fails closed as UNSUPPORTED. */
+ * it. No effective version, more than one, or malformed supersession lineage
+ * fails closed as UNSUPPORTED. */
 export function evaluateEffectiveCattleRule(
   versions: readonly CattleRuleVersion[],
   ruleId: string,
@@ -281,11 +304,14 @@ export function evaluateEffectiveCattleRule(
 ): RuleEvaluationRecord {
   const resolution = resolveEffectiveRuleVersion(versions, ruleId, context.evaluationDate);
   if (resolution.status === "RESOLVED") return evaluateCattleRule(resolution.rule, implementation, context, hash);
-  const reason =
-    resolution.status === "NO_EFFECTIVE_VERSION"
-      ? "CATTLE_RULE_NO_EFFECTIVE_VERSION"
-      : resolution.status === "AMBIGUOUS_EFFECTIVE_VERSIONS"
-        ? "CATTLE_RULE_AMBIGUOUS_EFFECTIVE_VERSIONS"
-        : "CATTLE_EVALUATION_INVALID_DATE";
-  return unresolvedRecord(ruleId, context.evaluationDate, reason);
+  switch (resolution.status) {
+    case "NO_EFFECTIVE_VERSION":
+      return unresolvedRecord(ruleId, context.evaluationDate, ["CATTLE_RULE_NO_EFFECTIVE_VERSION"]);
+    case "AMBIGUOUS_EFFECTIVE_VERSIONS":
+      return unresolvedRecord(ruleId, context.evaluationDate, ["CATTLE_RULE_AMBIGUOUS_EFFECTIVE_VERSIONS"]);
+    case "INVALID_SUPERSESSION_LINEAGE":
+      return unresolvedRecord(ruleId, context.evaluationDate, ["CATTLE_RULE_INVALID_SUPERSESSION_LINEAGE", ...resolution.issues]);
+    case "INVALID_EVALUATION_DATE":
+      return unresolvedRecord(ruleId, context.evaluationDate, ["CATTLE_EVALUATION_INVALID_DATE"]);
+  }
 }

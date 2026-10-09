@@ -62,6 +62,73 @@ describe("resolveEffectiveRuleVersion", () => {
     });
   });
 
+  describe("transitive supersession through expired intermediates (F003)", () => {
+    const ID = "SYNTH-RULE-GATE";
+    // v1 open-ended; v2 supersedes v1 and has expired; v3 supersedes v2 and is current.
+    const c1 = synthRule({ version: 1, effectiveFrom: "2026-01-01", effectiveTo: null, productionState: "SUPERSEDED" });
+    const c2 = synthRule({ version: 2, effectiveFrom: "2026-04-01", effectiveTo: "2026-07-01", supersedes: { ruleId: ID, version: 1 }, productionState: "SUPERSEDED" });
+    const c3 = synthRule({ version: 3, effectiveFrom: "2026-09-01", effectiveTo: null, supersedes: { ruleId: ID, version: 2 } });
+    const chain = [c3, c1, c2];
+
+    it("A: resolves v3 uniquely on a current date despite the expired v2", () => {
+      expect(resolveEffectiveRuleVersion(chain, ID, "2026-10-09")).toMatchObject({ status: "RESOLVED", rule: { version: 3 } });
+    });
+
+    it("B: resolves v2 during its own window, before v3", () => {
+      expect(resolveEffectiveRuleVersion(chain, ID, "2026-05-15")).toMatchObject({ status: "RESOLVED", rule: { version: 2 } });
+    });
+
+    it("C: resolves v1 before v2, and in the gap after v2 expired but before v3", () => {
+      expect(resolveEffectiveRuleVersion(chain, ID, "2026-02-01")).toMatchObject({ status: "RESOLVED", rule: { version: 1 } });
+      expect(resolveEffectiveRuleVersion(chain, ID, "2026-08-01")).toMatchObject({ status: "RESOLVED", rule: { version: 1 } });
+    });
+
+    it("D: two genuinely independent current branches stay ambiguous", () => {
+      const branch = synthRule({ version: 4, effectiveFrom: "2026-09-01", effectiveTo: null, supersedes: { ruleId: ID, version: 1 } });
+      expect(resolveEffectiveRuleVersion([...chain, branch], ID, "2026-10-09")).toMatchObject({ status: "AMBIGUOUS_EFFECTIVE_VERSIONS", versions: [3, 4] });
+    });
+
+    it("E: a supersession cycle fails closed explicitly, without looping or choosing", () => {
+      const a = synthRule({ version: 1, supersedes: { ruleId: ID, version: 2 } });
+      const b = synthRule({ version: 2, supersedes: { ruleId: ID, version: 1 } });
+      const result = resolveEffectiveRuleVersion([a, b], ID, "2026-03-01");
+      expect(result.status).toBe("INVALID_SUPERSESSION_LINEAGE");
+      expect(result).toMatchObject({
+        issues: ["CATTLE_RULE_SUPERSESSION_CYCLE:v1->SYNTH-RULE-GATE@v2", "CATTLE_RULE_SUPERSESSION_NOT_DECREASING:v1->SYNTH-RULE-GATE@v2"],
+      });
+      const self = synthRule({ version: 2, supersedes: { ruleId: ID, version: 2 } });
+      expect(resolveEffectiveRuleVersion([self], ID, "2026-03-01")).toMatchObject({
+        status: "INVALID_SUPERSESSION_LINEAGE",
+        issues: ["CATTLE_RULE_SUPERSESSION_CYCLE:v2->SYNTH-RULE-GATE@v2"],
+      });
+    });
+
+    it("F: a missing, unreleased, duplicated or cross-rule target fails closed rather than being ignored", () => {
+      const missing = synthRule({ version: 3, supersedes: { ruleId: ID, version: 2 } });
+      expect(resolveEffectiveRuleVersion([c1, missing], ID, "2026-10-09")).toMatchObject({
+        status: "INVALID_SUPERSESSION_LINEAGE",
+        issues: ["CATTLE_RULE_SUPERSESSION_TARGET_MISSING:v3->SYNTH-RULE-GATE@v2"],
+      });
+      const draftV2 = { ...c2, productionState: "DRAFT" as const };
+      expect(resolveEffectiveRuleVersion([c1, draftV2, c3], ID, "2026-10-09").status).toBe("INVALID_SUPERSESSION_LINEAGE");
+      const twinV2 = { ...c2, title: "conflicting twin" };
+      expect(resolveEffectiveRuleVersion([...chain, twinV2], ID, "2026-10-09")).toMatchObject({
+        status: "INVALID_SUPERSESSION_LINEAGE",
+        issues: ["CATTLE_RULE_SUPERSESSION_TARGET_DUPLICATED:v3->SYNTH-RULE-GATE@v2"],
+      });
+      const crossRule = synthRule({ version: 2, supersedes: { ruleId: "SYNTH-OTHER", version: 1 } });
+      expect(resolveEffectiveRuleVersion([crossRule], ID, "2026-03-01")).toMatchObject({
+        status: "INVALID_SUPERSESSION_LINEAGE",
+        issues: ["CATTLE_RULE_SUPERSESSION_CROSS_RULE:v2->SYNTH-OTHER@v1"],
+      });
+    });
+
+    it("malformed lineage outside the effective candidates' ancestry does not block historical resolution", () => {
+      const brokenLater = synthRule({ version: 3, effectiveFrom: "2026-09-01", supersedes: { ruleId: ID, version: 2 } });
+      expect(resolveEffectiveRuleVersion([c1, brokenLater], ID, "2026-02-01")).toMatchObject({ status: "RESOLVED", rule: { version: 1 } });
+    });
+  });
+
   it("keeps superseded versions addressable for historical audit", () => {
     expect(getRuleVersion(versions, { ruleId: "SYNTH-RULE-GATE", version: 1 })).toBe(V1);
   });

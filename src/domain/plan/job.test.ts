@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { actionRouteHref } from "./action-route";
 import { PLAN_JOB_STATUS_TRANSITIONS } from "./status";
 import { addSupportingReason, createPlanJob, planJobIdentityKey, setJobDependencies, transitionJobStatus } from "./job";
-import { makeJob, NOW } from "./test-fixtures";
+import { reevaluatePlanJob } from "./reevaluate";
+import { context, makeJob, NOW } from "./test-fixtures";
 import { PLAN_KERNEL_VERSION } from "./version";
 
 describe("PlanJob", () => {
@@ -33,6 +34,23 @@ describe("PlanJob", () => {
     expect(r.events).toMatchObject([{ type: "STATUS_CHANGED", from: "PLANNED", to: "CANCELLED", cause: "FARMER" }]);
     expect(transitionJobStatus(r.job, "PLANNED", "FARMER", NOW)).toEqual({ ok: false, error: "ILLEGAL_TRANSITION_CANCELLED_TO_PLANNED" });
     expect(PLAN_JOB_STATUS_TRANSITIONS.COMPLETED).toEqual([]);
+  });
+
+  it("rejects COMPLETED through the general transition so unproven work stays open and dependants stay blocked", () => {
+    const job = makeJob();
+    expect(transitionJobStatus(job, "COMPLETED", "FARMER", NOW)).toEqual({
+      ok: false,
+      error: "COMPLETION_REQUIRES_EVIDENCE_OR_FARMER_COMPLETION",
+    });
+    expect(transitionJobStatus(job, "COMPLETED", "CANONICAL_EVIDENCE", NOW).ok).toBe(false);
+    const re = reevaluatePlanJob(job, context());
+    expect(re.job.status).toBe("PLANNED");
+    expect(re.job.completion).toBeNull();
+    const dependant = reevaluatePlanJob(
+      makeJob({ id: "job-2", dependencies: { jobIds: [job.id], blockerIds: [] } }),
+      context({ jobStatuses: { [job.id]: re.job.status } }),
+    );
+    expect(dependant.readiness.state).toBe("WAITING_FOR_DEPENDENCY");
   });
 
   it("audits dependency changes only when they change", () => {

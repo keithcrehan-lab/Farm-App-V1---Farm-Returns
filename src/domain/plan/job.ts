@@ -135,6 +135,9 @@ export function transitionJobStatus(
   nowIso: string,
 ): PlanMutationResult {
   if (job.status === to) return { ok: true, job, events: [] };
+  // Completion needs provenance: canonical evidence (`reevaluatePlanJob`)
+  // or the guarded farmer path (`farmerCompleteJob`), never a bare status set.
+  if (to === "COMPLETED") return { ok: false, error: "COMPLETION_REQUIRES_EVIDENCE_OR_FARMER_COMPLETION" };
   if (!canTransitionStatus(job.status, to)) return { ok: false, error: `ILLEGAL_TRANSITION_${job.status}_TO_${to}` };
   return {
     ok: true,

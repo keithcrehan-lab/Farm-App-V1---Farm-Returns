@@ -3372,3 +3372,80 @@ Known limitations: a pack trusts the supplied `RuleEvaluationRecord`s (verificat
 re-run rule predicates); pack `inputs` are not cross-checked against each record's `usedInputs`;
 source-change detection compares against the supplied catalogue only (no connector); the
 fingerprint is change detection, not a signature. Tests: `src/domain/cattle/*.test.ts`.
+
+## Cattle C1 — Canonical animal lifecycle (2026-10-09)
+
+C0 is **frozen** at its accepted semantics (`61c1124`); C1 changes no C0 file except additive
+barrel exports in `src/domain/cattle/index.ts`. New, **non-frozen** pure modules
+`animal-ledger.ts`, `animal-snapshot.ts`, `animal-register.ts`; tests `animal.test.ts`
+(synthetic `SYNTH-*` data). No persistence, schema, migration, UI, connector, legal, veterinary
+or scientific rule.
+
+**Ownership.** Cattle owns canonical animal truth; Plan/Adviser/Finance/integrations consume a
+projected `AnimalSnapshot` and never hold competing animal state.
+
+**Identity.** `FarmReturnAnimalId` (opaque, immutable) is the only primary identity; species is
+`BOVINE`. External identifiers are dated `EXTERNAL_IDENTIFIER` assertions (opaque `scheme` +
+exact `identifier`; no tag-format rule, no normalisation). A changed identifier never creates an
+animal and an old one is never erased (`externalIdentifiers.history`).
+
+**Information boundary.** The ledger holds facts and observations of state only:
+`DATE_OF_BIRTH` (calendar date), `SEX` (biological `FEMALE`/`MALE` only — no production class),
+`BREED` (source code-system/code/label plus verbatim composite components — no breed enum, no
+inferred genetics), `EXTERNAL_IDENTIFIER`, `LOCATION` (opaque `HOLDING`/`FIELD`/`HOUSING`/
+`EXTERNAL`/`OTHER` ref), `MANAGEMENT_GROUP` (opaque ref), `LIFECYCLE_STATUS` (neutral
+`PRESENT`/`DEPARTED`/`DECEASED`; no legal meaning). A fact `value: null` records a
+source-reported unknown.
+
+**Operational provenance** (`AnimalDataProvenance`, distinct from C0 `CattleEvidenceSource`):
+source category (`OFFICIAL_REGISTRY`, `BREEDING_PERFORMANCE_DATABASE`, `FARMER`,
+`VETERINARY_SOURCE`, `DEVICE`, `EXTERNAL_FARM_SOFTWARE`, `MART_MARKET`, `PROCESSOR`, `OTHER` —
+none implies a connected integration), opaque source system/record ref/actor, optional
+`observedAt`, required `receivedAt`. Assertion id and `supersedes` sit on the assertion.
+
+**Bitemporal.** `receivedAt` is knowledge time; `validFrom`/`validTo` (inclusive start,
+exclusive end; `null` = open) is valid time. `projectAnimalSnapshot(ledger, {effectiveAt,
+knowledgeCutoff})` requires both explicitly — no clock read. Only assertions with `receivedAt <=
+knowledgeCutoff`, and only supersessions known by then, exist for the projection, so a snapshot
+built at an earlier cutoff is reproducible after later corrections. Interval kinds apply at
+`effectiveAt`; DOB/sex/breed are not interval-scoped. Times are strict UTC strings compared via
+a fixed-width key (no `Date` objects).
+
+**Append-only / supersession.** A correction is a new assertion whose `supersedes` lists earlier
+same-kind assertion ids; nothing is deleted. Same id + identical content is idempotent; same id
++ different content (incl. provenance) fails the build. Self-supersession is rejected at
+ingestion; at projection a target not known by the cutoff, a cross-kind link (taints both
+dimensions) or a cycle ⇒ `INVALID_EVIDENCE` (fail closed); several live corrections of one
+target with different content ⇒ `CONFLICTING_EVIDENCE`.
+
+**Resolution.** Each dimension (per scheme for identifiers) is `KNOWN` / `UNKNOWN` /
+`CONFLICTING_EVIDENCE` / `INVALID_EVIDENCE` with evidence (full assertions + provenance),
+superseded ids and issue codes. Absence ⇒ `UNKNOWN` (never a default; missing location is not
+the home farm). Agreeing active assertions stay `KNOWN` with every source; differing active
+values ⇒ `CONFLICTING_EVIDENCE` with no winner — no source precedence, never latest-wins. Any
+two distinct overlapping locations (no hierarchy is modelled in C1), groups, lifecycle statuses
+or identifiers within one scheme conflict.
+
+**Determinism / aliasing.** Input is `structuredClone`d once per item (getters read once;
+proxies/functions rejected as not cloneable), validated, rebuilt from known fields and
+deep-frozen; ledgers are sorted by assertion id. Projection re-materialises the supplied ledger
+(a hand-built ledger is re-validated) and returns a detached deep-frozen snapshot; input order
+never changes the result.
+
+**Snapshot fingerprint.** `computeAnimalSnapshotFingerprint`/`verifyAnimalSnapshotFingerprint`
+reuse `assessment-integrity.ts` canonicalisation and SHA-256 pipeline unchanged over `{kind:
+"CATTLE_ANIMAL_SNAPSHOT", animalSnapshotPayloadVersion: 1, payload: snapshot}` — a distinct
+wrapper from C0's `{kind, cattlePayloadVersion, payload}`, so no collision and no C0/slurry/
+fertiliser fingerprint change. The whole snapshot is bound (schema version, `effectiveAt`,
+`knowledgeCutoff`, known assertion ids, states, values, evidence/provenance, issues). Change
+detection only — not a digital signature. A C0 evidence pack can bind it via
+`targetScope.snapshotRef`.
+
+**Register.** `checkExternalIdentifierRegister(ledgers, query)` reports two different animals
+claiming the same scheme+identifier in valid time at the query (both kept, never merged);
+non-overlapping historical reuse is not a conflict; invalid identifier evidence, invalid
+ledgers, duplicate animal ledgers and invalid query times are issues (`clear: false`).
+
+**Exclusions.** No weights, growth, condition scoring, breeding/fertility, health/disease,
+medicines, feed, economics, goals or advice; no registration/movement/disease rules; no
+AIM/ICBF/NVPS/HPRA connector or field; no persistence or UI.

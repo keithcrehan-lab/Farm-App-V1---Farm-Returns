@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "task_id": "cattle-c0-evidence-rule-architecture-20261009",
-  "title": "Cattle C0 - Evidence Rule Architecture",
-  "base_sha": "a15553e4b7d01780f33747fd5b0ca3d2ba78be5c",
+  "task_id": "cattle-c1-canonical-animal-lifecycle-20261009",
+  "title": "Cattle C1 - Canonical Animal Lifecycle",
+  "base_sha": "61c1124d8f206fc4d442fe7814e010a2edb0a186",
   "domains": [
     "ui",
     "slurry",
@@ -12,12 +12,12 @@
   "expected_changed_files": [
     ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
     ".agent/skills/cattle-evidence-rules.md",
-    ".agent/skills/targeted-audit.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+    "src/domain/cattle",
     "src/domain/evidence.ts",
-    "src/domain/source-register.ts",
     "src/domain/audit-trace.ts",
     "src/domain/assessment-integrity.ts",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+    "src/domain/source-register.ts"
   ],
   "contracts": [
     "AGENTS.md",

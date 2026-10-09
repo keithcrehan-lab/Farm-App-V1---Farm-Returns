@@ -5,7 +5,7 @@ import { evaluateCattleRule, type RuleEvaluationRecord } from "./evaluation";
 import { buildRecommendationEvidencePack, verifyRecommendationEvidencePack, type RecommendationEvidencePack, type RecommendationEvidencePackInput } from "./evidence-pack";
 import { computeCattleFingerprint } from "./integrity";
 import { sourceVersionRef } from "./source";
-import { CATALOGUE, SCIENCE_SOURCE, approve, descriptor, flagPredicate, hash, item, synthRule } from "./test-fixtures";
+import { CATALOGUE, SCIENCE_SOURCE, approve, descriptor, flagPredicate, hash, impl, item, synthRule } from "./test-fixtures";
 
 const GATE = synthRule();
 const ADVISORY = synthRule({
@@ -26,7 +26,7 @@ function gateRecord(flag: boolean | null): RuleEvaluationRecord {
 
 const adviceRecord = evaluateCattleRule(
   ADVISORY,
-  () => "PASS",
+  impl(() => "PASS"),
   { evaluationDate: "2026-03-01", inputs: [item("synth.score", "0.97", { informationClass: "DERIVED_VALUE" })], catalogue: CATALOGUE, reviews },
   hash,
 );

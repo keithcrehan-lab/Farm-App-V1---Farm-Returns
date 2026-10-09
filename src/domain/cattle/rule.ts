@@ -3,10 +3,10 @@
  * reviews and effective-date resolution.
  *
  * A rule version is immutable content: `computeRuleFingerprint` covers every
- * field except `productionState`, and a review approves exactly one
- * (ruleId, version, fingerprint). Approving v1 therefore never approves v2,
- * and rebinding a rule to a changed source needs a new version and new
- * reviews. Scientific, legal and veterinary reviews are separate dimensions.
+ * field except `productionState` (including the implementation identity),
+ * and a review approves exactly one (ruleId, version, fingerprint). Approving
+ * v1 therefore never approves v2, and rebinding a rule to a changed source or
+ * implementation needs a new version and new reviews. Scientific, legal and veterinary reviews are separate dimensions.
  *
  * Classification minimums (required review dimension, accepted source
  * authority, hard-gate role) are governance architecture for later phases,
@@ -61,6 +61,15 @@ export interface RuleVersionRef {
   version: number;
 }
 
+/** Versioned identity of the executable logic that implements a rule
+ * version. It is rule content: changing the implementation changes the rule
+ * fingerprint, so it needs a new rule version and renewed approval. */
+export interface RuleImplementationRef {
+  implementationId: string;
+  /** Positive integer; bump whenever the executable logic changes. */
+  version: number;
+}
+
 export interface CattleRuleVersion {
   ruleId: string;
   /** Positive integer; higher is later. */
@@ -79,6 +88,7 @@ export interface CattleRuleVersion {
   limitations: string[];
   unknownPolicy: UnknownConflictPolicy;
   sourceBindings: SourceVersionRef[];
+  implementation: RuleImplementationRef;
   supersedes: RuleVersionRef | null;
   requiredReviews: CattleReviewDimension[];
   productionState: CattleRuleProductionState;
@@ -155,6 +165,7 @@ export function computeRuleFingerprint(rule: CattleRuleVersion, hash: CattleHash
       limitations: [...rule.limitations].sort(compareStrings),
       unknownPolicy: rule.unknownPolicy,
       sourceBindings: [...rule.sourceBindings].sort(compareSourceVersionRefs),
+      implementation: { implementationId: rule.implementation.implementationId, version: rule.implementation.version },
       supersedes: rule.supersedes,
       requiredReviews: sortedUnique(rule.requiredReviews),
     },
@@ -176,6 +187,9 @@ export function validateRuleVersion(rule: CattleRuleVersion, catalogue: readonly
   if (!isValidCalendarDate(rule.effectiveFrom)) issues.push("CATTLE_RULE_INVALID_EFFECTIVE_FROM");
   if (rule.effectiveTo !== null && !isValidCalendarDate(rule.effectiveTo)) issues.push("CATTLE_RULE_INVALID_EFFECTIVE_TO");
   if (rule.effectiveTo !== null && rule.effectiveTo <= rule.effectiveFrom) issues.push("CATTLE_RULE_EMPTY_EFFECTIVE_WINDOW");
+  if (rule.implementation.implementationId.trim() === "" || !Number.isInteger(rule.implementation.version) || rule.implementation.version < 1) {
+    issues.push("CATTLE_RULE_INVALID_IMPLEMENTATION_REF");
+  }
   for (const dimension of MINIMUM_REVIEW_DIMENSIONS[rule.classification]) {
     if (!rule.requiredReviews.includes(dimension)) issues.push(`CATTLE_RULE_MISSING_REQUIRED_REVIEW:${dimension}`);
   }

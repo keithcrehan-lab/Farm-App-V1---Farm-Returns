@@ -9,12 +9,14 @@
  * meaning, so cattle rules return their own vocabulary below; `evidence.ts`
  * is unchanged.
  *
- * Precedence, fail closed: UNSUPPORTED (invalid/not effective/unresolvable)
- * > REVIEW_REQUIRED (unapproved version, changed source) > applicability
+ * Precedence, fail closed: UNSUPPORTED (invalid/not effective/unresolvable,
+ * or an implementation whose identity differs from the rule's bound
+ * `implementation`) > REVIEW_REQUIRED (unapproved version, changed source) > applicability
  * (conflict > missing > not applicable) > required inputs (conflict >
  * missing) > the rule's own PASS/FAIL. The predicate is called only when
  * every required input is KNOWN — a missing value never reaches it as zero.
- * Every record lists all gaps found, not just the deciding one.
+ * Every record lists all gaps found, not just the deciding one. A record
+ * holds deep copies only, so later caller mutation cannot rewrite it.
  */
 
 import type { AssessmentFingerprint } from "../assessment-integrity";
@@ -38,6 +40,7 @@ import {
   type CattleRuleVersion,
   type ReviewDimensionState,
   type CattleReviewDimension,
+  type RuleImplementationRef,
   type RuleReviewRecord,
   type RuleVersionRef,
 } from "./rule";
@@ -57,6 +60,13 @@ export type CattleEvaluationState =
  * sees only KNOWN values. C0 uses synthetic predicates only. */
 export type CattleRulePredicate = (values: Readonly<Record<string, CattleInputScalar>>) => "PASS" | "FAIL" | "UNSUPPORTED";
 
+/** A predicate with its versioned identity. It runs only for a rule version
+ * whose `implementation` names exactly this id + version, so swapping the
+ * logic requires a new rule version (new fingerprint, renewed approval). */
+export interface CattleRuleImplementation extends RuleImplementationRef {
+  evaluate: CattleRulePredicate;
+}
+
 export interface ConflictingInputRecord {
   inputKey: string;
   items: CattleInputItem[];
@@ -68,6 +78,8 @@ export interface RuleEvaluationRecord {
   /** `null` when no single effective version could be resolved. */
   rule: RuleVersionRef | null;
   ruleFingerprint: AssessmentFingerprint | null;
+  /** The implementation identity actually supplied for evaluation. */
+  implementation: RuleImplementationRef | null;
   classification: CattleRuleClassification | null;
   gateRole: CattleRuleGateRole | null;
   evaluationDate: string;
@@ -94,6 +106,7 @@ function unresolvedRecord(ruleId: string, evaluationDate: string, reasonCode: st
     requestedRuleId: ruleId,
     rule: null,
     ruleFingerprint: null,
+    implementation: null,
     classification: null,
     gateRole: null,
     evaluationDate,
@@ -112,7 +125,7 @@ function unresolvedRecord(ruleId: string, evaluationDate: string, reasonCode: st
  * catalogue or reviews. */
 export function evaluateCattleRule(
   rule: CattleRuleVersion,
-  predicate: CattleRulePredicate,
+  implementation: CattleRuleImplementation,
   context: RuleEvaluationContext,
   hash: CattleHash,
 ): RuleEvaluationRecord {
@@ -126,7 +139,10 @@ export function evaluateCattleRule(
   if (!validation.valid) reasons.push("CATTLE_RULE_INVALID_DEFINITION", ...validation.issues);
   if (!validDate) reasons.push("CATTLE_EVALUATION_INVALID_DATE");
   else if (!effective) reasons.push("CATTLE_RULE_NOT_EFFECTIVE_ON_DATE");
-  const unsupported = !validation.valid || !effective;
+  const implementationMatches =
+    implementation.implementationId === rule.implementation.implementationId && implementation.version === rule.implementation.version;
+  if (!implementationMatches) reasons.push("CATTLE_RULE_IMPLEMENTATION_MISMATCH");
+  const unsupported = !validation.valid || !effective || !implementationMatches;
 
   const reviewStatus = evaluateRuleReviews(rule, context.reviews, hash);
   if (!executable) reasons.push(`CATTLE_RULE_NOT_IN_PRODUCTION:${rule.productionState}`);
@@ -179,7 +195,7 @@ export function evaluateCattleRule(
   else if (conflicting.length > 0) state = rule.unknownPolicy.conflictingInput;
   else if (missing.length > 0) state = rule.unknownPolicy.missingRequiredInput;
   else {
-    state = predicate(Object.freeze({ ...values }));
+    state = implementation.evaluate(Object.freeze({ ...values }));
     if (state === "UNSUPPORTED") reasons.push("CATTLE_RULE_PREDICATE_UNSUPPORTED_SCENARIO");
   }
   if (applicabilityGap === "NOT_APPLICABLE") reasons.push("CATTLE_RULE_NOT_APPLICABLE");
@@ -190,11 +206,13 @@ export function evaluateCattleRule(
     .sort(compareInputItems)
     .filter((item, i, arr) => i === 0 || compareInputItems(arr[i - 1], item) !== 0);
 
-  return {
+  // Deep copies: the record must not alias caller-owned inputs or bindings.
+  return structuredClone({
     architectureVersion: CATTLE_EVIDENCE_ARCHITECTURE_VERSION,
     requestedRuleId: rule.ruleId,
     rule: ruleVersionRef(rule),
     ruleFingerprint: computeRuleFingerprint(rule, hash),
+    implementation: { implementationId: implementation.implementationId, version: implementation.version },
     classification: rule.classification,
     gateRole: rule.gateRole,
     evaluationDate: context.evaluationDate,
@@ -208,7 +226,7 @@ export function evaluateCattleRule(
     rejectedInputs: rejected.sort((a, b) => compareInputItems(a.item, b.item)),
     sourceChecks,
     reviews: reviewStatus.dimensions,
-  };
+  });
 }
 
 /** Resolves the version effective on the evaluation date, then evaluates
@@ -216,12 +234,12 @@ export function evaluateCattleRule(
 export function evaluateEffectiveCattleRule(
   versions: readonly CattleRuleVersion[],
   ruleId: string,
-  predicate: CattleRulePredicate,
+  implementation: CattleRuleImplementation,
   context: RuleEvaluationContext,
   hash: CattleHash,
 ): RuleEvaluationRecord {
   const resolution = resolveEffectiveRuleVersion(versions, ruleId, context.evaluationDate);
-  if (resolution.status === "RESOLVED") return evaluateCattleRule(resolution.rule, predicate, context, hash);
+  if (resolution.status === "RESOLVED") return evaluateCattleRule(resolution.rule, implementation, context, hash);
   const reason =
     resolution.status === "NO_EFFECTIVE_VERSION"
       ? "CATTLE_RULE_NO_EFFECTIVE_VERSION"

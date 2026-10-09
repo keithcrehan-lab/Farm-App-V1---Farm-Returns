@@ -17,7 +17,11 @@
  * wins". A malformed supersession (target missing or not yet known,
  * cross-kind link, cycle) makes the affected dimension(s) INVALID_EVIDENCE
  * (fail closed). Competing corrections of the same assertion with different
- * content are CONFLICTING_EVIDENCE.
+ * content are CONFLICTING_EVIDENCE — for interval kinds only when the
+ * competing corrections are effective at `effectiveAt`, so a conflict
+ * confined to another period stays in history but never contaminates this
+ * snapshot. The ledger header must be a supported C1 BOVINE ledger
+ * (`rematerialiseAnimalLedger`); anything else fails closed.
  *
  * Projection is order-independent (the ledger is re-materialised and sorted)
  * and the returned snapshot is a deep-frozen copy; it shares nothing with the
@@ -26,12 +30,11 @@
 
 import { canonicalizeValue, computeAssessmentFingerprint, verifyAssessmentFingerprint, type AssessmentFingerprint, type FingerprintVerificationResult } from "../assessment-integrity";
 import {
-  BOVINE_SPECIES,
   compareInstants,
-  createAnimalLedger,
   deepFreezeAnimalValue,
   intervalCovers,
   isValidAnimalInstant,
+  rematerialiseAnimalLedger,
   type AnimalAssertion,
   type AnimalAssertionKind,
   type AnimalLedger,
@@ -142,8 +145,9 @@ interface DimensionPrep {
   active: AnimalAssertion[];
   superseded: string[];
   invalidIssues: AnimalDimensionIssueCode[];
-  /** Active assertions competing to correct the same target with different content. */
-  competing: AnimalAssertion[];
+  /** Per corrected target, its live (unsuperseded) corrections, sorted by id.
+   * Whether they compete is decided per query (`competingAt`), never all-time. */
+  correctionGroups: AnimalAssertion[][];
   supersededBy: Map<string, string[]>;
 }
 
@@ -166,20 +170,33 @@ function prepare(kind: AnimalAssertionKind, known: AnimalAssertion[], byId: Map<
   if (hasCycle(visible, byId, kind)) invalid.push("CATTLE_ANIMAL_SUPERSESSION_CYCLE");
   const superseded = [...supersededBy.keys()].sort(compareStrings);
   const active = visible.filter((a) => !supersededBy.has(a.assertionId));
-  const competing = new Map<string, AnimalAssertion>();
-  for (const [, correctors] of supersededBy) {
-    const live = correctors.map((id) => byId.get(id)!).filter((c) => !supersededBy.has(c.assertionId));
-    if (new Set(live.map(contentOf)).size > 1) for (const c of live) competing.set(c.assertionId, c);
-  }
   for (const ids of supersededBy.values()) ids.sort(compareStrings);
+  const correctionGroups = superseded.map((target) =>
+    sortById(supersededBy.get(target)!.map((id) => byId.get(id)!).filter((c) => !supersededBy.has(c.assertionId))),
+  );
   return {
     visible,
     active,
     superseded,
     invalidIssues: sortedUnique(invalid) as AnimalDimensionIssueCode[],
-    competing: [...competing.values()].sort((a, b) => compareStrings(a.assertionId, b.assertionId)),
+    correctionGroups,
     supersededBy,
   };
+}
+
+/**
+ * Live corrections of the same target that disagree in content. Identity
+ * facts (`at === null`) compare every live correction; interval kinds compare
+ * only corrections effective at `at`, so a competition confined to another
+ * period never contaminates this snapshot (it stays visible in history).
+ */
+function competingAt(prep: DimensionPrep, at: string | null): AnimalAssertion[] {
+  const competing = new Map<string, AnimalAssertion>();
+  for (const group of prep.correctionGroups) {
+    const live = at === null ? group : covering(group, at);
+    if (new Set(live.map(contentOf)).size > 1) for (const c of live) competing.set(c.assertionId, c);
+  }
+  return sortById([...competing.values()]);
 }
 
 function hasCycle(visible: AnimalAssertion[], byId: Map<string, AnimalAssertion>, kind: AnimalAssertionKind): boolean {
@@ -233,12 +250,12 @@ function covering(list: AnimalAssertion[], at: string): AnimalAssertion[] {
 
 function resolveFact<T>(kind: AnimalAssertionKind, known: AnimalAssertion[], byId: Map<string, AnimalAssertion>): AnimalResolution<T> {
   const prep = prepare(kind, known, byId);
-  return resolve<T>(prep.active, prep, prep.competing, prep.invalidIssues);
+  return resolve<T>(prep.active, prep, competingAt(prep, null), prep.invalidIssues);
 }
 
 function resolveInterval<T>(kind: AnimalAssertionKind, known: AnimalAssertion[], byId: Map<string, AnimalAssertion>, at: string): AnimalResolution<T> {
   const prep = prepare(kind, known, byId);
-  return resolve<T>(covering(prep.active, at), prep, prep.competing, prep.invalidIssues);
+  return resolve<T>(covering(prep.active, at), prep, competingAt(prep, at), prep.invalidIssues);
 }
 
 function schemeOf(a: AnimalAssertion): string {
@@ -248,10 +265,11 @@ function schemeOf(a: AnimalAssertion): string {
 function resolveIdentifiers(known: AnimalAssertion[], byId: Map<string, AnimalAssertion>, at: string): ExternalIdentifierProjection {
   const prep = prepare("EXTERNAL_IDENTIFIER", known, byId);
   const schemes = sortedUnique(prep.visible.map(schemeOf));
+  const competingNow = competingAt(prep, at);
   const byScheme: ExternalIdentifierSchemeResolution[] = schemes.map((scheme) => {
     const schemePrep = { ...prep, visible: prep.visible.filter((a) => schemeOf(a) === scheme) };
     const active = covering(prep.active.filter((a) => schemeOf(a) === scheme), at);
-    const competing = prep.competing.filter((a) => schemeOf(a) === scheme);
+    const competing = competingNow.filter((a) => schemeOf(a) === scheme);
     const resolved = resolve<{ scheme: string; identifier: string }>(active, schemePrep, competing, prep.invalidIssues);
     return {
       ...resolved,
@@ -276,7 +294,7 @@ export function projectAnimalSnapshot(ledger: AnimalLedger, query: AnimalProject
   if (!isValidAnimalInstant(effectiveAt)) issues.push("CATTLE_ANIMAL_INVALID_EFFECTIVE_AT");
   if (!isValidAnimalInstant(knowledgeCutoff)) issues.push("CATTLE_ANIMAL_INVALID_KNOWLEDGE_CUTOFF");
   // Re-materialise: validates a hand-built ledger and detaches from caller objects.
-  const rebuilt = createAnimalLedger(ledger?.animalId, ledger?.assertions ?? []);
+  const rebuilt = rematerialiseAnimalLedger(ledger);
   if (!rebuilt.ok) issues.push("CATTLE_ANIMAL_INVALID_LEDGER");
   if (issues.length > 0 || !rebuilt.ok) return { ok: false, issues, ledgerIssues: rebuilt.ok ? [] : rebuilt.issues };
   const canonical = rebuilt.ledger;
@@ -310,7 +328,7 @@ export function projectAnimalSnapshot(ledger: AnimalLedger, query: AnimalProject
   const snapshot: AnimalSnapshot = {
     snapshotSchemaVersion: CATTLE_ANIMAL_SNAPSHOT_SCHEMA_VERSION,
     animalId: canonical.animalId,
-    species: BOVINE_SPECIES,
+    species: canonical.species,
     effectiveAt,
     knowledgeCutoff,
     knownAssertionIds: known.map((a) => a.assertionId),
@@ -334,7 +352,7 @@ export function projectAnimalSnapshot(ledger: AnimalLedger, query: AnimalProject
  */
 export function animalAssertionHistory(ledger: AnimalLedger, kind: AnimalAssertionKind, knowledgeCutoff: string): AssertionHistoryEntry[] | null {
   if (!isValidAnimalInstant(knowledgeCutoff)) return null;
-  const rebuilt = createAnimalLedger(ledger?.animalId, ledger?.assertions ?? []);
+  const rebuilt = rematerialiseAnimalLedger(ledger);
   if (!rebuilt.ok) return null;
   const known = rebuilt.ledger.assertions.filter((a) => compareInstants(a.provenance.receivedAt, knowledgeCutoff) <= 0);
   const byId = new Map(known.map((a) => [a.assertionId, a]));

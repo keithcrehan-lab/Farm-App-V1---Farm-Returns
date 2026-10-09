@@ -3416,7 +3416,10 @@ same-kind assertion ids; nothing is deleted. Same id + identical content is idem
 + different content (incl. provenance) fails the build. Self-supersession is rejected at
 ingestion; at projection a target not known by the cutoff, a cross-kind link (taints both
 dimensions) or a cycle ⇒ `INVALID_EVIDENCE` (fail closed); several live corrections of one
-target with different content ⇒ `CONFLICTING_EVIDENCE`.
+target with different content ⇒ `CONFLICTING_EVIDENCE` — for interval kinds only among the
+corrections effective at `effectiveAt`, so a competition confined to another period stays in
+history (`supersededBy`) but never contaminates an unrelated snapshot; DOB/sex/breed compare
+every live correction.
 
 **Resolution.** Each dimension (per scheme for identifiers) is `KNOWN` / `UNKNOWN` /
 `CONFLICTING_EVIDENCE` / `INVALID_EVIDENCE` with evidence (full assertions + provenance),
@@ -3428,9 +3431,13 @@ or identifiers within one scheme conflict.
 
 **Determinism / aliasing.** Input is `structuredClone`d once per item (getters read once;
 proxies/functions rejected as not cloneable), validated, rebuilt from known fields and
-deep-frozen; ledgers are sorted by assertion id. Projection re-materialises the supplied ledger
-(a hand-built ledger is re-validated) and returns a detached deep-frozen snapshot; input order
-never changes the result.
+deep-frozen; ledgers are sorted by assertion id. Projection, history and append re-materialise
+the supplied ledger via `rematerialiseAnimalLedger` (header read once; a hand-built ledger is
+re-validated) and projection returns a detached deep-frozen snapshot; input order never changes
+the result. Only a supported C1 header is accepted: `species` other than `BOVINE` ⇒
+`CATTLE_ANIMAL_UNSUPPORTED_SPECIES` (never coerced), `ledgerSchemaVersion` other than 1 ⇒
+`CATTLE_ANIMAL_UNSUPPORTED_LEDGER_SCHEMA_VERSION` (never read as current), a non-object or
+mistyped header ⇒ `CATTLE_ANIMAL_MALFORMED_LEDGER_HEADER`; all fail closed.
 
 **Snapshot fingerprint.** `computeAnimalSnapshotFingerprint`/`verifyAnimalSnapshotFingerprint`
 reuse `assessment-integrity.ts` canonicalisation and SHA-256 pipeline unchanged over `{kind:

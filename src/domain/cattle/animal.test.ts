@@ -503,3 +503,167 @@ describe("Cattle C1 — determinism, aliasing and fingerprint", () => {
     expect(createAnimalLedger(A, [{ assertionId: "w", animalId: A, kind: "WEIGHT", value: "1", provenance: prov(T1) }]).ok).toBe(false);
   });
 });
+
+describe("Cattle C1 remediation F001 — conflicts are scoped to effective time", () => {
+  const FEB = "2026-02-01T00:00:00Z";
+  const FEB_MID = "2026-02-15T00:00:00Z";
+  const MAR = "2026-03-01T00:00:00Z";
+  const DEC = "2026-12-01T00:00:00Z";
+  const at = (effectiveAt: string, knowledgeCutoff = LATER): AnimalProjectionQuery => ({ effectiveAt, knowledgeCutoff });
+  // An open-ended original corrected by two disagreeing corrections valid only in February,
+  // plus an uncontested assertion from March onwards.
+  const febCompeting = <T>(make: (id: string, v: T, from: string, to: string | null, receivedAt?: string, extra?: object) => AnimalAssertionInput, v: [T, T, T, T]) => [
+    make("x-orig", v[0], "2026-01-01T00:00:00Z", null),
+    make("x-c1", v[1], FEB, MAR, T2, { supersedes: ["x-orig"] }),
+    make("x-c2", v[2], FEB, MAR, T2, { supersedes: ["x-orig"] }),
+    make("x-later", v[3], MAR, null, T2),
+  ];
+  const groupX = (id: string, v: string, from: string, to: string | null, r = T1, extra = {}) => interval("MANAGEMENT_GROUP", id, v, from, to, r, extra);
+  const lifeX = (id: string, v: string, from: string, to: string | null, r = T1, extra = {}) => interval("LIFECYCLE_STATUS", id, v, from, to, r, extra);
+  const locX = (id: string, v: string, from: string, to: string | null, r = T1, extra = {}) => loc(id, v, from, to, r, extra);
+  const tagX = (id: string, v: string, from: string, to: string | null, r = T1, extra = {}) => tag(id, v, from, to, r, extra);
+
+  const cases = [
+    { name: "A. location", inputs: febCompeting(locX, ["field-0", "field-1", "field-2", "field-9"]), pick: (s: AnimalSnapshot) => s.location, dec: { kind: "FIELD", ref: "field-9" } },
+    { name: "B. management group", inputs: febCompeting(groupX, ["group-0", "group-1", "group-2", "group-9"]), pick: (s: AnimalSnapshot) => s.managementGroup, dec: "group-9" },
+    { name: "C. lifecycle", inputs: febCompeting(lifeX, ["PRESENT", "DEPARTED", "DECEASED", "PRESENT"]), pick: (s: AnimalSnapshot) => s.lifecycleStatus, dec: "PRESENT" },
+    { name: "D. external identifier", inputs: febCompeting(tagX, ["SYNTH-0", "SYNTH-1", "SYNTH-2", "SYNTH-9"]), pick: (s: AnimalSnapshot) => s.externalIdentifiers.byScheme[0], dec: "SYNTH-9" },
+  ];
+
+  for (const c of cases) {
+    it(`${c.name}: a February-only competing correction conflicts in February but not in December`, () => {
+      const ledger = ledgerOf(c.inputs);
+      expect(c.pick(project(ledger, at(FEB_MID)))).toMatchObject({ state: "CONFLICTING_EVIDENCE", issues: ["CATTLE_ANIMAL_COMPETING_CORRECTIONS"] });
+      expect(c.pick(project(ledger, at(DEC)))).toMatchObject({ state: "KNOWN", value: c.dec, issues: [] });
+      // The February competition is still auditable in history at the December cutoff.
+      const history = animalAssertionHistory(ledger, c.inputs[0].kind, LATER);
+      expect(history?.find((h) => h.assertion.assertionId === "x-orig")?.supersededBy).toEqual(["x-c1", "x-c2"]);
+    });
+  }
+
+  it("A–C. plain overlapping February-only assignments conflict only in February", () => {
+    const ledger = ledgerOf([
+      locX("l-1", "field-1", FEB, MAR),
+      locX("l-2", "field-2", FEB, MAR),
+      groupX("g-1", "group-1", FEB, MAR),
+      groupX("g-2", "group-2", FEB, MAR),
+      lifeX("p-1", "PRESENT", FEB, MAR),
+      lifeX("p-2", "DECEASED", FEB, MAR),
+      tagX("t-1", "SYNTH-1", FEB, MAR),
+      tagX("t-2", "SYNTH-2", FEB, MAR),
+    ]);
+    const feb = project(ledger, at(FEB_MID));
+    const dec = project(ledger, at(DEC));
+    for (const r of [feb.location, feb.managementGroup, feb.lifecycleStatus, feb.externalIdentifiers.byScheme[0]]) expect(r.state).toBe("CONFLICTING_EVIDENCE");
+    for (const r of [dec.location, dec.managementGroup, dec.lifecycleStatus, dec.externalIdentifiers.byScheme[0]]) {
+      expect(r).toMatchObject({ state: "UNKNOWN", issues: ["CATTLE_ANIMAL_NO_EVIDENCE"] });
+    }
+  });
+
+  it("E. competing corrections actually effective at the requested date still conflict", () => {
+    const ledger = ledgerOf([
+      locX("l-orig", "field-0", "2026-01-01T00:00:00Z", null),
+      locX("l-c1", "field-1", FEB, null, T2, { supersedes: ["l-orig"] }),
+      locX("l-c2", "field-2", FEB, null, T2, { supersedes: ["l-orig"] }),
+    ]);
+    expect(project(ledger, at(DEC)).location).toMatchObject({ state: "CONFLICTING_EVIDENCE", conflictingValues: [{ kind: "FIELD", ref: "field-1" }, { kind: "FIELD", ref: "field-2" }] });
+    // Only one correction effective at the date: no competition at that instant.
+    const partial = ledgerOf([
+      locX("l-orig", "field-0", "2026-01-01T00:00:00Z", null),
+      locX("l-c1", "field-1", FEB, null, T2, { supersedes: ["l-orig"] }),
+      locX("l-c2", "field-2", FEB, MAR, T2, { supersedes: ["l-orig"] }),
+    ]);
+    expect(project(partial, at(FEB_MID)).location.state).toBe("CONFLICTING_EVIDENCE");
+    expect(project(partial, at(DEC)).location).toMatchObject({ state: "KNOWN", value: { kind: "FIELD", ref: "field-1" } });
+    // Identity facts are not interval-scoped: competing DOB corrections still conflict.
+    const facts = ledgerOf([dob("d-1", "2025-02-10"), dob("d-2", "2025-02-12", T2, { supersedes: ["d-1"] }), dob("d-3", "2025-02-13", T2, { supersedes: ["d-1"] })]);
+    expect(project(facts, at(DEC)).dateOfBirth.state).toBe("CONFLICTING_EVIDENCE");
+  });
+
+  it("F. a correction received after the knowledge cutoff stays invisible to an earlier snapshot", () => {
+    const ledger = ledgerOf([
+      locX("l-orig", "field-0", "2026-01-01T00:00:00Z", null, T1),
+      locX("l-c1", "field-1", FEB, MAR, T3, { supersedes: ["l-orig"] }),
+      locX("l-c2", "field-2", FEB, MAR, T3, { supersedes: ["l-orig"] }),
+    ]);
+    expect(project(ledger, at(FEB_MID, T2)).location).toMatchObject({ state: "KNOWN", value: { kind: "FIELD", ref: "field-0" }, supersededAssertionIds: [] });
+    expect(project(ledger, at(FEB_MID, LATER)).location.state).toBe("CONFLICTING_EVIDENCE");
+    // After the correction is known, December has no effective location (the original was superseded).
+    expect(project(ledger, at(DEC, LATER)).location).toMatchObject({ state: "UNKNOWN", issues: ["CATTLE_ANIMAL_NO_EVIDENCE"] });
+  });
+
+  it("G. out-of-order input yields the same snapshot and fingerprint for both dates", () => {
+    for (const c of cases) {
+      for (const q of [at(FEB_MID), at(DEC)]) {
+        const base = project(ledgerOf(c.inputs), q);
+        const reversed = project(ledgerOf([...c.inputs].reverse()), q);
+        expect(reversed).toEqual(base);
+        expect(sameFingerprint(computeAnimalSnapshotFingerprint(reversed, hash), computeAnimalSnapshotFingerprint(base, hash))).toBe(true);
+      }
+    }
+  });
+});
+
+describe("Cattle C1 remediation F002 — ledger header is validated", () => {
+  const good = () => ledgerOf([dob("d-1", "2025-02-10")]);
+  const forge = (overrides: Record<string, unknown>) => ({ ...structuredClone(good()), ...overrides }) as unknown as AnimalLedger;
+  const codes = (r: ReturnType<typeof projectAnimalSnapshot>) => (r.ok ? [] : r.ledgerIssues.map((i) => i.code));
+
+  it("a supported BOVINE schema-1 ledger projects normally", () => {
+    const s = project(forge({}));
+    expect(s).toMatchObject({ species: "BOVINE", snapshotSchemaVersion: 1, dateOfBirth: { value: "2025-02-10" } });
+  });
+
+  it("an unsupported species is rejected, never coerced to BOVINE", () => {
+    const r = projectAnimalSnapshot(forge({ species: "OVINE" }), NOW);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.issues).toEqual(["CATTLE_ANIMAL_INVALID_LEDGER"]);
+    expect(codes(r)).toEqual(["CATTLE_ANIMAL_UNSUPPORTED_SPECIES"]);
+  });
+
+  it("an unsupported future (or past) schema version is rejected, never read as the current schema", () => {
+    expect(codes(projectAnimalSnapshot(forge({ ledgerSchemaVersion: 999 }), NOW))).toEqual(["CATTLE_ANIMAL_UNSUPPORTED_LEDGER_SCHEMA_VERSION"]);
+    expect(codes(projectAnimalSnapshot(forge({ ledgerSchemaVersion: 0 }), NOW))).toEqual(["CATTLE_ANIMAL_UNSUPPORTED_LEDGER_SCHEMA_VERSION"]);
+    expect(codes(projectAnimalSnapshot(forge({ species: "OVINE", ledgerSchemaVersion: 999 }), NOW))).toEqual([
+      "CATTLE_ANIMAL_UNSUPPORTED_LEDGER_SCHEMA_VERSION",
+      "CATTLE_ANIMAL_UNSUPPORTED_SPECIES",
+    ]);
+  });
+
+  it("a malformed header is rejected", () => {
+    for (const bad of [
+      forge({ species: undefined }),
+      forge({ ledgerSchemaVersion: "1" }),
+      forge({ assertions: "nope" }),
+      null as unknown as AnimalLedger,
+      [] as unknown as AnimalLedger,
+    ]) {
+      expect(codes(projectAnimalSnapshot(bad, NOW))).toContain("CATTLE_ANIMAL_MALFORMED_LEDGER_HEADER");
+    }
+  });
+
+  it("history, append and the register apply the same header check", () => {
+    const ovine = forge({ species: "OVINE" });
+    expect(animalAssertionHistory(ovine, "DATE_OF_BIRTH", LATER)).toBeNull();
+    expect(animalAssertionHistory(forge({ ledgerSchemaVersion: 2 }), "DATE_OF_BIRTH", LATER)).toBeNull();
+    const appended = appendAnimalAssertions(ovine, [sex("s-1", "FEMALE")]);
+    expect(!appended.ok && appended.issues.map((i) => i.code)).toEqual(["CATTLE_ANIMAL_UNSUPPORTED_SPECIES"]);
+    expect(appendAnimalAssertions(forge({ ledgerSchemaVersion: 999 }), []).ok).toBe(false);
+    expect(appendAnimalAssertions(good(), [sex("s-1", "FEMALE")]).ok).toBe(true);
+    expect(checkExternalIdentifierRegister([ovine], NOW)).toMatchObject({ clear: false, issues: [{ code: "CATTLE_REGISTER_INVALID_LEDGER", animalId: A }] });
+  });
+
+  it("header getters are read once", () => {
+    let reads = 0;
+    const base = structuredClone(good()) as unknown as Record<string, unknown>;
+    const shifty = {
+      ...base,
+      get species() {
+        reads += 1;
+        return reads === 1 ? "OVINE" : "BOVINE";
+      },
+    } as unknown as AnimalLedger;
+    expect(codes(projectAnimalSnapshot(shifty, NOW))).toEqual(["CATTLE_ANIMAL_UNSUPPORTED_SPECIES"]);
+    expect(reads).toBe(1);
+  });
+});

@@ -195,7 +195,10 @@ export type AnimalLedgerIssueCode =
   | "CATTLE_ANIMAL_SELF_SUPERSESSION"
   | "CATTLE_ANIMAL_INVALID_VALUE"
   | "CATTLE_ANIMAL_INVALID_INTERVAL"
-  | "CATTLE_ANIMAL_DUPLICATE_ID_DIFFERENT_CONTENT";
+  | "CATTLE_ANIMAL_DUPLICATE_ID_DIFFERENT_CONTENT"
+  | "CATTLE_ANIMAL_MALFORMED_LEDGER_HEADER"
+  | "CATTLE_ANIMAL_UNSUPPORTED_SPECIES"
+  | "CATTLE_ANIMAL_UNSUPPORTED_LEDGER_SCHEMA_VERSION";
 
 export interface AnimalLedgerIssue {
   code: AnimalLedgerIssueCode;
@@ -444,10 +447,37 @@ export function createAnimalLedger(animalId: string, inputs: readonly unknown[] 
 }
 
 /**
+ * Re-validates and re-materialises a supplied (possibly hand-built or
+ * aliased) ledger. The header is read once and must be exactly a supported
+ * C1 ledger: species BOVINE and `ledgerSchemaVersion` 1. Any other species is
+ * never coerced to BOVINE, and an unknown/future schema version is never read
+ * as the current one — both fail closed with an explicit issue.
+ */
+export function rematerialiseAnimalLedger(ledger: unknown): AnimalLedgerResult {
+  const header = (code: AnimalLedgerIssueCode): AnimalLedgerResult => ({ ok: false, issues: [{ code, assertionId: null, inputIndex: null }] });
+  if (!isPlainRecord(ledger)) return header("CATTLE_ANIMAL_MALFORMED_LEDGER_HEADER");
+  const { ledgerSchemaVersion, species, animalId, assertions } = ledger;
+  const issues: AnimalLedgerIssue[] = [];
+  const push = (code: AnimalLedgerIssueCode) => issues.push({ code, assertionId: null, inputIndex: null });
+  if (typeof ledgerSchemaVersion !== "number" || typeof species !== "string" || !Array.isArray(assertions)) {
+    push("CATTLE_ANIMAL_MALFORMED_LEDGER_HEADER");
+  }
+  if (typeof ledgerSchemaVersion === "number" && ledgerSchemaVersion !== CATTLE_ANIMAL_LEDGER_SCHEMA_VERSION) {
+    push("CATTLE_ANIMAL_UNSUPPORTED_LEDGER_SCHEMA_VERSION");
+  }
+  if (typeof species === "string" && species !== BOVINE_SPECIES) push("CATTLE_ANIMAL_UNSUPPORTED_SPECIES");
+  if (issues.length > 0) return { ok: false, issues };
+  return createAnimalLedger(animalId as string, assertions as unknown[]);
+}
+
+/**
  * Appends assertions, returning a NEW ledger (the supplied one is never
- * modified). The existing ledger is re-validated and re-materialised, so a
- * hand-built or aliased ledger object cannot bypass validation.
+ * modified). The existing ledger is re-validated (header included) and
+ * re-materialised, so a hand-built or aliased ledger object cannot bypass
+ * validation.
  */
 export function appendAnimalAssertions(ledger: AnimalLedger, inputs: readonly unknown[]): AnimalLedgerResult {
-  return createAnimalLedger(ledger.animalId, [...ledger.assertions, ...Array.from(inputs)]);
+  const existing = rematerialiseAnimalLedger(ledger);
+  if (!existing.ok) return existing;
+  return createAnimalLedger(existing.ledger.animalId, [...existing.ledger.assertions, ...Array.from(inputs)]);
 }

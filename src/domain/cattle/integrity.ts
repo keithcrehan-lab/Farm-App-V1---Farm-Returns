@@ -26,7 +26,11 @@ import { CATTLE_INTEGRITY_PAYLOAD_VERSION } from "./version";
 
 export type CattleHash = (input: string) => string;
 
-export type CattleFingerprintKind = "CATTLE_SOURCE_MATERIAL" | "CATTLE_RULE_DEFINITION" | "CATTLE_EVIDENCE_PACK";
+export type CattleFingerprintKind =
+  | "CATTLE_SOURCE_MATERIAL"
+  | "CATTLE_RULE_DEFINITION"
+  | "CATTLE_RULE_IMPLEMENTATION"
+  | "CATTLE_EVIDENCE_PACK";
 
 function wrap(kind: CattleFingerprintKind, payload: unknown): unknown {
   return { kind, cattlePayloadVersion: CATTLE_INTEGRITY_PAYLOAD_VERSION, payload };

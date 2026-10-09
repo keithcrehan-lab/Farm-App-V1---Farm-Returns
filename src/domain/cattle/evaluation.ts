@@ -10,8 +10,8 @@
  * is unchanged.
  *
  * Precedence, fail closed: UNSUPPORTED (invalid/not effective/unresolvable,
- * or an implementation whose identity differs from the rule's bound
- * `implementation`) > REVIEW_REQUIRED (unapproved version, changed source) > applicability
+ * or an implementation whose identity or logic fingerprint differs from the
+ * rule's bound `implementation`) > REVIEW_REQUIRED (unapproved version, changed source) > applicability
  * (conflict > missing > not applicable) > required inputs (conflict >
  * missing) > the rule's own PASS/FAIL. The predicate is called only when
  * every required input is KNOWN — a missing value never reaches it as zero.
@@ -27,7 +27,7 @@ import {
   type CattleInputScalar,
   type RejectedInput,
 } from "./information";
-import { compareStrings, sortedUnique, type CattleHash } from "./integrity";
+import { compareStrings, computeCattleFingerprint, sameFingerprint, sortedUnique, type CattleHash } from "./integrity";
 import {
   computeRuleFingerprint,
   evaluateRuleReviews,
@@ -61,10 +61,47 @@ export type CattleEvaluationState =
 export type CattleRulePredicate = (values: Readonly<Record<string, CattleInputScalar>>) => "PASS" | "FAIL" | "UNSUPPORTED";
 
 /** A predicate with its versioned identity. It runs only for a rule version
- * whose `implementation` names exactly this id + version, so swapping the
- * logic requires a new rule version (new fingerprint, renewed approval). */
-export interface CattleRuleImplementation extends RuleImplementationRef {
+ * whose `implementation` names exactly this id + version AND whose
+ * `logicFingerprint` matches this predicate's own source text, so swapping
+ * the logic requires a new rule version (new fingerprint, renewed approval).
+ * A predicate must be self-contained: values it captures from an enclosing
+ * scope are not part of its source text and so are not bound. */
+export interface CattleRuleImplementation {
+  implementationId: string;
+  version: number;
   evaluate: CattleRulePredicate;
+}
+
+/** Fingerprint of the implementation's identity and its predicate's source
+ * text. `null` when the source is not inspectable (native/bound function),
+ * which can never be bound and so fails closed. */
+export function computeImplementationLogicFingerprint(
+  implementation: CattleRuleImplementation,
+  hash: CattleHash,
+): AssessmentFingerprint | null {
+  if (typeof implementation.evaluate !== "function") return null;
+  const source = Function.prototype.toString.call(implementation.evaluate);
+  if (/\[native code\]\s*\}\s*$/.test(source)) return null;
+  return computeCattleFingerprint(
+    "CATTLE_RULE_IMPLEMENTATION",
+    { implementationId: implementation.implementationId, version: implementation.version, source },
+    hash,
+  );
+}
+
+/** The `RuleImplementationRef` to bind into a rule version for this
+ * implementation; `null` when its logic cannot be fingerprinted. */
+export function implementationRef(implementation: CattleRuleImplementation, hash: CattleHash): RuleImplementationRef | null {
+  const logicFingerprint = computeImplementationLogicFingerprint(implementation, hash);
+  if (logicFingerprint === null) return null;
+  return { implementationId: implementation.implementationId, version: implementation.version, logicFingerprint };
+}
+
+/** The implementation actually supplied for an evaluation. */
+export interface SuppliedImplementationRef {
+  implementationId: string;
+  version: number;
+  logicFingerprint: AssessmentFingerprint | null;
 }
 
 export interface ConflictingInputRecord {
@@ -79,7 +116,7 @@ export interface RuleEvaluationRecord {
   rule: RuleVersionRef | null;
   ruleFingerprint: AssessmentFingerprint | null;
   /** The implementation identity actually supplied for evaluation. */
-  implementation: RuleImplementationRef | null;
+  implementation: SuppliedImplementationRef | null;
   classification: CattleRuleClassification | null;
   gateRole: CattleRuleGateRole | null;
   evaluationDate: string;
@@ -142,7 +179,11 @@ export function evaluateCattleRule(
   const implementationMatches =
     implementation.implementationId === rule.implementation.implementationId && implementation.version === rule.implementation.version;
   if (!implementationMatches) reasons.push("CATTLE_RULE_IMPLEMENTATION_MISMATCH");
-  const unsupported = !validation.valid || !effective || !implementationMatches;
+  const suppliedLogic = computeImplementationLogicFingerprint(implementation, hash);
+  const logicMatches =
+    suppliedLogic !== null && validation.valid && sameFingerprint(suppliedLogic, rule.implementation.logicFingerprint);
+  if (validation.valid && !logicMatches) reasons.push("CATTLE_RULE_IMPLEMENTATION_LOGIC_MISMATCH");
+  const unsupported = !validation.valid || !effective || !implementationMatches || !logicMatches;
 
   const reviewStatus = evaluateRuleReviews(rule, context.reviews, hash);
   if (!executable) reasons.push(`CATTLE_RULE_NOT_IN_PRODUCTION:${rule.productionState}`);
@@ -212,7 +253,7 @@ export function evaluateCattleRule(
     requestedRuleId: rule.ruleId,
     rule: ruleVersionRef(rule),
     ruleFingerprint: computeRuleFingerprint(rule, hash),
-    implementation: { implementationId: implementation.implementationId, version: implementation.version },
+    implementation: { implementationId: implementation.implementationId, version: implementation.version, logicFingerprint: suppliedLogic },
     classification: rule.classification,
     gateRole: rule.gateRole,
     evaluationDate: context.evaluationDate,

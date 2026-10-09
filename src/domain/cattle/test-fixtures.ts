@@ -5,9 +5,16 @@
  */
 
 import { createHash } from "node:crypto";
-import type { CattleRuleImplementation, CattleRulePredicate } from "./evaluation";
+import { implementationRef, type CattleRuleImplementation, type CattleRulePredicate } from "./evaluation";
 import type { CattleInputItem, CattleInformationClass, RequiredInputDescriptor } from "./information";
-import { FAIL_CLOSED_UNKNOWN_POLICY, computeRuleFingerprint, type CattleReviewDimension, type CattleRuleVersion, type RuleReviewRecord } from "./rule";
+import {
+  FAIL_CLOSED_UNKNOWN_POLICY,
+  computeRuleFingerprint,
+  type CattleReviewDimension,
+  type CattleRuleVersion,
+  type RuleImplementationRef,
+  type RuleReviewRecord,
+} from "./rule";
 import { computeSourceContentFingerprint, sourceVersionRef, type CattleEvidenceSource } from "./source";
 
 export const hash = (input: string): string => createHash("sha256").update(input, "utf8").digest("hex");
@@ -48,6 +55,22 @@ export function descriptor(inputKey: string, acceptedClasses: CattleInformationC
 
 export const SYNTH_IMPLEMENTATION_ID = "SYNTH-IMPL-GATE";
 
+/** Wraps a synthetic predicate with an implementation identity (defaults
+ * match `synthRule`'s bound implementation id + version). */
+export function impl(evaluate: CattleRulePredicate, implementationId = SYNTH_IMPLEMENTATION_ID, version = 1): CattleRuleImplementation {
+  return { implementationId, version, evaluate };
+}
+
+/** Synthetic predicate: PASS when `synth.flag` is `true`, FAIL when `false`. */
+export const flagPredicate = impl((values) => (values["synth.flag"] === true ? "PASS" : "FAIL"));
+
+/** The binding a rule version needs to run `implementation`. */
+export function bindTo(implementation: CattleRuleImplementation): RuleImplementationRef {
+  const ref = implementationRef(implementation, hash);
+  if (ref === null) throw new Error("synthetic implementation is not fingerprintable");
+  return ref;
+}
+
 export function synthRule(overrides: Partial<CattleRuleVersion> = {}): CattleRuleVersion {
   return {
     ruleId: "SYNTH-RULE-GATE",
@@ -64,7 +87,7 @@ export function synthRule(overrides: Partial<CattleRuleVersion> = {}): CattleRul
     limitations: ["synthetic limitation"],
     unknownPolicy: FAIL_CLOSED_UNKNOWN_POLICY,
     sourceBindings: [sourceVersionRef(LEGAL_SOURCE)],
-    implementation: { implementationId: SYNTH_IMPLEMENTATION_ID, version: 1 },
+    implementation: bindTo(flagPredicate),
     supersedes: null,
     requiredReviews: ["LEGAL"],
     productionState: "PRODUCTION",
@@ -94,12 +117,3 @@ export function item(inputKey: string, value: CattleInputItem["value"], override
     ...overrides,
   };
 }
-
-/** Wraps a synthetic predicate with an implementation identity (defaults
- * match `synthRule`'s bound implementation). */
-export function impl(evaluate: CattleRulePredicate, implementationId = SYNTH_IMPLEMENTATION_ID, version = 1): CattleRuleImplementation {
-  return { implementationId, version, evaluate };
-}
-
-/** Synthetic predicate: PASS when `synth.flag` is `true`, FAIL when `false`. */
-export const flagPredicate = impl((values) => (values["synth.flag"] === true ? "PASS" : "FAIL"));

@@ -68,6 +68,11 @@ export interface RuleImplementationRef {
   implementationId: string;
   /** Positive integer; bump whenever the executable logic changes. */
   version: number;
+  /** Fingerprint of the approved logic's own source text
+   * (`computeImplementationLogicFingerprint`, `evaluation.ts`). Evaluation
+   * recomputes it from the supplied predicate, so replacement logic keeping
+   * the same id + version is rejected rather than run. */
+  logicFingerprint: AssessmentFingerprint;
 }
 
 export interface CattleRuleVersion {
@@ -165,7 +170,11 @@ export function computeRuleFingerprint(rule: CattleRuleVersion, hash: CattleHash
       limitations: [...rule.limitations].sort(compareStrings),
       unknownPolicy: rule.unknownPolicy,
       sourceBindings: [...rule.sourceBindings].sort(compareSourceVersionRefs),
-      implementation: { implementationId: rule.implementation.implementationId, version: rule.implementation.version },
+      implementation: {
+        implementationId: rule.implementation.implementationId,
+        version: rule.implementation.version,
+        logicFingerprint: rule.implementation.logicFingerprint,
+      },
       supersedes: rule.supersedes,
       requiredReviews: sortedUnique(rule.requiredReviews),
     },
@@ -187,7 +196,17 @@ export function validateRuleVersion(rule: CattleRuleVersion, catalogue: readonly
   if (!isValidCalendarDate(rule.effectiveFrom)) issues.push("CATTLE_RULE_INVALID_EFFECTIVE_FROM");
   if (rule.effectiveTo !== null && !isValidCalendarDate(rule.effectiveTo)) issues.push("CATTLE_RULE_INVALID_EFFECTIVE_TO");
   if (rule.effectiveTo !== null && rule.effectiveTo <= rule.effectiveFrom) issues.push("CATTLE_RULE_EMPTY_EFFECTIVE_WINDOW");
-  if (rule.implementation.implementationId.trim() === "" || !Number.isInteger(rule.implementation.version) || rule.implementation.version < 1) {
+  const logic = rule.implementation.logicFingerprint;
+  if (
+    rule.implementation.implementationId.trim() === "" ||
+    !Number.isInteger(rule.implementation.version) ||
+    rule.implementation.version < 1 ||
+    typeof logic !== "object" ||
+    logic === null ||
+    logic.algorithm !== "SHA-256" ||
+    typeof logic.digest !== "string" ||
+    !/^[0-9a-f]{64}$/.test(logic.digest)
+  ) {
     issues.push("CATTLE_RULE_INVALID_IMPLEMENTATION_REF");
   }
   for (const dimension of MINIMUM_REVIEW_DIMENSIONS[rule.classification]) {

@@ -253,5 +253,9 @@
   "plan_operating_system_v1": {
     "campaign": ".agent/campaigns/plan-operating-system-v1/CAMPAIGN.md",
     "phase_0_kernel": "BUILT 2026-10-09 (task plan-phase-0-kernel-20261009, base 8e3f4f9): pure non-frozen Plan kernel src/domain/plan/ (plan_kernel_v0.1.0) — goals/programmes, static/dynamic target scope with audited scope changes and follow-on proposals, four completion contracts derived only from supplied canonical evidence (unknown never zero), lifecycle status, readiness, dependencies/shared blockers, recommended windows vs sourced hard deadlines, system priority tiers, farmer working order, defer/snooze and acknowledged farmer override preserving missing canonical data, canonical action routes, audit events, pure reevaluatePlanJob; DOMAIN_CONTRACTS.md Plan kernel section; no frozen-contract, UI, persistence, schema, migration or scientific/financial value change; contracts_frozen unchanged (true); independent audit pending; Phase 1 not started"
+  },
+  "cattle_engine_v1": {
+    "campaign": ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
+    "c0_evidence_rule_architecture": "BUILT 2026-10-09 (task cattle-c0-evidence-rule-architecture-20261009, base a15553e): pure non-frozen src/domain/cattle/ (cattle_evidence_v0.1.0) — versioned cattle evidence sources with content fingerprints and change detection, information classes and fail-closed input resolution, versioned rules with eight authority classes, effective-date resolution, version- and fingerprint-bound scientific/legal/veterinary reviews, seven-state evaluation records, Recommendation Evidence Pack with derived hard-gate outcome and integrity fingerprint; reuses assessment-integrity canonicalisation/fingerprint unchanged; synthetic fixtures only; DOMAIN_CONTRACTS.md Cattle C0 section; no frozen-contract, UI, persistence, schema, migration or scientific/legal/veterinary value change; contracts_frozen unchanged (true); independent audit pending; C1 not started"
   }
 }

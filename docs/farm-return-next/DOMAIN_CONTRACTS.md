@@ -3337,3 +3337,38 @@ untouched; no mapping between them is defined in Phase 0.
 | `reevaluate.ts` | `reevaluatePlanJob(job, context)` — pure: scope → OBSOLETE on empty known scope → canonical completion (auto-complete, PARTIAL → IN_PROGRESS) → readiness; returns updated job, evaluations, audit events and an optional `PlanFollowOnProposal`. Closed jobs still report canonical completion |
 
 Tests: `src/domain/plan/*.test.ts` (fixture `test-fixtures.ts`, generic subjects only).
+
+## Cattle C0 — Evidence, rule & regulatory architecture (2026-10-09)
+
+New, **non-frozen** pure modules under `src/domain/cattle/` (barrel `index.ts`), architecture
+version `cattle_evidence_v0.1.0`, integrity payload version 1. Campaign contract:
+`.agent/campaigns/cattle-engine-v1/CAMPAIGN.md`. Infrastructure only: no cattle science, law,
+veterinary rule, persistence, schema, migration, UI or AI call; tests use fictional `SYNTH-*`
+fixtures. No frozen-contract change.
+
+**Reuse decisions.** Canonicalisation and fingerprinting reuse `assessment-integrity.ts`'s
+`canonicalizeValue`/`computeAssessmentFingerprint`/`verifyAssessmentFingerprint` unchanged
+(sorted keys, preserved array order, fail-closed on `undefined`/NaN/class instances, caller-
+supplied SHA-256 `hash`, digest-shape check). Cattle payloads are wrapped with a `kind`
+(`CATTLE_SOURCE_MATERIAL`/`CATTLE_RULE_DEFINITION`/`CATTLE_EVIDENCE_PACK`) and payload version,
+so they never collide with each other or with assessment fingerprints. `audit-trace.ts`'s
+`canonicalSha256` was not used: it drops `undefined` and coerces NaN silently. `evidence.ts`'s
+`EngineOutcome`/`EvidenceState` describe calculated-value strength and lack rule pass/fail,
+conflicting evidence, review-required and unsupported states, so cattle rules use their own
+`CattleEvaluationState` instead of a lossy mapping. `source-register.ts`'s closed `SourceId`
+register is unchanged; a cattle source may link to it via `registeredSourceId`. Dates reuse
+`iso-datetime.ts`.
+
+| Module | Contract |
+|---|---|
+| `source.ts` | `CattleEvidenceSource` (stable id, publisher, `CattleSourceAuthorityKind`, jurisdiction/context, version, content fingerprint, retrieved/checked, lifecycle `ACTIVE`/`HISTORICAL`/`SUPERSEDED`/`REVIEW_REQUIRED`); `SourceVersionRef`; `computeSourceContentFingerprint`; `checkSourceBinding` → `CURRENT` only on exact id+version+fingerprint with one ACTIVE entry, otherwise a change/review status; `findSourceVersion` exact historical lookup |
+| `information.ts` | `CattleInformationClass` (FACT/OBSERVATION/INTENT/RULE/DERIVED_VALUE/PREDICTION/OBLIGATION_OR_CONSTRAINT/RECOMMENDATION), `ProvenanceRef`, `CattleInputItem`, `RequiredInputDescriptor` (accepted classes + unit); `resolveInput` → KNOWN / MISSING / CONFLICTING (no winner chosen); wrong class or unit rejected, never converted |
+| `rule.ts` | `CattleRuleVersion` (id, integer version, classification, `HARD_GATE`/`ADVISORY` role, jurisdiction, `[effectiveFrom, effectiveTo)`, applicability, required inputs, assumptions, limitations, fail-closed `UnknownConflictPolicy`, source bindings, supersession, required review dimensions, production state); `computeRuleFingerprint` (all content except `productionState`); `validateRuleVersion` (classification minimum review dimension, legal ⇒ hard gate, intent/inference ⇒ never hard gate, source authority must suit classification — advisory science cannot ground a legal rule); `resolveEffectiveRuleVersion` (PRODUCTION/SUPERSEDED only, successor excludes superseded, none ⇒ `NO_EFFECTIVE_VERSION`, several ⇒ `AMBIGUOUS_EFFECTIVE_VERSIONS`); `getRuleVersion`; `RuleReviewRecord`/`evaluateRuleReviews` — SCIENTIFIC/LEGAL/VETERINARY judged separately, bound to rule id + version + fingerprint, latest wins, tie ⇒ REJECTED |
+| `evaluation.ts` | `CattleEvaluationState` PASS/FAIL/INSUFFICIENT_EVIDENCE/NOT_APPLICABLE/CONFLICTING_EVIDENCE/UNSUPPORTED/REVIEW_REQUIRED; `evaluateCattleRule` (precedence UNSUPPORTED > REVIEW_REQUIRED (non-production, unapproved version, any non-CURRENT source) > applicability > required inputs > predicate; predicate sees KNOWN values only); `evaluateEffectiveCattleRule` (unresolvable ⇒ UNSUPPORTED record with `rule: null`); `RuleEvaluationRecord` binds exact version, rule fingerprint, source checks and reviews |
+| `evidence-pack.ts` | `RecommendationEvidencePack`; `buildRecommendationEvidencePack` derives hard-gate outcomes and outcome (FAIL ⇒ `BLOCKED`, review ⇒ `REVIEW_REQUIRED`, unknown/conflict/unsupported/not evaluated ⇒ `INSUFFICIENT_EVIDENCE`, no proposal ⇒ `NO_RECOMMENDATION`, else `ACTIONABLE`); `actionableActionId` only when ACTIONABLE; favourability never consulted; invalid structure reported not repaired; fingerprint excludes only `generatedAt`; `verifyRecommendationEvidencePack` checks stored fingerprint and rebuild consistency |
+| `integrity.ts` | `computeCattleFingerprint`/`verifyCattleFingerprint` wrappers, `sameFingerprint` |
+
+Known limitations: a pack trusts the supplied `RuleEvaluationRecord`s (verification cannot
+re-run rule predicates); pack `inputs` are not cross-checked against each record's `usedInputs`;
+source-change detection compares against the supplied catalogue only (no connector); the
+fingerprint is change detection, not a signature. Tests: `src/domain/cattle/*.test.ts`.

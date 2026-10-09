@@ -1,188 +1,238 @@
-# Task: Plan Phase 0 - Kernel
+# Task: Cattle C0 - Evidence Rule Architecture
 
-Task ID: plan-phase-0-kernel-20261009
-Starting HEAD: 8e3f4f97d3f2357766da9a98575d5faf3395aed0
-Verify command: `npx vitest run src/domain/plan && npm run typecheck && npm run lint`
+Task ID: cattle-c0-evidence-rule-architecture-20261009
+Starting HEAD: a15553e4b7d01780f33747fd5b0ca3d2ba78be5c
+Verify command: `npx vitest run src/domain/cattle src/domain/audit-trace.test.ts src/domain/assessment-integrity.test.ts && npm run typecheck && npm run lint`
 
-# Plan Phase 0 — Kernel
+# Cattle C0 — Evidence, Rule & Regulatory Architecture
 
-Campaign: Plan Operating System v1 (`.agent/campaigns/plan-operating-system-v1/CAMPAIGN.md`).
-Phase: 0 of the campaign roadmap. Read the campaign contract, then apply
-`.agent/skills/plan-domain.md` (build) and `.agent/skills/targeted-audit.md` (audit/repair).
-Do NOT load the Plan interaction skill or the evidence-economics skill;
-Phase 0 does not cross into those areas.
+Campaign: `.agent/campaigns/cattle-engine-v1/CAMPAIGN.md`
+Build skill: `.agent/skills/cattle-evidence-rules.md`
+Audit skill: `.agent/skills/targeted-audit.md`
 
 ## Objective
 
-Build the smallest pure, tested Plan domain kernel required to support the later
-Farm Return operating-system layers.
+Build the smallest pure, deterministic, tested evidence/rule architecture required for later cattle regulatory, scientific, veterinary-programme and recommendation engines.
 
-The kernel establishes clean domain contracts and deterministic behaviour for:
+C0 is infrastructure only. It must prove that Farm Return can preserve exact evidence provenance, version rules over time, fail closed on missing/conflicting information, separate legal/scientific/veterinary authority, detect source change without silently changing approved logic, and generate a deterministic recommendation evidence record/fingerprint.
 
-- goals / outcomes;
-- programmes, only where necessary for the kernel;
-- jobs / work items;
-- dynamic target scope;
-- lifecycle / status;
-- readiness;
-- dependencies and blockers;
-- recommended working windows;
-- progress;
-- completion contracts;
-- farmer working order;
-- system priority as a separate concept;
-- defer / snooze / override state;
-- canonical action routes;
-- auditable domain transitions;
-- auditable scope changes;
-- deterministic re-evaluation.
+Do not encode real cattle science or law in C0. Use synthetic fixtures and obviously fictional rule/source ids in behavioural tests where needed.
 
-## Fundamental architectural invariant
+## Existing infrastructure to inspect first
 
-Plan owns intent, orchestration and work state. Canonical Farm Return domain systems
-own physical and factual reality. Plan must NOT become a second source of truth.
+Before writing new primitives, inspect the existing Farm Return scientific/audit/integrity architecture, especially:
+- `src/domain/evidence.ts`
+- `src/domain/source-register.ts`
+- `src/domain/audit-trace.ts`
+- `src/domain/assessment-integrity.ts`
+- their relevant tests/adapters/exporters
+- `docs/farm-return-next/DOMAIN_CONTRACTS.md`
 
-Do not duplicate into Plan: cattle weights, animal facts, field facts, soil facts,
-crop-input calculations, crop-input/spreading application records, feed stock reality,
-sale records, supplier quotes, or any other canonical farm-domain fact.
+Reuse mature generic primitives where they genuinely satisfy C0. Prefer additive Cattle-specific contracts/wrappers over modifying frozen/shared semantics.
 
-Data-linked progress and completion must be derivable from canonical evidence supplied
-to the kernel as input. If canonical data is updated elsewhere in Farm Return, Plan must
-be able to re-evaluate from that reality without duplicate entry.
-
-Before designing new types, inspect existing `src/domain/` modules that already touch
-work/jobs/audit (e.g. `job-session-*`, `job-actual`, `audit-trace*`) and
-`docs/farm-return-next/DOMAIN_CONTRACTS.md`. Reuse or reference existing exports rather
-than duplicating them; do not change any frozen contract signature. If the kernel genuinely
-needs a frozen-contract change, STOP and record it in `docs/farm-return-next/BLOCKERS.md`.
-
-## Dynamic scope
-
-Support jobs whose target scope follows current farm reality (e.g. later, animal groups
-whose membership changes). Scope changes must be deterministic, explainable and auditable.
-A changed scope may complete an existing job while independently producing follow-on work
-if the new real-world state requires it. Do not build specific cattle behaviour; a tiny
-generic test fixture is acceptable to prove the kernel.
-
-## Completion contracts
-
-Preserve the distinction between:
-
-1. data-completion jobs;
-2. operational-record jobs;
-3. decision jobs;
-4. manual tasks.
-
-Do not invent numeric progress where the domain does not naturally support it.
-Manual override of a data-linked job must not erase the fact that required canonical data
-is still missing.
-
-## Status / readiness / priority / order
-
-Keep these separate and never collapse them into one field:
-
-- status = lifecycle;
-- readiness = whether work can currently be acted on (blocked dependencies must never
-  yield Ready);
-- system priority = Farm Return's internal importance;
-- farmer working order = the farmer's chosen execution order. System priority changes must
-  not silently reorder farmer-selected order.
-
-System priority hierarchy (types/ordering only; no scoring values):
-
-1. legal / compliance / welfare hard obligations;
-2. avoid material loss;
-3. maximise expected net return;
-4. high-value information gathering.
-
-Do not build detailed economics.
-
-## Timing
-
-Prefer recommended windows over arbitrary due dates. Hard deadlines represent only genuine
-fixed deadlines and must be typed distinctly so a recommended window cannot masquerade as
-a legal deadline. Do not invent any regulatory dates or scientific values.
-
-## Action routes
-
-Provide a typed/canonical route from a Plan job to the correct Farm Return workflow
-(target/context pre-selected). Do not build those workflows.
-
-## Auditability
-
-Important state changes are representable as lightweight, composable audit events, where
-relevant: creation source, status transition, readiness transition, scope change,
-dependency change, progress change, completion, farmer override, defer/snooze, ordering
-change.
-
-## Implementation style
-
-- Place the kernel under `src/domain/plan/` as small composable TypeScript modules with
-  colocated focused Vitest tests.
-- Pure deterministic functions; explicit types; discriminated unions where useful.
-- No AI/model calls for deterministic Plan state.
-- No duplicated calculations; UNKNOWN never represented as zero.
-- Preserve all existing Farm Return behaviour; do not modify existing modules except where a
-  purely additive export is genuinely required.
-- Register the new contracts in `docs/farm-return-next/DOMAIN_CONTRACTS.md` (non-frozen) and
-  update `docs/farm-return-next/BUILD_STATE.json` / `IMPLEMENTATION_LOG.md` per AGENTS.md.
+If C0 would require changing existing fingerprint/canonicalisation semantics, deleting/renaming an existing source id, changing an existing evidence state meaning, or changing a frozen slurry/fertiliser/scientific contract, STOP for human review.
 
 ## Scope
 
-Pure domain kernel modules and tests under `src/domain/plan/`, plus the documentation /
-state updates listed above. Nothing else.
+Implement Cattle-ready architecture for:
 
-## Out of scope
+1. Evidence/source identity and version binding
+   - stable source identity
+   - authority/type/jurisdiction/context metadata where relevant
+   - retrieval/check timestamp
+   - explicit content/source version or fingerprint binding
+   - active/historical/superseded/review-required lifecycle
+   - deterministic change detection
 
-Do NOT build or touch:
+2. Rule definitions and versions
+   - stable rule id + explicit version
+   - classification
+   - jurisdiction where relevant
+   - effective-from/effective-to
+   - applicability conditions
+   - required input descriptors
+   - assumptions/limitations
+   - explicit unknown/conflict policy
+   - source/evidence bindings
+   - supersession relationship
+   - production/review state
 
-- any Plan presentation layer, operational queue view, drag-and-drop interaction;
-- Weigh Group 1 workflow; livestock data-entry integration;
-- crop-input integration; Adviser integration;
-- cattle outcome planning; feed demand; feed inventory allocation;
-- material-change thresholds; market-price monitoring;
-- procurement; supplier RFQs; Strategic Calendar;
-- migrations; new database schema; persistence;
-- new scientific, regulatory, economic or financial calculations or values;
-- external research; deployment; push; merge to main;
-- agent tooling under `scripts/` or `.agent/`;
-- Phase 1 or any later campaign phase.
+3. Rule authority classifications
+   - `LEGAL_REQUIRED`
+   - `LEGAL_CONDITIONAL`
+   - `SCHEME_CONDITIONAL`
+   - `VETERINARY_PROGRAMME`
+   - `SCIENCE_TARGET`
+   - `SCIENCE_CONSTRAINT`
+   - `FARMER_INTENT`
+   - `SYSTEM_INFERENCE`
 
-## Acceptance criteria
+4. Evaluation-state vocabulary adequate to preserve meaning, including support for:
+   - supported/pass
+   - blocked/fail
+   - unknown/insufficient evidence
+   - not applicable
+   - conflicting evidence
+   - unsupported
+   - review required
 
-- `src/domain/plan/` exports typed contracts for every concept listed in the Objective.
-- Status, readiness, system priority and farmer order are distinct types/fields, and tests
-  prove changing one does not change another.
-- Readiness derivation is deterministic; tests prove unmet dependencies/blockers never yield
-  Ready and a shared blocker can affect multiple jobs.
-- The four completion contract kinds are a discriminated union; data-linked progress and
-  completion are derived only from canonical evidence passed in; tests prove automatic
-  completion without a farmer checkbox, and that unknown evidence is not treated as zero.
-- Dynamic scope re-evaluation is deterministic and emits scope-change audit events; a test
-  proves a scope change can complete a job and separately yield follow-on work.
-- Recommended windows and hard deadlines are distinct types.
-- Farmer working order survives system-priority changes (tested).
-- Defer/snooze/override state is representable, audited, and a manual override of a
-  data-linked job preserves the record that canonical data is missing (tested).
-- Action routes are typed and canonical; no workflows are built.
-- Audit events cover the transitions listed under Auditability.
-- Re-evaluation is a pure function: identical inputs produce identical outputs (tested).
-- No product behaviour outside `src/domain/plan/` changes; no migration, schema or values
-  are introduced.
-- Verify command passes.
+   Reuse an existing vocabulary where it truly covers these semantics. Do not force a lossy mapping merely to avoid a new cattle-specific type.
+
+5. Version/effective-date resolution
+   - deterministic selection of the rule version effective for a supplied evaluation date/context
+   - no active/effective version must fail closed
+   - superseded versions remain addressable for historical audit
+
+6. Separate review/approval dimensions
+   - scientific review state
+   - legal review state
+   - veterinary review state
+   - approval is bound to the exact rule version
+   - approving v1 never implicitly approves v2
+
+7. Source-change behaviour
+   - changed material source fingerprint/version produces review-required/change state
+   - an approved rule is not silently rewritten or automatically re-approved
+   - historical evidence remains bound to the previous source/rule version
+
+8. Recommendation Evidence Pack contract
+   Build the smallest deterministic structured record capable of later preserving:
+   - recommendation/evaluation id
+   - engine/ruleset version
+   - target scope reference/snapshot reference
+   - farmer intent/production goal reference where applicable
+   - facts/observations with provenance references
+   - missing/conflicting inputs
+   - exact rules evaluated + versions
+   - hard-gate/compliance outcomes
+   - calculation steps
+   - source/evidence refs + fingerprints/versions
+   - assumptions/limitations/uncertainty
+   - candidate actions and rejected alternatives/reasons
+   - selected action or explicit no-recommendation/blocked outcome
+   - review metadata
+   - deterministic integrity fingerprint
+
+   C0 does not need a farmer-facing narrative or recommendation-selection engine. Synthetic evidence packs are sufficient to prove the contract.
+
+9. Deterministic integrity
+   Reuse established canonicalisation/hash behaviour if safe. The evidence-pack fingerprint is a reproducibility/change-detection fingerprint, not a digital signature.
+
+## Information boundaries
+
+Keep these concepts separable in types/contracts:
+- fact
+- observation
+- intent
+- rule
+- derived value
+- prediction
+- obligation/constraint
+- recommendation
+
+Do not promote inference to fact or advisory science to law.
+
+## Veterinary/legal boundary
+
+C0 models authority and review states only.
+
+Do not implement:
+- disease diagnosis
+- medicine choice
+- dosage
+- prescription behaviour
+- vaccination schedules
+- product SPC interpretation
+- BVD/TB/movement rules
+- any real legal deadline
+
+The architecture must allow later legal/welfare/medicine/disease/movement gates to block downstream optimisation, but C0 must use synthetic fixtures to prove that precedence.
+
+## Unknown/conflict policy
+
+Missing required evidence must never become zero or a convenient default unless an explicitly modelled future rule declares a sourced default.
+
+Conflicting evidence must remain visible as conflict rather than silently choosing a winner in C0.
+
+The architecture must be able to produce an explicit `NO_RECOMMENDATION`, `INSUFFICIENT_EVIDENCE` or `BLOCKED` outcome.
+
+## AI boundary
+
+No AI/model call is allowed or required for deterministic rule resolution, evaluation-state selection, evidence-pack generation or fingerprinting.
+
+Any future LLM explanation is non-authoritative and downstream of structured deterministic output.
 
 ## Required tests
 
-- Focused Vitest suites colocated in `src/domain/plan/` covering every acceptance item.
-- `npx vitest run src/domain/plan && npm run typecheck && npm run lint`.
+Add focused adversarial tests proving at least:
+
+1. semantically identical source/evidence material yields deterministic fingerprinting under the selected established canonicalisation contract;
+2. object-key insertion order does not change the canonical fingerprint where the reused contract says it must not;
+3. material source/evidence mutation changes the fingerprint;
+4. rule versions select correctly at effective-date boundaries;
+5. no effective rule version fails closed;
+6. missing required input remains unknown/insufficient, never zero;
+7. conflicting input remains conflicting;
+8. superseded rule is available for historical audit but not selected as current when a successor is effective;
+9. source fingerprint/version change produces review-required behaviour without silently mutating/approving the rule;
+10. scientific/legal/veterinary review dimensions remain separate;
+11. approval of rule v1 does not approve v2;
+12. the same deterministic evidence-pack content reproduces the same integrity fingerprint;
+13. a material evidence-pack mutation changes the fingerprint;
+14. explicit blocked/no-recommendation/insufficient-evidence outcomes are representable;
+15. a synthetic hard gate can prevent a downstream synthetic recommendation from being treated as actionable without embedding real cattle law;
+16. no AI dependency exists in the deterministic path.
+
+Also run the relevant existing evidence/audit/integrity regression suites to prove C0 did not change established semantics.
+
+## Acceptance criteria
+
+C0 passes only if:
+- the implementation is pure domain architecture with focused tests;
+- no real cattle scientific/legal/veterinary value is introduced;
+- no existing fertiliser/slurry/scientific output changes;
+- exact source/rule versions can be bound to an evaluation/evidence pack;
+- effective-date version resolution is deterministic and fail-closed;
+- source change can require review without silently rewriting production logic;
+- scientific/legal/veterinary approvals are distinct and version-bound;
+- unknown/conflicting evidence is explicit;
+- deterministic recommendation evidence packs can be reproduced and fingerprinted;
+- historical/superseded material remains auditable;
+- typecheck, lint, build and relevant tests pass;
+- targeted audit returns no open Critical/High finding.
+
+## Out of scope
+
+Do NOT build:
+- cattle register or animal persistence;
+- actual bovine identity/lifecycle model;
+- animal groups;
+- weight observations or ADG;
+- replacement-heifer or finishing targets;
+- real legal/regulatory rules;
+- BVD/TB/movement logic;
+- medicines, prescriptions, withdrawals or vaccine programmes;
+- production-goal recommendation logic;
+- economics;
+- Plan integration;
+- cattle UI;
+- AIM/ICBF/NVPS/HPRA live connectors;
+- migrations/new database schema;
+- external network research during the build;
+- deployment/merge to main.
 
 ## STOP conditions
 
-Stop with:
+Stop with `BUILD_RESULT: BLOCKED <reason>` rather than improvising if:
+- a shared/frozen contract must change materially;
+- safe reuse requires changing established fingerprint or canonicalisation semantics;
+- existing evidence states cannot represent C0 without a cross-domain semantic migration;
+- a migration/database schema is required;
+- a real scientific, legal or veterinary rule/value would be needed to satisfy C0;
+- external evidence or a production connector is required;
+- task scope expands into C1+;
+- the existing evidence architecture contains contradictory ownership/contracts that cannot be resolved additively.
 
-BUILD_RESULT: BLOCKED <reason>
+## Human gate
 
-if the kernel requires a frozen-contract change, a migration/schema change, an invented
-scientific/regulatory/financial value, external evidence, or scope materially expands.
-
-Phase 0 must STOP when complete. Do not start Phase 1, Weigh Group 1, or any other phase.
+When C0 is complete, STOP. Do not start C1. Return a compact close-out with starting/ending SHA, changed files/contracts, reuse decisions, tests, verification, audit findings/fixes, known limitations, acceptance PASS/FAIL and any shared-architecture concern requiring human review.

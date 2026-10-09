@@ -3307,3 +3307,33 @@ Legacy compatibility paths (classified in §9 of the design): NAP delivered-supp
 `requirement` / `netRequirement` and `toFarmFertiliserProductTotals` are REQUIRED_COMPATIBILITY;
 CC-B5, D3, D2 and CC-B3 are BLOCKED_BY_FUTURE_DECISION; `aggregateFarmFertiliserRecommendation`
 has no production caller and is retained until a separately authorised frozen-contract cleanup.
+
+## Plan Operating System v1, Phase 0 — Plan kernel (2026-10-09)
+
+New, **non-frozen** pure modules under `src/domain/plan/` (barrel `index.ts`), kernel version
+`plan_kernel_v0.1.0`. Campaign contract: `.agent/campaigns/plan-operating-system-v1/CAMPAIGN.md`.
+No frozen-contract change, no persistence, schema, migration, UI, workflow, economics or
+scientific/regulatory value. Reuses `subject.ts` (`SubjectRef`), `iso-datetime.ts`
+(`isValidIsoUtcDateTime`) and `source-register.ts` (`SourceId`) unchanged. Plan holds intent and
+work state only; it stores `SubjectRef`s, never canonical facts. The persisted Act `jobs` table
+(`lib/farm-data/mappers.ts` `JobRecord`/`JobStatus`) and GPS `job-session-*` are unrelated and
+untouched; no mapping between them is defined in Phase 0.
+
+| Module | Contract |
+|---|---|
+| `goal.ts` | `PlanGoal` (farmer outcome text, status, subject refs — no numeric target), `PlanProgramme` |
+| `scope.ts` | `TargetScope` = `STATIC` members \| `DYNAMIC` `MEMBERS_OF` selector with addition policy `ABSORB_INTO_JOB` / `FOLLOW_ON_WORK`. `resolveScope` against supplied `ScopeReality`: removed members always leave; UNKNOWN membership keeps last members and reports UNKNOWN (never empty) |
+| `completion.ts` | `CompletionContract` union `DATA_COMPLETION` / `OPERATIONAL_RECORD` / `DECISION` / `MANUAL`; `CanonicalEvidence` input; `evaluateCompletion` → state (`COMPLETE`/`PARTIAL`/`NOT_STARTED`/`UNKNOWN`/`NO_TARGETS`/`NOT_EVIDENCE_LINKED`) and `PlanProgress` (`MEMBER_COUNT` with separate missing/unknown, `NOT_MEASURABLE`, `UNKNOWN`). Unsupplied evidence or unlisted members are UNKNOWN, never zero |
+| `status.ts` | `PlanJobStatus` lifecycle `PROPOSED`/`PLANNED`/`IN_PROGRESS`/`COMPLETED`/`OBSOLETE`/`CANCELLED` and legal transition table |
+| `readiness.ts` | `deriveReadiness` → `ReadinessState` + every `ReadinessReason`; precedence CLOSED > dependency > legal window > weather > input > other blocker > UPCOMING > NEEDS_ATTENTION > READY. Only COMPLETED satisfies a dependency; unknown jobs/blockers and UNKNOWN blockers fail closed |
+| `dependencies.ts` | `JobDependencies` (job ids + shared blocker ids), `PlanBlocker` (WEATHER/LEGAL_WINDOW/INPUT/OTHER; ACTIVE/CLEARED/UNKNOWN), `jobsAffectedByBlocker` |
+| `timing.ts` | `RecommendedWindow` and `HardDeadline` distinct kinds; a hard deadline requires a `HardDeadlineAuthority` (`REGISTERED_SOURCE` `SourceId`, farmer-confirmed commitment or canonical record). No dates defined |
+| `priority.ts` | `SystemPriorityTier` hierarchy `HARD_OBLIGATION` > `AVOID_MATERIAL_LOSS` > `EXPECTED_NET_RETURN` > `INFORMATION_VALUE`; tier comparison only, no scores |
+| `farmer-order.ts` | `FarmerWorkingOrder`; `moveInFarmerOrder` (audited), `reconcileFarmerOrder` (keeps existing positions, appends newcomers), `sortByFarmerOrder`. Priority changes never reorder existing positions |
+| `override.ts` | `PlanDeferral` (`SNOOZE`/`DEFER`, audited, readiness unchanged); `farmerCompleteJob`: MANUAL completes directly; an evidence-linked job with incomplete canonical evidence needs explicit acknowledgement and records `FarmerCompletionOverride` with canonical state, missing and unknown members |
+| `action-route.ts` | `PlanActionRoute` (`LIVESTOCK_GROUP`, `FIELD_SOIL_SAMPLE`, `FIELD_NUTRIENT_PLAN`, `NONE`) and `actionRouteHref` to existing routes only |
+| `job.ts` | `PlanJob`, `PlanCreationSource` (Farm Return routine/seasonal/data-gap/programme, adviser-approved, farmer manual, follow-on), `createPlanJob`, `transitionJobStatus`, `setJobDependencies`, `setSystemPriority`, `planJobIdentityKey` (action + scope + window dedup identity), `addSupportingReason` |
+| `audit.ts` | `PlanAuditEvent` union (created, status, readiness, scope, dependency, progress, completed, farmer override, deferral set/cleared, farmer order, system priority, follow-on proposed), each with job id, explicit instant and kernel version |
+| `reevaluate.ts` | `reevaluatePlanJob(job, context)` — pure: scope → OBSOLETE on empty known scope → canonical completion (auto-complete, PARTIAL → IN_PROGRESS) → readiness; returns updated job, evaluations, audit events and an optional `PlanFollowOnProposal`. Closed jobs still report canonical completion |
+
+Tests: `src/domain/plan/*.test.ts` (fixture `test-fixtures.ts`, generic subjects only).

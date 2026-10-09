@@ -1,18 +1,28 @@
 {
   "schema_version": 1,
-  "task_id": "farm-home-visual-refresh-v1-20261008",
-  "title": "Farm Home — visual refresh v1",
-  "base_sha": "b5389a975493860aade23202704a8387ef3fd818",
+  "task_id": "plan-phase-0-kernel-20261009",
+  "title": "Plan Phase 0 - Kernel",
+  "base_sha": "8e3f4f97d3f2357766da9a98575d5faf3395aed0",
   "domains": [
-    "ui",
-    "slurry",
-    "nutrients"
+    "plan"
   ],
-  "expected_changed_files": [],
+  "expected_changed_files": [
+    ".agent/campaigns/plan-operating-system-v1/CAMPAIGN.md",
+    ".agent/skills/plan-domain.md",
+    ".agent/skills/targeted-audit.md",
+    "src/domain",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+    "docs/farm-return-next/BLOCKERS.md",
+    "docs/farm-return-next/BUILD_STATE.json"
+  ],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
-    ".agent/PRODUCT_RULES.md"
+    ".agent/PRODUCT_RULES.md",
+    ".agent/campaigns/plan-operating-system-v1/CAMPAIGN.md",
+    ".agent/skills/plan-domain.md",
+    ".agent/skills/targeted-audit.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md"
   ],
   "evidence": [
     "task brief",

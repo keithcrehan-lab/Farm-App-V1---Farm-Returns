@@ -17,7 +17,8 @@
  * wins". A malformed supersession (target missing or not yet known,
  * cross-kind link, cycle) makes the affected dimension(s) INVALID_EVIDENCE
  * (fail closed). Competing corrections of the same assertion with different
- * content are CONFLICTING_EVIDENCE — for interval kinds only when the
+ * content are CONFLICTING_EVIDENCE (each branch followed through later
+ * corrections to its live terminal descendants) — for interval kinds only when the
  * competing corrections are effective at `effectiveAt`, so a conflict
  * confined to another period stays in history but never contaminates this
  * snapshot. The ledger header must be a supported C1 BOVINE ledger
@@ -145,8 +146,11 @@ interface DimensionPrep {
   active: AnimalAssertion[];
   superseded: string[];
   invalidIssues: AnimalDimensionIssueCode[];
-  /** Per corrected target, its live (unsuperseded) corrections, sorted by id.
-   * Whether they compete is decided per query (`competingAt`), never all-time. */
+  /** Per corrected target, the live (unsuperseded) terminal descendants of
+   * every correction branch from it, sorted by id. A branch is followed
+   * through corrections-of-corrections, so superseding one side of a
+   * competition never detaches it from the other. Whether they compete is
+   * decided per query (`competingAt`), never all-time. */
   correctionGroups: AnimalAssertion[][];
   supersededBy: Map<string, string[]>;
 }
@@ -171,9 +175,7 @@ function prepare(kind: AnimalAssertionKind, known: AnimalAssertion[], byId: Map<
   const superseded = [...supersededBy.keys()].sort(compareStrings);
   const active = visible.filter((a) => !supersededBy.has(a.assertionId));
   for (const ids of supersededBy.values()) ids.sort(compareStrings);
-  const correctionGroups = superseded.map((target) =>
-    sortById(supersededBy.get(target)!.map((id) => byId.get(id)!).filter((c) => !supersededBy.has(c.assertionId))),
-  );
+  const correctionGroups = superseded.map((target) => sortById(liveDescendants(target, supersededBy).map((id) => byId.get(id)!)));
   return {
     visible,
     active,
@@ -182,6 +184,26 @@ function prepare(kind: AnimalAssertionKind, known: AnimalAssertion[], byId: Map<
     correctionGroups,
     supersededBy,
   };
+}
+
+/**
+ * Every live (unsuperseded) assertion reachable from `target` through
+ * known-by-cutoff supersession links. Iterative with a visited set, so it
+ * terminates on any graph; a cycle is already reported as INVALID_EVIDENCE.
+ */
+function liveDescendants(target: string, supersededBy: Map<string, string[]>): string[] {
+  const live = new Set<string>();
+  const visited = new Set<string>([target]);
+  const stack = [...(supersededBy.get(target) ?? [])];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    const next = supersededBy.get(id);
+    if (next) stack.push(...next);
+    else live.add(id);
+  }
+  return [...live];
 }
 
 /**

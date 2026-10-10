@@ -3416,10 +3416,14 @@ same-kind assertion ids; nothing is deleted. Same id + identical content is idem
 + different content (incl. provenance) fails the build. Self-supersession is rejected at
 ingestion; at projection a target not known by the cutoff, a cross-kind link (taints both
 dimensions) or a cycle ⇒ `INVALID_EVIDENCE` (fail closed); several live corrections of one
-target with different content ⇒ `CONFLICTING_EVIDENCE` — for interval kinds only among the
-corrections effective at `effectiveAt`, so a competition confined to another period stays in
-history (`supersededBy`) but never contaminates an unrelated snapshot; DOB/sex/breed compare
-every live correction.
+target with different content ⇒ `CONFLICTING_EVIDENCE`. Each correction branch is followed
+through corrections-of-corrections to its live terminal descendants (bounded, visited-set
+traversal of known-by-cutoff links), and those terminals are what compete, so superseding one
+side of a competition never detaches it from the other. The competition ends only when the
+terminals agree in content or one correction supersedes every branch; the chain stays in
+history. For interval kinds only terminals effective at `effectiveAt` compete, so a
+competition confined to another period stays in history (`supersededBy`) but never
+contaminates an unrelated snapshot; DOB/sex/breed compare every live terminal.
 
 **Resolution.** Each dimension (per scheme for identifiers) is `KNOWN` / `UNKNOWN` /
 `CONFLICTING_EVIDENCE` / `INVALID_EVIDENCE` with evidence (full assertions + provenance),

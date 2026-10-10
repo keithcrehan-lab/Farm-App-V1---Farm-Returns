@@ -667,3 +667,136 @@ describe("Cattle C1 remediation F002 — ledger header is validated", () => {
     expect(reads).toBe(1);
   });
 });
+
+describe("Cattle C1 remediation F003 — correction branches are followed through corrections-of-corrections", () => {
+  const FEB = "2026-02-01T00:00:00Z";
+  const FEB_MID = "2026-02-15T00:00:00Z";
+  const MAR = "2026-03-01T00:00:00Z";
+  const DEC = "2026-12-01T00:00:00Z";
+  const JAN = "2026-01-01T00:00:00Z";
+  const at = (effectiveAt: string, knowledgeCutoff = LATER): AnimalProjectionQuery => ({ effectiveAt, knowledgeCutoff });
+  const ids = (list: { assertionId: string }[]) => list.map((a) => a.assertionId);
+  // original ── A ── A2 [── A3]   and   original ── B
+  const sexChain = (a2: "MALE" | null, a3?: "MALE" | null) => [
+    sex("s-0", "FEMALE"),
+    sex("s-a", null, T2, { supersedes: ["s-0"] }),
+    sex("s-b", "MALE", T2, { supersedes: ["s-0"] }),
+    sex("s-a2", a2, T3, { supersedes: ["s-a"] }),
+    ...(a3 === undefined ? [] : [sex("s-a3", a3, LATER, { supersedes: ["s-a2"] })]),
+  ];
+  const locChain = (a2: string, to: string | null = null) => [
+    loc("l-0", "field-0", JAN, null),
+    loc("l-a", "field-1", FEB, to, T2, { supersedes: ["l-0"] }),
+    loc("l-b", "field-2", FEB, to, T2, { supersedes: ["l-0"] }),
+    loc("l-a2", a2, FEB, to, T3, { supersedes: ["l-a"] }),
+  ];
+
+  it("A. audit reproduction: superseding one SEX branch with an unchanged value keeps the conflict", () => {
+    const s = project(ledgerOf(sexChain(null)));
+    expect(s.sex).toMatchObject({ state: "CONFLICTING_EVIDENCE", value: null, conflictingValues: ["MALE"], issues: ["CATTLE_ANIMAL_COMPETING_CORRECTIONS"] });
+    expect(ids(s.sex.evidence)).toEqual(["s-a2", "s-b"]);
+  });
+
+  it("B. genuine reconciliation: both latest branch terminals agree => KNOWN, history retained", () => {
+    const ledger = ledgerOf(sexChain("MALE"));
+    expect(project(ledger).sex).toMatchObject({ state: "KNOWN", value: "MALE", issues: [], supersededAssertionIds: ["s-0", "s-a"] });
+    const history = animalAssertionHistory(ledger, "SEX", LATER)!;
+    expect(history.map((h) => [h.assertion.assertionId, h.supersededBy])).toEqual([
+      ["s-0", ["s-a", "s-b"]],
+      ["s-a", ["s-a2"]],
+      ["s-a2", []],
+      ["s-b", []],
+    ]);
+    // Before the reconciling correction was known, the competition is reproduced exactly.
+    expect(project(ledger, at(LATER, T2)).sex.state).toBe("CONFLICTING_EVIDENCE");
+    // One correction superseding both branches also ends the competition.
+    const merged = ledgerOf([...sexChain(null), sex("s-m", "MALE", LATER, { supersedes: ["s-a2", "s-b"] })]);
+    expect(project(merged).sex).toMatchObject({ state: "KNOWN", value: "MALE", supersededAssertionIds: ["s-0", "s-a", "s-a2", "s-b"] });
+  });
+
+  it("H. multi-generation branch: ancestry is followed transitively, not one level", () => {
+    const stillNull = project(ledgerOf(sexChain(null, null))).sex;
+    expect(stillNull).toMatchObject({ state: "CONFLICTING_EVIDENCE", issues: ["CATTLE_ANIMAL_COMPETING_CORRECTIONS"] });
+    expect(ids(stillNull.evidence)).toEqual(["s-a3", "s-b"]);
+    expect(project(ledgerOf(sexChain(null, "MALE"))).sex).toMatchObject({ state: "KNOWN", value: "MALE", issues: [] });
+    // Same on an interval kind: three generations on one side of the competition.
+    const deep = ledgerOf([...locChain("field-1"), loc("l-a3", "field-1", FEB, null, LATER, { supersedes: ["l-a2"] })]);
+    expect(project(deep, at(DEC)).location).toMatchObject({ state: "CONFLICTING_EVIDENCE", issues: ["CATTLE_ANIMAL_COMPETING_CORRECTIONS"] });
+    expect(ids(project(deep, at(DEC)).location.evidence)).toEqual(["l-a3", "l-b"]);
+  });
+
+  it("C. interval: a corrected location branch still competes with the other branch", () => {
+    const s = project(ledgerOf(locChain("field-1")), at(DEC));
+    expect(s.location).toMatchObject({
+      state: "CONFLICTING_EVIDENCE",
+      conflictingValues: [{ kind: "FIELD", ref: "field-1" }, { kind: "FIELD", ref: "field-2" }],
+      issues: ["CATTLE_ANIMAL_COMPETING_CORRECTIONS"],
+    });
+    expect(ids(s.location.evidence)).toEqual(["l-a2", "l-b"]);
+  });
+
+  it("D. interval reconciliation: both latest branches agree at effectiveAt => no false conflict", () => {
+    expect(project(ledgerOf(locChain("field-2")), at(DEC)).location).toMatchObject({ state: "KNOWN", value: { kind: "FIELD", ref: "field-2" }, issues: [] });
+  });
+
+  it("E. F001 preserved: a February-only chained competition does not contaminate December", () => {
+    const ledger = ledgerOf([...locChain("field-1", MAR), loc("l-later", "field-9", MAR, null, T2)]);
+    expect(project(ledger, at(FEB_MID)).location).toMatchObject({ state: "CONFLICTING_EVIDENCE", issues: ["CATTLE_ANIMAL_COMPETING_CORRECTIONS"] });
+    expect(project(ledger, at(DEC)).location).toMatchObject({ state: "KNOWN", value: { kind: "FIELD", ref: "field-9" }, issues: [] });
+    // A branch's later correction that moves it out of February ends the February competition only there.
+    const moved = ledgerOf([...locChain("field-1", MAR).slice(0, 3), loc("l-a2", "field-1", "2026-04-01T00:00:00Z", "2026-05-01T00:00:00Z", T3, { supersedes: ["l-a"] })]);
+    expect(project(moved, at(FEB_MID)).location).toMatchObject({ state: "KNOWN", value: { kind: "FIELD", ref: "field-2" } });
+    expect(project(moved, at(DEC)).location).toMatchObject({ state: "UNKNOWN", issues: ["CATTLE_ANIMAL_NO_EVIDENCE"] });
+  });
+
+  it("F. a descendant correction received after the knowledge cutoff cannot influence the earlier snapshot", () => {
+    // Agreement known at T2; a later descendant (T3) re-opens the competition only for later cutoffs.
+    const reopened = ledgerOf([
+      loc("l-0", "field-0", JAN, null),
+      loc("l-a", "field-1", FEB, null, T2, { supersedes: ["l-0"] }),
+      loc("l-b", "field-1", FEB, null, T2, { supersedes: ["l-0"] }),
+      loc("l-a2", "field-2", FEB, null, T3, { supersedes: ["l-a"] }),
+    ]);
+    expect(project(reopened, at(DEC, T2)).location).toMatchObject({ state: "KNOWN", value: { kind: "FIELD", ref: "field-1" } });
+    expect(project(reopened, at(DEC, LATER)).location.state).toBe("CONFLICTING_EVIDENCE");
+    // A reconciling descendant received at T3 cannot resolve the T2 snapshot's conflict.
+    const reconciled = ledgerOf(locChain("field-2"));
+    expect(project(reconciled, at(DEC, T2)).location).toMatchObject({ state: "CONFLICTING_EVIDENCE", issues: ["CATTLE_ANIMAL_COMPETING_CORRECTIONS"] });
+    expect(project(reconciled, at(DEC, LATER)).location.state).toBe("KNOWN");
+    const sexLedger = ledgerOf(sexChain("MALE", null));
+    expect(project(sexLedger, at(LATER, T3)).sex.state).toBe("KNOWN");
+    expect(project(sexLedger, at(LATER, LATER)).sex.state).toBe("CONFLICTING_EVIDENCE");
+  });
+
+  it("G. reversed and shuffled input yield the same snapshot and fingerprint", () => {
+    const inputsList = [sexChain(null), sexChain("MALE"), sexChain(null, null), locChain("field-1"), locChain("field-2"), [...locChain("field-1", MAR), loc("l-later", "field-9", MAR, null, T2)]];
+    const shuffle = <T>(list: T[]) => list.map((v, i) => [(i * 7 + 3) % 11, v] as const).sort(([a], [b]) => a - b).map(([, v]) => v);
+    for (const inputs of inputsList) {
+      for (const q of [at(FEB_MID), at(DEC), at(DEC, T2), at(LATER)]) {
+        const base = project(ledgerOf(inputs), q);
+        for (const variant of [[...inputs].reverse(), shuffle(inputs)]) {
+          const other = project(ledgerOf(variant), q);
+          expect(other).toEqual(base);
+          expect(sameFingerprint(computeAnimalSnapshotFingerprint(other, hash), computeAnimalSnapshotFingerprint(base, hash))).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("I. a cycle or broken link inside a correction branch still fails closed", () => {
+    const cyclic = project(
+      ledgerOf([
+        sex("s-0", "FEMALE"),
+        sex("s-a", null, T2, { supersedes: ["s-0"] }),
+        sex("s-b", "MALE", T2, { supersedes: ["s-0"] }),
+        sex("s-a2", null, T3, { supersedes: ["s-a", "s-a3"] }),
+        sex("s-a3", null, T3, { supersedes: ["s-a2"] }),
+      ]),
+    );
+    expect(cyclic.sex).toMatchObject({ state: "INVALID_EVIDENCE", value: null, issues: ["CATTLE_ANIMAL_SUPERSESSION_CYCLE"] });
+    const locCycle = project(ledgerOf([...locChain("field-1").slice(0, 3), loc("l-a2", "field-1", FEB, null, T3, { supersedes: ["l-a", "l-a3"] }), loc("l-a3", "field-1", FEB, null, T3, { supersedes: ["l-a2"] })]), at(DEC));
+    expect(locCycle.location).toMatchObject({ state: "INVALID_EVIDENCE", issues: ["CATTLE_ANIMAL_SUPERSESSION_CYCLE"] });
+    const broken = project(ledgerOf([...sexChain(null), sex("s-a3", null, LATER, { supersedes: ["s-a2", "missing"] })]));
+    expect(broken.sex).toMatchObject({ state: "INVALID_EVIDENCE", issues: ["CATTLE_ANIMAL_SUPERSESSION_TARGET_NOT_KNOWN"] });
+  });
+});

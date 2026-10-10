@@ -1,0 +1,1280 @@
+#!/usr/bin/env python3
+"""Campaign orchestrator: runs the phases of a campaign manifest in order, ABOVE the existing
+one-task harness. Deterministic: no model makes an orchestration decision.
+
+  ./scripts/agent-campaign-run <campaign-id>                    run / resume
+  ./scripts/agent-campaign-run <campaign-id> --dry-run          preflight + plan, zero model calls, no writes
+  ./scripts/agent-campaign-run <campaign-id> --status           read-only status, zero model calls
+  ./scripts/agent-campaign-run <campaign-id> --resolve-stop --note "..."   record a human resolution
+
+Per phase (manifest .agent/campaigns/<id>/campaign.json):
+
+  READY → BUILDING (agent-start + agent-build) → VERIFYING → PRIMARY_AUDIT (standard tier)
+  → FINDING_TRIAGE → [REMEDIATING (agent-fix --only) → VERIFYING_REMEDIATION → REAUDIT]*
+  → STRICT_FULL_PHASE_AUDIT (strict tier, phase_base..HEAD) → FINDING_TRIAGE
+  → [REMEDIATING → VERIFYING_REMEDIATION → STRICT_FULL_PHASE_AUDIT]* → FREEZE (freeze
+  verification + receipt) → CLOSURE_RECORD (docs-only local commit) → COMPLETE → next phase.
+
+Critical always stops. Judgement gates (STOP lines, gate tokens, BLOCKED reasons) always stop.
+High/Medium engineering findings are remediated narrowly within bounded budgets; Low is
+recorded, never fixed. State is persisted after every transition in
+.agent/history/campaign-<id>.state.json; a rerun resumes at the next safe step and never repeats
+a completed model call. Local commits only: nothing here pushes, deploys, applies migrations or
+runs destructive git commands.
+
+Exit: 0 campaign complete (or status/dry-run ready) · 1 stopped · 2 usage · 3 another runner is
+live · 130 interrupted (rerun to resume).
+"""
+import datetime
+import hashlib
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import shutil
+import socket
+import subprocess
+import sys
+
+sys.dont_write_bytecode = True
+ROOT = Path(__file__).resolve().parent.parent
+os.chdir(ROOT)
+HISTORY = Path('.agent/history')
+SCRIPTS = Path('scripts')
+
+
+def _load(name, path):
+    loader = importlib.machinery.SourceFileLoader(name, str(ROOT / path))
+    spec = importlib.util.spec_from_loader(name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+rs = _load('agent_runstate', 'scripts/agent-runstate.py')   # categories, audit facts, gate vocabulary
+start_mod = _load('agent_start', 'scripts/agent-start')       # brief section aliases
+ctx = rs.ctx                                                  # finding parser, git helpers
+
+SCHEMA_VERSION = 1
+RECEIPT_SCHEMA_VERSION = 1
+# Hard ceilings. A manifest may only tighten them, never loosen them.
+CEILINGS = dict(medium_rounds=4, high_rounds=2, attempts_per_signature=2)
+# Judgement gates: the runner's existing vocabulary (minus run-outcome reasons) plus campaign-only names.
+CAMPAIGN_GATES = ('VETERINARY_DECISION_REQUIRED', 'SOURCE_PRECEDENCE_DECISION_REQUIRED', 'PRODUCT_DECISION_REQUIRED',
+                  'UNSUPPORTED_EXTERNAL_API_ASSUMPTION', 'SECRETS_OR_CREDENTIALS_REQUIRED', 'PRODUCTION_ACCESS_REQUIRED')
+GATES = tuple(g for g in rs.GATE_REASONS if g not in ('REPEATED_HIGH_FINDING', 'AGENT_OUTPUT_AMBIGUOUS')) + CAMPAIGN_GATES
+GATE_RE = re.compile(r'(?<![A-Z_])(%s)(?![A-Z_])' % '|'.join(GATES))
+STOP_LINE_RE = re.compile(r'^STOP[: ]', re.M)
+STRICT_AUDITOR = ('tier=strict', 'model=gpt-6-astra', 'reasoning=high')
+STANDARD_AUDITOR = ('tier=standard',)
+STAGES = ('READY', 'STARTING', 'BUILDING', 'VERIFYING', 'PRIMARY_AUDIT', 'FINDING_TRIAGE', 'REMEDIATING',
+          'VERIFYING_REMEDIATION', 'REAUDIT', 'STRICT_FULL_PHASE_AUDIT', 'FREEZE', 'CLOSURE_RECORD', 'COMPLETE')
+AUDIT_STAGES = ('PRIMARY_AUDIT', 'REAUDIT', 'STRICT_FULL_PHASE_AUDIT')
+SHA_RE = re.compile(r'^[0-9a-f]{40}$')
+BUILD_STATE = Path('docs/farm-return-next/BUILD_STATE.json')
+IMPL_LOG = Path('docs/farm-return-next/IMPLEMENTATION_LOG.md')
+# Environment that must never leak into a phase: an enclosing runner's state, or operator model
+# overrides that would silently replace the audit tier the campaign policy requires.
+SCRUB_ENV = ('AGENT_RUN_STATE', 'AGENT_PHASE', 'AGENT_AUDIT_TIER', 'AGENT_CODEX_MODEL', 'AGENT_CODEX_REASONING')
+TEST_INTERRUPT = 'AGENT_CAMPAIGN_TEST_INTERRUPT_AFTER'  # tests only: simulate Ctrl-C right after a model call returns
+
+
+class Stop(Exception):
+    def __init__(self, reason, detail, nxt='human review', resumable=False):
+        super().__init__(detail)
+        self.reason, self.detail, self.next, self.resumable = reason, detail, nxt, resumable
+
+
+def now():
+    return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def git(*args):
+    return ctx.git(*args)
+
+
+def head():
+    return git('rev-parse', 'HEAD')
+
+
+def short(s):
+    return (s or '')[:7]
+
+
+def is_commit(s):
+    return bool(s) and subprocess.run(['git', 'cat-file', '-e', s + '^{commit}'], capture_output=True).returncode == 0
+
+
+def is_ancestor(a, b):
+    return subprocess.run(['git', 'merge-base', '--is-ancestor', a, b], capture_output=True).returncode == 0
+
+
+def porcelain():
+    return git('status', '--porcelain', '--untracked-files=all')
+
+
+def porcelain_paths():
+    """Paths with uncommitted changes (untracked included); NUL-separated, never whitespace-stripped."""
+    out = subprocess.check_output(['git', 'status', '--porcelain', '-z', '--untracked-files=all']).decode('utf-8', 'surrogateescape')
+    return [e[3:] for e in out.split('\0') if len(e) > 3]
+
+
+def dirty_outside_agent():
+    return git('status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).agent')
+
+
+def sha256_file(p):
+    return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+
+def canonical(obj):
+    return json.dumps(obj, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+
+
+def receipt_fingerprint(r):
+    """Local canonical SHA-256 over the receipt minus this field. An integrity check, not a signature."""
+    return hashlib.sha256(canonical({k: v for k, v in r.items() if k != 'receipt_fingerprint'}).encode()).hexdigest()
+
+
+def write_json(path, obj):
+    path = Path(path)
+    tmp = path.with_name('.' + path.name + '.tmp')
+    tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + '\n')
+    os.replace(str(tmp), str(path))
+
+
+def child_env(**extra):
+    env = {k: v for k, v in os.environ.items() if k not in SCRUB_ENV and k != TEST_INTERRUPT}
+    env.update(extra)
+    return env
+
+
+def read_state_md():
+    try: text = Path('.agent/STATE.md').read_text(errors='replace')
+    except OSError: return {}
+    out = {}
+    for line in text.splitlines():
+        m = re.match(r'^([a-z_]+): ?(.*)$', line)
+        if m and m.group(1) not in out: out[m.group(1)] = m.group(2).strip()
+    return out
+
+
+def gate_reason(text, default=None):
+    m = GATE_RE.search(text or '')
+    return m.group(1) if m else default
+
+
+# ── manifest ───────────────────────────────────────────────────────────
+def manifest_path(cid):
+    return Path('.agent/campaigns') / cid / 'campaign.json'
+
+
+def effective_policy(m, ph):
+    out = {}
+    for k, ceiling in CEILINGS.items():
+        out[k] = min(ceiling, m['policy'][k], (ph.get('policy') or {}).get(k, ceiling))
+    return out
+
+
+def load_manifest(cid):
+    if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', cid or ''):
+        raise Stop('USAGE', 'invalid campaign id %r' % cid, 'pass a campaign id such as cattle-engine-v1', True)
+    p = manifest_path(cid)
+    try: m = json.loads(p.read_text())
+    except OSError: raise Stop('MANIFEST_INVALID', '%s is missing' % p, 'create the campaign manifest', True)
+    except ValueError as e: raise Stop('MANIFEST_INVALID', '%s is not valid JSON: %s' % (p, e), 'fix the manifest JSON', True)
+    problems = manifest_problems(m, cid)
+    if problems:
+        raise Stop('MANIFEST_INVALID', '%s: %s' % (p, '; '.join(problems[:5])), 'fix the campaign manifest', True)
+    return m
+
+
+def manifest_problems(m, cid):
+    if not isinstance(m, dict): return ['manifest must be a JSON object']
+    bad = []
+    req = lambda ok, msg: ok or bad.append(msg)
+    camp_dir = '.agent/campaigns/%s/' % cid
+    req(m.get('schema_version') == SCHEMA_VERSION, 'schema_version must be %d' % SCHEMA_VERSION)
+    req(m.get('campaign_id') == cid, 'campaign_id must be %s' % cid)
+    for k in ('title', 'branch', 'build_state_key', 'closure_commit_prefix'):
+        req(isinstance(m.get(k), str) and m.get(k).strip() and '\n' not in m.get(k), '%s must be a non-empty string' % k)
+    req(m.get('branch') not in ('main', 'master'), 'branch must not be main/master')
+    req(isinstance(m.get('campaign_doc'), str) and Path(str(m.get('campaign_doc'))).is_file(), 'campaign_doc must exist')
+    for k in ('receipts_dir', 'audits_dir'):
+        req(isinstance(m.get(k), str) and m[k].startswith(camp_dir) and '..' not in m[k], '%s must lie under %s' % (k, camp_dir))
+    pol = m.get('policy')
+    if not isinstance(pol, dict): bad.append('policy must be an object'); pol = {}
+    for k, ceiling in CEILINGS.items():
+        v = pol.get(k)
+        req(type(v) is int and 0 <= v <= ceiling, 'policy.%s must be an integer 0..%d (ceiling; may only tighten)' % (k, ceiling))
+    req(pol.get('strict_freeze_audit') is True, 'policy.strict_freeze_audit must be true')
+    req(pol.get('full_suite_at_freeze') is True, 'policy.full_suite_at_freeze must be true')
+    req(pol.get('low_findings') == 'record', 'policy.low_findings must be "record" (Low is never auto-fixed)')
+    phases = m.get('phases')
+    if not isinstance(phases, list) or not phases: return bad + ['phases must be a non-empty list']
+    ids, last_order, seen_campaign = [], None, False
+    for i, ph in enumerate(phases):
+        if not isinstance(ph, dict): bad.append('phase %d must be an object' % i); continue
+        pid = ph.get('id')
+        where = 'phase %s' % pid
+        req(isinstance(pid, str) and re.fullmatch(r'[A-Z][A-Z0-9]*[0-9]', pid or '') is not None, 'phase %d id invalid' % i)
+        req(pid not in ids, '%s duplicated' % where)
+        req(type(ph.get('order')) is int and (last_order is None or ph['order'] > last_order), '%s order must increase' % where)
+        req(ph.get('predecessor') == (ids[-1] if ids else None), '%s predecessor must be %s' % (where, ids[-1] if ids else None))
+        req(isinstance(ph.get('title'), str) and ph['title'].strip(), '%s title required' % where)
+        kind = ph.get('kind')
+        req(kind in ('legacy', 'campaign'), '%s kind must be legacy|campaign' % where)
+        if kind == 'legacy':
+            req(not seen_campaign, '%s: legacy phases must precede campaign phases' % where)
+            for k in ('base_sha', 'freeze_sha', 'closure_head'):
+                req(SHA_RE.match(str(ph.get(k, ''))) is not None, '%s %s must be a full SHA' % (where, k))
+            req(isinstance(ph.get('audit'), str) and ph['audit'].startswith(m.get('audits_dir', '\0')), '%s audit must be under audits_dir' % where)
+            req(re.fullmatch(r'[0-9a-f]{64}', str(ph.get('audit_sha256', ''))) is not None, '%s audit_sha256 required' % where)
+        elif kind == 'campaign':
+            seen_campaign = True
+            req(isinstance(ph.get('brief'), str) and ph['brief'].startswith(camp_dir) and '..' not in ph['brief'], '%s brief must lie under %s' % (where, camp_dir))
+            req(ph.get('brief_status') in ('PLACEHOLDER', 'READY'), '%s brief_status must be PLACEHOLDER|READY' % where)
+            req(isinstance(ph.get('task_title'), str) and ph['task_title'].strip() and not ph['task_title'].startswith('(none'), '%s task_title required' % where)
+            for k in ('domains', 'contracts', 'scope_guard', 'allowed_shared_paths'):
+                req(isinstance(ph.get(k), list) and all(isinstance(x, str) and x for x in ph[k]), '%s %s must be a list of strings' % (where, k))
+            req(bool(ph.get('domains')), '%s domains must be non-empty' % where)
+            req(bool(ph.get('contracts')), '%s contracts must be non-empty' % where)
+            v = ph.get('verify')
+            req(isinstance(v, str) and v.strip() and '`' not in v and '\n' not in v, '%s verify must be one line without backticks' % where)
+            req(ph.get('strict_freeze') is True, '%s strict_freeze must be true' % where)
+            req(ph.get('closure') == 'docs-commit', '%s closure must be "docs-commit"' % where)
+            req(re.fullmatch(r'c[0-9]+_[a-z0-9_]+', str(ph.get('build_state_key', ''))) is not None, '%s build_state_key invalid' % where)
+            for k, v in (ph.get('policy') or {}).items():
+                req(k in CEILINGS and type(v) is int and 0 <= v <= CEILINGS[k], '%s policy.%s may only tighten the ceiling' % (where, k))
+            req(not any('migration' in str(d).lower() for d in ph.get('domains') or []),
+                '%s: a campaign phase can never authorise migrations' % where)
+        ids.append(pid)
+        if type(ph.get('order')) is int: last_order = ph['order']
+    return bad
+
+
+def phase_by_id(m, pid):
+    return next((p for p in m['phases'] if p['id'] == pid), None)
+
+
+def next_phase_id(m, pid):
+    ids = [p['id'] for p in m['phases']]
+    i = ids.index(pid)
+    return ids[i + 1] if i + 1 < len(ids) else None
+
+
+def receipt_path(m, pid):
+    return Path(m['receipts_dir']) / (pid + '.json')
+
+
+def brief_problems(m, ph):
+    if ph['brief_status'] != 'READY': return 'brief_status is %s in the manifest' % ph['brief_status']
+    p = Path(ph['brief'])
+    if not p.is_file(): return 'brief %s does not exist' % p
+    text = p.read_text(errors='replace')
+    first = next((l for l in text.splitlines() if l.strip()), '')
+    if not re.match(r'^# .*\b%s\b' % re.escape(ph['id']), first): return 'brief must begin with a "# " heading naming %s' % ph['id']
+    if re.search(r'\bPLACEHOLDER\b', text): return 'brief is still marked PLACEHOLDER'
+    missing = [k for k in ('objective', 'scope', 'out_of_scope', 'acceptance', 'tests', 'stop') if k not in start_mod.brief_sections(text)]
+    if missing: return 'brief lacks sections: %s' % ', '.join(missing)
+    verifies = re.findall(r'^Verify command: *`(.*)`', text, re.M)
+    if any(v.strip() != ph['verify'] for v in verifies): return 'brief names a verify command different from the manifest'
+    if not ph['scope_guard']: return 'manifest scope_guard must name the paths this phase creates'
+    return None
+
+
+# ── audits ─────────────────────────────────────────────────────────────
+def audit_problems(path, base, freeze, strict, committed):
+    """None when PATH is an ASSESSED canonical audit of exactly base..freeze, else why."""
+    p = Path(path)
+    if not p.is_file(): return 'audit artifact %s is missing' % path
+    lines = p.read_text(errors='replace').splitlines()
+    line2, status, summary, stop = rs.audit_facts(path)
+    if not line2.startswith('range: %s..%s ' % (base, freeze)): return '%s does not cover %s..%s' % (path, short(base), short(freeze))
+    if 'verdict: ASSESSED' not in line2 or status != ['ASSESSED']: return '%s is not ASSESSED' % path
+    if committed and 'working-tree: false' not in line2: return '%s is not a committed-only audit' % path
+    if len(summary) != 1 or not rs.AUDIT_COUNTS_RE.match(summary[0]): return '%s has no single canonical AUDIT_SUMMARY' % path
+    auditor = lines[2] if len(lines) > 2 else ''
+    want = STRICT_AUDITOR if strict else STANDARD_AUDITOR
+    if not auditor.startswith('auditor: codex ') or not all(w in auditor for w in want):
+        return '%s auditor line does not show %s' % (path, ' '.join(want))
+    return None
+
+
+def audit_counts(path):
+    _, _, summary, _ = rs.audit_facts(path)
+    return [int(n) for n in rs.AUDIT_COUNTS_RE.match(summary[0]).groups()]
+
+
+def norm(s):
+    return ' '.join(re.sub(r'[^a-z0-9]+', ' ', (s or '').lower()).split())
+
+
+def signature(f):
+    """Stable identity of a finding across independent audits: severity, file path (no line) and
+    normalised title. Finding IDs (F001...) are deliberately excluded — they renumber per audit."""
+    return hashlib.sha256(('%s|%s|%s' % (f['severity'], f['file'], norm(f['title']))).encode()).hexdigest()[:16]
+
+
+def findings_of(path):
+    out = []
+    for b in ctx.parse_findings(Path(path).read_text(errors='replace')):
+        out.append(dict(severity=b['severity'], id=b['id'], title=b['title'], file=b['file'],
+                        confirmed='CONFIRMED' in b['problem'] and 'PLAUSIBLE' not in b['problem'],
+                        blocking=b['severity'] == 'LOW' and re.search(r'\bBLOCKING\b', b['title']) is not None,
+                        signature=signature(b)))
+    return out
+
+
+# ── receipts ───────────────────────────────────────────────────────────
+def validate_receipt(m, ph, pred_fp):
+    """The receipt of a FROZEN phase, or raises ValueError(why). Pure read-only check."""
+    path = receipt_path(m, ph['id'])
+    if not path.is_file(): raise ValueError('no receipt')
+    try: r = json.loads(path.read_text())
+    except ValueError as e: raise ValueError('receipt is not valid JSON: %s' % e)
+    if not isinstance(r, dict): raise ValueError('receipt is not an object')
+    if r.get('receipt_schema_version') != RECEIPT_SCHEMA_VERSION: raise ValueError('unsupported receipt schema')
+    if r.get('receipt_fingerprint') != receipt_fingerprint(r): raise ValueError('receipt fingerprint mismatch (edited after creation)')
+    if (r.get('campaign_id'), r.get('phase_id'), r.get('phase_title')) != (m['campaign_id'], ph['id'], ph['title']):
+        raise ValueError('receipt identity does not match the manifest phase')
+    base, freeze = r.get('phase_base_sha'), r.get('functional_freeze_sha')
+    if not (SHA_RE.match(str(base)) and SHA_RE.match(str(freeze)) and is_commit(base) and is_commit(freeze)):
+        raise ValueError('receipt base/freeze are not known commits')
+    if base == freeze or not is_ancestor(base, freeze): raise ValueError('phase base is not a strict ancestor of the freeze SHA')
+    if not is_ancestor(freeze, 'HEAD'): raise ValueError('freeze SHA %s is not in the history of HEAD' % short(freeze))
+    if r.get('predecessor') != ph.get('predecessor'): raise ValueError('receipt predecessor does not match the manifest')
+    if ph.get('predecessor') and r.get('predecessor_receipt_fingerprint') != pred_fp:
+        raise ValueError('predecessor receipt chain is broken')
+    if r.get('pushed_or_deployed') is not False: raise ValueError('pushed_or_deployed must be false')
+    if r.get('migration_status') != 'NONE': raise ValueError('migration status is %r' % r.get('migration_status'))
+    if r.get('human_gate_status') != 'NONE': raise ValueError('a human gate is unresolved')
+    if not str(r.get('frozen_contract_status', '')).startswith(('UNCHANGED', 'ADDITIVE_ALLOWED')):
+        raise ValueError('frozen-contract status is %r' % r.get('frozen_contract_status'))
+    if r.get('brief') is not None:
+        if not Path(r['brief']).is_file() or sha256_file(r['brief']) != r.get('brief_sha256'):
+            raise ValueError('phase brief changed after execution (start a new task for new scope)')
+    for c in r.get('contracts') or []:
+        blob = subprocess.run(['git', 'rev-parse', '%s:%s' % (freeze, c['path'])], capture_output=True, text=True).stdout.strip()
+        if blob != c.get('blob_at_freeze'): raise ValueError('contract %s does not match its blob at the freeze SHA' % c.get('path'))
+    a = r.get('strict_audit') or {}
+    art = a.get('artifact')
+    if not art or not Path(art).is_file(): raise ValueError('strict audit artifact %s is missing' % art)
+    if sha256_file(art) != a.get('sha256'): raise ValueError('strict audit artifact %s changed' % art)
+    legacy = r.get('origin') == 'legacy-manual'
+    why = audit_problems(art, base, freeze, True, committed=not legacy)
+    if why: raise ValueError(why)
+    if has_stop(art) or gate_reason(Path(art).read_text(errors='replace')): raise ValueError('strict audit carries a STOP/gate marker')
+    c, h, md, low = audit_counts(art)
+    if [c, h, md, low] != [a.get('counts', {}).get(k) for k in ('critical', 'high', 'medium', 'low')]:
+        raise ValueError('receipt counts differ from the strict audit')
+    if c or h or md: raise ValueError('strict audit has CRITICAL=%d HIGH=%d MEDIUM=%d (all must be 0)' % (c, h, md))
+    ver = r.get('verification')
+    if not isinstance(ver, list) or not ver: raise ValueError('receipt records no verification')
+    if legacy:
+        if ph.get('kind') != 'legacy' or (base, freeze, a.get('sha256'), art) != (
+                ph['base_sha'], ph['freeze_sha'], ph['audit_sha256'], ph['audit']):
+            raise ValueError('legacy receipt does not match the manifest legacy pin')
+        for v in ver:
+            if v.get('result') != 'ATTESTED' or not is_commit(v.get('source', '')) or not is_ancestor(v['source'], 'HEAD'):
+                raise ValueError('legacy verification attestation %s is not a recorded commit' % v.get('name'))
+    else:
+        if r.get('origin') != 'campaign' or ph.get('kind') != 'campaign': raise ValueError('receipt origin is not campaign')
+        names = {v.get('name') for v in ver}
+        if not {'phase_verify', 'full_suite'} <= names: raise ValueError('receipt lacks phase_verify/full_suite verification')
+        for v in ver:
+            if v.get('result') != 'PASS' or v.get('head') != freeze: raise ValueError('verification %s did not pass at the freeze SHA' % v.get('name'))
+        rem = r.get('remediation') or {}
+        pol = effective_policy(m, ph)
+        if rem.get('medium_rounds', 99) > pol['medium_rounds'] or rem.get('high_rounds', 99) > pol['high_rounds']:
+            raise ValueError('remediation rounds exceed the policy budget')
+    return r
+
+
+def chain(m):
+    """[(phase, status, detail, receipt)] in manifest order; FROZEN only for a valid receipt chain."""
+    out, pred_fp, broken = [], None, False
+    for ph in m['phases']:
+        if broken:
+            out.append((ph, 'NOT_STARTED', '', None)); continue
+        try:
+            r = validate_receipt(m, ph, pred_fp)
+            out.append((ph, 'FROZEN', short(r['functional_freeze_sha']), r)); pred_fp = r['receipt_fingerprint']
+        except ValueError as e:
+            exists = receipt_path(m, ph['id']).exists()
+            out.append((ph, 'RECEIPT_INVALID' if exists else 'OPEN', str(e), None)); broken = True
+    return out
+
+
+def has_stop(path):
+    return STOP_LINE_RE.search(Path(path).read_text(errors='replace')) is not None
+
+
+# ── state and lock ─────────────────────────────────────────────────────
+def state_path(cid):
+    return HISTORY / ('campaign-%s.state.json' % cid)
+
+
+def lock_path(cid):
+    return HISTORY / ('campaign-%s.lock' % cid)
+
+
+def load_state(cid):
+    p = state_path(cid)
+    if not p.exists(): return None
+    try: return json.loads(p.read_text())
+    except ValueError: raise Stop('STATE_UNREADABLE', '%s is not valid JSON' % p, 'inspect or restore the campaign state file')
+
+
+def new_phase_state():
+    return dict(stage='READY', base_sha=None, task_id=None, head=None, in_flight=None, in_flight_ref=None,
+                audits=[], rounds=dict(medium=0, high=0), signatures={}, pending_round=None, round_history=[],
+                verification=[], freeze_sha=None, frozen_at=None, receipt_fingerprint=None, closure_sha=None,
+                outstanding_low=[], scope=None, model_calls=dict(build=0, fix=0, audit_standard=0, audit_strict=0),
+                started_at=None)
+
+
+class Campaign:
+    def __init__(self, m):
+        self.m, self.cid = m, m['campaign_id']
+        self.path = state_path(self.cid)
+        self.st = load_state(self.cid)
+        self.calls = 0
+        self.locked = False
+
+    def save(self):
+        self.st['updated_at'] = now()
+        write_json(self.path, self.st)
+
+    # ── lock: one campaign runner per worktree; stale or ambiguous locks fail closed ──
+    def lock(self):
+        lp = lock_path(self.cid)
+        host = socket.gethostname()
+        try:
+            fd = os.open(str(lp), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            try:
+                info = json.loads(lp.read_text())
+                pid, other = int(info['pid']), info['host']
+            except (ValueError, KeyError, TypeError, OSError):
+                raise Stop('LOCK_INDETERMINATE', '%s is unreadable' % lp, 'confirm no campaign runner is active, then remove %s' % lp, True)
+            if other != host:
+                raise Stop('LOCK_INDETERMINATE', '%s is held by pid %d on host %s' % (lp, pid, other), 'confirm that runner is gone, then remove %s' % lp, True)
+            if rs.alive(pid): raise RunnerActive('campaign runner pid %d holds %s' % (pid, lp))
+            raise Stop('LOCK_STALE', '%s names pid %d, which is no longer running (interrupted without cleanup?)' % (lp, pid),
+                       'confirm no campaign runner is active, then remove %s and rerun' % lp, True)
+        with os.fdopen(fd, 'w') as f:
+            json.dump(dict(pid=os.getpid(), host=host, started_at=now(), campaign_id=self.cid), f)
+        self.locked = True
+        other = HISTORY / 'agent-run.lock'
+        if other.exists():
+            try:
+                info = json.loads(other.read_text()); pid = int(info['pid'])
+                live = info['host'] != host or rs.alive(pid)
+            except (ValueError, KeyError, TypeError, OSError):
+                live = True
+            if live: raise Stop('RUNNER_ACTIVE', 'an agent-run lock is held (%s)' % other, 'wait for agent-run to finish', True)
+
+    def unlock(self):
+        if not self.locked: return
+        lp = lock_path(self.cid)
+        try:
+            if int(json.loads(lp.read_text())['pid']) == os.getpid(): lp.unlink()
+        except (OSError, ValueError, KeyError, TypeError): pass
+        self.locked = False
+
+    # ── helpers ──
+    def ps(self, pid):
+        return self.st['phases'].setdefault(pid, new_phase_state())
+
+    def stop(self, e, pid):
+        self.st['stop'] = dict(phase=pid, reason=e.reason, detail=e.detail, next=e.next, resumable=e.resumable, at=now(),
+                               head=head())
+        self.save()
+
+    def check_head(self, pid, ps):
+        if git('branch', '--show-current') != self.m['branch']:
+            raise Stop('WRONG_BRANCH', 'on %s, campaign branch is %s' % (git('branch', '--show-current') or '(detached)', self.m['branch']),
+                       'return to %s' % self.m['branch'], True)
+        if ps['stage'] == 'CLOSURE_RECORD': return  # closure() adopts or refuses its own commit/dirty docs
+        allowed = ('.agent/CURRENT_TASK.md', '.agent/TASK.json') if ps['stage'] in ('STARTING', 'BUILDING') else ()
+        dirty = [p for p in porcelain_paths() if p not in allowed]
+        if dirty:
+            raise Stop('DIRTY_WORKING_TREE', 'uncommitted changes: ' + ' '.join(dirty[:3]), 'inspect the working tree; the campaign never discards work')
+        if ps.get('head') and head() != ps['head']:
+            raise Stop('HEAD_DRIFT', 'HEAD %s is not the campaign state HEAD %s for %s' % (short(head()), short(ps['head']), pid),
+                       'inspect the new commits; the campaign never resets. Restore HEAD or use --resolve-stop after review')
+
+    def model(self, key, ps, cmd, log, env):
+        ps['model_calls'][key] += 1
+        self.st['model_calls'][key] = self.st['model_calls'].get(key, 0) + 1
+        self.save()
+        self.calls += 1
+        with open(log, 'w') as f:
+            rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, env=env).returncode
+        test_point(key.split('_')[0])
+        return rc
+
+    def log(self, pid, what):
+        return str(HISTORY / ('campaign-%s-%s-%s-%s.log' % (self.cid, pid, what, datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))))
+
+    # ── phase start ──
+    def expected_start(self, ph):
+        """(ancestor that HEAD must descend from, description) for a phase start."""
+        pred = phase_by_id(self.m, ph['predecessor']) if ph['predecessor'] else None
+        if not pred: return None, 'no predecessor'
+        if pred['kind'] == 'legacy': return pred['closure_head'], 'legacy %s closure %s' % (pred['id'], short(pred['closure_head']))
+        pst = self.st['phases'].get(pred['id']) or {}
+        if pst.get('closure_sha'): return pst['closure_sha'], '%s closure %s' % (pred['id'], short(pst['closure_sha']))
+        r = json.loads(receipt_path(self.m, pred['id']).read_text())
+        return r['functional_freeze_sha'], '%s freeze %s (closure not in local state)' % (pred['id'], short(r['functional_freeze_sha']))
+
+    def preflight(self, ph, statuses):
+        m = self.m
+        if git('branch', '--show-current') != m['branch']:
+            raise Stop('WRONG_BRANCH', 'on %s, campaign branch is %s' % (git('branch', '--show-current') or '(detached)', m['branch']),
+                       'check out %s' % m['branch'], True)
+        d = porcelain()
+        if d: raise Stop('DIRTY_WORKING_TREE', 'uncommitted changes: ' + ' '.join(d.splitlines()[:3]), 'commit or set aside the changes yourself', True)
+        idx = [p['id'] for p in m['phases']].index(ph['id'])
+        for p, status, detail, _ in statuses[:idx]:
+            if status != 'FROZEN':
+                raise Stop('PREDECESSOR_NOT_FROZEN', '%s is %s: %s' % (p['id'], status, detail), 'repair or complete %s first' % p['id'], True)
+        anc, desc = self.expected_start(ph)
+        h = head()
+        if anc:
+            if not is_ancestor(anc, h):
+                raise Stop('PREDECESSOR_HEAD_MISMATCH', 'HEAD %s does not descend from %s' % (short(h), desc), 'return to the campaign history', True)
+            files = rs.delta_files(anc, h) if anc != h else []
+            foreign = [f for f in files if rs.category(f) not in 'AB']
+            if foreign:
+                raise Stop('UNEXPECTED_INTERVENING_CHANGE', 'commits since %s change product paths: %s' % (desc, ', '.join(foreign[:5])),
+                           'only docs/tooling commits may sit between phases; review them in a separate task', True)
+        why = brief_problems(m, ph)
+        if why: raise Stop('PHASE_NOT_READY', '%s: %s' % (ph['id'], why), 'write %s and mark it READY in the manifest' % ph['brief'], True)
+        missing = [c for c in ph['contracts'] if not Path(c).is_file()]
+        if missing: raise Stop('CONTRACT_MISSING', 'missing contracts: ' + ', '.join(missing), 'fix the manifest contracts', True)
+        later = m['phases'][idx:]
+        present = [str(receipt_path(m, p['id'])) for p in later if receipt_path(m, p['id']).exists()]
+        present += [g for p in later if p['kind'] == 'campaign' for g in p['scope_guard'] if Path(g).exists()]
+        try:
+            sec = json.loads(BUILD_STATE.read_text()).get(m['build_state_key'], {})
+            present += ['%s.%s' % (m['build_state_key'], p['build_state_key']) for p in later
+                        if p['kind'] == 'campaign' and isinstance(sec, dict) and p['build_state_key'] in sec]
+        except (OSError, ValueError): pass
+        if present:
+            raise Stop('SCOPE_ALREADY_PRESENT', '%s or later phase scope already exists: %s' % (ph['id'], ', '.join(present[:5])),
+                       'reconcile the existing work before the campaign starts this phase', True)
+        closure_plan(m, ph, dict(base_sha=h, freeze_sha=h, task_id='preflight'), check_only=True)
+
+    def start(self, ph, ps):
+        pid = ph['id']
+        if ps['stage'] == 'READY':
+            ps.update(base_sha=head(), head=head(), started_at=now(), stage='STARTING', in_flight='start')
+            self.save()
+            print('[%s] phase base %s recorded' % (pid, short(ps['base_sha'])))
+        elif ps.get('in_flight') == 'start':
+            if self.adopt_task(ph, ps): return
+            if head() != ps['base_sha'] or dirty_outside_agent():
+                raise Stop('AGENT_OUTPUT_AMBIGUOUS', 'task start was interrupted and the tree no longer matches the phase base',
+                           'inspect .agent/CURRENT_TASK.md and TASK.json')
+        cmd = [str(SCRIPTS / 'agent-start'), '--title', ph['task_title'], '--brief-file', ph['brief'], '--verify', ph['verify'],
+               '--force-new-task']
+        for d in ph['domains']: cmd += ['--domain', d]
+        for c in ph['contracts']: cmd += ['--contract', c]
+        log = self.log(pid, 'start')
+        with open(log, 'w') as f:
+            rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, env=child_env()).returncode
+        out = Path(log).read_text(errors='replace')
+        if rc != 0 or 'AGENT_START_RESULT: READY' not in out:
+            reason = re.search(r'^REASON: (\S+)', out, re.M)
+            if head() == ps['base_sha'] and not porcelain():  # agent-start restored the task files: start afresh
+                self.st['phases'][pid] = new_phase_state()
+            raise Stop('TASK_START_FAILED', 'agent-start %s (exit %d) — %s' % (reason.group(1) if reason else 'failed', rc, log),
+                       'read %s; no model was called' % log, True)
+        if not self.adopt_task(ph, ps):
+            raise Stop('AGENT_OUTPUT_AMBIGUOUS', 'agent-start did not create the expected task at base %s' % short(ps['base_sha']),
+                       'inspect .agent/TASK.json')
+
+    def adopt_task(self, ph, ps):
+        try: data = json.loads(Path('.agent/TASK.json').read_text())
+        except (OSError, ValueError): return False
+        if data.get('title') != ph['task_title'] or data.get('base_sha') != ps['base_sha'] or head() != ps['base_sha']: return False
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', str(data.get('task_id', ''))): return False
+        ps.update(task_id=data['task_id'], stage='BUILDING', in_flight=None)
+        self.save()
+        print('[%s] task %s ready at base %s' % (ph['id'], data['task_id'], short(ps['base_sha'])))
+        return True
+
+    # ── build / fix ──
+    def settle(self, kind, want, prev, rc, out_before, log=None):
+        """Classify a finished (or, with rc None, interrupted) agent-build/agent-fix mechanically."""
+        s = read_state_md()
+        out = s.get('last_' + kind, '')
+        out = out if out and out != out_before and Path(out).is_file() else ''
+        text = Path(out).read_text(errors='replace') if out else ''
+        h = head()
+        stop = STOP_LINE_RE.search(text)
+        if stop:
+            stop_line = text[stop.start():].splitlines()[0]
+            raise Stop(gate_reason(stop_line, 'AGENT_STOP'), '%s: %s (%s)' % (kind, stop_line, out), 'answer the STOP condition')
+        if s.get('stage') == want and h != prev and git('rev-parse', h + '^') == prev and not dirty_outside_agent():
+            return 'DONE'
+        if h != prev: raise Stop('UNEXPECTED_STATE_CHANGE', 'HEAD moved unexpectedly during %s' % kind, 'inspect git log')
+        if rc is not None and not out and not dirty_outside_agent():
+            # The harness script refused before calling the model (its own precondition): not retried blindly.
+            said = [l for l in Path(log).read_text(errors='replace').splitlines() if l.startswith('agent: ')] if log else []
+            raise Stop('HARNESS_REFUSED', 'scripts/agent-%s refused (exit %s): %s' % (kind, rc, said[-1][7:] if said else 'see ' + str(log)),
+                       'read %s' % log)
+        result = (re.findall(r'^BUILD_RESULT: *(.*)$', text, re.M) or [''])[-1]
+        stage = s.get('stage', '')
+        if result.startswith('BLOCKED') and 'invalid CLI JSON' not in result:
+            raise Stop(gate_reason(result, kind.upper() + '_BLOCKED'), '%s: %s (%s)' % (kind, result, out), 'resolve the blocker')
+        if stage.endswith('verify-failed'):
+            raise Stop('VERIFICATION_FAILED', 'verification failed after %s; edits left in the tree' % kind, 'fix the failure or discard the edits yourself')
+        if stage.endswith('noop'):
+            raise Stop('FIX_REJECTED' if kind == 'fix' else 'BUILD_NOOP', '%s reported DONE but changed nothing — %s' % (kind, out),
+                       'read %s and decide whether the finding is wrong' % out)
+        if not dirty_outside_agent():
+            # The call ended without a usable verdict and left nothing behind (CLI/quota failure,
+            # timeout or interruption): the model call did not succeed, so a rerun may repeat it.
+            raise Stop('MODEL_CALL_FAILED', '%s ended without a result and without changes (exit %s)%s' % (
+                kind, rc, ' — ' + out if out else ''), 'rerun ./scripts/agent-campaign-run %s once the CLI is available' % self.cid, True)
+        raise Stop('AGENT_OUTPUT_AMBIGUOUS', '%s ended in stage %r with uncommitted edits' % (kind, stage), 'review the working tree')
+
+    def build(self, ph, ps):
+        pid = ph['id']
+        prev = ps['base_sha']
+        s = read_state_md()
+        if ps.get('in_flight') == 'build':
+            print('[%s] build was interrupted — inspecting local state (no model call)' % pid)
+            try:
+                self.settle('build', 'built', prev, None, ps.get('in_flight_ref') or '')
+            except Stop as e:
+                if e.reason != 'MODEL_CALL_FAILED': raise
+                ps['in_flight'] = None
+        if ps.get('in_flight') != 'build':
+            if head() != prev: raise Stop('HEAD_DRIFT', 'HEAD %s is not the phase base %s' % (short(head()), short(prev)), 'inspect git log')
+            ps.update(in_flight='build', in_flight_ref=s.get('last_build', ''))
+            print('[%s] BUILDING: scripts/agent-build' % pid)
+            log = self.log(pid, 'build')
+            rc = self.model('build', ps, [str(SCRIPTS / 'agent-build')], log, child_env())
+            try:
+                self.settle('build', 'built', prev, rc, ps['in_flight_ref'], log)
+            except Stop as e:
+                if e.resumable: ps['in_flight'] = None
+                raise
+        ps.update(in_flight=None, in_flight_ref=None, head=head(), stage='VERIFYING')
+        self.save()
+        print('  build committed %s' % short(head()))
+
+    def verifying(self, ph, ps, nxt):
+        s = read_state_md()
+        if not s.get('last_verify', '').startswith('PASS'):
+            raise Stop('VERIFICATION_FAILED', 'no passing verification recorded for %s' % short(head()), 'inspect .agent/STATE.md')
+        ps['scope'] = scope_check(ph, ps['base_sha'], head())
+        ps['verification'].append(dict(name='checkpoint', head=head(), result='PASS', source=s.get('last_verify')))
+        ps.update(stage=nxt, head=head())
+        self.save()
+
+    def audit(self, ph, ps):
+        pid, base = ph['id'], ps['base_sha']
+        strict = ps['stage'] == 'STRICT_FULL_PHASE_AUDIT'
+        tier, kind = ('strict', 'campaign') if strict else ('standard', 'full')
+        h = head()
+        if porcelain(): raise Stop('DIRTY_WORKING_TREE', 'tree must be clean before the %s audit' % tier, 'inspect the working tree')
+        s = read_state_md()
+        art = s.get('last_audit', '')
+        adopted = False
+        if ps.get('in_flight') == 'audit-' + tier:
+            # An assessed audit of exactly this kind/range that finished just before an interruption is adopted.
+            if (art and art != ps.get('in_flight_ref') and s.get('last_audit_kind') == kind and s.get('last_audit_head') == h
+                    and not any(a['artifact'] == art for a in ps['audits']) and audit_problems(art, base, h, strict, True) is None):
+                adopted = True
+                print('[%s] adopting finished %s audit %s (no model call)' % (pid, tier, art))
+        if not adopted:
+            ps.update(in_flight='audit-' + tier, in_flight_ref=art)
+            args = ['--campaign', base] if strict else ['--primary']
+            print('[%s] %s: scripts/agent-audit %s (tier %s)' % (pid, ps['stage'], ' '.join(args), tier))
+            log = self.log(pid, 'audit-' + tier)
+            rc = self.model('audit_' + tier, ps, [str(SCRIPTS / 'agent-audit')] + args, log, child_env(AGENT_AUDIT_TIER=tier))
+            s = read_state_md()
+            art, res = s.get('last_audit', ''), s.get('last_audit_result', '')
+            if rc == 4 or 'QUOTA_EXHAUSTED' in res:
+                ps['in_flight'] = None
+                raise Stop('QUOTA_EXHAUSTED', 'Codex usage limit during the %s audit — not a pass (%s)' % (tier, log),
+                           'rerun ./scripts/agent-campaign-run %s once the Codex limit has reset (resumes at this audit)' % self.cid, True)
+            if rc == 3 or res.startswith('UNASSESSED') or not art or art == ps['in_flight_ref']:
+                ps['in_flight'] = None
+                raise Stop('AUDIT_UNASSESSED', '%s audit produced no assessment (exit %d) — %s' % (tier, rc, log),
+                           'rerun ./scripts/agent-campaign-run %s (resumes at this audit)' % self.cid, True)
+            if rc not in (0, 1):
+                ps['in_flight'] = None
+                raise Stop('AUDIT_UNASSESSED', 'agent-audit exited %d — %s' % (rc, log), 'fix the cause, then rerun', True)
+            if s.get('last_audit_kind') != kind:
+                raise Stop('UNEXPECTED_STATE_CHANGE', 'audit kind %r, expected %r' % (s.get('last_audit_kind'), kind), 'inspect ' + log)
+        why = audit_problems(art, base, h, strict, True)
+        if why: raise Stop('AUDIT_UNASSESSED', why, 'rerun the audit', True)
+        if head() != h or porcelain(): raise Stop('UNEXPECTED_STATE_CHANGE', 'HEAD or tree changed during the audit', 'inspect git log')
+        c, hi, md, low = audit_counts(art)
+        ps['audits'].append(dict(tier=tier, artifact=art, sha256=sha256_file(art), base=base, head=h, adopted=adopted, at=now(),
+                                 counts=dict(critical=c, high=hi, medium=md, low=low), findings=findings_of(art)))
+        ps.update(in_flight=None, in_flight_ref=None, stage='FINDING_TRIAGE', head=h)
+        self.save()
+        print('  CRITICAL=%d HIGH=%d MEDIUM=%d LOW=%d  →  %s' % (c, hi, md, low, art))
+
+    def triage(self, ph, ps):
+        """Deterministic decision on the latest audit: stop, remediate a bounded selection, or advance."""
+        a = ps['audits'][-1]
+        text = Path(a['artifact']).read_text(errors='replace')
+        if a['head'] != head(): raise Stop('HEAD_DRIFT', 'latest audit is not of HEAD', 'inspect git log')
+        stop_line = STOP_LINE_RE.search(text)
+        if stop_line:
+            line = text[stop_line.start():].splitlines()[0]
+            raise Stop(gate_reason(line, 'AUDIT_STOP'), '%s — %s' % (line, a['artifact']), 'human review of the audit STOP')
+        g = gate_reason(text)
+        if g: raise Stop(g, 'audit %s names %s' % (a['artifact'], g), 'human decision required before any repair')
+        n = a['counts']
+        if n['critical']:
+            raise Stop('CRITICAL_FINDING', '%d Critical finding(s) — %s' % (n['critical'], a['artifact']),
+                       'human review; Critical findings are never repaired automatically')
+        fs = a['findings']
+        for sev in ('HIGH', 'MEDIUM'):
+            got = [f for f in fs if f['severity'] == sev]
+            if len(got) != n[sev.lower()] or any(not f['id'] for f in got) or len({f['id'] for f in got}) != len(got):
+                raise Stop('AGENT_OUTPUT_AMBIGUOUS', '%s findings in %s cannot be identified exactly (%d parsed, %d counted)' % (
+                    sev, a['artifact'], len(got), n[sev.lower()]), 'review the audit; no automatic repair without exact findings')
+        lows = [f for f in fs if f['severity'] == 'LOW']
+        if any(f['blocking'] for f in lows):
+            raise Stop('LOW_FINDING_BLOCKING', 'a Low finding is marked BLOCKING — %s' % a['artifact'], 'human review')
+        # Low findings are never fixed: every distinct one reported during the phase stays outstanding.
+        for f in lows:
+            entry = '%s %s (%s, %s)' % (f['id'] or '-', f['title'], Path(a['artifact']).name, f['signature'])
+            if not any(x.endswith(f['signature'] + ')') for x in ps['outstanding_low']): ps['outstanding_low'].append(entry)
+        if n['low'] > len(lows):
+            ps['outstanding_low'].append('%d Low finding(s) without a parsable heading in %s' % (n['low'] - len(lows), Path(a['artifact']).name))
+        highs = [f for f in fs if f['severity'] == 'HIGH']
+        mediums = [f for f in fs if f['severity'] == 'MEDIUM']
+        if not highs and not mediums:
+            ps.update(stage='FREEZE' if a['tier'] == 'strict' else 'STRICT_FULL_PHASE_AUDIT')
+            self.save(); return
+        pol = effective_policy(self.m, ph)
+        if highs:
+            bad = [f['id'] for f in highs if not f['confirmed']]
+            if bad: raise Stop('HIGH_NOT_REPRODUCED', 'High finding(s) %s are not CONFIRMED by reproduction' % ','.join(bad),
+                               'human review; only reproduced High defects are repaired automatically')
+            if ps['rounds']['high'] >= pol['high_rounds']:
+                raise Stop('REPEATED_HIGH_FINDING', 'High remains after %d automatic round(s) — %s' % (ps['rounds']['high'], a['artifact']),
+                           'human review; the High remediation budget is exhausted')
+        if mediums and ps['rounds']['medium'] >= pol['medium_rounds']:
+            raise Stop('MEDIUM_BUDGET_EXHAUSTED', 'Medium remains after %d automatic round(s) — %s' % (ps['rounds']['medium'], a['artifact']),
+                       'human review; the Medium remediation budget is exhausted')
+        for f in highs + mediums:
+            prior = ps['signatures'].get(f['signature'], {}).get('attempts', 0)
+            if prior >= pol['attempts_per_signature']:
+                raise Stop('REPEATED_%s_FINDING' % f['severity'], '%s %s %r repeats after %d attempt(s) (signature %s)' % (
+                    f['severity'], f['id'], f['title'], prior, f['signature']), 'human review of the repeated finding')
+        # Count the round before it can spend tokens.
+        if highs: ps['rounds']['high'] += 1
+        if mediums: ps['rounds']['medium'] += 1
+        for f in highs + mediums:
+            sig = ps['signatures'].setdefault(f['signature'], dict(severity=f['severity'], title=f['title'], file=f['file'], attempts=0, ids=[]))
+            sig['attempts'] += 1; sig['ids'].append('%s@%s' % (f['id'], Path(a['artifact']).name))
+        ps['pending_round'] = dict(n=len(ps['round_history']) + 1, audit=a['artifact'], tier=a['tier'], head=a['head'],
+                                   ids=[f['id'] for f in highs + mediums], severities=sorted({f['severity'] for f in highs + mediums}))
+        ps['stage'] = 'REMEDIATING'
+        self.save()
+        print('  remediation round %d: %s (Low recorded, not fixed)' % (ps['pending_round']['n'], ','.join(ps['pending_round']['ids'])))
+
+    def remediate(self, ph, ps):
+        pid, pr = ph['id'], ps['pending_round']
+        if not pr: raise Stop('UNEXPECTED_STATE_CHANGE', 'REMEDIATING without a pending round', 'inspect the campaign state')
+        prev = pr['head']
+        if ps.get('in_flight') == 'fix':
+            print('[%s] fix was interrupted — inspecting local state (no model call)' % pid)
+            try:
+                self.settle('fix', 'fixed', prev, None, ps.get('in_flight_ref') or '')
+            except Stop as e:
+                if e.reason != 'MODEL_CALL_FAILED': raise
+                ps['in_flight'] = None
+        if ps.get('in_flight') != 'fix':
+            if head() != prev: raise Stop('HEAD_DRIFT', 'HEAD moved since the audit', 'inspect git log')
+            ps.update(in_flight='fix', in_flight_ref=read_state_md().get('last_fix', ''))
+            cmd = [str(SCRIPTS / 'agent-fix'), '--only', ','.join(pr['ids']), '--audit', pr['audit'], '--expect-head', prev]
+            print('[%s] REMEDIATING: scripts/agent-fix --only %s' % (pid, ','.join(pr['ids'])))
+            log = self.log(pid, 'fix')
+            rc = self.model('fix', ps, cmd, log, child_env())
+            try:
+                self.settle('fix', 'fixed', prev, rc, ps['in_flight_ref'], log)
+            except Stop as e:
+                if e.resumable: ps['in_flight'] = None
+                raise
+        pr.update(fix_commit=head(), done_at=now())
+        ps['round_history'].append(pr)
+        ps.update(pending_round=None, in_flight=None, in_flight_ref=None, head=head(), stage='VERIFYING_REMEDIATION')
+        self.save()
+        print('  fix committed %s' % short(head()))
+
+    def freeze(self, ph, ps):
+        pid, base, h = ph['id'], ps['base_sha'], head()
+        if porcelain(): raise Stop('DIRTY_WORKING_TREE', 'freeze requires a clean committed tree', 'inspect the working tree')
+        a = ps['audits'][-1] if ps['audits'] else None
+        if not a or a['tier'] != 'strict' or a['head'] != h:
+            raise Stop('UNEXPECTED_STATE_CHANGE', 'no strict full-phase audit of HEAD %s' % short(h), 'rerun the strict audit')
+        why = audit_problems(a['artifact'], base, h, True, True)
+        if why or sha256_file(a['artifact']) != a['sha256']: raise Stop('AUDIT_UNASSESSED', why or 'strict audit artifact changed', 'rerun the strict audit', True)
+        if any(a['counts'][k] for k in ('critical', 'high', 'medium')):
+            raise Stop('UNEXPECTED_STATE_CHANGE', 'strict audit is not clean of Critical/High/Medium', 'inspect the audit')
+        ps['scope'] = scope_check(ph, base, h)
+        for name, cmd in (('phase_verify', ph['verify']), ('full_suite', 'bash scripts/quality-gate.sh')):
+            if any(v['name'] == name and v['head'] == h and v['result'] == 'PASS' for v in ps['verification']): continue
+            log = self.log(pid, 'freeze-' + name)
+            print('[%s] FREEZE: %s' % (pid, cmd))
+            with open(log, 'w') as f:
+                rc = subprocess.run(['bash', '-c', cmd], stdout=f, stderr=subprocess.STDOUT, env=child_env()).returncode
+            if head() != h or porcelain():
+                raise Stop('UNEXPECTED_STATE_CHANGE', 'freeze verification %s changed HEAD or the tree' % name, 'inspect the working tree')
+            if rc:
+                ps['verification'].append(dict(name=name, cmd=cmd, head=h, result='FAIL', log=log, at=now())); self.save()
+                raise Stop('VERIFICATION_FAILED', 'freeze verification %s failed (exit %d) — %s' % (name, rc, log), 'fix the failure')
+            ps['verification'].append(dict(name=name, cmd=cmd, head=h, result='PASS', log=log, at=now()))
+            self.save()
+        ps.update(freeze_sha=h, frozen_at=ps.get('frozen_at') or now(), stage='CLOSURE_RECORD', head=h)
+        self.save()
+        print('  functional freeze candidate %s verified' % short(h))
+        test_point('freeze')
+
+    def closure(self, ph, ps, pred_fp):
+        pid, freeze = ph['id'], ps['freeze_sha']
+        plan = closure_plan(self.m, ph, ps, pred_fp=pred_fp)
+        subject = plan['subject']
+        h = head()
+        if h != freeze:
+            last = git('log', '-1', '--format=%s', h)
+            changed = set(rs.delta_files(freeze, h))
+            if git('rev-parse', h + '^') == freeze and last == subject and changed <= set(plan['files']) and not porcelain():
+                print('[%s] adopting closure commit %s' % (pid, short(h)))
+            else:
+                raise Stop('HEAD_DRIFT', 'HEAD %s is neither the freeze SHA nor its closure commit' % short(h), 'inspect git log')
+        else:
+            dirty = porcelain_paths()
+            extra = [p for p in dirty if p not in plan['files']]
+            if extra: raise Stop('CLOSURE_UNAUTHORISED_CHANGE', 'unexpected changes before closure: ' + ', '.join(extra[:5]), 'inspect the working tree')
+            originals = {}
+            for p, content in plan['contents'].items():
+                at_head = subprocess.run(['git', 'show', '%s:%s' % (freeze, p)], capture_output=True).stdout if is_tracked(freeze, p) else None
+                cur = Path(p).read_bytes() if Path(p).exists() else None
+                if cur not in (at_head, content):
+                    raise Stop('CLOSURE_UNAUTHORISED_CHANGE', '%s holds content that is neither the freeze version nor the closure record' % p,
+                               'inspect %s' % p)
+                originals[p] = at_head
+            try:
+                for p, content in plan['contents'].items():
+                    Path(p).parent.mkdir(parents=True, exist_ok=True)
+                    Path(p).write_bytes(content)
+                validate_closure(plan, self.m, ph, pred_fp)
+                subprocess.run(['git', 'add', '--'] + plan['files'], check=True, capture_output=True)
+                staged = set(git('diff', '--cached', '--name-only').splitlines())
+                if staged != set(plan['files']) or subprocess.run(['git', 'diff', '--cached', '--check'], capture_output=True).returncode:
+                    raise Stop('CLOSURE_VALIDATION_FAILED', 'closure staged %s (diff --check must pass; only authorised docs)' % sorted(staged),
+                               'inspect the staged closure files')
+                subprocess.run(['git', 'commit', '-q', '-m', plan['message']], check=True, capture_output=True)
+                test_point('closure')
+            except (Stop, subprocess.CalledProcessError, OSError) as e:
+                # Roll back to the freeze-time documents; the campaign's own regenerable receipt/audit copy are kept.
+                subprocess.run(['git', 'restore', '--staged', '--'] + plan['files'], capture_output=True)
+                for p, data in originals.items():
+                    if data is not None: Path(p).write_bytes(data)
+                if isinstance(e, Stop): raise
+                raise Stop('CLOSURE_VALIDATION_FAILED', 'closure commit failed: %s' % e, 'inspect the closure files')
+            if git('rev-parse', 'HEAD^') != freeze or porcelain():
+                raise Stop('UNEXPECTED_STATE_CHANGE', 'closure commit did not leave a clean tree on top of the freeze SHA', 'inspect git log')
+        ps.update(closure_sha=head(), receipt_fingerprint=plan['receipt']['receipt_fingerprint'], stage='COMPLETE', head=head())
+        self.save()
+        print('[%s] FROZEN at %s · closure record %s (docs only, local, not pushed)' % (pid, short(freeze), short(head())))
+
+    # ── the run ──
+    def run(self):
+        if self.st is None:
+            self.st = dict(schema_version=SCHEMA_VERSION, campaign_id=self.cid, branch=self.m['branch'], created_at=now(),
+                           updated_at=now(), phases={}, stop=None, resolutions=[],
+                           model_calls=dict(build=0, fix=0, audit_standard=0, audit_strict=0))
+            self.save()
+        stop = self.st.get('stop')
+        if stop and not stop.get('resumable'):
+            self.current = stop['phase']
+            raise Replay(stop['reason'], stop['detail'], stop['next'] + ' — then: ./scripts/agent-campaign-run %s --resolve-stop --note "..."' % self.cid)
+        if stop:
+            print('agent-campaign-run: resuming after %s at %s' % (stop['reason'], stop['phase']))
+            self.st['stop'] = None; self.save()
+        while True:
+            statuses = chain(self.m)
+            # A closure commit that landed just before an interruption already yields a valid
+            # receipt: adopt it (validated against the freeze SHA) before moving on.
+            pred_fp = None
+            for p, s, _, r in statuses:
+                pst = self.st['phases'].get(p['id'])
+                if s == 'FROZEN' and pst and pst['stage'] == 'CLOSURE_RECORD':
+                    self.current = p['id']
+                    self.check_head(p['id'], pst)
+                    self.closure(p, pst, pred_fp)
+                if r: pred_fp = r['receipt_fingerprint']
+            target = next(((p, s, d) for p, s, d, _ in statuses if s != 'FROZEN'), None)
+            if target is None:
+                print('AGENT_CAMPAIGN_RESULT: COMPLETE — every phase has a valid frozen receipt')
+                return 0
+            ph, status, detail = target
+            pid = ph['id']
+            self.current = pid
+            ps = self.st['phases'].get(pid)
+            if status == 'RECEIPT_INVALID' or ph['kind'] == 'legacy':
+                raise Stop('RECEIPT_INVALID', '%s receipt does not validate: %s' % (pid, detail), 'repair the receipt chain; never edit receipts by hand', True)
+            if ps and ps['stage'] == 'COMPLETE':
+                raise Stop('RECEIPT_INVALID', '%s is recorded COMPLETE but its receipt does not validate: %s' % (pid, detail), 'inspect the receipt')
+            self.current = pid
+            if not ps or ps['stage'] == 'READY':
+                self.preflight(ph, statuses)
+                ps = self.ps(pid)
+            else:
+                if ps.get('in_flight') not in ('build', 'fix', 'start'):
+                    self.check_head(pid, ps)
+                print('agent-campaign-run: resuming %s at %s%s' % (pid, ps['stage'], ' (interrupted during %s)' % ps['in_flight'] if ps.get('in_flight') else ''))
+            pred_fp = next((r['receipt_fingerprint'] for p, s, d, r in statuses if p['id'] == ph['predecessor'] and r), None)
+            self.phase(ph, ps, pred_fp)
+
+    def phase(self, ph, ps, pred_fp):
+        while ps['stage'] != 'COMPLETE':
+            stage = ps['stage']
+            if stage in ('READY', 'STARTING'): self.start(ph, ps)
+            elif stage == 'BUILDING': self.build(ph, ps)
+            elif stage == 'VERIFYING': self.verifying(ph, ps, 'PRIMARY_AUDIT')
+            elif stage in AUDIT_STAGES: self.audit(ph, ps)
+            elif stage == 'FINDING_TRIAGE': self.triage(ph, ps)
+            elif stage == 'REMEDIATING': self.remediate(ph, ps)
+            elif stage == 'VERIFYING_REMEDIATION':
+                prior = ps['round_history'][-1]['tier']
+                self.verifying(ph, ps, 'STRICT_FULL_PHASE_AUDIT' if prior == 'strict' else 'REAUDIT')
+            elif stage == 'FREEZE': self.freeze(ph, ps)
+            elif stage == 'CLOSURE_RECORD': self.closure(ph, ps, pred_fp)
+            else: raise Stop('UNEXPECTED_STATE_CHANGE', 'unknown stage %r' % stage, 'inspect the campaign state')
+
+
+class RunnerActive(Exception):
+    pass
+
+
+class Replay(Stop):
+    """An unresolved recorded stop, re-reported without being re-recorded."""
+
+
+def test_point(name):
+    """Deterministic tests only: simulate Ctrl-C at a named point (after a model call returns but
+    before it is recorded, after freeze, after the closure commit)."""
+    if os.environ.get(TEST_INTERRUPT) == name: raise KeyboardInterrupt
+
+
+def is_tracked(ref, p):
+    return subprocess.run(['git', 'cat-file', '-e', '%s:%s' % (ref, p)], capture_output=True).returncode == 0
+
+
+# ── scope checks (deterministic, after every build/fix and at freeze) ──
+def scope_check(ph, base, h):
+    files = rs.delta_files(base, h)
+    mig = [f for f in files if rs.category(f) == 'F']
+    if mig:
+        raise Stop('MIGRATION_APPROVAL_REQUIRED', 'phase changes migration/schema paths: ' + ', '.join(mig[:5]),
+                   'a migration needs separate explicit authorisation; the campaign never applies one')
+    import fnmatch
+    shared = [f for f in files if rs.category(f) == 'E']
+    for f in shared:
+        if not any(fnmatch.fnmatch(f, pat) for pat in ph['allowed_shared_paths']):
+            raise Stop('FROZEN_CONTRACT_CHANGE_REQUIRED', 'phase changes a shared/frozen-contract path: %s' % f,
+                       'frozen-contract changes need a separately authorised task')
+        removed = sum(int(d) for a, d, *_ in (l.split('\t') for l in git('diff', '--numstat', base, h, '--', f).splitlines()) if d.isdigit())
+        if removed:
+            raise Stop('FROZEN_CONTRACT_CHANGE_REQUIRED', '%s: only additive changes are pre-authorised (%d line(s) removed)' % (f, removed),
+                       'frozen-contract changes need a separately authorised task')
+    return dict(migration_status='NONE', frozen_contract_status=('ADDITIVE_ALLOWED: ' + ', '.join(shared)) if shared else 'UNCHANGED',
+                files=len(files))
+
+
+# ── closure (deterministic docs record) ────────────────────────────────
+def read_doc(p, ref):
+    if ref is None: return Path(p).read_text()
+    out = subprocess.run(['git', 'show', '%s:%s' % (ref, p)], capture_output=True)
+    if out.returncode: raise OSError('%s is not in %s' % (p, short(ref)))
+    return out.stdout.decode()
+
+
+def closure_plan(m, ph, ps, pred_fp=None, check_only=False):
+    """The exact receipt and docs closure contents for a frozen phase, always derived from the
+    documents AT THE FREEZE SHA (so an interrupted closure regenerates identical bytes). Proves it
+    understands the BUILD_STATE.json / IMPLEMENTATION_LOG.md layout or stops before anything is written."""
+    ref = None if check_only else ps['freeze_sha']
+    try: bs_text = read_doc(BUILD_STATE, ref)
+    except OSError: raise Stop('CLOSURE_SCHEMA_UNSUPPORTED', '%s is missing' % BUILD_STATE, 'restore BUILD_STATE.json', True)
+    try: bs = json.loads(bs_text)
+    except ValueError as e:
+        raise Stop('CLOSURE_SCHEMA_UNSUPPORTED', '%s is not valid JSON: %s' % (BUILD_STATE, e), 'repair BUILD_STATE.json in a docs commit', True)
+    if json.dumps(bs, indent=2, ensure_ascii=False) + '\n' != bs_text:
+        raise Stop('CLOSURE_SCHEMA_UNSUPPORTED', '%s does not round-trip as 2-space JSON; the updater cannot prove it preserves it' % BUILD_STATE,
+                   'normalise BUILD_STATE.json formatting in a docs commit', True)
+    sec = bs.get(m['build_state_key']) if isinstance(bs, dict) else None
+    if not isinstance(sec, dict) or sec.get('campaign') != m['campaign_doc']:
+        raise Stop('CLOSURE_SCHEMA_UNSUPPORTED', 'BUILD_STATE.json.%s.campaign is not %s' % (m['build_state_key'], m['campaign_doc']),
+                   'fix the manifest or BUILD_STATE.json', True)
+    prior = sec.get(ph['build_state_key'])
+    if prior is not None and (check_only or not isinstance(prior, (str, dict)) or
+                              (isinstance(prior, dict) and prior.get('status') == 'FROZEN_COMPLETE_IN_CODE')):
+        raise Stop('CLOSURE_SCHEMA_UNSUPPORTED', 'BUILD_STATE.json already has %s.%s' % (m['build_state_key'], ph['build_state_key']),
+                   'reconcile the existing record', True)
+    try: log_text = read_doc(IMPL_LOG, ref)
+    except OSError: raise Stop('CLOSURE_SCHEMA_UNSUPPORTED', '%s is missing' % IMPL_LOG, 'restore it', True)
+    first = re.search(r'^## ', log_text, re.M)
+    if not log_text.startswith('# ') or not first:
+        raise Stop('CLOSURE_SCHEMA_UNSUPPORTED', '%s has no "# " title and "## " entries' % IMPL_LOG, 'inspect the log', True)
+    if check_only: return None
+    pid, base, freeze = ph['id'], ps['base_sha'], ps['freeze_sha']
+    a = ps['audits'][-1]
+    audit_copy = '%s/%s' % (m['audits_dir'], Path(a['artifact']).name)
+    nxt = next_phase_id(m, pid)
+    rounds = [dict(n=r['n'], tier=r['tier'], audit=Path(r['audit']).name, ids=r['ids'], severities=r['severities'],
+                   fix_commit=r.get('fix_commit')) for r in ps['round_history']]
+    remediated = ['%s (%s, %s): %s — sig %s' % (i.split('@')[0], s['severity'], i.split('@')[1], s['title'], k)
+                  for k, s in sorted(ps['signatures'].items()) for i in s['ids']]
+    verification = [dict(name=v['name'], cmd=v['cmd'], head=v['head'], result=v['result'], log=v['log'])
+                    for v in ps['verification'] if v['name'] in ('phase_verify', 'full_suite') and v['head'] == freeze and v['result'] == 'PASS']
+    contracts = [dict(path=c, blob_at_freeze=subprocess.run(['git', 'rev-parse', '%s:%s' % (freeze, c)], capture_output=True, text=True).stdout.strip())
+                 for c in ph['contracts']]
+    receipt = dict(
+        receipt_schema_version=RECEIPT_SCHEMA_VERSION, origin='campaign', campaign_id=m['campaign_id'], phase_id=pid,
+        phase_title=ph['title'], phase_order=ph['order'], task_id=ps['task_id'], phase_base_sha=base, functional_freeze_sha=freeze,
+        frozen_at=ps['frozen_at'], brief=ph['brief'], brief_sha256=sha256_file(ph['brief']), contracts=contracts,
+        verify_command=ph['verify'], verification=verification,
+        strict_audit=dict(artifact=audit_copy, original=a['artifact'], sha256=a['sha256'], range='%s..%s' % (base, freeze),
+                          counts=a['counts'], tier='strict'),
+        audits=[dict(tier=x['tier'], artifact=Path(x['artifact']).name, head=x['head'], counts=x['counts'], adopted=x['adopted'])
+                for x in ps['audits']],
+        remediation=dict(medium_rounds=ps['rounds']['medium'], high_rounds=ps['rounds']['high'], rounds=rounds),
+        finding_signatures={k: dict(severity=s['severity'], title=s['title'], file=s['file'], attempts=s['attempts'], ids=s['ids'])
+                            for k, s in sorted(ps['signatures'].items())},
+        outstanding_low_findings=ps['outstanding_low'], migration_status=ps['scope']['migration_status'],
+        frozen_contract_status=ps['scope']['frozen_contract_status'], human_gate_status='NONE', pushed_or_deployed=False,
+        predecessor=ph['predecessor'], predecessor_receipt_fingerprint=pred_fp, policy=effective_policy(m, ph))
+    receipt['receipt_fingerprint'] = receipt_fingerprint(receipt)
+    summary = 'CRITICAL=%d HIGH=%d MEDIUM=%d LOW=%d' % tuple(a['counts'][k] for k in ('critical', 'high', 'medium', 'low'))
+    rpath = str(receipt_path(m, pid))
+    sec[ph['build_state_key']] = dict(
+        status='FROZEN_COMPLETE_IN_CODE', task=ps['task_id'], base_sha=base, final_audited_sha=freeze, final_audit=audit_copy,
+        final_audit_summary=summary, remediated_findings=remediated, outstanding_low_findings=ps['outstanding_low'],
+        verification='at %s: phase verify `%s` PASS; full suite scripts/quality-gate.sh PASS' % (freeze, ph['verify']),
+        receipt=rpath, receipt_fingerprint=receipt['receipt_fingerprint'], closed_by='scripts/agent-campaign-run',
+        next_phase=('%s NOT_STARTED' % nxt) if nxt else 'none (campaign complete)')
+    if prior is not None:  # the phase's own build-time record is kept verbatim, never rewritten
+        sec[ph['build_state_key']]['build_record'] = prior
+    sec['campaign_progress'] = dict(last_frozen_phase=pid, next_phase=nxt, next_phase_status='NOT_STARTED' if nxt else None,
+                                    updated_by='scripts/agent-campaign-run')
+    date = (ps['frozen_at'] or now())[:10]
+    entry = '\n'.join([
+        '## %s, %s close-out — %s — frozen at %s (%s)' % (m['title'], pid, ph['title'], short(freeze), date), '',
+        '%s (task `%s`, base `%s`) is **frozen at `%s`** by `scripts/agent-campaign-run`. This is the' % (pid, ps['task_id'], short(base), freeze),
+        'functional freeze SHA; the documentation commit recording it is not.', '',
+        '- Strict full-phase audit `%s` over `%s..%s`: %s.' % (Path(a['artifact']).name, short(base), short(freeze), summary),
+        '- Automatic remediation: %d Medium round(s), %d High round(s)%s.' % (
+            ps['rounds']['medium'], ps['rounds']['high'], (': ' + '; '.join(remediated)) if remediated else ''),
+        '- Outstanding Low (recorded, not fixed): %s.' % ('; '.join(ps['outstanding_low']) or 'none'),
+        '- Verification at `%s`: phase verify and full suite (`scripts/quality-gate.sh`) passed.' % short(freeze),
+        '- Receipt `%s` (fingerprint `%s`). Migrations: none. Frozen contracts: %s. Nothing pushed or deployed.' % (
+            rpath, receipt['receipt_fingerprint'][:16], ps['scope']['frozen_contract_status']),
+        '- %s.' % (('%s **not started**' % nxt) if nxt else 'Campaign complete'), '', ''])
+    new_log = log_text[:first.start()] + entry + log_text[first.start():]
+    contents = {rpath: (json.dumps(receipt, indent=2, ensure_ascii=False) + '\n').encode(),
+                audit_copy: Path(a['artifact']).read_bytes(),
+                str(BUILD_STATE): (json.dumps(bs, indent=2, ensure_ascii=False) + '\n').encode(),
+                str(IMPL_LOG): new_log.encode()}
+    subject = '%s %s: record closure — frozen at %s' % (m['closure_commit_prefix'], pid, short(freeze))
+    message = '%s\n\nDocumentation only, written by scripts/agent-campaign-run. Functional freeze SHA %s\n' \
+              '(strict audit %s over %s..%s, %s); this closure commit is not the freeze SHA.\nReceipt %s. Local commit; not pushed.\n' % (
+                  subject, freeze, Path(a['artifact']).name, short(base), short(freeze), summary, rpath)
+    return dict(contents=contents, files=sorted(contents), receipt=receipt, receipt_path=rpath, subject=subject, message=message,
+                build_state_key=ph['build_state_key'])
+
+
+def validate_closure(plan, m, ph, pred_fp):
+    """After writing, before committing: JSON validates and round-trips, the receipt validates
+    against the freeze SHA it names, and that SHA is still HEAD."""
+    try:
+        bs_text = BUILD_STATE.read_text()
+        ok = json.dumps(json.loads(bs_text), indent=2, ensure_ascii=False) + '\n' == bs_text
+    except ValueError:
+        ok = False
+    if not ok: raise Stop('CLOSURE_VALIDATION_FAILED', 'BUILD_STATE.json does not validate after the closure update', 'inspect it')
+    if plan['receipt']['functional_freeze_sha'] != head(): raise Stop('CLOSURE_VALIDATION_FAILED', 'freeze SHA is no longer HEAD', 'inspect git log')
+    try: validate_receipt(m, ph, pred_fp)
+    except ValueError as e: raise Stop('CLOSURE_VALIDATION_FAILED', 'new receipt does not validate: %s' % e, 'inspect the receipt')
+
+
+# ── status / dry run (read-only, zero model calls) ─────────────────────
+def phase_rows(m, st):
+    rows, first_open = [], True
+    for ph, status, detail, r in chain(m):
+        ps = (st or {}).get('phases', {}).get(ph['id']) if st else None
+        stop = (st or {}).get('stop')
+        if status == 'FROZEN':
+            label, note = 'FROZEN', short(r['functional_freeze_sha']) + ('  (legacy receipt)' if r.get('origin') == 'legacy-manual' else '')
+        elif status == 'RECEIPT_INVALID':
+            label, note = 'RECEIPT_INVALID', detail
+        elif stop and stop.get('phase') == ph['id']:
+            label, note = 'STOPPED', stop['reason']
+        elif ps and ps.get('stage') not in (None, 'READY'):
+            label, note = ps['stage'], ('base %s' % short(ps.get('base_sha'))) if ps.get('base_sha') else ''
+        elif first_open and ph['kind'] == 'campaign':
+            why = brief_problems(m, ph)
+            label, note = ('NOT_READY', why) if why else ('READY', '')
+        else:
+            label, note = 'NOT_STARTED', ''
+        if status != 'FROZEN': first_open = False
+        rows.append((ph['id'], label, note))
+    return rows
+
+
+def status(m):
+    st = load_state(m['campaign_id'])
+    print(m['title'])
+    print()
+    for pid, label, note in phase_rows(m, st):
+        print('%-4s %-24s %s' % (pid, label, note))
+    stop = (st or {}).get('stop')
+    if stop:
+        print()
+        print('STOPPED: %s' % stop['phase'])
+        print('REASON: %s' % stop['reason'])
+        print('DETAIL: %s' % stop['detail'].splitlines()[0] if stop['detail'] else 'DETAIL: (none)')
+        print('NEXT: %s' % stop['next'])
+        print('RESUMABLE: %s' % ('yes (rerun the campaign)' if stop['resumable'] else 'no (human action, then --resolve-stop)'))
+    mc = (st or {}).get('model_calls', {})
+    print()
+    print('Model calls (campaign total): build %d · fix %d · standard audit %d · strict audit %d' % tuple(
+        mc.get(k, 0) for k in ('build', 'fix', 'audit_standard', 'audit_strict')))
+    print('Pushed/deployed: never (no command path exists)')
+    return 0
+
+
+def dry_run(m):
+    st = load_state(m['campaign_id'])
+    print('agent-campaign-run dry run — %s (no model call, no file change)' % m['title'])
+    statuses = chain(m)
+    for pid, label, note in phase_rows(m, st):
+        print('  %-4s %-24s %s' % (pid, label, note))
+    target = next(((p, s, d) for p, s, d, _ in statuses if s != 'FROZEN'), None)
+    pol = m['policy']
+    print('Policy: Critical → STOP · High ≤%d round(s), Medium ≤%d round(s), ≤%d attempt(s) per finding signature · Low recorded, never fixed'
+          % (pol['high_rounds'], pol['medium_rounds'], pol['attempts_per_signature']))
+    print('Freeze: strict full-phase audit (gpt-6-astra, high) of phase_base..HEAD with CRITICAL=HIGH=MEDIUM=0, phase verify + full suite, receipt, docs-only closure commit')
+    print('Never: push, deploy, migrations, destructive git')
+    if target is None:
+        print('Next: none — campaign complete'); print('Model calls: 0'); return 0
+    ph, status_, detail = target
+    ps = (st or {}).get('phases', {}).get(ph['id'])
+    if st and st.get('stop') and not st['stop'].get('resumable'):
+        print('Would refuse: unresolved stop %s at %s' % (st['stop']['reason'], st['stop']['phase'])); print('Model calls: 0'); return 1
+    if ps and ps.get('stage') not in (None, 'READY'):
+        print('Next: resume %s at %s' % (ph['id'], ps['stage'])); print('Model calls: 0'); return 0
+    try:
+        if status_ == 'RECEIPT_INVALID' or ph['kind'] == 'legacy':
+            raise Stop('RECEIPT_INVALID', '%s: %s' % (ph['id'], detail), 'repair the receipt chain')
+        Campaign(m).preflight(ph, statuses)
+    except Stop as e:
+        print('Next: %s would NOT start — %s: %s' % (ph['id'], e.reason, e.detail))
+        print('Model calls: 0'); return 1
+    print('Next: %s from base %s — agent-start → agent-build → standard audit → [narrow fixes] → strict audit → freeze → closure' % (ph['id'], short(head())))
+    print('Model calls: 0')
+    return 0
+
+
+def resolve_stop(camp, note):
+    m, st = camp.m, camp.st
+    if not st or not st.get('stop'): raise Stop('USAGE', 'there is no recorded stop to resolve', 'nothing to do', True)
+    if not note.strip(): raise Stop('USAGE', '--resolve-stop requires --note "<what the human decided>"', 'add a note', True)
+    if porcelain(): raise Stop('DIRTY_WORKING_TREE', 'commit or set aside changes before resolving', 'clean the tree', True)
+    if git('branch', '--show-current') != m['branch']: raise Stop('WRONG_BRANCH', 'not on %s' % m['branch'], 'check it out', True)
+    stop = st['stop']
+    ps = st['phases'].get(stop['phase'])
+    if ps:
+        if not ps.get('base_sha') or (head() == ps['base_sha'] and ps['stage'] in ('STARTING', 'BUILDING')):
+            st['phases'][stop['phase']] = new_phase_state()   # nothing committed for the phase: start it again
+        else:
+            if not is_ancestor(ps['base_sha'], head()):
+                raise Stop('HEAD_DRIFT', 'HEAD does not descend from the phase base %s' % short(ps['base_sha']), 'inspect git log', True)
+            # Budgets and signature history are kept; the whole phase is re-audited from its base.
+            ps.update(stage='REAUDIT', in_flight=None, in_flight_ref=None, pending_round=None, head=head(),
+                      freeze_sha=None, frozen_at=None)
+    st.setdefault('resolutions', []).append(dict(stop, note=note.strip(), resolved_at=now(), resolved_head=head()))
+    st['stop'] = None
+    camp.save()
+    print('agent-campaign-run: stop %s at %s resolved by human note; rerun ./scripts/agent-campaign-run %s' % (stop['reason'], stop['phase'], m['campaign_id']))
+    return 0
+
+
+def report_stop(e, phase, calls):
+    print('AGENT_CAMPAIGN_RESULT: STOPPED')
+    print('STOPPED: %s' % (phase or '-'))
+    print('REASON: %s' % e.reason)
+    for line in (e.detail or '(none)').splitlines()[:3]: print('DETAIL: %s' % line)
+    print('NEXT: %s' % e.next)
+    print('RESUMABLE: %s' % ('yes — rerun the same command' if e.resumable else 'no — human action required'))
+    print('Model calls this invocation: %d' % calls)
+
+
+def main(argv):
+    if not argv or argv[0].startswith('-'):
+        print('usage: scripts/agent-campaign-run <campaign-id> [--dry-run | --status | --resolve-stop --note TEXT]', file=sys.stderr)
+        return 2
+    cid, rest = argv[0], argv[1:]
+    mode, note = 'run', ''
+    while rest:
+        a = rest.pop(0)
+        if a in ('--dry-run', '--status', '--resolve-stop') and mode == 'run': mode = a[2:]
+        elif a == '--note' and rest: note = rest.pop(0)
+        else:
+            print('usage: scripts/agent-campaign-run <campaign-id> [--dry-run | --status | --resolve-stop --note TEXT]', file=sys.stderr)
+            return 2
+    camp = None
+    try:
+        m = load_manifest(cid)
+        if mode == 'status': return status(m)
+        if mode == 'dry-run': return dry_run(m)
+        camp = Campaign(m)
+        camp.current = None
+        camp.lock()
+        if mode == 'resolve-stop': return resolve_stop(camp, note)
+        return camp.run()
+    except RunnerActive as e:
+        print('AGENT_CAMPAIGN_RESULT: RUNNER_ACTIVE\nDETAIL: %s\nModel calls this invocation: 0' % e)
+        return 3
+    except Stop as e:
+        pid = getattr(camp, 'current', None) if camp else None
+        if camp and camp.st is not None and camp.locked and e.reason != 'USAGE' and not isinstance(e, Replay):
+            camp.stop(e, pid)
+        report_stop(e, pid, camp.calls if camp else 0)
+        return 2 if e.reason == 'USAGE' else 1
+    except KeyboardInterrupt:
+        if camp and camp.st is not None and camp.locked: camp.save()
+        print('\nAGENT_CAMPAIGN_RESULT: INTERRUPTED%s — progress saved; rerun to resume' % (
+            (' during %s' % camp.current) if camp and getattr(camp, 'current', None) else ''))
+        return 130
+    finally:
+        if camp: camp.unlock()
+
+
+def _raise_interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
+if __name__ == '__main__':
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _raise_interrupt)
+    sys.exit(main(sys.argv[1:]))

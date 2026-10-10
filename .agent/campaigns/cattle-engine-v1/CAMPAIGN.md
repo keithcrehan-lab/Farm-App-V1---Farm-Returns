@@ -12,11 +12,11 @@ Official/farm/device data -> canonical cattle state -> legal/welfare gates -> sc
 
 ## Campaign rules
 
-- Work phase-by-phase. Never start the next phase automatically.
+- Work phase-by-phase. The next phase starts only through `scripts/agent-campaign-run`'s dependency-gated transition (valid predecessor receipt, docs closure committed, clean tree, READY brief), or manually after human review.
 - Every phase has an immutable task boundary, explicit starting SHA, acceptance criteria, verify command and STOP conditions.
-- Use the existing Farm Return agent harness. Do not create or redesign a runner.
-- Normal loop: build -> deterministic verification -> targeted audit -> targeted Critical/High repair if required -> final verification/audit -> freeze -> human review.
-- Medium/Low findings are recorded and do not trigger broad repair without explicit human authorisation.
+- Use the existing Farm Return agent harness. C2–C10 run through the campaign orchestrator (`scripts/agent-campaign-run cattle-engine-v1`, manifest `campaign.json`), authorised 2026-10-10 by task `cattle-campaign-orchestrator-20261010`; it composes, never replaces, the one-task scripts. See `.agent/README.md`, "Campaign orchestrator".
+- Normal loop: build -> deterministic verification -> standard audit -> bounded narrow repair of in-scope engineering High/Medium findings -> strict full-phase audit (phase base..HEAD; CRITICAL=HIGH=MEDIUM=0) -> freeze verification -> receipt -> docs closure commit. Critical findings and every judgement gate stop for human review.
+- Low findings are recorded in the phase receipt and never trigger repair. Medium/High repair is pre-authorised only within the orchestrator's budgets for deterministic engineering defects inside the phase contract; anything beyond that needs explicit human authorisation.
 - Follow plausible blast radius only. Escalate when evidence indicates a shared architectural, scientific, regulatory, veterinary, financial, security or canonical-data invariant may be affected.
 - No push, merge to main, deploy, production connector activation or production migration unless explicitly authorised.
 - UNKNOWN is never zero and missing evidence must never be silently replaced by a convenient assumption.
@@ -169,4 +169,4 @@ Each phase returns:
 - any external evidence/sign-off gaps,
 - exact manual checks where a UI/workflow exists.
 
-Then STOP for human review.
+Under the orchestrator these are recorded in the phase receipt (`receipts/<phase>.json`) and the closure entries in BUILD_STATE.json / IMPLEMENTATION_LOG.md. The campaign then continues only when the next brief is READY; any stop is for human review.

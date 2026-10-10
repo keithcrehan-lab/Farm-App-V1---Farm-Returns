@@ -5,6 +5,23 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Cattle Engine v1 — campaign orchestrator — starting 9cc32b8 (2026-10-10)
+
+Task `cattle-campaign-orchestrator-20261010`. Harness/tooling only; no cattle-domain, UI,
+persistence, schema or migration change. `scripts/agent-campaign-run <id> [--dry-run|--status|
+--resolve-stop --note]` runs a campaign manifest's phases in order above the one-task harness
+(agent-start → agent-build → standard audit → bounded narrow remediation → strict full-phase
+audit of phase_base..HEAD → freeze verification → receipt → docs-only closure commit → next
+phase), with persisted resumable state, a fail-closed lock and deterministic triage: Critical
+and every judgement gate stop; reproduced High ≤2 rounds; Medium ≤4 rounds; ≤2 attempts per
+finding signature; Low recorded, never fixed. `agent-fix --only IDS --audit PATH
+[--expect-head SHA]` is the backward-compatible narrow mode (Low never selectable);
+AUDIT_RULES.md gains the `STOP: <REASON> [Fxxx]` gate marker. Manifest
+`.agent/campaigns/cattle-engine-v1/campaign.json` binds C0/C1 as legacy-manual receipts
+(operator attestations; HR-F007 applies) and C2–C10 as PLACEHOLDER briefs, so the campaign
+refuses to start C2 until a READY brief exists. Tests: `scripts/tests/agent-campaign.test.py`
+(fake CLIs), run by `agent-run.test.sh`. C2 **not started**. Nothing pushed or deployed.
+
 ## Cattle Engine v1, C1 close-out — Canonical animal lifecycle — frozen at c5b25f2 (2026-10-10)
 
 C1 (task `cattle-c1-canonical-animal-lifecycle-20261009`, base `61c1124`) is accepted and

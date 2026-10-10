@@ -6,15 +6,32 @@
 # there's nothing to fix.
 #
 #   scripts/agent-fix [--all] [--another-round] [--dry-run]
+#   scripts/agent-fix --only F001,F002 --audit PATH [--expect-head SHA] [--dry-run]
 #   --another-round   explicit human approval to fix after a *verification*
 #                     audit still found Critical/High (AGENTS.md: never automatic)
+#   --only IDS        narrow remediation: exactly the named Critical/High/Medium findings of
+#                     the pinned audit (Low is never selectable); nothing else is fixed
+#   --audit PATH      required with --only: must be the latest recorded audit (no stale pin)
+#   --expect-head SHA refuse unless HEAD is exactly SHA
 source "$(dirname "${BASH_SOURCE[0]}")/agent-lib.sh"
 
-ALL=false; AGAIN=false; DRY=false
-for a in "$@"; do
-  case "$a" in --all) ALL=true;; --another-round) AGAIN=true;; --dry-run) DRY=true;;
-    *) die "usage: agent-fix [--all] [--another-round] [--dry-run]";; esac
+USAGE="usage: agent-fix [--all] [--another-round] [--dry-run] | --only IDS --audit PATH [--expect-head SHA] [--dry-run]"
+ALL=false; AGAIN=false; DRY=false; ONLY=""; PIN=""; EXPECT=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in --all) ALL=true;; --another-round) AGAIN=true;; --dry-run) DRY=true;;
+    --only) ONLY="${2:-}"; [[ -n "$ONLY" ]] || die "$USAGE"; shift;;
+    --audit) PIN="${2:-}"; [[ -n "$PIN" ]] || die "$USAGE"; shift;;
+    --expect-head) EXPECT="${2:-}"; [[ -n "$EXPECT" ]] || die "$USAGE"; shift;;
+    *) die "$USAGE";; esac
+  shift
 done
+if [[ -n "$ONLY" ]]; then
+  $ALL && die "--only and --all are mutually exclusive"
+  [[ -n "$PIN" ]] || die "--only requires --audit PATH (the exact audit artifact is pinned)"
+  [[ "$ONLY" =~ ^[A-Za-z]+[0-9]+(,[A-Za-z]+[0-9]+)*$ ]] || die "--only takes finding IDs such as F001,F002"
+elif [[ -n "$PIN" || -n "$EXPECT" ]]; then
+  die "--audit/--expect-head are only used with --only"
+fi
 MODEL_ARGS=(); [[ -n "${AGENT_CLAUDE_MODEL:-}" ]] && MODEL_ARGS=(--model "$AGENT_CLAUDE_MODEL")
 
 require_cli claude
@@ -31,6 +48,8 @@ audit="$(state_get last_audit)"; kind="$(state_get last_audit_kind)"; res="$(sta
 [[ "$(state_get stage)" != fixed ]] || die "fixes already committed for $audit — run scripts/agent-audit (focused verification) next"
 
 [[ "$(state_get last_audit_head)" == "$(git rev-parse HEAD)" ]] || die "stale audit: HEAD changed since the finding was assessed"
+[[ -z "$EXPECT" || "$(git rev-parse HEAD)" == "$(git rev-parse --verify -q "$EXPECT^{commit}" || true)" ]] || die "HEAD is not the expected $EXPECT"
+[[ -z "$PIN" || "$PIN" == "$audit" ]] || die "pinned audit $PIN is not the latest recorded audit $audit (stale pin)"
 [[ "$(state_get task_base)" == "$(python3 scripts/agent-context.py pin)" ]] || die "audit belongs to a different task"
 audit_output_valid "$audit" || die "invalid finding artifact"
 has_stop_marker "$audit" && die "audit contains STOP: human review required"
@@ -38,7 +57,7 @@ has_stop_marker "$audit" && die "audit contains STOP: human review required"
 count() { echo "$res" | sed -n "s/.*$1=\([0-9][0-9]*\).*/\1/p"; }
 c="$(count CRITICAL)"; h="$(count HIGH)"; m="$(count MEDIUM)"; l="$(count LOW)"
 blocking=$(( ${c:-0} + ${h:-0} )); minor=$(( ${m:-0} + ${l:-0} ))
-if [[ $blocking -eq 0 ]] && { ! $ALL || [[ $minor -eq 0 ]]; }; then
+if [[ -z "$ONLY" && $blocking -eq 0 ]] && { ! $ALL || [[ $minor -eq 0 ]]; }; then
   note "no findings to fix in $audit ($res). Nothing to do."; exit 0
 fi
 if [[ "$kind" == verify && $blocking -gt 0 ]] && ! $AGAIN; then
@@ -46,7 +65,15 @@ if [[ "$kind" == verify && $blocking -gt 0 ]] && ! $AGAIN; then
 fi
 
 levels="CRITICAL and HIGH"; $ALL && levels="all (CRITICAL, HIGH, MEDIUM, LOW)"
-if $ALL; then
+if [[ -n "$ONLY" ]]; then
+  levels="selected findings $ONLY"
+  sel="${audit%.md}.selected-findings.md"
+  n="$(python3 scripts/agent-context.py select-findings "$audit" "$sel" "$ONLY")" || die "cannot select findings $ONLY from $audit"
+  FINDINGS="Selected findings: $sel (exactly $n finding(s) $ONLY extracted from $audit; read that file only for findings).
+Fix ONLY these selected findings. Do not fix, refactor or touch any other finding in the audit — in particular never Low findings. Do not refactor working code. Do not broaden scope.
+Reproduce each finding first (a failing test or exact trace) before changing code.
+If a finding needs a human decision rather than a code repair (scientific, regulatory, veterinary, evidence, source precedence, product, migration, frozen-contract, scope, push/deploy, secrets or production access), change no code for it and print a line 'STOP: <REASON> <finding ID> <detail>' using the reason vocabulary in .agent/AUDIT_RULES.md."
+elif $ALL; then
   FINDINGS="Read the audit findings in $audit. Fix the $levels findings only."
 else
   # Send only the open Critical/High findings, not the audit history.
@@ -95,7 +122,7 @@ if ! run_verify; then
   die "verify command failed — nothing committed; edits left in the tree for review"
 fi
 
-checkpoint_commit "Agent checkpoint (fix): $(task_title) — findings from $(basename "$audit")" || die "nothing to commit"
+checkpoint_commit "Agent checkpoint (fix): $(task_title) — findings ${ONLY:+$ONLY }from $(basename "$audit")" || die "nothing to commit"
 state_set fix_base "$fix_base"
 state_set stage fixed
 state_touch

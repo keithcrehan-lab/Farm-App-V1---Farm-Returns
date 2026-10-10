@@ -81,6 +81,24 @@ For each finding, only these fields:
 Medium/Low findings may be given as the heading line only. You may start the
 result with `AUDIT_RESULT: CLEAN` (no Critical/High) or `AUDIT_RESULT: FINDINGS`.
 
+## Human-judgement gate marker
+
+When a finding needs a human decision rather than a code repair, still report the
+finding, and also put a line of its own (before the two closing lines):
+
+```
+STOP: <REASON> [F001] <one-line detail>
+```
+
+`<REASON>` is one of: SCIENTIFIC_DECISION_REQUIRED, REGULATORY_INTERPRETATION_REQUIRED,
+VETERINARY_DECISION_REQUIRED, EXPERT_VALIDATION_REQUIRED, EXTERNAL_EVIDENCE_REQUIRED,
+SOURCE_PRECEDENCE_DECISION_REQUIRED, PRODUCT_DECISION_REQUIRED, MIGRATION_APPROVAL_REQUIRED,
+FROZEN_CONTRACT_CHANGE_REQUIRED, TASK_SCOPE_EXPANSION_REQUIRED, DESTRUCTIVE_GIT_ACTION_REQUIRED,
+PUSH_OR_DEPLOY_REQUIRED, CONFLICTING_EVIDENCE, UNSUPPORTED_EXTERNAL_API_ASSUMPTION,
+SECRETS_OR_CREDENTIALS_REQUIRED, PRODUCTION_ACCESS_REQUIRED. Any `STOP` line blocks automatic
+repair and closure. Don't use these tokens for ordinary engineering defects. A Low finding
+you consider blocking must say `BLOCKING` in its heading.
+
 End with exactly these two lines:
 
 ```

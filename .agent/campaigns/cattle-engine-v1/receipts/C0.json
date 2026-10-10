@@ -1,0 +1,72 @@
+{
+  "receipt_schema_version": 1,
+  "origin": "legacy-manual",
+  "campaign_id": "cattle-engine-v1",
+  "phase_id": "C0",
+  "phase_title": "Evidence, Rule & Regulatory Architecture",
+  "phase_order": 0,
+  "task_id": "cattle-c0-evidence-rule-architecture-20261009",
+  "phase_base_sha": "a15553e4b7d01780f33747fd5b0ca3d2ba78be5c",
+  "functional_freeze_sha": "61c1124d8f206fc4d442fe7814e010a2edb0a186",
+  "closure_record_sha": "9cc32b894b15dc99eead622fc45309d62d9ca04b",
+  "frozen_at": "2026-10-09T20:49:54Z",
+  "brief": ".agent/campaigns/cattle-engine-v1/C0_BRIEF.md",
+  "brief_sha256": "6657908eb2f6fb4098408db73792c77310564b481910826e888bba4af4b53a05",
+  "contracts": [
+    {
+      "path": ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
+      "blob_at_freeze": "999b1d2842782f53bda5ed3e69aa4b685d281961"
+    },
+    {
+      "path": "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+      "blob_at_freeze": "6978082e0eeb193434484c19456253eac516c3a3"
+    }
+  ],
+  "verify_command": null,
+  "verification": [
+    {
+      "name": "operator_closure_record",
+      "result": "ATTESTED",
+      "source": "9cc32b894b15dc99eead622fc45309d62d9ca04b",
+      "detail": "BUILD_STATE C0 status correction: strict final audit clean; the audit itself reports typecheck, lint and reproductions passed and Vitest blocked by its read-only sandbox (not a pass)"
+    },
+    {
+      "name": "descendant_full_suite",
+      "result": "ATTESTED",
+      "source": "5363c2434b3302e261489c03e894669c8e58d2e9",
+      "detail": "full npm test 5026/5026, typecheck, lint and build passed at descendant c5b25f2, whose C1 delta made no C0 change (C1 closure record)"
+    }
+  ],
+  "strict_audit": {
+    "artifact": ".agent/campaigns/cattle-engine-v1/audits/audit-20261009T204954Z-43182.md",
+    "original": ".agent/history/audit-20261009T204954Z-43182.md",
+    "sha256": "40ae5b142f76e718874c48c88602cf8a165eeeb5d5fc6a4aab7d97781d195be5",
+    "range": "a15553e4b7d01780f33747fd5b0ca3d2ba78be5c..61c1124d8f206fc4d442fe7814e010a2edb0a186",
+    "counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "tier": "strict",
+    "working_tree": true
+  },
+  "remediation": {
+    "medium_rounds": null,
+    "high_rounds": null,
+    "rounds": [],
+    "remediated_findings": [
+      "F001/F002/F003 remediated in a707a82, 140f3a1 and 61c1124 (checkpoints from audits 20261009T170453Z-69044, 20261009T174257Z-26078, 20261009T183056Z-84213)"
+    ]
+  },
+  "finding_signatures": {},
+  "outstanding_low_findings": [],
+  "migration_status": "NONE",
+  "frozen_contract_status": "UNCHANGED",
+  "human_gate_status": "NONE",
+  "pushed_or_deployed": false,
+  "predecessor": null,
+  "predecessor_receipt_fingerprint": null,
+  "legacy_note": "Frozen before scripts/agent-campaign-run existed and recorded here as the operator-accepted canonical state named by task cattle-campaign-orchestrator-20261010. Not produced by the campaign runner. The strict audit was a working-tree audit at the freeze SHA, so this receipt is an operator attestation, never runner completion evidence (BLOCKERS.md HR-F007). Verification entries are ATTESTED references to the named closure commits, not PASS results produced by this receipt.",
+  "receipt_fingerprint": "e118f6d2cd4dca1d7f4dea8765c0364ea18d08895364fbe2f39f5b3173893df8"
+}

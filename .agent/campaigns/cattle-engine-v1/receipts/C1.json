@@ -1,0 +1,68 @@
+{
+  "receipt_schema_version": 1,
+  "origin": "legacy-manual",
+  "campaign_id": "cattle-engine-v1",
+  "phase_id": "C1",
+  "phase_title": "Canonical Animal Lifecycle",
+  "phase_order": 1,
+  "task_id": "cattle-c1-canonical-animal-lifecycle-20261009",
+  "phase_base_sha": "61c1124d8f206fc4d442fe7814e010a2edb0a186",
+  "functional_freeze_sha": "c5b25f23aefbd11267fc9ef53d235548de84cc27",
+  "closure_record_sha": "5363c2434b3302e261489c03e894669c8e58d2e9",
+  "frozen_at": "2026-10-10T09:09:12Z",
+  "brief": null,
+  "brief_sha256": null,
+  "contracts": [
+    {
+      "path": ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
+      "blob_at_freeze": "999b1d2842782f53bda5ed3e69aa4b685d281961"
+    },
+    {
+      "path": "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+      "blob_at_freeze": "a0d9b6c6abf79565e4403cfe0bac5b667236c16f"
+    }
+  ],
+  "verify_command": null,
+  "verification": [
+    {
+      "name": "operator_closure_record",
+      "result": "ATTESTED",
+      "source": "5363c2434b3302e261489c03e894669c8e58d2e9",
+      "detail": "at c5b25f2: focused cattle/audit-trace/assessment-integrity tests 205/205; full npm test 5026/5026 across 293 files; typecheck, lint and build pass"
+    }
+  ],
+  "strict_audit": {
+    "artifact": ".agent/campaigns/cattle-engine-v1/audits/audit-20261010T090912Z-74575.md",
+    "original": ".agent/history/audit-20261010T090912Z-74575.md",
+    "sha256": "7bc34045b01edd6a7cd55cb87017e37d586b2ba12c50056954dccc53efb9c3d9",
+    "range": "61c1124d8f206fc4d442fe7814e010a2edb0a186..c5b25f23aefbd11267fc9ef53d235548de84cc27",
+    "counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "tier": "strict",
+    "working_tree": true
+  },
+  "remediation": {
+    "medium_rounds": null,
+    "high_rounds": null,
+    "rounds": [],
+    "remediated_findings": [
+      "F001, F002 (MEDIUM) - b249e0e",
+      "F003 (MEDIUM) - 1ee2da4",
+      "F004 (MEDIUM) - c5b25f2"
+    ]
+  },
+  "finding_signatures": {},
+  "outstanding_low_findings": [],
+  "migration_status": "NONE",
+  "frozen_contract_status": "UNCHANGED",
+  "human_gate_status": "NONE",
+  "pushed_or_deployed": false,
+  "predecessor": "C0",
+  "predecessor_receipt_fingerprint": "e118f6d2cd4dca1d7f4dea8765c0364ea18d08895364fbe2f39f5b3173893df8",
+  "legacy_note": "Frozen before scripts/agent-campaign-run existed and recorded here as the operator-accepted canonical state named by task cattle-campaign-orchestrator-20261010. Not produced by the campaign runner. The strict audit was a working-tree audit at the freeze SHA, so this receipt is an operator attestation, never runner completion evidence (BLOCKERS.md HR-F007). Verification entries are ATTESTED references to the named closure commits, not PASS results produced by this receipt.",
+  "receipt_fingerprint": "17fb634de0db37d6243bea83c5b457f80cb98dc9fa1d5ac946bf26a302139d96"
+}

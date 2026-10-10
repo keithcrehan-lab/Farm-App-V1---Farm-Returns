@@ -109,6 +109,91 @@ FLAKY_RECOVERED`, `isolated_retries`, typecheck/lint/build, a `Flaky recovery:` 
 the targets and the original log, model calls per stage and the effective Codex tier/model/
 reasoning. Budget is unchanged: 1 Codex audit on a clean primary, 2 with one C/H fix.
 
+## Campaign orchestrator (multi-phase)
+
+`scripts/agent-campaign-run` runs the phases of a campaign manifest
+(`.agent/campaigns/<id>/campaign.json`) in order, above the one-task harness. It composes
+`agent-start`, `agent-build`, `agent-audit` and `agent-fix`; every transition is a pure function
+of persisted state, git, verification and audit results. One-task workflows are unchanged and
+never need it.
+
+```sh
+./scripts/agent-campaign-run cattle-engine-v1            # run / resume
+./scripts/agent-campaign-run cattle-engine-v1 --dry-run  # preflight + plan; no model call, no write
+./scripts/agent-campaign-run cattle-engine-v1 --status   # read-only; FROZEN only for a valid receipt
+./scripts/agent-campaign-run cattle-engine-v1 --resolve-stop --note "what was decided"
+```
+
+Per phase: READY → (agent-start from the brief, base = this exact clean HEAD, recorded) →
+BUILDING (agent-build) → VERIFYING → PRIMARY_AUDIT (standard tier) → FINDING_TRIAGE →
+[REMEDIATING (`agent-fix --only IDS --audit PATH --expect-head SHA`) → VERIFYING_REMEDIATION →
+REAUDIT]* → STRICT_FULL_PHASE_AUDIT (`agent-audit --campaign <phase base>`, tier strict =
+gpt-6-astra / high, model overrides scrubbed) → FINDING_TRIAGE → [remediation → strict audit
+again from the SAME phase base]* → FREEZE → CLOSURE_RECORD → COMPLETE → next phase. Verification
+after build/fix is the scripts' own (task verify + quality gate) before their checkpoint commit;
+after each, a deterministic scope check stops on migration paths (MIGRATION_APPROVAL_REQUIRED)
+and on shared/frozen-contract paths (FROZEN_CONTRACT_CHANGE_REQUIRED) unless the manifest lists
+the path in `allowed_shared_paths` and the change only adds lines.
+
+Triage (deterministic, no model): any `STOP` line or gate token → stop with that reason;
+Critical → always stop, no fixer; High → repaired only when CONFIRMED, at most `high_rounds`
+(2) rounds; Medium → repaired in at most `medium_rounds` (4) rounds; any finding whose signature
+(severity + file path + normalised title; never the renumbered F-ID) was already attempted
+`attempts_per_signature` (2) times → REPEATED_*_FINDING stop. Budgets are counted before the
+call. The manifest may only tighten these ceilings. Low → recorded in the receipt, never sent to
+a fixer (`--only` refuses Low IDs); a Low headed `BLOCKING` stops. Findings that cannot be
+identified exactly (counts ≠ parsed blocks) stop as AGENT_OUTPUT_AMBIGUOUS.
+
+Human gates (stop the campaign, persist reason + next action): the runner vocabulary in
+`agent-runstate.py` plus VETERINARY_DECISION_REQUIRED, SOURCE_PRECEDENCE_DECISION_REQUIRED,
+PRODUCT_DECISION_REQUIRED, UNSUPPORTED_EXTERNAL_API_ASSUMPTION, SECRETS_OR_CREDENTIALS_REQUIRED,
+PRODUCTION_ACCESS_REQUIRED — from an auditor's `STOP: <REASON> [Fxxx] ...` line (see
+AUDIT_RULES.md), a gate token anywhere in an audit, a builder/fixer `STOP:` line or
+`BUILD_RESULT: BLOCKED <REASON>`. Judgement stops need a human: fix/decide, commit, then
+`--resolve-stop --note` (kept in state); the phase is then re-audited from its base with its
+budgets intact. QUOTA_EXHAUSTED, AUDIT_UNASSESSED, MODEL_CALL_FAILED (no verdict, no changes),
+preflight NOT_READY and similar are resumable: rerun the same command.
+
+FREEZE needs a strict audit of exactly `phase_base..HEAD`, committed (`working-tree: false`),
+CRITICAL=HIGH=MEDIUM=0, then runs the phase verify command and `scripts/quality-gate.sh` at that
+HEAD. The receipt (`receipts/<phase>.json`, schema 1, local canonical SHA-256 fingerprint — an
+integrity check, not a signature) binds campaign/phase, base, functional freeze SHA, brief
+SHA-256, contract blobs at freeze, verify command and results, the strict audit (tracked copy in
+`audits/` + SHA-256 + counts), audits, remediation rounds, finding signatures, outstanding Low,
+migration/frozen-contract/human-gate status, `pushed_or_deployed: false` and the predecessor
+receipt fingerprint. A receipt is invalid if the freeze SHA left HEAD's history, the audit range
+differs, any of C/H/M is non-zero, verification is missing or not PASS at the freeze SHA, the
+brief changed, an artifact changed or the predecessor chain breaks. CLOSURE_RECORD then writes the
+receipt, the audit copy, a new `BUILD_STATE.json` phase entry and an `IMPLEMENTATION_LOG.md`
+entry — only if BUILD_STATE round-trips byte-exactly as 2-space JSON, otherwise it stops — checks
+`git diff --cached --check`, that only those four paths are staged and that the receipt
+validates, and makes one local docs-only commit `<Prefix> <phase>: record closure — frozen at
+<sha>`. The functional freeze SHA is that commit's parent, never the commit itself. Any failure
+restores the documents to their freeze-time content.
+
+A phase starts only when the manifest validates, every earlier phase has a valid receipt, HEAD
+descends from the predecessor's closure HEAD with only docs/tooling (category A/B) commits since,
+the branch is the manifest branch, the tree is clean, no unresolved stop or live lock exists, the
+brief is READY and well-formed, contracts exist, and no receipt, BUILD_STATE entry or
+`scope_guard` path of this or a later phase already exists. Legacy phases (frozen before the
+orchestrator, e.g. Cattle C0/C1) carry `origin: legacy-manual` receipts pinned by the manifest;
+their verification is ATTESTED by the named closure commits and they are never runner
+completion evidence (HR-F007).
+
+State: `history/campaign-<id>.state.json`, saved after every transition with the in-flight
+call; a rerun resumes at the next safe step and adopts a finished build/fix commit, audit or
+closure commit instead of repeating it. If state and HEAD disagree it stops (HEAD_DRIFT); it never
+resets, rebases, stashes or cleans. Lock: `history/campaign-<id>.lock`; a live owner → exit 3;
+a dead or unreadable owner fails closed (remove it by hand after checking). Nothing in the
+campaign path pushes, deploys, applies a migration or touches production.
+
+Wiring a phase brief: write `.agent/campaigns/<id>/<PHASE>_BRIEF.md` (first heading names the
+phase; Objective, Scope, Out of scope, Acceptance criteria, Required tests, STOP conditions; no
+PLACEHOLDER; any `Verify command:` must equal the manifest's), set the phase's `scope_guard` to
+the paths it will create, review `verify`/`contracts`/`allowed_shared_paths`, set
+`brief_status` to `READY`, and commit. Tests: `python3 scripts/tests/agent-campaign.test.py`
+(also run by `agent-run.test.sh`).
+
 ## Explicit broader and working-tree reviews
 
 ```sh

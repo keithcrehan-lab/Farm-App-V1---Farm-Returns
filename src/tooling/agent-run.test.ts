@@ -22,7 +22,7 @@ describe("scripts/agent-run", () => {
       expect(run.status, `${f}: ${run.stderr}`).toBe(0);
     }
     const py = spawnSync("python3", ["-c", "import ast,sys\nfor f in sys.argv[1:]: ast.parse(open(f).read(), f)",
-      ...["agent-context.py", "agent-runstate.py", "agent-start", "tests/agent-context.test.py"].map((f) => path.join(repoRoot, "scripts", f))], { encoding: "utf8" });
+      ...["agent-context.py", "agent-runstate.py", "agent-start", "agent-campaign-run", "tests/agent-context.test.py", "tests/agent-campaign.test.py"].map((f) => path.join(repoRoot, "scripts", f))], { encoding: "utf8" });
     expect(py.status, py.stderr).toBe(0);
   });
 
@@ -51,10 +51,11 @@ describe("scripts/agent-run", () => {
       encoding: "utf8",
       env,
       // Grows with the suite; under full `npm test` load it exceeded 1180 s (2026-10-01).
-      timeout: 2_400_000,
+      // Since 2026-10-10 it also runs the campaign orchestrator suite (agent-campaign.test.py).
+      timeout: 3_600_000,
     });
     const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
     expect(output).toMatch(/agent-run tests: \d+ passed, 0 failed/);
     expect(run.status, output).toBe(0);
-  }, 2_420_000);
+  }, 3_620_000);
 });

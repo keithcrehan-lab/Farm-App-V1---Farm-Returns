@@ -923,6 +923,12 @@ setup "" ""
 check "no claude/codex in recovery" test -z "$(sed -n '/^# ── deterministic flaky-test recovery/,/^def verify(/p' "$SRC/scripts/agent-runstate.py" | grep -E "'(claude|codex)'|agent-(build|fix|audit)")"
 end
 
+begin "C1 campaign orchestrator suite (scripts/tests/agent-campaign.test.py, fake CLIs, no model call)"
+setup "" ""
+crc=0; python3 -B "$SRC/scripts/tests/agent-campaign.test.py" > "$T/out" 2>&1 || crc=$?
+check "campaign suite passes" eq "$crc" 0
+end
+
 echo
 echo "agent-run tests: $PASSED passed, $FAILED failed"
 [[ $FAILED -eq 0 ]] || { printf "failed:$FAILS\n"; exit 1; }

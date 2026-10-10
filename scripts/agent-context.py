@@ -157,6 +157,34 @@ def codex_quota(raw):
     return None
 
 
+FINDING_HEAD_RE = re.compile(r'^#{2,4} \[(CRITICAL|HIGH|MEDIUM|LOW)\](?: \[([A-Za-z]+[0-9]+)\])?\s*(.*)$')
+
+
+def parse_findings(text):
+    """Finding blocks of an audit artifact in order: severity, id (None if absent), title, the
+    FILE:LINE path without its line, PROBLEM/REQUIRED_FIX text and the block's raw lines."""
+    blocks, cur = [], None
+    for line in text.splitlines():
+        m = FINDING_HEAD_RE.match(line)
+        if m or line.startswith('AUDIT_') or line.startswith('STOP') or re.match(r'^#{1,4} ', line):
+            if cur: blocks.append(cur)
+            cur = dict(severity=m.group(1), id=m.group(2), title=m.group(3).strip(), lines=[line]) if m else None
+        elif cur is not None:
+            cur['lines'].append(line)
+    if cur: blocks.append(cur)
+    def field(lines, key):
+        for l in lines:
+            l = l.lstrip('- ')
+            if l.startswith(key + ':'): return l[len(key) + 1:].strip()
+        return ''
+    for b in blocks:
+        field_of = lambda k: field(b['lines'], k)
+        loc = field_of('FILE:LINE')
+        b.update(file=re.sub(r':\d+(-\d+)?$', '', loc.split()[0]) if loc else '', problem=field_of('PROBLEM'),
+                 required_fix=field_of('REQUIRED_FIX'), text='\n'.join(b['lines']).rstrip())
+    return blocks
+
+
 def main():
     cmd, *args = sys.argv[1:]
     if cmd == 'pin': print(task()['base_sha'])
@@ -212,6 +240,21 @@ def main():
         if cur: blocks.append(cur)
         Path(out).write_text('# Open Critical/High findings from ' + audit + '\n\n' + '\n\n'.join('\n'.join(b).rstrip() for b in blocks) + '\n')
         print(len(blocks))
+    elif cmd == 'select-findings':  # AUDIT OUT IDS → writes exactly the named CRITICAL/HIGH/MEDIUM blocks; prints their count
+        audit, out, ids = args
+        wanted = ids.split(',')
+        if not wanted or any(not re.fullmatch(r'[A-Za-z]+[0-9]+', i) for i in wanted) or len(set(wanted)) != len(wanted):
+            raise ValueError('finding IDs must be a comma-separated list of distinct IDs such as F001,F002')
+        blocks = parse_findings(Path(audit).read_text(errors='replace'))
+        chosen = []
+        for i in wanted:
+            match = [b for b in blocks if b['id'] == i]
+            if len(match) != 1: raise ValueError('finding %s appears %d times in %s; exactly one required' % (i, len(match), audit))
+            if match[0]['severity'] == 'LOW': raise ValueError('finding %s is LOW; --only never selects Low findings' % i)
+            chosen.append(match[0])
+        Path(out).write_text('# Selected findings %s from %s\n\n' % (','.join(wanted), audit) +
+                             '\n\n'.join(b['text'] for b in chosen) + '\n')
+        print(len(chosen))
     elif cmd == 'telemetry': telemetry(*args)
     elif cmd == 'codex-quota':  # RAW → prints the usage-limit message and exits 0, else exits 1
         msg = codex_quota(args[0])

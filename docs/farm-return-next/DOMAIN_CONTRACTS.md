@@ -3409,11 +3409,17 @@ knowledgeCutoff})` requires both explicitly — no clock read. Only assertions w
 knowledgeCutoff`, and only supersessions known by then, exist for the projection, so a snapshot
 built at an earlier cutoff is reproducible after later corrections. Interval kinds apply at
 `effectiveAt`; DOB/sex/breed are not interval-scoped. Times are strict UTC strings compared via
-a fixed-width key (no `Date` objects).
+a fixed-width key, `animalInstantKey` (no `Date` objects). Instant-typed fields (`validFrom`,
+`validTo`, `provenance.receivedAt`, `provenance.observedAt`) compare by instant, so `…:00Z` and
+`…:00.000Z` are equal in duplicate-id and correction-competition comparison; stored assertions,
+evidence and history keep the original spelling. DOB is a calendar date and every non-instant
+field compares exactly.
 
 **Append-only / supersession.** A correction is a new assertion whose `supersedes` lists earlier
-same-kind assertion ids; nothing is deleted. Same id + identical content is idempotent; same id
-+ different content (incl. provenance) fails the build. Self-supersession is rejected at
+same-kind assertion ids; nothing is deleted. Same id + identical content (instants compared as
+instants) is idempotent — one original spelling is kept, chosen independently of input order,
+and append never rewrites a stored assertion's spelling; same id + different content (incl.
+provenance) fails the build. Self-supersession is rejected at
 ingestion; at projection a target not known by the cutoff, a cross-kind link (taints both
 dimensions) or a cycle ⇒ `INVALID_EVIDENCE` (fail closed); several live corrections of one
 target with different content ⇒ `CONFLICTING_EVIDENCE`. Each correction branch is followed

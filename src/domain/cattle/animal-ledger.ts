@@ -222,15 +222,20 @@ export function isValidAnimalInstant(value: unknown): value is string {
   return typeof value === "string" && INSTANT_PATTERN.test(value) && isValidIsoUtcDateTime(value);
 }
 
-/** Fixed-width sortable key so fractional-second spelling cannot reorder instants. */
-function instantKey(value: string): string {
+/**
+ * Canonical key of a strict UTC instant: fixed-width, fractional seconds
+ * padded to nanoseconds, so equivalent spellings (`…:00Z` / `…:00.000Z`)
+ * compare and sort equal. Accepts only `isValidAnimalInstant` syntax and
+ * throws on anything else (fail closed) — it never broadens the format.
+ */
+export function animalInstantKey(value: string): string {
   const match = INSTANT_PATTERN.exec(value);
   if (!match) throw new Error(`cattle animal: invalid instant ${value}`);
   return `${match[1]}.${(match[2] ?? "").padEnd(9, "0")}`;
 }
 
 export function compareInstants(a: string, b: string): number {
-  return compareStrings(instantKey(a), instantKey(b));
+  return compareStrings(animalInstantKey(a), animalInstantKey(b));
 }
 
 /** Inclusive start, exclusive end. */
@@ -399,9 +404,21 @@ function materialiseAssertion(
   return { assertion };
 }
 
-/** Canonical content used for duplicate-id comparison (every field). */
+/**
+ * Canonical content used for duplicate-id comparison (every field). Only the
+ * instant-typed fields (`validFrom`, `validTo`, `provenance.receivedAt`,
+ * `provenance.observedAt`) compare by instant, not spelling; every other
+ * field — including a date-of-birth value — compares exactly.
+ */
 export function assertionContentKey(assertion: AnimalAssertion): string {
-  return canonicalizeValue(assertion);
+  const instant = (v: string | null) => (v === null ? null : animalInstantKey(v));
+  const { provenance } = assertion;
+  const semantic = {
+    ...assertion,
+    provenance: { ...provenance, receivedAt: instant(provenance.receivedAt), observedAt: instant(provenance.observedAt) },
+    ...("validFrom" in assertion ? { validFrom: instant(assertion.validFrom), validTo: instant(assertion.validTo) } : {}),
+  };
+  return canonicalizeValue(semantic);
 }
 
 /**
@@ -430,6 +447,9 @@ export function createAnimalLedger(animalId: string, inputs: readonly unknown[] 
       byId.set(assertion.assertionId, { assertion, key });
     } else if (existing.key === key) {
       duplicates.add(assertion.assertionId);
+      // Equivalent instant spellings: keep one original spelling, chosen
+      // independently of input order.
+      if (compareStrings(canonicalizeValue(assertion), canonicalizeValue(existing.assertion)) < 0) byId.set(assertion.assertionId, { assertion, key });
     } else if (!conflicted.has(assertion.assertionId)) {
       conflicted.add(assertion.assertionId);
       issues.push({ code: "CATTLE_ANIMAL_DUPLICATE_ID_DIFFERENT_CONTENT", assertionId: assertion.assertionId, inputIndex: index });
@@ -479,5 +499,10 @@ export function rematerialiseAnimalLedger(ledger: unknown): AnimalLedgerResult {
 export function appendAnimalAssertions(ledger: AnimalLedger, inputs: readonly unknown[]): AnimalLedgerResult {
   const existing = rematerialiseAnimalLedger(ledger);
   if (!existing.ok) return existing;
-  return createAnimalLedger(existing.ledger.animalId, [...existing.ledger.assertions, ...Array.from(inputs)]);
+  const result = createAnimalLedger(existing.ledger.animalId, [...existing.ledger.assertions, ...Array.from(inputs)]);
+  if (!result.ok) return result;
+  // An idempotent re-supply never rewrites the stored spelling of an existing assertion.
+  const stored = new Map(existing.ledger.assertions.map((a) => [a.assertionId, a]));
+  const assertions = result.ledger.assertions.map((a) => stored.get(a.assertionId) ?? a);
+  return { ...result, ledger: deepFreezeAnimalValue({ ...result.ledger, assertions }) };
 }

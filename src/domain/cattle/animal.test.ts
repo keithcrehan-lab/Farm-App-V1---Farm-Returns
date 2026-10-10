@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ANIMAL_ASSERTION_KINDS,
+  animalInstantKey,
   appendAnimalAssertions,
   createAnimalLedger,
   type AnimalAssertionInput,
@@ -798,5 +799,104 @@ describe("Cattle C1 remediation F003 — correction branches are followed throug
     expect(locCycle.location).toMatchObject({ state: "INVALID_EVIDENCE", issues: ["CATTLE_ANIMAL_SUPERSESSION_CYCLE"] });
     const broken = project(ledgerOf([...sexChain(null), sex("s-a3", null, LATER, { supersedes: ["s-a2", "missing"] })]));
     expect(broken.sex).toMatchObject({ state: "INVALID_EVIDENCE", issues: ["CATTLE_ANIMAL_SUPERSESSION_TARGET_NOT_KNOWN"] });
+  });
+});
+
+describe("Cattle C1 remediation F004 — instant-typed fields compare by instant, not spelling", () => {
+  const FEB = "2026-02-01T00:00:00Z";
+  const FEB_MS = "2026-02-01T00:00:00.000Z";
+  const FEB_MID = "2026-02-15T00:00:00Z";
+  const MAR = "2026-03-01T00:00:00Z";
+  const MAR_NS = "2026-03-01T00:00:00.000000000Z";
+  const DEC = "2026-12-01T00:00:00Z";
+  const JAN = "2026-01-01T00:00:00Z";
+  const at = (effectiveAt: string, knowledgeCutoff = LATER): AnimalProjectionQuery => ({ effectiveAt, knowledgeCutoff });
+  const twoCorrections = (a: [string, string, string | null], b: [string, string, string | null]) => [
+    loc("l-0", "field-0", JAN, null),
+    loc("l-a", a[0], a[1], a[2], T2, { supersedes: ["l-0"] }),
+    loc("l-b", b[0], b[1], b[2], T2, { supersedes: ["l-0"] }),
+  ];
+
+  it("A. validFrom differing only in fractional-second spelling does not conflict", () => {
+    const s = project(ledgerOf(twoCorrections(["field-1", FEB, null], ["field-1", FEB_MS, null])), at(DEC));
+    expect(s.location).toMatchObject({ state: "KNOWN", value: { kind: "FIELD", ref: "field-1" }, issues: [] });
+    // Original spellings are retained in the evidence.
+    expect(s.location.evidence.map((e) => ("validFrom" in e ? e.validFrom : null))).toEqual([FEB, FEB_MS]);
+  });
+
+  it("B. validTo differing only in spelling does not conflict", () => {
+    const s = project(ledgerOf(twoCorrections(["field-1", FEB, MAR], ["field-1", FEB, MAR_NS])), at(FEB_MID));
+    expect(s.location).toMatchObject({ state: "KNOWN", value: { kind: "FIELD", ref: "field-1" }, issues: [] });
+  });
+
+  it("C. genuinely different boundaries keep the existing conflict semantics", () => {
+    const s = project(ledgerOf(twoCorrections(["field-1", FEB, null], ["field-1", "2026-02-01T00:00:00.001Z", null])), at(DEC));
+    expect(s.location).toMatchObject({ state: "CONFLICTING_EVIDENCE", issues: ["CATTLE_ANIMAL_COMPETING_CORRECTIONS"] });
+    const to = project(ledgerOf(twoCorrections(["field-1", FEB, MAR], ["field-1", FEB, "2026-03-01T00:00:00.5Z"])), at(FEB_MID));
+    expect(to.location.state).toBe("CONFLICTING_EVIDENCE");
+  });
+
+  it("D. F001 isolation, F003 lineage and knowledge cutoff are unchanged with mixed spellings", () => {
+    const feb = ledgerOf([...twoCorrections(["field-1", FEB, MAR], ["field-2", FEB_MS, MAR_NS]), loc("l-later", "field-9", MAR_NS, null, T2)]);
+    expect(project(feb, at(FEB_MID)).location).toMatchObject({ state: "CONFLICTING_EVIDENCE", issues: ["CATTLE_ANIMAL_COMPETING_CORRECTIONS"] });
+    expect(project(feb, at(DEC)).location).toMatchObject({ state: "KNOWN", value: { kind: "FIELD", ref: "field-9" }, issues: [] });
+    // Correction-of-correction: the reconciling terminal agrees with the other branch despite spelling.
+    const T3_MS = "2026-06-01T00:00:00.000Z";
+    const chain = (v: string) => ledgerOf([...twoCorrections(["field-1", FEB, null], ["field-2", FEB, null]), loc("l-a2", v, FEB_MS, null, T3_MS, { supersedes: ["l-a"] })]);
+    expect(project(chain("field-2"), at(DEC)).location).toMatchObject({ state: "KNOWN", value: { kind: "FIELD", ref: "field-2" } });
+    expect(project(chain("field-1"), at(DEC)).location).toMatchObject({ state: "CONFLICTING_EVIDENCE", issues: ["CATTLE_ANIMAL_COMPETING_CORRECTIONS"] });
+    // receivedAt "…00.000Z" is known at cutoff T3 ("…00Z"), not at T2.
+    expect(project(chain("field-2"), at(DEC, T3)).location.state).toBe("KNOWN");
+    expect(project(chain("field-2"), at(DEC, T2)).location.state).toBe("CONFLICTING_EVIDENCE");
+  });
+
+  it("E. mixed spellings in reversed/shuffled order give the same snapshot and fingerprint", () => {
+    const inputs = [...twoCorrections(["field-1", FEB, MAR], ["field-1", FEB_MS, MAR_NS]), loc("l-later", "field-9", MAR_NS, null, T2), sex("s-1", "MALE", "2026-03-01T00:00:00.0Z")];
+    const shuffle = <T>(list: T[]) => list.map((v, i) => [(i * 5 + 2) % 7, v] as const).sort(([a], [b]) => a - b).map(([, v]) => v);
+    for (const q of [at(FEB_MID), at(DEC), at(DEC, T1)]) {
+      const base = project(ledgerOf(inputs), q);
+      for (const variant of [[...inputs].reverse(), shuffle(inputs)]) {
+        const other = project(ledgerOf(variant), q);
+        expect(other).toEqual(base);
+        expect(sameFingerprint(computeAnimalSnapshotFingerprint(other, hash), computeAnimalSnapshotFingerprint(base, hash))).toBe(true);
+      }
+    }
+  });
+
+  it("F. same id differing only in instant spelling is idempotent; a different instant is still rejected", () => {
+    const z = loc("l-1", "field-1", FEB, MAR);
+    const ms = loc("l-1", "field-1", FEB_MS, MAR_NS);
+    for (const order of [[z, ms], [ms, z]]) {
+      const r = createAnimalLedger(A, order);
+      expect(r.ok && r.idempotentDuplicateIds).toEqual(["l-1"]);
+      // One original spelling is kept, chosen independently of input order.
+      expect(r.ok && r.ledger.assertions[0]).toMatchObject({ validFrom: FEB_MS, validTo: MAR_NS });
+    }
+    // Provenance instants too.
+    const prov1 = sex("s-1", "MALE", T2, { provenance: prov(T2, { observedAt: T1 }) });
+    const prov2 = sex("s-1", "MALE", T2, { provenance: prov("2026-04-01T00:00:00.000Z", { observedAt: "2026-03-01T00:00:00.00Z" }) });
+    expect(createAnimalLedger(A, [prov1, prov2]).ok).toBe(true);
+    // Append never rewrites the stored spelling.
+    const stored = ledgerOf([z]);
+    const again = appendAnimalAssertions(stored, [ms]);
+    expect(again.ok && again.ledger.assertions).toEqual(stored.assertions);
+    expect(again.ok && Object.isFrozen(again.ledger.assertions[0])).toBe(true);
+    // A genuinely different instant (or non-instant field) is still changed content.
+    for (const changed of [loc("l-1", "field-1", "2026-02-01T00:00:00.001Z", MAR), loc("l-1", "field-2", FEB_MS, MAR), sex("s-1", "MALE", "2026-04-01T00:00:00.001Z")]) {
+      const base = changed.kind === "SEX" ? ledgerOf([sex("s-1", "MALE", T2)]) : stored;
+      const r = appendAnimalAssertions(base, [changed]);
+      expect(!r.ok && r.issues.map((i) => i.code)).toEqual(["CATTLE_ANIMAL_DUPLICATE_ID_DIFFERENT_CONTENT"]);
+    }
+    // DOB is a calendar date: exact comparison, unchanged.
+    expect(appendAnimalAssertions(ledgerOf([dob("d-1", "2025-02-10")]), [dob("d-1", "2025-02-11")]).ok).toBe(false);
+  });
+
+  it("G. malformed or unsupported instant syntax still fails closed", () => {
+    for (const bad of ["2026-02-01T01:00:00+01:00", "2026-02-01T00:00:00", "2026-02-01", "2026-02-01T00:00:00.0000000000Z", "2026-02-30T00:00:00Z"]) {
+      expect(createAnimalLedger(A, [loc("l-1", "field-1", bad, null)]).ok).toBe(false);
+      expect(createAnimalLedger(A, [sex("s-1", "MALE", bad)]).ok).toBe(false);
+    }
+    expect(projectAnimalSnapshot(ledgerOf([sex("s-1", "MALE")]), at("2026-02-01T01:00:00+01:00")).ok).toBe(false);
+    expect(() => animalInstantKey("2026-02-01T01:00:00+01:00")).toThrow();
   });
 });

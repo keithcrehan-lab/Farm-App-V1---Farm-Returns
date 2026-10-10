@@ -31,6 +31,7 @@
 
 import { canonicalizeValue, computeAssessmentFingerprint, verifyAssessmentFingerprint, type AssessmentFingerprint, type FingerprintVerificationResult } from "../assessment-integrity";
 import {
+  animalInstantKey,
   compareInstants,
   deepFreezeAnimalValue,
   intervalCovers,
@@ -133,8 +134,13 @@ export type AnimalProjectionResult =
 
 // ---------------------------------------------------------------------------
 
+/** Correction content for competition: interval bounds compare by instant, not spelling. */
 function contentOf(a: AnimalAssertion): string {
-  return canonicalizeValue("validFrom" in a ? { value: a.value, validFrom: a.validFrom, validTo: a.validTo } : { value: a.value });
+  return canonicalizeValue(
+    "validFrom" in a
+      ? { value: a.value, validFrom: animalInstantKey(a.validFrom), validTo: a.validTo === null ? null : animalInstantKey(a.validTo) }
+      : { value: a.value },
+  );
 }
 
 function valueKey(value: unknown): string {

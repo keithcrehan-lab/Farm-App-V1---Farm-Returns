@@ -5,6 +5,30 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Cattle Engine v1, C1 close-out — Canonical animal lifecycle — frozen at c5b25f2 (2026-10-10)
+
+C1 (task `cattle-c1-canonical-animal-lifecycle-20261009`, base `61c1124`) is accepted and
+**frozen at `c5b25f23aefbd11267fc9ef53d235548de84cc27`**. This is the functional freeze
+SHA; the documentation commit recording it is not.
+
+- Built in `f1ad449`: pure non-frozen `src/domain/cattle/` animal ledger, identifier register
+  and bitemporal snapshot (`effectiveAt` valid time separate from `knowledgeCutoff`
+  knowledge time); immutable FarmReturnAnimalId; explicit UNKNOWN / CONFLICTING_EVIDENCE /
+  INVALID_EVIDENCE; no source precedence. DOMAIN_CONTRACTS.md Cattle C1 section.
+- Audit remediation: F001 (effective-time-scoped correction competition) and F002 (ledger
+  header validation) in `b249e0e`; F003 (correction branches followed through
+  corrections-of-corrections) in `1ee2da4`; F004 (instant-typed fields compared by instant,
+  incl. duplicate-id idempotency) in `c5b25f2`. All four were Medium.
+- Final task audit `audit-20261010T090912Z-74575` (strict) over `61c1124..c5b25f2`:
+  0 Critical, 0 High, 0 Medium, 0 Low.
+- Verification at `c5b25f2`: focused cattle/audit-trace/assessment-integrity tests 205/205;
+  full `npm test` 5026/5026 across 293 files; typecheck, lint and build passed; working
+  tree clean.
+- No C0, frozen-contract, slurry/fertiliser, UI, persistence, schema or migration change.
+  Nothing pushed or deployed.
+- C2 **not started**. Next planned task: the cattle campaign orchestrator, before C2,
+  as a separately authorised task.
+
 ## Cattle Engine v1, C0 — Evidence, rule & regulatory architecture — starting a15553e (2026-10-09)
 
 New pure, non-frozen `src/domain/cattle/` (`cattle_evidence_v0.1.0`) with colocated Vitest suites and fictional `SYNTH-*` fixtures only. Canonicalisation and SHA-256 fingerprinting reuse `assessment-integrity.ts` unchanged, wrapped with a cattle payload kind and version; `evidence.ts`, `source-register.ts` and `audit-trace.ts` are unchanged (reasons in `DOMAIN_CONTRACTS.md`, "Cattle C0"). Cattle sources carry a stable id, version, content fingerprint and lifecycle, and any non-exact match with the catalogue is a change/review state. Rules are versioned with eight authority classes, effective windows, applicability, required inputs with accepted information classes and units, a fail-closed unknown/conflict policy, source bindings and supersession. Effective-date resolution fails closed on none or several versions, and superseded versions stay addressable. Scientific, legal and veterinary reviews are separate and bound to the rule's id, version and content fingerprint, so approving v1 never approves v2. A source change makes evaluation REVIEW_REQUIRED without touching the rule or its reviews. Missing input stays INSUFFICIENT_EVIDENCE and never reaches the predicate; conflicting input stays CONFLICTING_EVIDENCE. The Recommendation Evidence Pack derives its own outcome (a hard-gate FAIL is BLOCKED; unknown is INSUFFICIENT_EVIDENCE; review is REVIEW_REQUIRED; NO_RECOMMENDATION and ACTIONABLE also exist). Favourability never overrides a hard gate. The pack is fingerprinted excluding `generatedAt` and verified by rebuild. A test pins that production modules import only local domain modules and make no AI or network call. No frozen-contract, UI, persistence, schema, migration or scientific/legal/veterinary value change. C1 not started. Independent audit pending.

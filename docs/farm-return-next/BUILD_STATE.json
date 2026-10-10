@@ -256,6 +256,24 @@
   },
   "cattle_engine_v1": {
     "campaign": ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
-    "c0_evidence_rule_architecture": "BUILT 2026-10-09 (task cattle-c0-evidence-rule-architecture-20261009, base a15553e): pure non-frozen src/domain/cattle/ (cattle_evidence_v0.1.0) — versioned cattle evidence sources with content fingerprints and change detection, information classes and fail-closed input resolution, versioned rules with eight authority classes, effective-date resolution, version- and fingerprint-bound scientific/legal/veterinary reviews, seven-state evaluation records, Recommendation Evidence Pack with derived hard-gate outcome and integrity fingerprint; reuses assessment-integrity canonicalisation/fingerprint unchanged; synthetic fixtures only; DOMAIN_CONTRACTS.md Cattle C0 section; no frozen-contract, UI, persistence, schema, migration or scientific/legal/veterinary value change; contracts_frozen unchanged (true); independent audit pending; C1 not started"
+    "c0_evidence_rule_architecture": "BUILT 2026-10-09 (task cattle-c0-evidence-rule-architecture-20261009, base a15553e): pure non-frozen src/domain/cattle/ (cattle_evidence_v0.1.0) — versioned cattle evidence sources with content fingerprints and change detection, information classes and fail-closed input resolution, versioned rules with eight authority classes, effective-date resolution, version- and fingerprint-bound scientific/legal/veterinary reviews, seven-state evaluation records, Recommendation Evidence Pack with derived hard-gate outcome and integrity fingerprint; reuses assessment-integrity canonicalisation/fingerprint unchanged; synthetic fixtures only; DOMAIN_CONTRACTS.md Cattle C0 section; no frozen-contract, UI, persistence, schema, migration or scientific/legal/veterinary value change; contracts_frozen unchanged (true); independent audit pending; C1 not started",
+    "c1_canonical_animal_lifecycle": {
+      "status": "FROZEN_COMPLETE_IN_CODE",
+      "task": "cattle-c1-canonical-animal-lifecycle-20261009",
+      "base_sha": "61c1124d8f206fc4d442fe7814e010a2edb0a186",
+      "final_audited_sha": "c5b25f23aefbd11267fc9ef53d235548de84cc27",
+      "final_audit": ".agent/history/audit-20261010T090912Z-74575.md",
+      "final_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0",
+      "remediated_findings": [
+        "F001 (MEDIUM, audit-20261009T220414Z-1040): competing corrections confined to another effective period no longer contaminate an unrelated snapshot — b249e0e",
+        "F002 (MEDIUM, audit-20261009T220414Z-1040): ledger header validated; unsupported species, unsupported schema version and malformed headers fail closed — b249e0e",
+        "F003 (MEDIUM, audit-20261010T065558Z-60546): correction competition follows each branch through corrections-of-corrections to its live terminal descendants — 1ee2da4",
+        "F004 (MEDIUM, audit-20261010T075814Z-17724): instant-typed fields compare by instant, not spelling, in correction competition and duplicate-id idempotency — c5b25f2"
+      ],
+      "verification": "at c5b25f2: focused cattle/audit-trace/assessment-integrity tests 205/205 pass; full npm test 5026/5026 pass across 293 files; typecheck pass; lint pass; build pass; working tree clean",
+      "scope": "pure non-frozen src/domain/cattle/ animal ledger, register and bitemporal snapshot (effectiveAt/knowledgeCutoff); DOMAIN_CONTRACTS.md Cattle C1 section; no frozen-contract, C0, slurry/fertiliser, UI, persistence, schema, migration, push or deploy change; contracts_frozen unchanged (true)",
+      "c2_status": "NOT_STARTED",
+      "next": "cattle campaign orchestrator (separately authorised task) before C2; C2 and later cattle phases not started"
+    }
   }
 }

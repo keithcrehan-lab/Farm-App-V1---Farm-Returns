@@ -297,6 +297,14 @@ def audit_problems(path, base, freeze, strict, committed):
     if 'verdict: ASSESSED' not in line2 or status != ['ASSESSED']: return '%s is not ASSESSED' % path
     if committed and 'working-tree: false' not in line2: return '%s is not a committed-only audit' % path
     if len(summary) != 1 or not rs.AUDIT_COUNTS_RE.match(summary[0]): return '%s has no single canonical AUDIT_SUMMARY' % path
+    # Parsed finding headings must reconcile with the summary: a Critical/High/Medium heading the
+    # counts omit (or the reverse) makes the artifact contradictory, never a pass.
+    counted = dict(zip(('CRITICAL', 'HIGH', 'MEDIUM', 'LOW'), (int(n) for n in rs.AUDIT_COUNTS_RE.match(summary[0]).groups())))
+    parsed = [b['severity'] for b in ctx.parse_findings('\n'.join(lines))]
+    for sev, n in counted.items():
+        got = parsed.count(sev)
+        if (got > n) if sev == 'LOW' else (got != n):
+            return '%s is inconsistent: %d %s finding(s) parsed, AUDIT_SUMMARY counts %d' % (path, got, sev, n)
     auditor = lines[2] if len(lines) > 2 else ''
     want = STRICT_AUDITOR if strict else STANDARD_AUDITOR
     if not auditor.startswith('auditor: codex ') or not all(w in auditor for w in want):
@@ -430,7 +438,7 @@ def load_state(cid):
 
 
 def new_phase_state():
-    return dict(stage='READY', base_sha=None, task_id=None, head=None, in_flight=None, in_flight_ref=None,
+    return dict(stage='READY', base_sha=None, brief_sha256=None, task_id=None, head=None, in_flight=None, in_flight_ref=None,
                 audits=[], rounds=dict(medium=0, high=0), signatures={}, pending_round=None, round_history=[],
                 verification=[], freeze_sha=None, frozen_at=None, receipt_fingerprint=None, closure_sha=None,
                 outstanding_low=[], scope=None, model_calls=dict(build=0, fix=0, audit_standard=0, audit_strict=0),
@@ -573,7 +581,7 @@ class Campaign:
     def start(self, ph, ps):
         pid = ph['id']
         if ps['stage'] == 'READY':
-            ps.update(base_sha=head(), head=head(), started_at=now(), stage='STARTING', in_flight='start')
+            ps.update(base_sha=head(), head=head(), brief_sha256=sha256_file(ph['brief']), started_at=now(), stage='STARTING', in_flight='start')
             self.save()
             print('[%s] phase base %s recorded' % (pid, short(ps['base_sha'])))
         elif ps.get('in_flight') == 'start':
@@ -621,6 +629,9 @@ class Campaign:
         if stop:
             stop_line = text[stop.start():].splitlines()[0]
             raise Stop(gate_reason(stop_line, 'AGENT_STOP'), '%s: %s (%s)' % (kind, stop_line, out), 'answer the STOP condition')
+        g = gate_reason(text)
+        if g:  # an explicit judgement-gate token anywhere in the builder/fixer report outranks BUILD_RESULT: DONE
+            raise Stop(g, '%s names %s (%s)' % (kind, g, out), 'human decision required before the campaign continues')
         if s.get('stage') == want and h != prev and git('rev-parse', h + '^') == prev and not dirty_outside_agent():
             return 'DONE'
         if h != prev: raise Stop('UNEXPECTED_STATE_CHANGE', 'HEAD moved unexpectedly during %s' % kind, 'inspect git log')
@@ -738,8 +749,9 @@ class Campaign:
         g = gate_reason(text)
         if g: raise Stop(g, 'audit %s names %s' % (a['artifact'], g), 'human decision required before any repair')
         n = a['counts']
-        if n['critical']:
-            raise Stop('CRITICAL_FINDING', '%d Critical finding(s) — %s' % (n['critical'], a['artifact']),
+        if n['critical'] or any(f['severity'] == 'CRITICAL' for f in a['findings']):
+            raise Stop('CRITICAL_FINDING', '%d Critical finding(s) — %s' % (
+                max(n['critical'], sum(f['severity'] == 'CRITICAL' for f in a['findings'])), a['artifact']),
                        'human review; Critical findings are never repaired automatically')
         fs = a['findings']
         for sev in ('HIGH', 'MEDIUM'):
@@ -945,8 +957,18 @@ class Campaign:
             pred_fp = next((r['receipt_fingerprint'] for p, s, d, r in statuses if p['id'] == ph['predecessor'] and r), None)
             self.phase(ph, ps, pred_fp)
 
+    def check_brief(self, ph, ps):
+        """The brief pinned before agent-start must stay byte-identical for the whole phase."""
+        if ps['stage'] == 'READY': return
+        pinned = ps.get('brief_sha256')
+        cur = sha256_file(ph['brief']) if Path(ph['brief']).is_file() else None
+        if not pinned or cur != pinned:
+            raise Stop('BRIEF_CHANGED', '%s changed (or was never pinned) after phase %s started' % (ph['brief'], ph['id']),
+                       'restore the authorised brief, or start a new task for the new scope')
+
     def phase(self, ph, ps, pred_fp):
         while ps['stage'] != 'COMPLETE':
+            self.check_brief(ph, ps)
             stage = ps['stage']
             if stage in ('READY', 'STARTING'): self.start(ph, ps)
             elif stage == 'BUILDING': self.build(ph, ps)
@@ -1002,6 +1024,11 @@ def scope_check(ph, base, h):
 
 
 # ── closure (deterministic docs record) ────────────────────────────────
+def read_blob(ref, p):
+    out = subprocess.run(['git', 'show', '%s:%s' % (ref, p)], capture_output=True)
+    return None if out.returncode else out.stdout
+
+
 def read_doc(p, ref):
     if ref is None: return Path(p).read_text()
     out = subprocess.run(['git', 'show', '%s:%s' % (ref, p)], capture_output=True)
@@ -1038,6 +1065,10 @@ def closure_plan(m, ph, ps, pred_fp=None, check_only=False):
         raise Stop('CLOSURE_SCHEMA_UNSUPPORTED', '%s has no "# " title and "## " entries' % IMPL_LOG, 'inspect the log', True)
     if check_only: return None
     pid, base, freeze = ph['id'], ps['base_sha'], ps['freeze_sha']
+    if not ps.get('brief_sha256') or read_blob(freeze, ph['brief']) is None or \
+            hashlib.sha256(read_blob(freeze, ph['brief'])).hexdigest() != ps['brief_sha256'] or sha256_file(ph['brief']) != ps['brief_sha256']:
+        raise Stop('BRIEF_CHANGED', '%s at the freeze SHA is not the brief pinned before agent-start' % ph['brief'],
+                   'restore the authorised brief, or start a new task for the new scope')
     a = ps['audits'][-1]
     audit_copy = '%s/%s' % (m['audits_dir'], Path(a['artifact']).name)
     nxt = next_phase_id(m, pid)
@@ -1052,7 +1083,7 @@ def closure_plan(m, ph, ps, pred_fp=None, check_only=False):
     receipt = dict(
         receipt_schema_version=RECEIPT_SCHEMA_VERSION, origin='campaign', campaign_id=m['campaign_id'], phase_id=pid,
         phase_title=ph['title'], phase_order=ph['order'], task_id=ps['task_id'], phase_base_sha=base, functional_freeze_sha=freeze,
-        frozen_at=ps['frozen_at'], brief=ph['brief'], brief_sha256=sha256_file(ph['brief']), contracts=contracts,
+        frozen_at=ps['frozen_at'], brief=ph['brief'], brief_sha256=ps['brief_sha256'], contracts=contracts,
         verify_command=ph['verify'], verification=verification,
         strict_audit=dict(artifact=audit_copy, original=a['artifact'], sha256=a['sha256'], range='%s..%s' % (base, freeze),
                           counts=a['counts'], tier='strict'),

@@ -46,6 +46,9 @@ if act == 'done': change()
 elif act == 'noop': pass
 elif act.startswith('blocked:'): out = 'BUILD_RESULT: BLOCKED %s needs a human decision' % act.split(':', 1)[1]
 elif act.startswith('stop:'): change(); out = 'STOP: %s cannot decide this\nBUILD_RESULT: DONE' % act.split(':', 1)[1]
+elif act.startswith('concern:'): change(); out = 'Open concerns: %s\nBUILD_RESULT: DONE' % act.split(':', 1)[1]
+elif act == 'editbrief':
+    change(); p = '.agent/campaigns/fx/X1_BRIEF.md'; open(p, 'a').write('\nWidened scope.\n')
 elif act == 'migration':
     os.makedirs('supabase/migrations', exist_ok=True); open('supabase/migrations/0001_x.sql', 'w').write('select 1;\n')
 elif act == 'frozen':
@@ -94,6 +97,7 @@ for i, f in enumerate(spec.get('f', []), 1):
         lines += ['- FILE:LINE: work.txt:%d' % i, '- PROBLEM: %s, REGRESSION - reproduced with a test' % proof,
                   '- WHY_IT_MATTERS: x', '- REQUIRED_FIX: y']
 if spec.get('stop'): lines.append('STOP: ' + spec['stop'])
+counts.update(spec.get('summary', {}))  # tests only: a summary contradicting the finding headings
 lines += ['AUDIT_STATUS: ASSESSED', 'AUDIT_SUMMARY: CRITICAL=%d HIGH=%d MEDIUM=%d LOW=%d' % tuple(counts[k] for k in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW'))]
 open(out, 'w').write('AUDIT_RESULT: FINDINGS\n' + '\n'.join(lines) + '\n')
 '''
@@ -397,6 +401,40 @@ class CampaignTests(unittest.TestCase):
         self.run_campaign('--status')
         self.assertIn('STOPPED: X1', self.out); self.assertIn('REASON: CRITICAL_FINDING', self.out)
 
+    def test_05c_critical_heading_with_zero_count_never_freezes(self):
+        self.one_phase()
+        self.seq(['done'], [CLEAN, {'f': [['CRITICAL', 'Hidden critical']], 'summary': {'CRITICAL': 0}}])
+        self.run_campaign()
+        self.assertEqual(self.rc, 1, self.out); self.assertIn('inconsistent', self.out)
+        self.assertNotEqual(self.state()['phases']['X1']['stage'], 'FREEZE')
+        self.assertFalse((self.R / CAMP / 'receipts/X1.json').exists())
+        self.assertEqual(self.calls('claude'), 1)
+        mod = self.module()
+        art = self.T / 'contradictory.md'
+        art.write_text('### [CRITICAL] [F001] Hidden\n- PROBLEM: CONFIRMED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n')
+        fs = mod.findings_of(art)
+        self.assertEqual([f['severity'] for f in fs], ['CRITICAL'])
+
+    def test_05d_triage_stops_on_parsed_critical_even_if_counted_zero(self):
+        mod = self.module()
+        art = self.T / 'contradictory.md'
+        art.write_text('### [CRITICAL] [F001] Hidden\n- PROBLEM: CONFIRMED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n')
+        cwd = os.getcwd(); os.chdir(self.R)
+        try:
+            h = mod.head()
+            c = mod.Campaign.__new__(mod.Campaign)
+            c.m, c.st = mod.load_manifest(CID), dict(phases={})
+            c.save = lambda: None
+            ps = mod.new_phase_state()
+            ps['audits'] = [dict(tier='strict', artifact=str(art), head=h, counts=dict(critical=0, high=0, medium=0, low=0),
+                                 findings=mod.findings_of(art))]
+            with self.assertRaises(mod.Stop) as cm:
+                c.triage(mod.phase_by_id(c.m, 'X1'), ps)
+            self.assertEqual(cm.exception.reason, 'CRITICAL_FINDING')
+            self.assertNotEqual(ps['stage'], 'FREEZE')
+        finally:
+            os.chdir(cwd)
+
     def test_05b_human_resolution_reaudits_whole_phase(self):
         self.one_phase()
         self.seq(['done'], [{'f': [['CRITICAL', 'Cross-farm leak']]}, CLEAN, CLEAN])
@@ -491,6 +529,27 @@ class CampaignTests(unittest.TestCase):
         self.seq(['blocked:SCIENTIFIC_DECISION_REQUIRED'], [])
         self.run_campaign()
         self.stopped('SCIENTIFIC_DECISION_REQUIRED'); self.assertEqual(self.calls('codex'), 0)
+
+    def test_12b_builder_gate_in_open_concerns_stops_despite_done(self):
+        self.one_phase()
+        self.seq(['concern:VETERINARY_DECISION_REQUIRED'], [])
+        self.run_campaign()
+        self.stopped('VETERINARY_DECISION_REQUIRED'); self.assertEqual(self.calls('codex'), 0)
+
+    def test_12c_interrupted_build_adoption_honours_gate(self):
+        self.one_phase()
+        self.seq(['concern:SCIENTIFIC_DECISION_REQUIRED'], [CLEAN, CLEAN])
+        self.run_campaign(env={'AGENT_CAMPAIGN_TEST_INTERRUPT_AFTER': 'build'})
+        self.assertEqual(self.rc, 130, self.out)
+        self.run_campaign()
+        self.stopped('SCIENTIFIC_DECISION_REQUIRED')
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (1, 0))
+
+    def test_13c_fixer_gate_in_open_concerns_stops(self):
+        self.one_phase()
+        self.seq(['done', 'concern:PRODUCT_DECISION_REQUIRED'], [M('Label choice')])
+        self.run_campaign()
+        self.stopped('PRODUCT_DECISION_REQUIRED'); self.assertEqual(self.calls('codex'), 1)
 
     def test_13_veterinary_decision_gate_in_finding(self):
         self.one_phase()
@@ -629,7 +688,8 @@ class CampaignTests(unittest.TestCase):
         mod = self.module()
         r = self.receipt('X1')
         art = self.R / r['strict_audit']['artifact']
-        art.write_text(art.read_text().replace('MEDIUM=0', 'MEDIUM=1'))
+        art.write_text(art.read_text().replace('MEDIUM=0', 'MEDIUM=1').replace(
+            'AUDIT_STATUS', '### [MEDIUM] [F001] Tampered\n- FILE:LINE: work.txt:1\nAUDIT_STATUS', 1))
         def mut(x):
             x['strict_audit']['sha256'] = mod.sha256_file(str(art)); x['strict_audit']['counts']['medium'] = 1
         self.rewrite_receipt('X1', mut)
@@ -651,6 +711,26 @@ class CampaignTests(unittest.TestCase):
         p.write_text(BRIEF.format(pid='X1'))
         self.rewrite_receipt('X1', lambda r: r.update(pushed_or_deployed=True), refingerprint=False)
         self.assertIn('fingerprint mismatch', self.validate('X1'))
+
+    def test_24c_brief_edited_during_execution_stops_before_audit(self):
+        self.one_phase()
+        self.seq(['editbrief'], [CLEAN, CLEAN])
+        self.run_campaign()
+        self.stopped('BRIEF_CHANGED')
+        self.assertEqual(self.calls('codex'), 0)
+        self.assertFalse((self.R / CAMP / 'receipts/X1.json').exists())
+        self.assertTrue(self.state()['phases']['X1']['brief_sha256'])
+
+    def test_24d_closure_refuses_brief_not_pinned_at_start(self):
+        self.one_phase()
+        self.seq(['done'], [CLEAN, CLEAN])
+        self.run_campaign(env={'AGENT_CAMPAIGN_TEST_INTERRUPT_AFTER': 'freeze'})
+        self.assertEqual(self.rc, 130, self.out)
+        sp = self.R / '.agent/history/campaign-fx.state.json'
+        st = json.loads(sp.read_text()); st['phases']['X1']['brief_sha256'] = '0' * 64; sp.write_text(json.dumps(st))
+        self.run_campaign()
+        self.stopped('BRIEF_CHANGED')
+        self.assertFalse((self.R / CAMP / 'receipts/X1.json').exists())
 
     # ── 25–27: resumability ──────────────────────────────────────────
     def test_25_interrupt_after_successful_build_resumes_without_rebuild(self):
@@ -772,13 +852,20 @@ class CampaignTests(unittest.TestCase):
         self.stopped('CLOSURE_SCHEMA_UNSUPPORTED'); self.assertEqual(self.calls('claude'), 0)
 
     # ── 32–35: no C2, no push/deploy/migration path, read-only modes ─
-    def test_32_real_cattle_manifest_never_starts_c2(self):
-        real = SOURCE / '.agent/campaigns/cattle-engine-v1'
-        m = json.loads((real / 'campaign.json').read_text())
-        for ph in m['phases']:
-            if ph['kind'] == 'campaign':
-                self.assertEqual(ph['brief_status'], 'PLACEHOLDER', ph['id'])
-                self.assertFalse((SOURCE / ph['brief']).exists(), ph['brief'])
+    def test_32_placeholder_phase_never_starts(self):
+        # Placeholder safety is proven on an isolated fixture, so the real manifest may progress.
+        self.write_manifest(ready=[]); (self.R / CAMP / 'X1_BRIEF.md').unlink(); self.commit('placeholders only')
+        self.seq(['done'], [CLEAN])
+        for mode in ('--status', '--dry-run'):
+            self.run_campaign(mode)
+            self.assertRegex(self.out, r'X1\s+NOT_READY'); self.assertRegex(self.out, r'X2\s+NOT_STARTED')
+        self.assertIn('would NOT start', self.out)
+        self.run_campaign()
+        self.assertEqual(self.rc, 1, self.out)
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (0, 0))
+        self.assertEqual(self.git('log', '-1', '--format=%s'), 'placeholders only')
+
+    def test_32b_real_cattle_manifest_read_only_modes(self):
         state = SOURCE / '.agent/history/campaign-cattle-engine-v1.state.json'
         before = state.read_bytes() if state.exists() else None
         e = {k: v for k, v in os.environ.items() if not k.startswith('AGENT_')}
@@ -786,13 +873,10 @@ class CampaignTests(unittest.TestCase):
         for mode in ('--status', '--dry-run'):
             p = subprocess.run([sys.executable, str(SOURCE / 'scripts/agent-campaign-run'), 'cattle-engine-v1', mode],
                                cwd=SOURCE, env=e, capture_output=True, text=True, timeout=120)
-            self.assertRegex(p.stdout, r'C2\s+NOT_READY', p.stdout + p.stderr)
-            self.assertRegex(p.stdout, r'C3\s+NOT_STARTED')
-        self.assertIn('would NOT start', p.stdout)
+            self.assertIn(p.returncode, (0, 1), p.stdout + p.stderr)
+            self.assertRegex(p.stdout, r'C0\s+FROZEN', p.stdout + p.stderr)
         self.assertEqual((self.calls('claude'), self.calls('codex')), (0, 0))
         self.assertEqual(state.read_bytes() if state.exists() else None, before)
-        bs = json.loads((SOURCE / 'docs/farm-return-next/BUILD_STATE.json').read_text())['cattle_engine_v1']
-        self.assertNotIn('c2_regulatory_lifecycle_engine', bs)
 
     def test_33_no_push_deploy_or_migration_command_path(self):
         src = (SOURCE / 'scripts/agent-campaign-run').read_text()

@@ -98,7 +98,7 @@ for i, f in enumerate(spec.get('f', []), 1):
                   '- WHY_IT_MATTERS: x', '- REQUIRED_FIX: y']
 if spec.get('stop'): lines.append('STOP: ' + spec['stop'])
 counts.update(spec.get('summary', {}))  # tests only: a summary contradicting the finding headings
-lines += ['AUDIT_STATUS: ASSESSED', 'AUDIT_SUMMARY: CRITICAL=%d HIGH=%d MEDIUM=%d LOW=%d' % tuple(counts[k] for k in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW'))]
+lines += ['AUDIT_STATUS: ' + spec.get('status', 'ASSESSED'), 'AUDIT_SUMMARY: CRITICAL=%d HIGH=%d MEDIUM=%d LOW=%d' % tuple(counts[k] for k in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW'))]
 open(out, 'w').write('AUDIT_RESULT: FINDINGS\n' + '\n'.join(lines) + '\n')
 '''
 
@@ -471,6 +471,85 @@ class CampaignTests(unittest.TestCase):
             self.assertIsNone(c.refuse_critical_contradiction(ok, base, h, True, mod.new_phase_state()))
             clean = art('clean.md', 'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n')
             self.assertFalse(mod.critical_signal(clean))
+        finally:
+            os.chdir(cwd)
+
+    # ── 5g–5k: a human gate in an incomplete audit is never retried away (F007) ──
+    def test_05g_unassessed_audit_with_stop_marker_is_a_human_stop(self):
+        self.one_phase()
+        self.seq(['done', 'done'], [{'status': 'UNASSESSED', 'stop': 'EXTERNAL_EVIDENCE_REQUIRED no source for the rule'}, CLEAN, CLEAN])
+        self.run_campaign()
+        # A: persisted, non-resumable, no fixer, no freeze, no next phase.
+        self.stopped('EXTERNAL_EVIDENCE_REQUIRED'); self.assertIn('RESUMABLE: no', self.out)
+        st = self.state()
+        self.assertEqual((st['stop']['reason'], st['stop']['resumable']), ('EXTERNAL_EVIDENCE_REQUIRED', False))
+        self.assertIn('.agent/history/audit-', st['stop']['detail'])
+        x1 = st['phases']['X1']
+        self.assertEqual(x1['stage'], 'PRIMARY_AUDIT'); self.assertIsNone(x1['in_flight'])
+        self.assertEqual(x1['model_calls']['fix'], 0); self.assertNotIn('X2', st['phases'])
+        self.assertFalse((self.R / CAMP / 'receipts/X1.json').exists())
+        # B: rerunning without --resolve-stop replays the same stop with no model call.
+        for _ in range(2):
+            self.run_campaign()
+            self.stopped('EXTERNAL_EVIDENCE_REQUIRED'); self.assertIn('Model calls this invocation: 0', self.out)
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (1, 1))
+        self.assertEqual(self.state()['stop'], st['stop'])
+
+    def test_05h_interrupted_unassessed_audit_with_stop_marker_is_not_reaudited(self):
+        # C: the in-flight artifact is adopted as a human stop, never silently re-audited.
+        self.one_phase()
+        self.seq(['done', 'done'], [{'status': 'UNASSESSED', 'stop': 'EXTERNAL_EVIDENCE_REQUIRED missing'}, CLEAN, CLEAN])
+        self.run_campaign(env={'AGENT_CAMPAIGN_TEST_INTERRUPT_AFTER': 'audit'})
+        self.assertEqual(self.rc, 130, self.out)
+        self.run_campaign()
+        self.stopped('EXTERNAL_EVIDENCE_REQUIRED'); self.assertIn('RESUMABLE: no', self.out)
+        self.run_campaign()
+        self.stopped('EXTERNAL_EVIDENCE_REQUIRED')
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (1, 1))
+        self.assertEqual(self.state()['phases']['X1']['model_calls']['fix'], 0)
+
+    def test_05i_unassessed_audit_without_marker_stays_retryable(self):
+        # D: an incomplete audit with no human gate keeps its retry/resume semantics.
+        self.one_phase()
+        self.seq(['done'], [{'status': 'UNASSESSED'}, CLEAN, CLEAN])
+        self.run_campaign()
+        self.stopped('AUDIT_UNASSESSED'); self.assertIn('RESUMABLE: yes', self.out)
+        self.run_campaign()
+        self.stopped('PHASE_NOT_READY')
+        self.assertEqual(self.state()['phases']['X1']['stage'], 'COMPLETE')
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (1, 3))
+
+    def test_05j_human_gate_variants_outrank_retry_classification(self):
+        mod = self.module()
+        cwd = os.getcwd(); os.chdir(self.R)
+        try:
+            h = mod.head(); base = self.git('rev-parse', 'HEAD~1')
+            def art(name, body, verdict='UNASSESSED'):
+                p = self.T / name
+                p.write_text('# Audit x\nrange: %s..%s · working-tree: false · codex exit: 1 · verdict: %s\n'
+                             'auditor: codex tier=strict model=gpt-6-astra reasoning=high\n\n%s' % (base, h, verdict, body))
+                return str(p)
+            c = mod.Campaign.__new__(mod.Campaign)
+            gated = {
+                'unassessed_stop': ('STOP: EXTERNAL_EVIDENCE_REQUIRED x\nAUDIT_STATUS: UNASSESSED\n', 'EXTERNAL_EVIDENCE_REQUIRED'),
+                'quota_stop': ('QUOTA_EXHAUSTED: limit\n\nSTOP: MIGRATION_APPROVAL_REQUIRED y\n', 'MIGRATION_APPROVAL_REQUIRED'),
+                'truncated_gate': ('### [MEDIUM] [F001] Needs PRODUCT_DECISION_REQUIRED\n', 'PRODUCT_DECISION_REQUIRED'),
+                'plain_stop': ('STOP: human review required\n', 'AUDIT_STOP'),
+            }
+            for name, (body, reason) in gated.items():
+                ps = mod.new_phase_state(); ps.update(in_flight='audit-strict', in_flight_ref='x')
+                with self.assertRaises(mod.Stop) as cm:
+                    c.refuse_human_gate(art(name + '.md', body), base, h, True, ps)
+                self.assertEqual((cm.exception.reason, cm.exception.resumable), (reason, False), name)
+                self.assertIsNone(ps['in_flight'])
+            for name in ('no_final_message', 'clean_assessed'):
+                body = '(no final message — see raw.log)\n' if name == 'no_final_message' else \
+                    'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n'
+                self.assertIsNone(c.refuse_human_gate(art(name + '.md', body), base, h, True, mod.new_phase_state()), name)
+            # E: a consistent Critical still reaches triage unchanged (recorded, then CRITICAL_FINDING).
+            ok = art('consistent.md', '### [CRITICAL] [F001] Leak\n- PROBLEM: CONFIRMED\nAUDIT_STATUS: ASSESSED\n'
+                     'AUDIT_SUMMARY: CRITICAL=1 HIGH=0 MEDIUM=0 LOW=0\n', 'ASSESSED')
+            self.assertIsNone(c.refuse_human_gate(ok, base, h, True, mod.new_phase_state()))
         finally:
             os.chdir(cwd)
 
@@ -919,6 +998,88 @@ class CampaignTests(unittest.TestCase):
             b.lock()
             self.assertEqual(json.loads((self.R / '.agent/history/campaign.lock').read_text())['campaign_id'], 'another-campaign')
             b.unlock()
+        finally:
+            os.chdir(cwd)
+
+    # ── 28c–28e: a transient stop never overwrites an unresolved human stop (F008) ──
+    def agent_run_lock(self, live=True):
+        p = self.R / '.agent/history/agent-run.lock'
+        if live: p.write_text(json.dumps(dict(pid=os.getpid(), host=socket.gethostname())))
+        elif p.exists(): p.unlink()
+
+    def human_stop_survives_transients(self, reason, codex):
+        self.one_phase()
+        self.seq(['done'], codex)
+        self.run_campaign()
+        self.stopped(reason)
+        before = self.state()['stop']; n = self.calls('codex')
+        self.assertFalse(before['resumable'])
+        # A: a live agent-run lock is reported, but never becomes the recorded stop.
+        self.agent_run_lock()
+        self.run_campaign()
+        self.stopped('RUNNER_ACTIVE'); self.assertIn('UNRESOLVED_STOP: %s' % reason, self.out)
+        self.assertEqual(self.state()['stop'], before)
+        # Same defect class: a failed --resolve-stop (dirty tree) never replaces it either.
+        self.agent_run_lock(False)
+        self.write('scratch.txt', 'dirty\n')
+        self.run_campaign('--resolve-stop', '--note', 'premature')
+        self.stopped('DIRTY_WORKING_TREE'); self.assertEqual(self.state()['stop'], before)
+        (self.R / 'scratch.txt').unlink()
+        # B: with the transient gone, a rerun without resolution still replays the human stop.
+        for _ in range(2):
+            self.run_campaign()
+            self.stopped(reason); self.assertIn('Model calls this invocation: 0', self.out)
+        self.assertEqual(self.state()['stop'], before)
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (1, n))
+        self.assertEqual(self.state()['phases']['X1']['model_calls']['fix'], 0)
+        # C: after explicit human resolution, a lock conflict is an ordinary resumable RUNNER_ACTIVE.
+        self.run_campaign('--resolve-stop', '--note', 'reviewed by a human')
+        self.assertEqual(self.rc, 0, self.out); self.assertIsNone(self.state()['stop'])
+        self.agent_run_lock()
+        self.run_campaign()
+        self.stopped('RUNNER_ACTIVE'); self.assertIn('RESUMABLE: yes', self.out); self.assertNotIn('UNRESOLVED_STOP', self.out)
+        self.assertEqual((self.state()['stop']['reason'], self.state()['stop']['resumable']), ('RUNNER_ACTIVE', True))
+        self.agent_run_lock(False)
+        self.run_campaign()
+        self.stopped('PHASE_NOT_READY')
+        self.assertEqual(self.state()['phases']['X1']['stage'], 'COMPLETE')
+
+    def test_28c_contradiction_stop_survives_lock_conflict(self):
+        self.human_stop_survives_transients('AUDIT_ARTIFACT_CONTRADICTION',
+                                            [{'f': [['CRITICAL', 'Hidden critical']], 'summary': {'CRITICAL': 0}}, CLEAN, CLEAN])
+
+    def test_28d_judgement_gate_stop_survives_lock_conflict(self):
+        # E: the same precedence for a non-Critical human gate.
+        self.human_stop_survives_transients('EXTERNAL_EVIDENCE_REQUIRED',
+                                            [{'status': 'UNASSESSED', 'stop': 'EXTERNAL_EVIDENCE_REQUIRED x'}, CLEAN, CLEAN])
+
+    def test_28e_lock_conflict_without_human_stop_is_resumable(self):
+        # D: no recorded stop → the existing transient RUNNER_ACTIVE behaviour is unchanged.
+        self.one_phase()
+        self.seq(['done'], [CLEAN, CLEAN])
+        self.agent_run_lock()
+        self.run_campaign()
+        self.stopped('RUNNER_ACTIVE'); self.assertIn('RESUMABLE: yes', self.out); self.assertNotIn('UNRESOLVED_STOP', self.out)
+        self.assertEqual(self.calls('claude'), 0)
+        self.agent_run_lock(False)
+        self.run_campaign()
+        self.stopped('PHASE_NOT_READY')
+        self.assertEqual(self.state()['phases']['X1']['stage'], 'COMPLETE')
+
+    def test_28f_stop_record_precedence_unit(self):
+        mod = self.module()
+        cwd = os.getcwd(); os.chdir(self.R)
+        try:
+            c = mod.Campaign.__new__(mod.Campaign)
+            c.save = lambda: None
+            human = dict(phase='X1', reason='CRITICAL_FINDING', detail='d', next='n', resumable=False, at='t', head='h')
+            c.st = dict(stop=dict(human))
+            for e in (mod.Stop('RUNNER_ACTIVE', 'x', 'wait', True), mod.Stop('QUOTA_EXHAUSTED', 'q', 'later', True),
+                      mod.Stop('AUDIT_UNASSESSED', 'u', 'rerun', True), mod.Stop('HEAD_DRIFT', 'h', 'inspect')):
+                self.assertFalse(c.stop(e, 'X1')); self.assertEqual(c.st['stop'], human)
+            c.st = dict(stop=dict(human, resumable=True, reason='QUOTA_EXHAUSTED'))
+            self.assertTrue(c.stop(mod.Stop('CRITICAL_FINDING', 'd', 'n'), 'X1'))
+            self.assertEqual((c.st['stop']['reason'], c.st['stop']['resumable']), ('CRITICAL_FINDING', False))
         finally:
             os.chdir(cwd)
 

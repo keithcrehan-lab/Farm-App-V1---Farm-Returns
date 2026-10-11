@@ -436,6 +436,19 @@ def has_stop(path):
     return STOP_LINE_RE.search(Path(path).read_text(errors='replace')) is not None
 
 
+def audit_gate(text):
+    """(reason, detail) of the human gate an audit artifact raises — its first STOP line (the
+    harness's has_stop_marker convention) or a named judgement gate — else None. One vocabulary
+    for triage and for the retry classifier, so an incomplete audit is judged exactly like a
+    complete one."""
+    m = STOP_LINE_RE.search(text or '')
+    if m:
+        line = text[m.start():].splitlines()[0]
+        return gate_reason(line, 'AUDIT_STOP'), line
+    g = gate_reason(text)
+    return (g, 'names %s' % g) if g else None
+
+
 # ── state and lock ─────────────────────────────────────────────────────
 def state_path(cid):
     return HISTORY / ('campaign-%s.state.json' % cid)
@@ -522,9 +535,15 @@ class Campaign:
         return self.st['phases'].setdefault(pid, new_phase_state())
 
     def stop(self, e, pid):
+        """HUMAN STOPS ARE MONOTONIC: an unresolved non-resumable stop is kept exactly until
+        --resolve-stop clears it; any later stop (a lock conflict, quota, a dirty tree during
+        resolution) is reported but never recorded over it. False when the stop was not recorded."""
+        cur = self.st.get('stop')
+        if cur and not cur.get('resumable'): return False
         self.st['stop'] = dict(phase=pid, reason=e.reason, detail=e.detail, next=e.next, resumable=e.resumable, at=now(),
                                head=head())
         self.save()
+        return True
 
     def check_head(self, pid, ps):
         if git('branch', '--show-current') != self.m['branch']:
@@ -724,10 +743,10 @@ class Campaign:
         art = s.get('last_audit', '')
         adopted = False
         if ps.get('in_flight') == 'audit-' + tier:
-            # A fresh artifact of this audit that reports a Critical is never discarded by re-auditing.
+            # A fresh artifact of this audit that reports a Critical or a human gate is never discarded by re-auditing.
             if art and art != ps.get('in_flight_ref') and s.get('last_audit_kind') == kind and s.get('last_audit_head') == h \
                     and not any(a['artifact'] == art for a in ps['audits']):
-                self.refuse_critical_contradiction(art, base, h, strict, ps)
+                self.refuse_human_gate(art, base, h, strict, ps)
             # An assessed audit of exactly this kind/range that finished just before an interruption is adopted.
             if (art and art != ps.get('in_flight_ref') and s.get('last_audit_kind') == kind and s.get('last_audit_head') == h
                     and not any(a['artifact'] == art for a in ps['audits']) and audit_problems(art, base, h, strict, True) is None):
@@ -741,7 +760,7 @@ class Campaign:
             rc = self.model('audit_' + tier, ps, [str(SCRIPTS / 'agent-audit')] + args, log, child_env(AGENT_AUDIT_TIER=tier))
             s = read_state_md()
             art, res = s.get('last_audit', ''), s.get('last_audit_result', '')
-            if art and art != ps['in_flight_ref']: self.refuse_critical_contradiction(art, base, h, strict, ps)
+            if art and art != ps['in_flight_ref']: self.refuse_human_gate(art, base, h, strict, ps)
             if rc == 4 or 'QUOTA_EXHAUSTED' in res:
                 ps['in_flight'] = None
                 raise Stop('QUOTA_EXHAUSTED', 'Codex usage limit during the %s audit — not a pass (%s)' % (tier, log),
@@ -755,7 +774,7 @@ class Campaign:
                 raise Stop('AUDIT_UNASSESSED', 'agent-audit exited %d — %s' % (rc, log), 'fix the cause, then rerun', True)
             if s.get('last_audit_kind') != kind:
                 raise Stop('UNEXPECTED_STATE_CHANGE', 'audit kind %r, expected %r' % (s.get('last_audit_kind'), kind), 'inspect ' + log)
-        self.refuse_critical_contradiction(art, base, h, strict, ps)
+        self.refuse_human_gate(art, base, h, strict, ps)
         why = audit_problems(art, base, h, strict, True)
         if why: raise Stop('AUDIT_UNASSESSED', why, 'rerun the audit', True)
         if head() != h or porcelain(): raise Stop('UNEXPECTED_STATE_CHANGE', 'HEAD or tree changed during the audit', 'inspect git log')
@@ -765,6 +784,19 @@ class Campaign:
         ps.update(in_flight=None, in_flight_ref=None, stage='FINDING_TRIAGE', head=h)
         self.save()
         print('  CRITICAL=%d HIGH=%d MEDIUM=%d LOW=%d  →  %s' % (c, hi, md, low, art))
+
+    def refuse_human_gate(self, art, base, h, strict, ps):
+        """HUMAN GATES OUTRANK RETRY: evaluated before any quota / unassessed / exit-code
+        classification, so an artifact that carries a Critical, a STOP line or a judgement gate
+        always becomes a non-resumable stop — whether or not it is complete — and is never
+        replaced by a later audit."""
+        self.refuse_critical_contradiction(art, base, h, strict, ps)
+        if not Path(art).is_file(): return
+        g = audit_gate(Path(art).read_text(errors='replace'))
+        if not g: return
+        ps.update(in_flight=None, in_flight_ref=None)
+        raise Stop(g[0], 'audit %s raises a human gate: %s' % (art, g[1]),
+                   'human review of the audit STOP; the campaign never re-audits past it automatically')
 
     def refuse_critical_contradiction(self, art, base, h, strict, ps):
         """CRITICAL ALWAYS STOPS: an artifact that reports any Critical but is not a consistent,
@@ -1335,9 +1367,13 @@ def main(argv):
         return 3
     except Stop as e:
         pid = getattr(camp, 'current', None) if camp else None
+        kept = None
         if camp and camp.st is not None and camp.locked and e.reason != 'USAGE' and not isinstance(e, Replay):
-            camp.stop(e, pid)
+            if not camp.stop(e, pid): kept = camp.st['stop']
         report_stop(e, pid, camp.calls if camp else 0)
+        if kept:
+            print('UNRESOLVED_STOP: %s at %s remains the recorded stop (not replaced by %s); resolve it with --resolve-stop --note' % (
+                kept['reason'], kept['phase'], e.reason))
         return 2 if e.reason == 'USAGE' else 1
     except KeyboardInterrupt:
         if camp and camp.st is not None and camp.locked: camp.save()

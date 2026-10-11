@@ -154,7 +154,11 @@ AUDIT_RULES.md), a gate token anywhere in an audit, a builder/fixer `STOP:` line
 `BUILD_RESULT: BLOCKED <REASON>`. Judgement stops need a human: fix/decide, commit, then
 `--resolve-stop --note` (kept in state); the phase is then re-audited from its base with its
 budgets intact. QUOTA_EXHAUSTED, AUDIT_UNASSESSED, MODEL_CALL_FAILED (no verdict, no changes),
-preflight NOT_READY and similar are resumable: rerun the same command.
+preflight NOT_READY and similar are resumable: rerun the same command. Human gates outrank retry:
+an audit artifact carrying a STOP line, gate token or Critical is a non-resumable stop even when
+it is also unassessed, quota-cut or adopted after an interruption. Recorded human stops are
+monotonic — a later transient stop (RUNNER_ACTIVE, a dirty tree during `--resolve-stop`, …) is
+reported as `UNRESOLVED_STOP: …` but never recorded over one; only `--resolve-stop` clears it.
 
 FREEZE needs a strict audit of exactly `phase_base..HEAD`, committed (`working-tree: false`),
 CRITICAL=HIGH=MEDIUM=0, then runs the phase verify command and `scripts/quality-gate.sh` at that

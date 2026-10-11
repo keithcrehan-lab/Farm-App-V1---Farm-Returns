@@ -1015,6 +1015,7 @@ class Campaign:
                 if r: pred_fp = r['receipt_fingerprint']
             target = next(((p, s, d) for p, s, d, _ in statuses if s != 'FROZEN'), None)
             if target is None:
+                self.check_complete(statuses)
                 print('AGENT_CAMPAIGN_RESULT: COMPLETE — every phase has a valid frozen receipt')
                 return 0
             ph, status, detail = target
@@ -1035,6 +1036,27 @@ class Campaign:
                 print('agent-campaign-run: resuming %s at %s%s' % (pid, ps['stage'], ' (interrupted during %s)' % ps['in_flight'] if ps.get('in_flight') else ''))
             pred_fp = next((r['receipt_fingerprint'] for p, s, d, r in statuses if p['id'] == ph['predecessor'] and r), None)
             self.phase(ph, ps, pred_fp)
+
+    def check_complete(self, statuses):
+        """COMPLETE is reported only for the repository the campaign closed: the campaign branch,
+        a clean tree, and HEAD exactly at the final phase's closure commit (its recorded closure SHA,
+        else the commit that recorded its receipt). Restorable state, so these stops are resumable."""
+        self.current = None
+        last = statuses[-1][0]
+        branch = git('branch', '--show-current')
+        if branch != self.m['branch']:
+            raise Stop('WRONG_BRANCH', 'on %s, campaign branch is %s' % (branch or '(detached)', self.m['branch']),
+                       'return to %s, then rerun' % self.m['branch'], True)
+        dirty = porcelain_paths()
+        if dirty:
+            raise Stop('DIRTY_WORKING_TREE', 'uncommitted changes: ' + ' '.join(dirty[:3]),
+                       'inspect the working tree; the campaign never discards work', True)
+        rp = receipt_path(self.m, last['id'])
+        want = ((self.st.get('phases') or {}).get(last['id']) or {}).get('closure_sha') or \
+            (git('log', '-1', '--format=%H', '--', str(rp)) if rp.exists() else '')
+        if not want or head() != want:
+            raise Stop('HEAD_DRIFT', 'HEAD %s is not the campaign closing HEAD %s (%s)' % (short(head()), short(want) if want else '?', last['id']),
+                       'inspect the commits after closure; the campaign never resets', True)
 
     def check_brief(self, ph, ps):
         """The brief pinned before agent-start must stay byte-identical for the whole phase."""

@@ -191,7 +191,10 @@ call; a rerun resumes at the next safe step and adopts a finished build/fix comm
 closure commit instead of repeating it. If state and HEAD disagree it stops (HEAD_DRIFT); it never
 resets, rebases, stashes or cleans. Lock: one per worktree, `history/campaign.lock` (records campaign id, pid, host), so no two
 campaigns run at once; a live owner → exit 3; a dead or unreadable owner, or a legacy
-`history/campaign-<id>.lock`, fails closed (remove it by hand after checking). Status and
+`history/campaign-<id>.lock`, fails closed (remove it by hand after checking). It and
+`history/agent-run.lock` exclude each other: each runner takes its own lock, then refuses while
+the other's owner is live (or cannot be established). A completed rerun reports COMPLETE only on
+the campaign branch, with a clean tree, at the final closure commit. Status and
 dry-run never take the lock. Nothing in the
 campaign path pushes, deploys, applies a migration or touches production.
 

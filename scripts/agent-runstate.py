@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 os.chdir(ROOT)
 HISTORY = Path('.agent/history')
 LOCK = HISTORY / 'agent-run.lock'
+CAMPAIGN_LOCK = HISTORY / 'campaign.lock'  # scripts/agent-campaign-run's worktree lock
 sys.dont_write_bytecode = True  # importing the helper must not leave an untracked scripts/__pycache__/
 _spec = importlib.util.spec_from_file_location('agent_context', str(ROOT / 'scripts/agent-context.py'))
 ctx = importlib.util.module_from_spec(_spec)
@@ -443,8 +444,32 @@ def lock_acquire(pid, run_id):
             continue
         with os.fdopen(fd, 'w') as f:
             json.dump(dict(pid=int(pid), host=host, run_id=run_id, started_at=now()), f)
+        # Mutual exclusion with the campaign runner: each takes its own lock first, then checks the
+        # other's, so of two racing starts at least one always sees the other and backs out.
+        held = campaign_lock_holder(host)
+        if held:
+            lock_release(pid)
+            print(held[1]); return held[0]
         return 0
     print('lock %s could not be acquired' % LOCK); return 4
+
+
+def campaign_lock_holder(host):
+    """None when no campaign runner can be active in this worktree, else (3, why) for a live one
+    or (4, why) when its owner cannot be established. A dead same-host owner means no campaign is
+    running; its stale lock is left for the campaign runner (which fails closed on it) to report."""
+    try:
+        info = json.loads(CAMPAIGN_LOCK.read_text())
+        other, other_host = int(info['pid']), info['host']
+    except FileNotFoundError:
+        return None
+    except (ValueError, KeyError, TypeError, OSError):
+        return 4, 'campaign lock %s is unreadable; its owner cannot be established' % CAMPAIGN_LOCK
+    if other_host != host:
+        return 4, 'campaign lock %s is held by pid %d on host %s; liveness cannot be established here' % (CAMPAIGN_LOCK, other, other_host)
+    if alive(other):
+        return 3, 'campaign runner %s (pid %d) holds %s' % (info.get('campaign_id', '?'), other, CAMPAIGN_LOCK)
+    return None
 
 
 def lock_release(pid):

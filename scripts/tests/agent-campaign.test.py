@@ -346,6 +346,29 @@ class CampaignTests(unittest.TestCase):
         self.run_campaign()
         self.complete(); self.assertEqual((self.calls('claude'), self.calls('codex')), (2, 4))
 
+    def test_01b_completed_rerun_validates_repository_state(self):
+        # F010: COMPLETE is re-reported only on the campaign branch, clean, at the closing HEAD.
+        self.seq(['done', 'done'], [CLEAN, CLEAN, CLEAN, CLEAN])
+        self.run_campaign()
+        self.complete()
+        closing = self.state()['phases']['X2']['closure_sha']
+        self.assertEqual(self.git('rev-parse', 'HEAD'), closing)
+        self.run_campaign(); self.complete()                                 # valid completed rerun
+        self.write('stray.txt', 'x\n')                                       # dirty tree
+        self.run_campaign(); self.stopped('DIRTY_WORKING_TREE'); self.assertIn('RESUMABLE: yes', self.out)
+        (self.R / 'stray.txt').unlink()
+        self.run_campaign(); self.complete()
+        self.git('checkout', '-q', '-b', 'elsewhere')                        # wrong branch
+        self.run_campaign(); self.stopped('WRONG_BRANCH')
+        self.git('checkout', '-q', 'work')
+        self.run_campaign(); self.complete()
+        self.write('later.txt', 'x\n'); self.commit('a commit after closure')  # moved HEAD
+        self.run_campaign(); self.stopped('HEAD_DRIFT'); self.assertIn(closing[:7], self.out)
+        self.git('reset', '-q', '--hard', closing)                           # fixture repo only
+        self.run_campaign(); self.complete()
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (2, 4))
+        self.assertIsNone(self.state()['stop'])
+
     # ── 2: standard audit Medium → Medium-only remediation ───────────
     def test_02_standard_medium_narrow_remediation_low_untouched(self):
         self.one_phase()
@@ -1080,6 +1103,96 @@ class CampaignTests(unittest.TestCase):
             c.st = dict(stop=dict(human, resumable=True, reason='QUOTA_EXHAUSTED'))
             self.assertTrue(c.stop(mod.Stop('CRITICAL_FINDING', 'd', 'n'), 'X1'))
             self.assertEqual((c.st['stop']['reason'], c.st['stop']['resumable']), ('CRITICAL_FINDING', False))
+        finally:
+            os.chdir(cwd)
+
+    # ── 28g–28i: campaign.lock and agent-run.lock exclude each other (F009) ──
+    def run_agent_run(self):
+        e = {k: v for k, v in os.environ.items() if k not in ('AGENT_RUN_STATE', 'AGENT_PHASE', 'AGENT_AUDIT_TIER')}
+        e.update(PATH='%s:%s' % (self.B, os.environ['PATH']), FAKE_DIR=str(self.T), AGENT_CLAUDE_TIMEOUT='30', AGENT_CODEX_TIMEOUT='30')
+        p = subprocess.run(['./scripts/agent-run'], cwd=self.R, env=e, capture_output=True, text=True, timeout=600)
+        self.out, self.rc = p.stdout + p.stderr, p.returncode
+
+    def agent_snapshot(self):
+        # Everything either runner could write: task, run/campaign state, audits, locks and the git checkpoint.
+        files = {str(f.relative_to(self.R)): f.read_bytes() for f in (self.R / '.agent').rglob('*') if f.is_file()}
+        return files, self.git('rev-parse', 'HEAD'), self.git('status', '--porcelain')
+
+    def test_28g_agent_run_refuses_while_campaign_holds_lock(self):
+        self.one_phase()
+        self.seq(['done'], [CLEAN, CLEAN])
+        clock = self.R / '.agent/history/campaign.lock'
+        clock.write_text(json.dumps(dict(pid=os.getpid(), host=socket.gethostname(), started_at='t', campaign_id=CID)))
+        before = self.agent_snapshot()
+        self.run_agent_run()
+        self.assertEqual(self.rc, 3, self.out); self.assertIn('AGENT_RUN_RESULT: RUNNER_ACTIVE', self.out)
+        self.assertIn('campaign runner %s' % CID, self.out)
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (0, 0))
+        self.assertFalse((self.R / '.agent/history/agent-run.lock').exists())
+        self.assertEqual(self.agent_snapshot(), before)   # no task, run-state, audit or checkpoint write
+        # An unreadable campaign lock is never taken as free.
+        clock.write_text('garbage')
+        self.run_agent_run()
+        self.assertNotEqual(self.rc, 0); self.assertIn('LOCK_INDETERMINATE', self.out)
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (0, 0))
+        self.assertFalse((self.R / '.agent/history/agent-run.lock').exists())
+
+    def test_28h_campaign_refuses_while_agent_run_holds_lock(self):
+        self.one_phase()
+        self.seq(['done'], [CLEAN, CLEAN])
+        self.agent_run_lock()
+        lock_before = (self.R / '.agent/history/agent-run.lock').read_bytes()
+        files, h, porc = self.agent_snapshot()
+        self.run_campaign()
+        self.stopped('RUNNER_ACTIVE'); self.assertEqual((self.calls('claude'), self.calls('codex')), (0, 0))
+        after, h2, porc2 = self.agent_snapshot()
+        self.assertEqual((h2, porc2), (h, porc))
+        self.assertEqual((self.R / '.agent/history/agent-run.lock').read_bytes(), lock_before)
+        self.assertFalse((self.R / '.agent/history/campaign.lock').exists())
+        # Refused before any campaign state exists: nothing under .agent changed at all.
+        self.assertEqual(after, files)
+        # With campaign state present, only the campaign's own state file records its resumable stop.
+        self.state_seed()
+        files = self.agent_snapshot()[0]
+        self.run_campaign()
+        self.stopped('RUNNER_ACTIVE')
+        after = self.agent_snapshot()[0]
+        changed = {k for k in set(files) | set(after) if files.get(k) != after.get(k)}
+        self.assertEqual(changed, {'.agent/history/campaign-fx.state.json'})
+        self.assertEqual(self.state()['phases'], {}); self.assertEqual(self.state()['stop']['reason'], 'RUNNER_ACTIVE')
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (0, 0))
+
+    def state_seed(self):
+        (self.R / '.agent/history/campaign-fx.state.json').write_text(json.dumps(dict(
+            schema_version=1, campaign_id=CID, branch='work', created_at='t', updated_at='t', phases={}, stop=None,
+            resolutions=[], model_calls=dict(build=0, fix=0, audit_standard=0, audit_strict=0))))
+
+    def test_28i_lock_exclusion_both_orders_in_process(self):
+        mod = self.module()
+        cwd = os.getcwd(); os.chdir(self.R)
+        try:
+            rs = mod.rs
+            run_lock, camp_lock = self.R / '.agent/history/agent-run.lock', self.R / '.agent/history/campaign.lock'
+            # Campaign first → agent-run refused, and it leaves no lock of its own behind.
+            c = mod.Campaign(mod.load_manifest(CID)); c.lock()
+            self.assertEqual(rs.lock_acquire(os.getpid(), 'r1'), 3)
+            self.assertFalse(run_lock.exists()); self.assertTrue(camp_lock.exists())
+            c.unlock(); self.assertFalse(camp_lock.exists())
+            # agent-run first → the campaign refused, and it leaves no lock of its own behind.
+            self.assertEqual(rs.lock_acquire(os.getpid(), 'r2'), 0)
+            c2 = mod.Campaign(mod.load_manifest(CID))
+            with self.assertRaises(mod.Stop) as cm: c2.lock()
+            self.assertEqual(cm.exception.reason, 'RUNNER_ACTIVE')
+            c2.unlock(); self.assertFalse(camp_lock.exists()); self.assertTrue(run_lock.exists())
+            rs.lock_release(os.getpid()); self.assertFalse(run_lock.exists())
+            # A dead same-host campaign owner is not an active campaign: agent-run proceeds, the stale
+            # lock is left for the campaign runner to report (LOCK_STALE).
+            dead = subprocess.Popen(['true']); dead.wait()
+            camp_lock.write_text(json.dumps(dict(pid=dead.pid, host=socket.gethostname(), campaign_id=CID)))
+            self.assertEqual(rs.lock_acquire(os.getpid(), 'r3'), 0); self.assertTrue(camp_lock.exists())
+            rs.lock_release(os.getpid())
+            camp_lock.write_text(json.dumps(dict(pid=os.getpid(), host='elsewhere', campaign_id=CID)))
+            self.assertEqual(rs.lock_acquire(os.getpid(), 'r4'), 4); self.assertFalse(run_lock.exists())
         finally:
             os.chdir(cwd)
 

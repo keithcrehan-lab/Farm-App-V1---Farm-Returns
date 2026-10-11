@@ -159,6 +159,12 @@ an audit artifact carrying a STOP line, gate token or Critical is a non-resumabl
 it is also unassessed, quota-cut or adopted after an interruption. Recorded human stops are
 monotonic — a later transient stop (RUNNER_ACTIVE, a dirty tree during `--resolve-stop`, …) is
 reported as `UNRESOLVED_STOP: …` but never recorded over one; only `--resolve-stop` clears it.
+Each campaign audit call is bound to an identity it chooses (`AGENT_AUDIT_STAMP`, recorded with
+the call's kind, tier, range and the pre-existing artifacts before the call). Recovery reads only
+that call's artifact and composed message — never the STATE.md keys agent-audit publishes one at
+a time — checks Critical/gates first, adopts a clean assessed one, retries only when it
+provably published nothing, and stops non-resumably (AUDIT_RECOVERY_AMBIGUOUS) if any other new
+audit of the same kind, tier and range appeared.
 
 FREEZE needs a strict audit of exactly `phase_base..HEAD`, committed (`working-tree: false`),
 CRITICAL=HIGH=MEDIUM=0, then runs the phase verify command and `scripts/quality-gate.sh` at that

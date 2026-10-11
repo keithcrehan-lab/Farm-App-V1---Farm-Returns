@@ -78,7 +78,7 @@ BUILD_STATE = Path('docs/farm-return-next/BUILD_STATE.json')
 IMPL_LOG = Path('docs/farm-return-next/IMPLEMENTATION_LOG.md')
 # Environment that must never leak into a phase: an enclosing runner's state, or operator model
 # overrides that would silently replace the audit tier the campaign policy requires.
-SCRUB_ENV = ('AGENT_RUN_STATE', 'AGENT_PHASE', 'AGENT_AUDIT_TIER', 'AGENT_CODEX_MODEL', 'AGENT_CODEX_REASONING')
+SCRUB_ENV = ('AGENT_RUN_STATE', 'AGENT_PHASE', 'AGENT_AUDIT_TIER', 'AGENT_CODEX_MODEL', 'AGENT_CODEX_REASONING', 'AGENT_AUDIT_STAMP')
 TEST_INTERRUPT = 'AGENT_CAMPAIGN_TEST_INTERRUPT_AFTER'  # tests only: simulate Ctrl-C right after a model call returns
 
 
@@ -336,6 +336,21 @@ def critical_signal(path):
             or CRITICAL_COUNT_RE.search(text) is not None)
 
 
+def audit_stamp():
+    """A fresh agent-audit identity (AGENT_AUDIT_STAMP) with no files yet in history."""
+    while True:
+        ts = '%s-%d' % (datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ'), int.from_bytes(os.urandom(4), 'big'))
+        if not any(HISTORY.glob('audit-%s.*' % ts)): return ts
+
+
+def audit_matches(path, inv):
+    """True when PATH is an audit of the invocation's kind, tier and exact base..HEAD range."""
+    try: lines = Path(path).read_text(errors='replace').splitlines()[:3]
+    except OSError: return False
+    return (len(lines) == 3 and (' — %s — ' % inv['kind']) in lines[0] and lines[1].startswith('range: %s..%s ' % (inv['base'], inv['head']))
+            and ('tier=%s' % inv['tier']) in lines[2])
+
+
 def audit_counts(path):
     _, _, summary, _ = rs.audit_facts(path)
     return [int(n) for n in rs.AUDIT_COUNTS_RE.match(summary[0]).groups()]
@@ -579,7 +594,7 @@ class Campaign:
         self.calls += 1
         with open(log, 'w') as f:
             rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, env=env).returncode
-        test_point(key.split('_')[0])
+        test_point(key.split('_')[0]); test_point(key)
         return rc
 
     def log(self, pid, what):
@@ -754,41 +769,47 @@ class Campaign:
         tier, kind = ('strict', 'campaign') if strict else ('standard', 'full')
         h = head()
         if porcelain(): raise Stop('DIRTY_WORKING_TREE', 'tree must be clean before the %s audit' % tier, 'inspect the working tree')
-        s = read_state_md()
-        art = s.get('last_audit', '')
-        adopted = False
+        art, adopted = None, False
         if ps.get('in_flight') == 'audit-' + tier:
-            # A fresh artifact of this audit that reports a Critical or a human gate is never discarded by re-auditing.
-            if art and art != ps.get('in_flight_ref') and s.get('last_audit_kind') == kind and s.get('last_audit_head') == h \
-                    and not any(a['artifact'] == art for a in ps['audits']):
-                self.refuse_human_gate(art, base, h, strict, ps)
-            # An assessed audit of exactly this kind/range that finished just before an interruption is adopted.
-            if (art and art != ps.get('in_flight_ref') and s.get('last_audit_kind') == kind and s.get('last_audit_head') == h
-                    and not any(a['artifact'] == art for a in ps['audits']) and audit_problems(art, base, h, strict, True) is None):
+            # An interrupted call is attributed by its campaign-bound identity, never by the shared
+            # STATE.md keys agent-audit publishes one at a time (a stale kind/head/result hides nothing).
+            inv = ps.get('audit_call')
+            if not inv or (inv.get('kind'), inv.get('tier'), inv.get('base'), inv.get('head')) != (kind, tier, base, h):
+                ps.update(in_flight=None, in_flight_ref=None)
+                raise Stop('AUDIT_RECOVERY_AMBIGUOUS', 'the interrupted %s audit has no invocation record for %s..%s' % (tier, short(base), short(h)),
+                           'human review of the audits in .agent/history; the campaign never re-audits past an unattributed call')
+            art = self.recover_audit_call(inv, base, h, strict, ps)
+            if art and audit_problems(art, base, h, strict, True) is None:
                 adopted = True
                 print('[%s] adopting finished %s audit %s (no model call)' % (pid, tier, art))
         if not adopted:
-            ps.update(in_flight='audit-' + tier, in_flight_ref=art)
+            inv = dict(id=audit_stamp(), kind=kind, tier=tier, base=base, head=h, phase=pid, task_id=ps.get('task_id'),
+                       before=sorted(p.name for p in HISTORY.glob('audit-*.md')))
+            inv['artifact'] = str(HISTORY / ('audit-%s.md' % inv['id']))
+            ps.update(in_flight='audit-' + tier, in_flight_ref=inv['artifact'], audit_call=inv)
             args = ['--campaign', base] if strict else ['--primary']
             print('[%s] %s: scripts/agent-audit %s (tier %s)' % (pid, ps['stage'], ' '.join(args), tier))
             log = self.log(pid, 'audit-' + tier)
-            rc = self.model('audit_' + tier, ps, [str(SCRIPTS / 'agent-audit')] + args, log, child_env(AGENT_AUDIT_TIER=tier))
+            rc = self.model('audit_' + tier, ps, [str(SCRIPTS / 'agent-audit')] + args, log,
+                            child_env(AGENT_AUDIT_TIER=tier, AGENT_AUDIT_STAMP=inv['id']))
+            # Whatever this call published is classified (gates first) before exit code, quota or retry.
+            art = self.recover_audit_call(inv, base, h, strict, ps)
             s = read_state_md()
-            art, res = s.get('last_audit', ''), s.get('last_audit_result', '')
-            if art and art != ps['in_flight_ref']: self.refuse_human_gate(art, base, h, strict, ps)
+            res = s.get('last_audit_result', '') if art and s.get('last_audit') == art else ''
             if rc == 4 or 'QUOTA_EXHAUSTED' in res:
                 ps['in_flight'] = None
                 raise Stop('QUOTA_EXHAUSTED', 'Codex usage limit during the %s audit — not a pass (%s)' % (tier, log),
                            'rerun ./scripts/agent-campaign-run %s once the Codex limit has reset (resumes at this audit)' % self.cid, True)
-            if rc == 3 or res.startswith('UNASSESSED') or not art or art == ps['in_flight_ref']:
+            if rc == 3 or res.startswith('UNASSESSED') or not art:
                 ps['in_flight'] = None
                 raise Stop('AUDIT_UNASSESSED', '%s audit produced no assessment (exit %d) — %s' % (tier, rc, log),
                            'rerun ./scripts/agent-campaign-run %s (resumes at this audit)' % self.cid, True)
             if rc not in (0, 1):
                 ps['in_flight'] = None
                 raise Stop('AUDIT_UNASSESSED', 'agent-audit exited %d — %s' % (rc, log), 'fix the cause, then rerun', True)
-            if s.get('last_audit_kind') != kind:
-                raise Stop('UNEXPECTED_STATE_CHANGE', 'audit kind %r, expected %r' % (s.get('last_audit_kind'), kind), 'inspect ' + log)
+            if s.get('last_audit') != art or s.get('last_audit_kind') != kind:
+                raise Stop('UNEXPECTED_STATE_CHANGE', 'STATE.md records audit %r (%r), expected %s (%r)' % (
+                    s.get('last_audit'), s.get('last_audit_kind'), art, kind), 'inspect ' + log)
         self.refuse_human_gate(art, base, h, strict, ps)
         why = audit_problems(art, base, h, strict, True)
         if why: raise Stop('AUDIT_UNASSESSED', why, 'rerun the audit', True)
@@ -799,6 +820,25 @@ class Campaign:
         ps.update(in_flight=None, in_flight_ref=None, stage='FINDING_TRIAGE', head=h)
         self.save()
         print('  CRITICAL=%d HIGH=%d MEDIUM=%d LOW=%d  →  %s' % (c, hi, md, low, art))
+
+    def recover_audit_call(self, inv, base, h, strict, ps):
+        """Classify exactly what ONE audit invocation published, from its bound identity — never
+        from the shared STATE.md tuple. Its artifact and the message it was composing are checked
+        for Critical signals and human gates first. Returns the artifact, or None only when provably
+        nothing was published (no artifact, no composed message). Any OTHER new audit of the same
+        kind, tier and range cannot be told apart from it: a non-resumable stop, never a choice and
+        never a retry."""
+        bound, msg = Path(inv['artifact']), Path(inv['artifact'] + '.tmp')
+        before = set(inv['before'])
+        others = sorted(str(p) for p in HISTORY.glob('audit-*.md') if p.name not in before and p != bound and audit_matches(p, inv))
+        if others:
+            ps.update(in_flight=None, in_flight_ref=None)
+            raise Stop('AUDIT_RECOVERY_AMBIGUOUS', '%s audit %s of %s..%s: other new audit(s) of the same kind, tier and range appeared: %s' % (
+                inv['tier'], bound.name, short(base), short(h), ', '.join(others[:3])),
+                       'human review of every listed artifact; the campaign never chooses between them or re-audits past them')
+        for p in (bound, msg):
+            if p.is_file(): self.refuse_human_gate(str(p), base, h, strict, ps)
+        return str(bound) if bound.is_file() else None
 
     def refuse_human_gate(self, art, base, h, strict, ps):
         """HUMAN GATES OUTRANK RETRY: evaluated before any quota / unassessed / exit-code

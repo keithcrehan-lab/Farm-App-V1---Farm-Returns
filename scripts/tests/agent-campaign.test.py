@@ -969,6 +969,149 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(sum(1 for s in subjects if 'record closure' in s), 1)
         self.assertEqual(self.calls('codex'), 2)
 
+    # ── 26b–26j: an interrupted audit is attributed by its bound identity, never by STATE.md (F007 repeat) ──
+    GATE = {'stop': 'EXTERNAL_EVIDENCE_REQUIRED no source for the rule'}
+
+    def strict_interrupted(self, spec):
+        # Interrupted right after the strict audit call returned: the standard audit's STATE.md values are the stale ones.
+        self.one_phase()
+        self.seq(['done'], [CLEAN, spec, CLEAN, CLEAN])
+        self.run_campaign(env={'AGENT_CAMPAIGN_TEST_INTERRUPT_AFTER': 'audit_strict'})
+        self.assertEqual(self.rc, 130, self.out)
+        x1 = self.state()['phases']['X1']
+        self.assertEqual(x1['in_flight'], 'audit-strict')
+        md = dict(l.split(': ', 1) for l in (self.R / '.agent/STATE.md').read_text().splitlines() if ': ' in l)
+        inv = x1.get('audit_call') or dict(artifact=md['last_audit'], base=x1['base_sha'], head=x1['head'])  # pre-fix runner
+        self.assertEqual(Path(inv['artifact']).name, Path(md['last_audit']).name)
+        self.assertTrue(Path(self.R / inv['artifact']).is_file())
+        return x1, inv
+
+    def state_md(self, **kv):
+        p = self.R / '.agent/STATE.md'
+        lines = p.read_text().splitlines()
+        for k, v in kv.items():
+            lines = [l for l in lines if not l.startswith(k + ':')] + ([] if v is None else ['%s: %s' % (k, v)])
+        p.write_text('\n'.join(lines) + '\n')
+
+    def publication_boundary(self, x1, inv, boundary):
+        # The STATE.md agent-audit leaves when it dies at BOUNDARY (it sets head, then last_audit, then kind, then result).
+        prev = x1['audits'][-1]['artifact']
+        stale = dict(last_audit=prev, last_audit_kind='full', last_audit_head=x1['base_sha'], last_audit_result='stale @ x')
+        if boundary == 'no_state':          self.state_md(**stale)
+        elif boundary == 'last_audit_only': self.state_md(**dict(stale, last_audit=inv['artifact']))
+        elif boundary == 'audit_and_kind':  self.state_md(**dict(stale, last_audit=inv['artifact'], last_audit_kind='campaign'))
+        elif boundary == 'result_missing':  self.state_md(last_audit_result=None, last_audit_head=x1['base_sha'])
+        elif boundary == 'message_only':    # codex's message composed, artifact not yet written, no state
+            art = self.R / inv['artifact']
+            Path(str(art) + '.tmp').write_text(art.read_text().split('\n\n', 1)[1]); art.unlink(); self.state_md(**stale)
+        else: self.assertEqual(boundary, 'fully_published')
+
+    def gate_held(self, reason='EXTERNAL_EVIDENCE_REQUIRED'):
+        self.stopped(reason); self.assertIn('RESUMABLE: no', self.out)
+        st = self.state(); x1 = st['phases']['X1']
+        self.assertEqual((st['stop']['reason'], st['stop']['resumable']), (reason, False))
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (1, 2))        # no new audit, no fixer
+        self.assertEqual(x1['model_calls']['fix'], 0)
+        self.assertNotIn(x1['stage'], ('FREEZE', 'CLOSURE_RECORD', 'COMPLETE')); self.assertNotIn('X2', st['phases'])
+        self.assertFalse((self.R / CAMP / 'receipts/X1.json').exists())
+        self.run_campaign()                                                          # L: replayed, zero model calls
+        self.stopped(reason); self.assertIn('Model calls this invocation: 0', self.out)
+        self.assertEqual(self.calls('codex'), 2)
+
+    def test_26b_gate_survives_every_publication_boundary(self):
+        # A + B + C + F: the auditor's exact defect and every other state-publication boundary.
+        for boundary in ('no_state', 'last_audit_only', 'audit_and_kind', 'result_missing', 'message_only', 'fully_published'):
+            for spec in (self.GATE, dict(self.GATE, status='UNASSESSED')):
+                with self.subTest(boundary=boundary, unassessed='status' in spec):
+                    self.tearDown(); self.setUp()
+                    x1, inv = self.strict_interrupted(spec)
+                    self.publication_boundary(x1, inv, boundary)
+                    self.run_campaign()
+                    self.gate_held()
+
+    def test_26c_recovered_consistent_critical_stops(self):
+        # D
+        x1, inv = self.strict_interrupted({'f': [['CRITICAL', 'Cross-farm leak']]})
+        self.publication_boundary(x1, inv, 'last_audit_only')
+        self.run_campaign()
+        self.gate_held('CRITICAL_FINDING')
+
+    def test_26d_recovered_contradictory_critical_stops(self):
+        # E
+        x1, inv = self.strict_interrupted({'f': [['CRITICAL', 'Hidden']], 'summary': {'CRITICAL': 0}})
+        self.publication_boundary(x1, inv, 'last_audit_only')
+        self.run_campaign()
+        self.gate_held('AUDIT_ARTIFACT_CONTRADICTION')
+
+    def test_26e_recovered_clean_assessed_is_adopted(self):
+        # G: stale STATE.md never forces a re-audit of a clean published artifact.
+        x1, inv = self.strict_interrupted(CLEAN)
+        self.publication_boundary(x1, inv, 'last_audit_only')
+        self.run_campaign()
+        self.assertEqual((inv['kind'], inv['tier'], inv['base'], inv['head']), ('campaign', 'strict', x1['base_sha'], x1['head']))
+        self.assertIn('adopting finished strict audit', self.out)
+        self.stopped('PHASE_NOT_READY')
+        y = self.state()['phases']['X1']
+        self.assertEqual(y['stage'], 'COMPLETE'); self.assertEqual(self.calls('codex'), 2)
+        self.assertEqual(self.receipt('X1')['strict_audit']['original'], inv['artifact'])
+
+    def test_26f_recovered_clean_unassessed_retries_after_inspection(self):
+        # H
+        x1, inv = self.strict_interrupted({'status': 'UNASSESSED'})
+        self.publication_boundary(x1, inv, 'audit_and_kind')
+        self.run_campaign()
+        self.stopped('PHASE_NOT_READY')
+        self.assertEqual(self.state()['phases']['X1']['stage'], 'COMPLETE'); self.assertEqual(self.calls('codex'), 3)
+        self.assertNotEqual(self.receipt('X1')['strict_audit']['original'], inv['artifact'])
+
+    def test_26g_nothing_published_keeps_retry(self):
+        # I: the call provably published nothing (no artifact, no composed message).
+        x1, inv = self.strict_interrupted(self.GATE)
+        (self.R / inv['artifact']).unlink(); self.publication_boundary(x1, inv, 'no_state')
+        self.run_campaign()
+        self.stopped('PHASE_NOT_READY')
+        self.assertEqual(self.calls('codex'), 3)
+
+    def test_26h_two_matching_artifacts_are_ambiguous(self):
+        # J: never the newest, never a retry.
+        x1, inv = self.strict_interrupted(CLEAN)
+        other = self.R / '.agent/history/audit-20991231T235959Z-1.md'
+        other.write_text((self.R / inv['artifact']).read_text())
+        self.publication_boundary(x1, inv, 'last_audit_only')
+        self.run_campaign()
+        self.gate_held('AUDIT_RECOVERY_AMBIGUOUS')
+        self.assertIn('audit-20991231T235959Z-1.md', self.state()['stop']['detail'])
+
+    def test_26i_unrelated_new_artifacts_are_never_adopted(self):
+        # K: a different range, tier or HEAD is not this call's output.
+        x1, inv = self.strict_interrupted(CLEAN)
+        bound = (self.R / inv['artifact']).read_text()
+        (self.R / inv['artifact']).unlink(); self.publication_boundary(x1, inv, 'no_state')
+        hist = self.R / '.agent/history'
+        (hist / 'audit-20991231T235959Z-2.md').write_text(bound.replace('range: %s..' % inv['base'], 'range: %s..' % ('0' * 40)) + 'STOP: forged\n')
+        (hist / 'audit-20991231T235959Z-3.md').write_text(bound.replace('tier=strict', 'tier=standard') + 'STOP: forged\n')
+        (hist / 'audit-20991231T235959Z-4.md').write_text(bound.replace(inv['head'], '1' * 40) + 'STOP: forged\n')
+        self.run_campaign()
+        self.stopped('PHASE_NOT_READY')
+        self.assertEqual(self.calls('codex'), 3)
+        self.assertNotIn('20991231T235959Z', self.receipt('X1')['strict_audit']['original'])
+
+    def test_26j_agent_audit_bound_identity_contract(self):
+        # agent-audit honours a valid AGENT_AUDIT_STAMP, refuses a malformed or reused one; unset → its own stamp.
+        self.one_phase()
+        e = {k: v for k, v in os.environ.items() if not k.startswith('AGENT_')}
+        e.update(PATH='%s:%s' % (self.B, os.environ['PATH']), FAKE_DIR=str(self.T))
+        def audit(stamp):
+            env = dict(e, **({'AGENT_AUDIT_STAMP': stamp} if stamp else {}))
+            return subprocess.run(['./scripts/agent-audit', '--campaign', 'HEAD~1', '--dry-run'], cwd=self.R, env=env,
+                                  capture_output=True, text=True)
+        self.assertNotEqual(audit('not-a-stamp').returncode, 0)
+        (self.R / '.agent/history/audit-20990101T000000Z-7.raw.log').write_text('x')
+        r = audit('20990101T000000Z-7'); self.assertNotEqual(r.returncode, 0); self.assertIn('already has files', r.stdout + r.stderr)
+        self.assertEqual(audit('20990101T000000Z-8').returncode, 0, 'dry run with a fresh bound identity')
+        self.assertEqual(audit(None).returncode, 0, 'unset: agent-audit stamps its own identity')
+        self.assertEqual(self.calls('codex'), 0)
+
     # ── 27d–27f: an interrupted step never resumes on the wrong branch (F011) ──
     def resume_on_wrong_branch_then_back(self, key, claude, codex, step):
         self.one_phase()

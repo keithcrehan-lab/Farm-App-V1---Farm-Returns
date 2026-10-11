@@ -139,6 +139,15 @@ def receipt_fingerprint(r):
     return hashlib.sha256(canonical({k: v for k, v in r.items() if k != 'receipt_fingerprint'}).encode()).hexdigest()
 
 
+def write_bytes_atomic(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name('.' + path.name + '.tmp')
+    with open(tmp, 'wb') as f:
+        f.write(data); f.flush(); os.fsync(f.fileno())
+    os.replace(str(tmp), str(path))
+
+
 def write_json(path, obj):
     path = Path(path)
     tmp = path.with_name('.' + path.name + '.tmp')
@@ -545,10 +554,15 @@ class Campaign:
         self.save()
         return True
 
-    def check_head(self, pid, ps):
+    def check_branch(self):
+        """Branch identity is invariant for every resume, including an interrupted step whose
+        expected HEAD movement exempts it from the HEAD/tree comparison."""
         if git('branch', '--show-current') != self.m['branch']:
             raise Stop('WRONG_BRANCH', 'on %s, campaign branch is %s' % (git('branch', '--show-current') or '(detached)', self.m['branch']),
                        'return to %s' % self.m['branch'], True)
+
+    def check_head(self, pid, ps):
+        self.check_branch()
         if ps['stage'] == 'CLOSURE_RECORD': return  # closure() adopts or refuses its own commit/dirty docs
         allowed = ('.agent/CURRENT_TASK.md', '.agent/TASK.json') if ps['stage'] in ('STARTING', 'BUILDING') else ()
         dirty = [p for p in porcelain_paths() if p not in allowed]
@@ -638,6 +652,7 @@ class Campaign:
         log = self.log(pid, 'start')
         with open(log, 'w') as f:
             rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, env=child_env()).returncode
+        test_point('start')
         out = Path(log).read_text(errors='replace')
         if rc != 0 or 'AGENT_START_RESULT: READY' not in out:
             reason = re.search(r'^REASON: (\S+)', out, re.M)
@@ -952,7 +967,10 @@ class Campaign:
                 raise Stop('HEAD_DRIFT', 'HEAD %s is neither the freeze SHA nor its closure commit' % short(h), 'inspect git log')
         else:
             dirty = porcelain_paths()
-            extra = [p for p in dirty if p not in plan['files']]
+            # Only an interrupted atomic write of a closure file leaves its own .<name>.tmp; it is replaced.
+            tmps = {str(Path(f).with_name('.' + Path(f).name + '.tmp')) for f in plan['files']}
+            for t in tmps & set(dirty): Path(t).unlink()
+            extra = [p for p in dirty if p not in plan['files'] and p not in tmps]
             if extra: raise Stop('CLOSURE_UNAUTHORISED_CHANGE', 'unexpected changes before closure: ' + ', '.join(extra[:5]), 'inspect the working tree')
             originals = {}
             for p, content in plan['contents'].items():
@@ -963,9 +981,11 @@ class Campaign:
                                'inspect %s' % p)
                 originals[p] = at_head
             try:
-                for p, content in plan['contents'].items():
-                    Path(p).parent.mkdir(parents=True, exist_ok=True)
-                    Path(p).write_bytes(content)
+                # Every file the receipt depends on first, the receipt last, each atomically: a receipt
+                # is never visible before its audit copy and documents are complete.
+                for p in sorted(plan['contents'], key=lambda f: f == plan['receipt_path']):
+                    write_bytes_atomic(p, plan['contents'][p])
+                    test_point('closure-write:' + Path(p).name)
                 validate_closure(plan, self.m, ph, pred_fp)
                 subprocess.run(['git', 'add', '--'] + plan['files'], check=True, capture_output=True)
                 staged = set(git('diff', '--cached', '--name-only').splitlines())
@@ -1022,6 +1042,12 @@ class Campaign:
             pid = ph['id']
             self.current = pid
             ps = self.st['phases'].get(pid)
+            if status == 'RECEIPT_INVALID' and ph['kind'] == 'campaign' and ps and ps['stage'] == 'CLOSURE_RECORD' \
+                    and git('status', '--porcelain', '--untracked-files=all', '--', str(receipt_path(self.m, pid))):
+                print('agent-campaign-run: %s closure was interrupted before its commit — completing it (no model call)' % pid)
+                self.check_head(pid, ps)
+                self.closure(ph, ps, next((r['receipt_fingerprint'] for p, s, d, r in statuses if p['id'] == ph['predecessor'] and r), None))
+                continue
             if status == 'RECEIPT_INVALID' or ph['kind'] == 'legacy':
                 raise Stop('RECEIPT_INVALID', '%s receipt does not validate: %s' % (pid, detail), 'repair the receipt chain; never edit receipts by hand', True)
             if ps and ps['stage'] == 'COMPLETE':
@@ -1031,6 +1057,7 @@ class Campaign:
                 self.preflight(ph, statuses)
                 ps = self.ps(pid)
             else:
+                self.check_branch()
                 if ps.get('in_flight') not in ('build', 'fix', 'start'):
                     self.check_head(pid, ps)
                 print('agent-campaign-run: resuming %s at %s%s' % (pid, ps['stage'], ' (interrupted during %s)' % ps['in_flight'] if ps.get('in_flight') else ''))

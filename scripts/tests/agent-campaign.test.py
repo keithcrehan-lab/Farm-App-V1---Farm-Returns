@@ -969,6 +969,156 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(sum(1 for s in subjects if 'record closure' in s), 1)
         self.assertEqual(self.calls('codex'), 2)
 
+    # ── 27d–27f: an interrupted step never resumes on the wrong branch (F011) ──
+    def resume_on_wrong_branch_then_back(self, key, claude, codex, step):
+        self.one_phase()
+        self.seq(claude, codex)
+        self.run_campaign(env={'AGENT_CAMPAIGN_TEST_INTERRUPT_AFTER': key})
+        self.assertEqual(self.rc, 130, self.out)
+        before = self.state()['phases']['X1']
+        self.assertEqual(before['in_flight'], step)
+        n = (self.calls('claude'), self.calls('codex'))
+        h = self.git('rev-parse', 'HEAD')
+        self.git('checkout', '-q', '-b', 'elsewhere')       # same commit, wrong branch
+        for _ in range(2):
+            self.run_campaign()
+            self.stopped('WRONG_BRANCH'); self.assertIn('Model calls this invocation: 0', self.out)
+        self.assertEqual((self.calls('claude'), self.calls('codex')), n)
+        self.assertEqual(self.state()['phases']['X1'], before)  # stage, in-flight step and counters untouched
+        self.assertEqual(self.git('rev-parse', 'HEAD'), h); self.assertEqual(self.git('branch', '--show-current'), 'elsewhere')
+        self.git('checkout', '-q', 'work')
+        self.run_campaign()
+        self.stopped('PHASE_NOT_READY')
+        self.assertEqual(self.state()['phases']['X1']['stage'], 'COMPLETE', self.out)
+        self.assertEqual(self.git('branch', '--show-current'), 'work')
+        return n
+
+    def test_27d_interrupted_build_wrong_branch(self):
+        # A + D + E: the build commit (expected HEAD movement) is adopted once back on the campaign branch.
+        n = self.resume_on_wrong_branch_then_back('build', ['done'], [CLEAN, CLEAN], 'build')
+        self.assertIn('build was interrupted', self.out)
+        self.assertEqual(self.calls('claude'), n[0])          # never rebuilt
+        self.assertEqual(self.calls('codex'), 2)
+
+    def test_27e_interrupted_fix_wrong_branch(self):
+        # B + D: the fix commit is adopted, never repeated.
+        n = self.resume_on_wrong_branch_then_back('fix', ['done', 'done'], [M('Label'), CLEAN, CLEAN], 'fix')
+        self.assertIn('fix was interrupted', self.out)
+        self.assertEqual(n, (2, 1)); self.assertEqual(self.calls('claude'), 2)
+
+    def test_27f_interrupted_start_wrong_branch(self):
+        # C: the task start step.
+        self.resume_on_wrong_branch_then_back('start', ['done'], [CLEAN, CLEAN], 'start')
+        self.assertEqual(self.calls('claude'), 1)
+
+    # ── 27g–27l: an interrupted closure always completes or stops, never dead-loops (F012) ──
+    def interrupted_at_freeze(self):
+        self.one_phase()
+        self.seq(['done'], [CLEAN, CLEAN])
+        self.run_campaign(env={'AGENT_CAMPAIGN_TEST_INTERRUPT_AFTER': 'freeze'})
+        self.assertEqual(self.rc, 130, self.out)
+        x1 = self.state()['phases']['X1']
+        self.assertEqual((x1['stage'], self.git('rev-parse', 'HEAD')), ('CLOSURE_RECORD', x1['freeze_sha']))
+        return x1
+
+    def write_receipt_only(self):
+        # The state an interruption left under the old write order: the receipt, without its audit copy.
+        mod = self.module()
+        cwd = os.getcwd(); os.chdir(self.R)
+        try:
+            m = mod.load_manifest(CID)
+            plan = mod.closure_plan(m, mod.phase_by_id(m, 'X1'), self.state()['phases']['X1'])
+        finally:
+            os.chdir(cwd)
+        rp = self.R / plan['receipt_path']
+        rp.parent.mkdir(parents=True, exist_ok=True); rp.write_bytes(plan['contents'][plan['receipt_path']])
+        audit_copy = self.R / plan['receipt']['strict_audit']['artifact']
+        self.assertFalse(audit_copy.exists())
+        self.assertIn('is missing', self.validate('X1'))     # the partial receipt is never valid
+        return plan
+
+    def closed_once(self, x1):
+        self.stopped('PHASE_NOT_READY')
+        y = self.state()['phases']['X1']
+        self.assertEqual(y['stage'], 'COMPLETE', self.out)
+        self.assertEqual(y['freeze_sha'], x1['freeze_sha'])                          # functional freeze SHA preserved
+        self.assertEqual(self.git('rev-parse', 'HEAD^'), x1['freeze_sha'])           # docs closure commit on top of it
+        self.assertNotEqual(y['closure_sha'], y['freeze_sha'])
+        self.assertEqual(sum('record closure' in x for x in self.git('log', '--format=%s').splitlines()), 1)
+        self.assertIsNone(self.validate('X1'))
+        self.assertEqual(self.receipt('X1')['strict_audit']['original'], x1['audits'][-1]['artifact'])  # the exact strict audit reused
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (1, 2))      # no rebuild, fix or re-audit
+        self.assertEqual(self.git('status', '--porcelain'), '')
+        self.assertEqual((self.state()['stop']['phase'], self.state()['stop']['reason']), ('X2', 'PHASE_NOT_READY'))
+
+    def test_27g_receipt_written_before_audit_copy_recovers(self):
+        # A: the auditor's reproduction — no RECEIPT_INVALID dead loop.
+        x1 = self.interrupted_at_freeze()
+        self.write_receipt_only()
+        self.run_campaign()
+        self.assertIn('closure was interrupted before its commit', self.out); self.assertNotIn('RECEIPT_INVALID', self.out)
+        self.closed_once(x1)
+
+    def test_27h_interrupt_between_each_closure_write_recovers(self):
+        # A/B/C: every write boundary of the new order; the receipt is written last.
+        for name in ('audit-copy', 'BUILD_STATE.json', 'IMPLEMENTATION_LOG.md', 'X1.json'):
+            with self.subTest(after=name):
+                self.tearDown(); self.setUp()                                       # a fresh fixture per boundary
+                x1 = self.interrupted_at_freeze()
+                key = 'closure-write:' + (Path(x1['audits'][-1]['artifact']).name if name == 'audit-copy' else name)
+                self.run_campaign(env={'AGENT_CAMPAIGN_TEST_INTERRUPT_AFTER': key})
+                self.assertEqual(self.rc, 130, self.out)
+                self.assertEqual(self.git('rev-parse', 'HEAD'), x1['freeze_sha'])
+                receipt = self.R / CAMP / 'receipts/X1.json'
+                self.assertEqual(receipt.exists(), name == 'X1.json')               # never before its dependencies
+                self.run_campaign()
+                self.closed_once(x1)
+
+    def test_27i_pending_closure_wrong_branch(self):
+        # D
+        x1 = self.interrupted_at_freeze()
+        self.write_receipt_only()
+        self.git('checkout', '-q', '-b', 'elsewhere')
+        self.run_campaign()
+        self.stopped('WRONG_BRANCH')
+        self.assertEqual(self.git('rev-parse', 'HEAD'), x1['freeze_sha'])
+        self.git('checkout', '-q', 'work')
+        self.run_campaign()
+        self.closed_once(x1)
+
+    def test_27j_pending_closure_head_drift_stops(self):
+        # E: a commit closure cannot explain → STOP, nothing guessed or committed by the campaign.
+        x1 = self.interrupted_at_freeze()
+        self.write_receipt_only()
+        self.write('src/x1/other.ts', '// unrelated\n')
+        self.git('add', 'src/x1/other.ts'); self.git('commit', '-qm', 'unrelated work after freeze')
+        h = self.git('rev-parse', 'HEAD')
+        self.run_campaign()
+        self.stopped('HEAD_DRIFT')
+        self.assertEqual(self.git('rev-parse', 'HEAD'), h)
+        self.assertNotEqual(self.state()['phases']['X1']['stage'], 'COMPLETE')
+
+    def test_27k_pending_closure_with_foreign_receipt_bytes_fails_closed(self):
+        # G (pending side): an uncommitted receipt that is not the deterministic closure record is never adopted.
+        x1 = self.interrupted_at_freeze()
+        self.write_receipt_only()
+        self.rewrite_receipt('X1', lambda r: r.update(outstanding_low_findings=['forged']))
+        self.run_campaign()
+        self.stopped('CLOSURE_UNAUTHORISED_CHANGE')
+        self.assertEqual(self.git('rev-parse', 'HEAD'), x1['freeze_sha'])
+        self.assertNotIn('forged', self.git('log', '--all', '-p', '--format=%s'))
+
+    def test_27l_committed_malformed_receipt_still_invalid(self):
+        # F + G: a completed closure validates; a committed, malformed final receipt is RECEIPT_INVALID, not recovered.
+        x1 = self.interrupted_at_freeze()
+        self.run_campaign()
+        self.closed_once(x1)
+        self.rewrite_receipt('X1', lambda r: r.update(pushed_or_deployed=True), refingerprint=False)
+        self.commit('tamper with the final receipt')
+        self.run_campaign()
+        self.stopped('RECEIPT_INVALID'); self.assertIn('fingerprint mismatch', self.out)
+        self.assertNotIn('closure was interrupted', self.out)
+
     # ── 28: lock ─────────────────────────────────────────────────────
     def test_28_lock_prevents_second_runner_and_fails_closed(self):
         lock = self.R / '.agent/history/campaign.lock'

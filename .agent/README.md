@@ -189,7 +189,11 @@ completion evidence (HR-F007).
 State: `history/campaign-<id>.state.json`, saved after every transition with the in-flight
 call; a rerun resumes at the next safe step and adopts a finished build/fix commit, audit or
 closure commit instead of repeating it. If state and HEAD disagree it stops (HEAD_DRIFT); it never
-resets, rebases, stashes or cleans. Lock: one per worktree, `history/campaign.lock` (records campaign id, pid, host), so no two
+resets, rebases, stashes or cleans. Every resume, including an interrupted build/fix/start whose HEAD
+movement is expected, first requires the campaign branch (WRONG_BRANCH otherwise). Closure writes the audit
+copy and docs first and the receipt last, each atomically; an uncommitted receipt of a phase at
+CLOSURE_RECORD is pending, so closure finishes it (exact deterministic bytes only) instead of
+reporting RECEIPT_INVALID; a committed invalid receipt is still RECEIPT_INVALID. Lock: one per worktree, `history/campaign.lock` (records campaign id, pid, host), so no two
 campaigns run at once; a live owner → exit 3; a dead or unreadable owner, or a legacy
 `history/campaign-<id>.lock`, fails closed (remove it by hand after checking). It and
 `history/agent-run.lock` exclude each other: each runner takes its own lock, then refuses while

@@ -21,11 +21,16 @@
  *   `t` or just before it makes that occurrence's anchor CONFLICT / INVALID —
  *   never a known start. No C1 evidence of the dimension at all is UNKNOWN;
  *   evidence with no matching start is NOT_TRIGGERED (no trigger in the
- *   known record — never "not applicable").
+ *   known record — never "not applicable") only when the dimension itself is
+ *   resolved: C1 is probed at the query and at every live assertion's
+ *   `validFrom`/`validTo`; an invalid or conflicting state at any probe, or an
+ *   UNKNOWN state at the query or at a probe not after it, is INVALID /
+ *   CONFLICT / UNKNOWN instead (precedence in that order). With occurrences,
+ *   the same probe result is reported as `dimensionState`.
  */
 
 import { canonicalizeValue } from "../../assessment-integrity";
-import { BOVINE_SPECIES, type AnimalLedger, type AnimalLocationRef } from "../animal-ledger";
+import { BOVINE_SPECIES, compareInstants, type AnimalLedger, type AnimalLocationRef } from "../animal-ledger";
 import { animalAssertionHistory, projectAnimalSnapshot, type AnimalResolution, type AnimalResolutionState, type AnimalSnapshot } from "../animal-snapshot";
 import type { CattleInputItem, CattleInputScalar } from "../information";
 import { compareStrings, sortedUnique } from "../integrity";
@@ -141,7 +146,13 @@ export interface ObligationOccurrence {
 }
 
 export type ObligationOccurrenceDerivation =
-  | { status: "OCCURRENCES"; occurrences: ObligationOccurrence[] }
+  | {
+      status: "OCCURRENCES";
+      occurrences: ObligationOccurrence[];
+      /** Whole-dimension probe result (always KNOWN for DATE_OF_BIRTH). */
+      dimensionState: "KNOWN" | "UNKNOWN" | "CONFLICT" | "INVALID";
+      dimensionAssertionIds: string[];
+    }
   | { status: "UNKNOWN" | "CONFLICT" | "INVALID" | "NOT_TRIGGERED"; anchorAssertionIds: string[] };
 
 export function obligationOccurrenceId(obligationId: string, anchorKind: ObligationAnchorKind, anchorAt: string): string {
@@ -169,6 +180,8 @@ export function deriveObligationOccurrences(
     return {
       status: "OCCURRENCES",
       occurrences: [{ occurrenceId: obligationOccurrenceId(obligationId, anchor.kind, anchorAt), anchorKind: anchor.kind, anchorAt, anchorState: "KNOWN", anchorAssertionIds: ids(dob) }],
+      dimensionState: "KNOWN",
+      dimensionAssertionIds: ids(dob),
     };
   }
 
@@ -214,8 +227,31 @@ export function deriveObligationOccurrences(
     else if (before !== null && before.state === "KNOWN" && canonicalizeValue(before.value) === canonicalizeValue(now.value)) continue;
     else push(t, "KNOWN", ids(now));
   }
+  // Probe the whole dimension so a conflicting, invalid or unknown period is
+  // never read as "no trigger" (nor cleared as not applicable).
+  const probes = sortedUnique(
+    history
+      .filter((h) => h.supersededBy.length === 0 && "validFrom" in h.assertion)
+      .flatMap((h) => ("validFrom" in h.assertion ? [h.assertion.validFrom, h.assertion.validTo] : []))
+      .map((t) => canonicalObligationInstant(t))
+      .filter((t): t is string => t !== null),
+  );
+  const flagged = { invalid: false, INVALID: [] as string[], CONFLICT: [] as string[], UNKNOWN: [] as string[] };
+  const probe = (r: AnimalResolution<unknown> | null, unknownCounts: boolean) => {
+    if (r === null || r.state === "INVALID_EVIDENCE") {
+      flagged.invalid = true;
+      flagged.INVALID.push(...(r ? ids(r) : []));
+    }
+    else if (r.state === "CONFLICTING_EVIDENCE") flagged.CONFLICT.push(...ids(r));
+    else if (r.state === "UNKNOWN" && unknownCounts) flagged.UNKNOWN.push(...ids(r));
+  };
+  probe(current, true);
+  for (const t of probes) probe(at(t), compareInstants(t, snapshot.effectiveAt) <= 0);
+  const dimensionState = flagged.invalid ? "INVALID" : flagged.CONFLICT.length > 0 ? "CONFLICT" : flagged.UNKNOWN.length > 0 || current.state === "UNKNOWN" ? "UNKNOWN" : "KNOWN";
+  const dimensionAssertionIds = sortedUnique(dimensionState === "KNOWN" ? [] : dimensionState === "INVALID" ? flagged.INVALID : dimensionState === "CONFLICT" ? flagged.CONFLICT : flagged.UNKNOWN);
   if (occurrences.length === 0) {
+    if (dimensionState !== "KNOWN") return { status: dimensionState, anchorAssertionIds: dimensionAssertionIds };
     return { status: "NOT_TRIGGERED", anchorAssertionIds: sortedUnique(history.map((h) => h.assertion.assertionId)) };
   }
-  return { status: "OCCURRENCES", occurrences };
+  return { status: "OCCURRENCES", occurrences, dimensionState, dimensionAssertionIds };
 }

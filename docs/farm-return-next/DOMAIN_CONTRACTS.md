@@ -3521,15 +3521,20 @@ assertion matching the anchor starts at `t`, C1 resolves the dimension at `t` KN
 matching, and one nanosecond earlier it was not KNOWN with the same value (continuations are not
 new starts); conflicting / invalid C1 state at or just before `t` ⇒ that occurrence's anchor is
 conflicting / invalid. No C1 evidence of the dimension ⇒ UNKNOWN; evidence but no matching
-start ⇒ `NOT_TRIGGERED` (never NOT_APPLICABLE). Occurrence id `<obligationId>|<anchorKind>|<t>`.
+start ⇒ `NOT_TRIGGERED` (never NOT_APPLICABLE) only when the dimension is resolved: C1 is probed
+at the query and at every live assertion's `validFrom`/`validTo`; invalid or conflicting at any
+probe, or UNKNOWN at the query or a probe not after it ⇒ INVALID / CONFLICT / UNKNOWN (that
+precedence), and a C0 NOT_APPLICABLE with occurrences is never cleared while that probe is not
+KNOWN. Occurrence id `<obligationId>|<anchorKind>|<t>`.
 
 **Window.** `opensAt = anchor + opensAfter`, `dueAt = anchor + dueAfter`; inclusive start;
 exclusive end unless the rule declares `INCLUSIVE_START_INCLUSIVE_END`. Unrepresentable ⇒
 UNSUPPORTED.
 
 **State precedence** (first match wins). Rule level (one record, `occurrence: null`):
-UNSUPPORTED (catalogue invalid; obligation absent / not known by cutoff; released version
-without terms; C0 UNSUPPORTED incl. no/ambiguous effective version, invalid lineage,
+UNSUPPORTED (catalogue invalid; obligation absent as known by the cutoff — definitions recorded
+later never change the result; released version approved by the cutoff without terms recorded
+by it — a released version with neither is not yet known; C0 UNSUPPORTED incl. no/ambiguous effective version, invalid lineage,
 implementation absent or mismatched; terms marker absent; window source not a rule binding;
 unsupported time basis) > REVIEW_REQUIRED (unreleased version in force; C0 REVIEW_REQUIRED) >
 INVALID_EVIDENCE > EVIDENCE_CONFLICT > UNKNOWN > INSUFFICIENT_EVIDENCE (C0 lacked a KNOWN input;

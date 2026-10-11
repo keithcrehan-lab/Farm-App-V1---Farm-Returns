@@ -12,8 +12,9 @@
  *
  * State precedence (first match wins; documented in DOMAIN_CONTRACTS.md):
  *   Rule level (one record, no occurrence):
- *   1. UNSUPPORTED — catalogue invalid; obligation not in the catalogue or
- *      not known by the cutoff; a released rule version without terms; C0
+ *   1. UNSUPPORTED — catalogue invalid; obligation not in the catalogue as
+ *      known by the cutoff; a released rule version approved by the cutoff
+ *      without terms recorded by it; C0
  *      UNSUPPORTED (no effective version, ambiguous, invalid lineage,
  *      invalid definition, implementation absent or mismatched); terms not
  *      bound into the rule version; window source not a rule binding;
@@ -312,21 +313,27 @@ function evaluateObligation(ctx: Context, obligationId: string): ObligationState
   if (!ctx.catalogue.ok) return [unresolved(ctx, obligationId, undefinedObligationRuleId(obligationId), ["CATTLE_OBLIGATION_CATALOGUE_INVALID"])];
   const catalogue = ctx.catalogue.catalogue;
   const { knowledgeCutoff } = ctx.query;
-  const defs = catalogue.definitions.filter((d) => d.obligationId === obligationId);
-  // Definitions recorded after the cutoff were set aside unvalidated; their identities still count as known terms below.
-  const pending = ctx.catalogue.laterDefinitions.filter((d) => d.obligationId === obligationId);
-  if (defs.length === 0 && pending.length === 0) return [unresolved(ctx, obligationId, undefinedObligationRuleId(obligationId), ["CATTLE_OBLIGATION_NOT_IN_CATALOGUE"])];
-  const ruleId = defs.length > 0 ? defs[0].ruleId : pending[0].ruleId;
-  const knownDefs = defs.filter((d) => compareInstants(d.recordedAt, knowledgeCutoff) <= 0);
-  if (knownDefs.length === 0) return [unresolved(ctx, obligationId, ruleId, ["CATTLE_OBLIGATION_NOT_KNOWN_AT_CUTOFF"])];
-  const released = catalogue.ruleVersions.filter((r) => r.ruleId === ruleId && (r.productionState === "PRODUCTION" || r.productionState === "SUPERSEDED"));
-  const withoutTerms = released.filter((r) => !defs.some((d) => d.ruleVersion === r.version) && !pending.some((d) => d.ruleId === ruleId && d.ruleVersion === r.version));
+  // Only definitions recorded by the cutoff exist for this query: anything
+  // recorded later (set aside by the catalogue) never changes the result.
+  const knownDefs = catalogue.definitions.filter((d) => d.obligationId === obligationId && compareInstants(d.recordedAt, knowledgeCutoff) <= 0);
+  if (knownDefs.length === 0) return [unresolved(ctx, obligationId, undefinedObligationRuleId(obligationId), ["CATTLE_OBLIGATION_NOT_IN_CATALOGUE"])];
+  const ruleId = knownDefs[0].ruleId;
+  const reviews = catalogue.reviews.filter((r) => compareInstants(r.reviewedAt, knowledgeCutoff) <= 0);
+  // A version's terms are its knowledge time. A released version with an
+  // approval known by the cutoff but no terms known by it fails closed; one
+  // with neither is not yet known at the cutoff.
+  const knownVersions = new Set(knownDefs.map((d) => d.ruleVersion));
+  const withoutTerms = catalogue.ruleVersions.filter(
+    (r) =>
+      r.ruleId === ruleId &&
+      (r.productionState === "PRODUCTION" || r.productionState === "SUPERSEDED") &&
+      !knownVersions.has(r.version) &&
+      reviews.some((v) => v.ruleId === ruleId && v.ruleVersion === r.version && v.decision === "APPROVED"),
+  );
   if (withoutTerms.length > 0) {
     return [unresolved(ctx, obligationId, ruleId, withoutTerms.map((r) => `CATTLE_OBLIGATION_RULE_VERSION_WITHOUT_TERMS:v${r.version}`))];
   }
-  const knownVersions = new Set(knownDefs.map((d) => d.ruleVersion));
   const versions = catalogue.ruleVersions.filter((r) => r.ruleId === ruleId && knownVersions.has(r.version));
-  const reviews = catalogue.reviews.filter((r) => compareInstants(r.reviewedAt, knowledgeCutoff) <= 0);
   const resolution = resolveEffectiveRuleVersion(versions, ruleId, ctx.evaluationDate);
   // C0 never selects an unreleased version. When the only version in force on
   // the date is unreleased (draft/approved/blocked, ...), it is evaluated as
@@ -389,9 +396,19 @@ function evaluateObligation(ctx: Context, obligationId: string): ObligationState
   const derivation = deriveObligationOccurrences(obligationId, def.terms.anchor, ctx.ledger, ctx.snapshot);
   if (ruleEvaluation.state === "NOT_APPLICABLE" && derivation.status === "OCCURRENCES") {
     const unresolvedAnchors = derivation.occurrences.filter((o) => o.anchorState !== "KNOWN");
-    if (unresolvedAnchors.length === 0) return ruleLevel("NOT_APPLICABLE", ["CATTLE_OBLIGATION_RULE_NOT_APPLICABLE"]);
-    const state: ObligationState = unresolvedAnchors.some((o) => o.anchorState === "INVALID") ? "INVALID_EVIDENCE" : "EVIDENCE_CONFLICT";
-    return ruleLevel(state, ["CATTLE_OBLIGATION_RULE_NOT_APPLICABLE", ...unresolvedAnchors.map((o) => `CATTLE_OBLIGATION_ANCHOR_${o.anchorState}:${o.occurrenceId}`)]);
+    const dim = derivation.dimensionState;
+    if (unresolvedAnchors.length === 0 && dim === "KNOWN") return ruleLevel("NOT_APPLICABLE", ["CATTLE_OBLIGATION_RULE_NOT_APPLICABLE"]);
+    const state: ObligationState =
+      dim === "INVALID" || unresolvedAnchors.some((o) => o.anchorState === "INVALID")
+        ? "INVALID_EVIDENCE"
+        : dim === "CONFLICT" || unresolvedAnchors.length > 0
+          ? "EVIDENCE_CONFLICT"
+          : "UNKNOWN";
+    return ruleLevel(state, [
+      "CATTLE_OBLIGATION_RULE_NOT_APPLICABLE",
+      ...unresolvedAnchors.map((o) => `CATTLE_OBLIGATION_ANCHOR_${o.anchorState}:${o.occurrenceId}`),
+      ...(dim === "KNOWN" ? [] : [`CATTLE_OBLIGATION_ANCHOR_DIMENSION_${dim}`, ...derivation.dimensionAssertionIds.map((id) => `CATTLE_OBLIGATION_ANCHOR_ASSERTION:${id}`)]),
+    ]);
   }
   if (ruleEvaluation.state === "NOT_APPLICABLE" && derivation.status === "NOT_TRIGGERED") return ruleLevel("NOT_APPLICABLE", ["CATTLE_OBLIGATION_RULE_NOT_APPLICABLE"]);
   const evidence = obligationEvidence(ctx, obligationId, def);

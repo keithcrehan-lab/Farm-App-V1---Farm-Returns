@@ -349,6 +349,34 @@ describe("C2 interval anchors", () => {
     expect(p.pack.outcome).toBe("INSUFFICIENT_EVIDENCE");
   });
 
+  it("a non-matching KNOWN input never clears a conflicting or unknown interval-anchor dimension as NOT_APPLICABLE", () => {
+    const female = { input: descriptor("cattle.animal.sex"), equals: "FEMALE" };
+    const departedDef = definition({}, { anchor: { kind: "LIFECYCLE_STATUS_START", status: "DEPARTED" } });
+    const departed = catalogueOf({ def: departedDef, rule: boundRule(departedDef, { applicability: [female] }) });
+    const male = (...rest: AnimalAssertionInput[]) => ledgerOf([dob("a-dob", DOB), sex("a-sex", "MALE"), ...rest]);
+    const lifeConflict = male(life("l-1", "PRESENT"), life("l-2", "DECEASED", "2026-03-03T00:00:00Z"));
+    const r = only(run({ catalogue: departed, ledger: lifeConflict }));
+    expect(r.state).toBe("EVIDENCE_CONFLICT");
+    const gates = projectObligationHardGates(run({ catalogue: departed, ledger: lifeConflict }), hash);
+    expect(gates.ok && gates.projection.entries.map((e) => e.state)).toEqual(["EVIDENCE_CONFLICT"]);
+    // A conflict that has since ended is still preserved.
+    const pastConflict = male(life("l-1", "PRESENT", "2026-03-01T00:00:00Z", "2026-03-04T00:00:00Z"), life("l-2", "DECEASED", "2026-03-02T00:00:00Z", "2026-03-04T00:00:00Z"), life("l-3", "PRESENT", "2026-03-04T00:00:00Z"));
+    expect(stateOf({ catalogue: departed, ledger: pastConflict })).toBe("EVIDENCE_CONFLICT");
+    // The dimension is not known at the query: never cleared.
+    expect(stateOf({ catalogue: departed, ledger: male(life("l-1", "PRESENT", "2026-03-01T00:00:00Z", "2026-03-04T00:00:00Z")) })).toBe("UNKNOWN");
+    expect(stateOf({ catalogue: departed, ledger: male(life("l-1", "PRESENT")) })).toBe("NOT_APPLICABLE");
+
+    const shedDef = definition({}, { anchor: { kind: "LOCATION_START", locationKind: "HOUSING" } });
+    const shed = catalogueOf({ def: shedDef, rule: boundRule(shedDef, { applicability: [female] }) });
+    const locConflict = male(loc("l-1", "field-1", "2026-01-01T00:00:00Z", null), loc("l-2", "field-2", "2026-02-01T00:00:00Z", null));
+    expect(stateOf({ catalogue: shed, ledger: locConflict })).toBe("EVIDENCE_CONFLICT");
+    expect(stateOf({ catalogue: shed, ledger: male(loc("l-1", "field-1", "2026-01-01T00:00:00Z", "2026-03-04T00:00:00Z")) })).toBe("UNKNOWN");
+    expect(stateOf({ catalogue: shed, ledger: male(loc("l-1", "field-1", "2026-01-01T00:00:00Z", null)) })).toBe("NOT_APPLICABLE");
+    // With a known matching start, a conflict elsewhere in the dimension is still preserved.
+    const knownStartAndConflict = male(loc("l-1", "shed-1", "2026-01-01T00:00:00Z", null, "HOUSING"), loc("l-2", "field-2", "2026-02-01T00:00:00Z", null));
+    expect(stateOf({ catalogue: shed, ledger: knownStartAndConflict })).toBe("EVIDENCE_CONFLICT");
+  });
+
   it("evidence whose occurrence shape does not fit the anchor fails closed", () => {
     const ledger = ledgerOf([loc("l-1", "field-1", "2026-01-01T00:00:00Z", null)]);
     expect(stateOf({ catalogue: locCat, ledger, evidence: [ful("e-1", "2026-01-02T00:00:00Z")] })).toBe("INVALID_EVIDENCE");
@@ -599,6 +627,24 @@ describe("C2 test 8 — bitemporal reconstruction", () => {
     // An unreadable knowledge time is never set aside: it still fails closed.
     const unreadable = { ...definition({ ruleVersion: 2 }), recordedAt: "not-an-instant" };
     expect(only(run({ catalogue: { ...base, definitions: [...base.definitions, unreadable] }, effectiveAt: AT, knowledgeCutoff: EARLY, evidence })).state).toBe("UNSUPPORTED");
+  });
+
+  it("terms or a whole obligation recorded after the cutoff cannot change an earlier reconstruction", () => {
+    const EARLY = "2026-03-21T00:00:00Z";
+    const { catalogue, d2 } = versionPair();
+    const missing = { ...catalogue, definitions: catalogue.definitions.filter((d) => d !== d2) };
+    const lateTerms = { ...missing, definitions: [...missing.definitions, { ...d2, recordedAt: "2026-04-01T00:00:00Z" }] };
+    const evidence = [ful("e-1", INSIDE)];
+    const before = run({ catalogue: missing, effectiveAt: INSIDE, knowledgeCutoff: EARLY, evidence });
+    expect(only(before).state).toBe("UNSUPPORTED");
+    expect(only(before).reasonCodes).toContain("CATTLE_OBLIGATION_RULE_VERSION_WITHOUT_TERMS:v2");
+    expect(run({ catalogue: lateTerms, effectiveAt: INSIDE, knowledgeCutoff: EARLY, evidence })).toEqual(before);
+
+    const OTHER = "SYNTH-OBLIGATION-FUTURE";
+    const base = catalogueOf();
+    const absent = run({ catalogue: base, knowledgeCutoff: EARLY, ids: [OBL, OTHER] });
+    const futureOnly = { ...base, definitions: [...base.definitions, definition({ obligationId: OTHER, recordedAt: "2026-04-01T00:00:00Z" })] };
+    expect(run({ catalogue: futureOnly, knowledgeCutoff: EARLY, ids: [OBL, OTHER] })).toEqual(absent);
   });
 
   it("a record received after the cutoff — even a contradictory one — cannot change an earlier reconstruction", () => {

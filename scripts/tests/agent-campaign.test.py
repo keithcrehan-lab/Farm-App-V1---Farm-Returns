@@ -160,7 +160,9 @@ class CampaignTests(unittest.TestCase):
         for f in SCRIPTS: shutil.copy(SOURCE / 'scripts' / f, self.R / 'scripts' / f)
         self.write('scripts/quality-gate.sh', '#!/usr/bin/env bash\necho gate >> "$FAKE_DIR/gate.log"\n'
                    '[[ -e "$FAKE_DIR/fail-gate" ]] && exit 1\nexit 0\n')
-        for f in list(SCRIPTS) + ['quality-gate.sh']: self.chmod_x(self.R / 'scripts' / f)
+        # The orchestrator entrypoint keeps the mode it has in the real checkout (shutil.copy copies
+        # it): fixtures never repair its executable bit, so a non-executable entrypoint fails here.
+        for f in [x for x in SCRIPTS if x != 'agent-campaign-run'] + ['quality-gate.sh']: self.chmod_x(self.R / 'scripts' / f)
         self.write('AGENTS.md', '# AGENTS.md — Farm Return (fixture)\n')
         self.write('.agent/.gitignore', 'STATE.md\nhistory/*\n')
         self.write('.agent/AUDIT_RULES.md', '# Audit rules (fixture)\n')
@@ -403,17 +405,74 @@ class CampaignTests(unittest.TestCase):
 
     def test_05c_critical_heading_with_zero_count_never_freezes(self):
         self.one_phase()
-        self.seq(['done'], [CLEAN, {'f': [['CRITICAL', 'Hidden critical']], 'summary': {'CRITICAL': 0}}])
+        self.seq(['done', 'done'], [CLEAN, {'f': [['CRITICAL', 'Hidden critical']], 'summary': {'CRITICAL': 0}}, CLEAN, CLEAN])
         self.run_campaign()
-        self.assertEqual(self.rc, 1, self.out); self.assertIn('inconsistent', self.out)
-        self.assertNotEqual(self.state()['phases']['X1']['stage'], 'FREEZE')
+        self.stopped('AUDIT_ARTIFACT_CONTRADICTION')
+        self.assertIn('RESUMABLE: no', self.out); self.assertIn('inconsistent', self.out)
+        # Rerunning never clears the gate, never re-runs the strict audit and never calls the fixer.
+        for _ in range(2):
+            self.run_campaign()
+            self.stopped('AUDIT_ARTIFACT_CONTRADICTION')
+            self.assertIn('Model calls this invocation: 0', self.out)
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (1, 2))
+        st = self.state()
+        self.assertFalse(st['stop']['resumable']); self.assertEqual(st['stop']['reason'], 'AUDIT_ARTIFACT_CONTRADICTION')
+        self.assertNotIn(st['phases']['X1']['stage'], ('FREEZE', 'CLOSURE_RECORD', 'COMPLETE'))
+        self.assertEqual(st['phases']['X1']['model_calls']['fix'], 0)
         self.assertFalse((self.R / CAMP / 'receipts/X1.json').exists())
-        self.assertEqual(self.calls('claude'), 1)
+        self.run_campaign('--status')
+        self.assertIn('REASON: AUDIT_ARTIFACT_CONTRADICTION', self.out)
         mod = self.module()
         art = self.T / 'contradictory.md'
         art.write_text('### [CRITICAL] [F001] Hidden\n- PROBLEM: CONFIRMED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n')
         fs = mod.findings_of(art)
         self.assertEqual([f['severity'] for f in fs], ['CRITICAL'])
+
+    def test_05e_contradictory_critical_survives_interruption_without_reaudit(self):
+        # Interrupted right after the audit returned: the resume must not discard the Critical by re-auditing.
+        self.one_phase()
+        self.seq(['done', 'done'], [{'f': [['CRITICAL', 'Hidden critical']], 'summary': {'CRITICAL': 0}}, CLEAN, CLEAN])
+        self.run_campaign(env={'AGENT_CAMPAIGN_TEST_INTERRUPT_AFTER': 'audit'})
+        self.assertEqual(self.rc, 130, self.out)
+        self.run_campaign()
+        self.stopped('AUDIT_ARTIFACT_CONTRADICTION'); self.assertIn('RESUMABLE: no', self.out)
+        self.run_campaign()
+        self.stopped('AUDIT_ARTIFACT_CONTRADICTION')
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (1, 1))
+        self.assertEqual(self.state()['phases']['X1']['model_calls']['fix'], 0)
+
+    def test_05f_critical_signal_variants_are_non_resumable(self):
+        mod = self.module()
+        cwd = os.getcwd(); os.chdir(self.R)
+        try:
+            h = mod.head(); base = self.git('rev-parse', 'HEAD~1')
+            def art(name, body):
+                p = self.T / name
+                p.write_text('# Audit x\nrange: %s..%s · working-tree: false · codex exit: 0 · verdict: ASSESSED\n'
+                             'auditor: codex tier=strict model=gpt-6-astra reasoning=high\n\n%s' % (base, h, body))
+                return str(p)
+            variants = {
+                'zero_count': '### [CRITICAL] [F001] Hidden\n- PROBLEM: CONFIRMED\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n',
+                'unassessed': '### [CRITICAL] [F001] Hidden\n- PROBLEM: CONFIRMED\nAUDIT_STATUS: UNASSESSED\nAUDIT_SUMMARY: CRITICAL=1 HIGH=0 MEDIUM=0 LOW=0\n',
+                'odd_heading': '## [ critical ] leak without an id\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n',
+                'two_summaries': 'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=1 HIGH=0 MEDIUM=0 LOW=0\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n',
+            }
+            c = mod.Campaign.__new__(mod.Campaign)
+            for name, body in variants.items():
+                path = art(name + '.md', body)
+                self.assertTrue(mod.critical_signal(path), name)
+                ps = mod.new_phase_state(); ps.update(in_flight='audit-strict', in_flight_ref='x')
+                with self.assertRaises(mod.Stop) as cm:
+                    c.refuse_critical_contradiction(path, base, h, True, ps)
+                self.assertEqual((cm.exception.reason, cm.exception.resumable), ('AUDIT_ARTIFACT_CONTRADICTION', False), name)
+                self.assertIsNone(ps['in_flight'])
+            # A consistent Critical is left to triage (recorded, then CRITICAL_FINDING); a clean artifact passes.
+            ok = art('consistent.md', '### [CRITICAL] [F001] Leak\n- PROBLEM: CONFIRMED\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=1 HIGH=0 MEDIUM=0 LOW=0\n')
+            self.assertIsNone(c.refuse_critical_contradiction(ok, base, h, True, mod.new_phase_state()))
+            clean = art('clean.md', 'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n')
+            self.assertFalse(mod.critical_signal(clean))
+        finally:
+            os.chdir(cwd)
 
     def test_05d_triage_stops_on_parsed_critical_even_if_counted_zero(self):
         mod = self.module()
@@ -739,7 +798,7 @@ class CampaignTests(unittest.TestCase):
         self.run_campaign(env={'AGENT_CAMPAIGN_TEST_INTERRUPT_AFTER': 'build'})
         self.assertEqual(self.rc, 130, self.out); self.assertIn('INTERRUPTED', self.out)
         self.assertEqual(self.state()['phases']['X1']['in_flight'], 'build')
-        self.assertFalse((self.R / '.agent/history/campaign-fx.lock').exists())
+        self.assertFalse((self.R / '.agent/history/campaign.lock').exists())
         self.run_campaign()
         self.assertEqual(self.state()['phases']['X1']['stage'], 'COMPLETE', self.out)
         self.assertEqual(self.calls('claude'), 1); self.assertIn('build was interrupted', self.out)
@@ -810,11 +869,17 @@ class CampaignTests(unittest.TestCase):
 
     # ── 28: lock ─────────────────────────────────────────────────────
     def test_28_lock_prevents_second_runner_and_fails_closed(self):
-        lock = self.R / '.agent/history/campaign-fx.lock'
-        lock.write_text(json.dumps(dict(pid=os.getpid(), host=socket.gethostname())))
+        lock = self.R / '.agent/history/campaign.lock'
+        # B: the same campaign, live → refused, lock untouched.
+        lock.write_text(json.dumps(dict(pid=os.getpid(), host=socket.gethostname(), campaign_id=CID)))
         self.run_campaign()
         self.assertEqual(self.rc, 3, self.out); self.assertIn('RUNNER_ACTIVE', self.out)
         self.assertTrue(lock.exists())
+        # A: a DIFFERENT campaign holding the worktree lock also refuses this one.
+        lock.write_text(json.dumps(dict(pid=os.getpid(), host=socket.gethostname(), campaign_id='another-campaign')))
+        self.run_campaign()
+        self.assertEqual(self.rc, 3, self.out); self.assertIn('campaign another-campaign', self.out)
+        self.assertTrue(lock.exists()); self.assertEqual(self.calls('claude'), 0)
         dead = subprocess.Popen(['true']); dead.wait()
         lock.write_text(json.dumps(dict(pid=dead.pid, host=socket.gethostname())))
         self.run_campaign()
@@ -822,6 +887,40 @@ class CampaignTests(unittest.TestCase):
         lock.write_text('garbage')
         self.run_campaign()
         self.stopped('LOCK_INDETERMINATE'); self.assertEqual(self.calls('claude'), 0)
+        lock.unlink()
+        # E: a per-campaign lock left by the first orchestrator build is never ignored.
+        legacy = self.R / '.agent/history/campaign-other.lock'
+        legacy.write_text(json.dumps(dict(pid=os.getpid(), host=socket.gethostname())))
+        self.run_campaign()
+        self.stopped('LOCK_INDETERMINATE'); self.assertIn('campaign-other.lock', self.out)
+        self.assertTrue(legacy.exists()); self.assertEqual(self.calls('claude'), 0)
+
+    def test_28b_worktree_lock_is_global_across_campaign_ids(self):
+        mod = self.module()
+        cwd = os.getcwd(); os.chdir(self.R)
+        try:
+            m = mod.load_manifest(CID)
+            other = dict(m, campaign_id='another-campaign')
+            self.assertEqual(mod.lock_path(CID), mod.lock_path('another-campaign'))
+            a, b, a2 = mod.Campaign(m), mod.Campaign(other), mod.Campaign(m)
+            a.lock()
+            info = json.loads((self.R / '.agent/history/campaign.lock').read_text())
+            # C: the lock names its owning campaign, process and host.
+            self.assertEqual((info['campaign_id'], info['pid'], info['host']), (CID, os.getpid(), socket.gethostname()))
+            self.assertIn('started_at', info)
+            with self.assertRaises(mod.RunnerActive) as cm: b.lock()        # A: another campaign
+            self.assertIn('campaign %s' % CID, str(cm.exception))
+            with self.assertRaises(mod.RunnerActive): a2.lock()             # B: the same campaign again
+            self.assertFalse(b.locked or a2.locked)
+            b.unlock(); a2.unlock()                                          # a non-owner never removes the lock
+            self.assertTrue((self.R / '.agent/history/campaign.lock').exists())
+            a.unlock()                                                       # D: legitimate release
+            self.assertFalse((self.R / '.agent/history/campaign.lock').exists())
+            b.lock()
+            self.assertEqual(json.loads((self.R / '.agent/history/campaign.lock').read_text())['campaign_id'], 'another-campaign')
+            b.unlock()
+        finally:
+            os.chdir(cwd)
 
     # ── 29, 30: docs closure safety ──────────────────────────────────
     def test_29_closure_with_unauthorised_file_stops(self):
@@ -871,12 +970,20 @@ class CampaignTests(unittest.TestCase):
         e = {k: v for k, v in os.environ.items() if not k.startswith('AGENT_')}
         e.update(PATH='%s:%s' % (self.B, os.environ['PATH']), FAKE_DIR=str(self.T))
         for mode in ('--status', '--dry-run'):
-            p = subprocess.run([sys.executable, str(SOURCE / 'scripts/agent-campaign-run'), 'cattle-engine-v1', mode],
+            p = subprocess.run(['./scripts/agent-campaign-run', 'cattle-engine-v1', mode],
                                cwd=SOURCE, env=e, capture_output=True, text=True, timeout=120)
             self.assertIn(p.returncode, (0, 1), p.stdout + p.stderr)
             self.assertRegex(p.stdout, r'C0\s+FROZEN', p.stdout + p.stderr)
         self.assertEqual((self.calls('claude'), self.calls('codex')), (0, 0))
         self.assertEqual(state.read_bytes() if state.exists() else None, before)
+
+    def test_32c_operator_entrypoint_is_executable_in_git_and_on_disk(self):
+        mode = subprocess.run([REAL_GIT, 'ls-files', '-s', 'scripts/agent-campaign-run'], cwd=SOURCE, capture_output=True,
+                              text=True, check=True).stdout.split()
+        self.assertEqual(mode[:1], ['100755'], 'scripts/agent-campaign-run must be committed executable (100755)')
+        self.assertTrue(os.access(SOURCE / 'scripts/agent-campaign-run', os.X_OK))
+        self.assertTrue(os.access(self.R / 'scripts/agent-campaign-run', os.X_OK), 'fixture copy lost the executable bit')
+        self.assertTrue((SOURCE / 'scripts/agent-campaign-run').read_text().startswith('#!/usr/bin/env python3\n'))
 
     def test_33_no_push_deploy_or_migration_command_path(self):
         src = (SOURCE / 'scripts/agent-campaign-run').read_text()
@@ -898,7 +1005,7 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(self.rc, 0, self.out); self.assertRegex(self.out, r'X1\s+READY')
         self.assertEqual((self.calls('claude'), self.calls('codex')), (0, 0))
         self.assertFalse((self.R / '.agent/history/campaign-fx.state.json').exists())
-        self.assertFalse((self.R / '.agent/history/campaign-fx.lock').exists())
+        self.assertFalse((self.R / '.agent/history/campaign.lock').exists())
         self.assertEqual(self.git('status', '--porcelain'), '')
 
     def test_34b_usage_errors(self):

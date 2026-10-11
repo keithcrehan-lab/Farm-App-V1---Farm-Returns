@@ -136,7 +136,9 @@ and on shared/frozen-contract paths (FROZEN_CONTRACT_CHANGE_REQUIRED) unless the
 the path in `allowed_shared_paths` and the change only adds lines.
 
 Triage (deterministic, no model): any `STOP` line or gate token → stop with that reason;
-Critical → always stop, no fixer; High → repaired only when CONFIRMED, at most `high_rounds`
+Critical → always stop, no fixer — including an artifact that reports any Critical (heading,
+or a non-zero count) but is contradictory or unassessed, which stops as the non-resumable
+AUDIT_ARTIFACT_CONTRADICTION (never re-audited past by a rerun); High → repaired only when CONFIRMED, at most `high_rounds`
 (2) rounds; Medium → repaired in at most `medium_rounds` (4) rounds; any finding whose signature
 (severity + file path + normalised title; never the renumbered F-ID) was already attempted
 `attempts_per_signature` (2) times → REPEATED_*_FINDING stop. Budgets are counted before the
@@ -183,8 +185,10 @@ completion evidence (HR-F007).
 State: `history/campaign-<id>.state.json`, saved after every transition with the in-flight
 call; a rerun resumes at the next safe step and adopts a finished build/fix commit, audit or
 closure commit instead of repeating it. If state and HEAD disagree it stops (HEAD_DRIFT); it never
-resets, rebases, stashes or cleans. Lock: `history/campaign-<id>.lock`; a live owner → exit 3;
-a dead or unreadable owner fails closed (remove it by hand after checking). Nothing in the
+resets, rebases, stashes or cleans. Lock: one per worktree, `history/campaign.lock` (records campaign id, pid, host), so no two
+campaigns run at once; a live owner → exit 3; a dead or unreadable owner, or a legacy
+`history/campaign-<id>.lock`, fails closed (remove it by hand after checking). Status and
+dry-run never take the lock. Nothing in the
 campaign path pushes, deploys, applies a migration or touches production.
 
 Wiring a phase brief: write `.agent/campaigns/<id>/<PHASE>_BRIEF.md` (first heading names the

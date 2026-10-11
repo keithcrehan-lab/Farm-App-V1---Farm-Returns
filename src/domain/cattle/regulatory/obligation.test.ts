@@ -222,6 +222,18 @@ describe("C2 test 1 — applicability from KNOWN inputs only", () => {
     expect(stateOf({ catalogue: foreign })).toBe("INSUFFICIENT_EVIDENCE");
   });
 
+  it("a non-matching KNOWN input never clears an unknown, conflicting or invalid anchor as NOT_APPLICABLE", () => {
+    const missing = only(run({ catalogue: cat, ledger: ledgerOf([sex("a-sex", "MALE")]) }));
+    expect(missing.state).toBe("UNKNOWN");
+    expect(missing.reasonCodes).toContain("CATTLE_OBLIGATION_ANCHOR_UNKNOWN");
+    const conflicting = ledgerOf([dob("d-1", DOB), dob("d-2", "2026-03-02"), sex("a-sex", "MALE")]);
+    expect(stateOf({ catalogue: cat, ledger: conflicting })).toBe("EVIDENCE_CONFLICT");
+    const invalid = ledgerOf([dob("d-1", DOB, undefined, { supersedes: ["d-missing"] }), sex("a-sex", "MALE")]);
+    expect(stateOf({ catalogue: cat, ledger: invalid })).toBe("INVALID_EVIDENCE");
+    const gates = projectObligationHardGates(run({ catalogue: cat, ledger: ledgerOf([sex("a-sex", "MALE")]) }), hash);
+    expect(gates.ok && gates.projection.entries.map((e) => [e.state, e.packState])).toEqual([["UNKNOWN", "INSUFFICIENT_EVIDENCE"]]);
+  });
+
   it("a class the rule does not accept is rejected, not converted", () => {
     const factOnly = catalogueOf({ def, rule: boundRule(def, { applicability: [{ input: descriptor("cattle.animal.lifecycleStatus", ["FACT"]), equals: "PRESENT" }] }) });
     const r = only(run({ catalogue: factOnly }));
@@ -566,6 +578,27 @@ describe("C2 test 8 — bitemporal reconstruction", () => {
     expect(now.evidence.otherRuleVersionEvidenceIds).toEqual(["e-2"]);
     expect(now.state).toBe("REVIEW_REQUIRED");
     expect(now.fingerprint).not.toEqual(before.results[0].fingerprint);
+  });
+
+  it("a malformed or contradictory definition recorded after the cutoff cannot change an earlier reconstruction", () => {
+    const EARLY = "2026-03-21T00:00:00Z";
+    const AT = "2026-04-01T00:00:00Z";
+    const evidence = [ful("e-1", INSIDE)];
+    const before = run({ effectiveAt: AT, knowledgeCutoff: EARLY, evidence });
+    expect(only(before).state).toBe("SATISFIED");
+    const base = catalogueOf();
+    const negative = definition({ ruleVersion: 2, recordedAt: "2026-04-01T00:00:00Z" }, { window: { opensAfter: { amount: 1, unit: "DAY" }, dueAfter: { amount: -1, unit: "DAY" }, boundary: "INCLUSIVE_START_EXCLUSIVE_END" } });
+    const contradictory = definition({ recordedAt: "2026-04-01T00:00:00Z" }, { obligationKind: "SYNTH-OTHER-KIND" });
+    const otherRule = definition({ ruleId: "SYNTH-RULE-OTHER", ruleVersion: 3, recordedAt: "2026-04-01T00:00:00Z" });
+    for (const later of [negative, contradictory, otherRule]) {
+      const cat = { ...base, definitions: [...base.definitions, later] };
+      const reproduced = run({ catalogue: cat, effectiveAt: AT, knowledgeCutoff: EARLY, evidence });
+      expect(reproduced).toEqual(before);
+      expect(only(run({ catalogue: cat, effectiveAt: AT, evidence })).state).toBe("UNSUPPORTED");
+    }
+    // An unreadable knowledge time is never set aside: it still fails closed.
+    const unreadable = { ...definition({ ruleVersion: 2 }), recordedAt: "not-an-instant" };
+    expect(only(run({ catalogue: { ...base, definitions: [...base.definitions, unreadable] }, effectiveAt: AT, knowledgeCutoff: EARLY, evidence })).state).toBe("UNSUPPORTED");
   });
 
   it("a record received after the cutoff — even a contradictory one — cannot change an earlier reconstruction", () => {

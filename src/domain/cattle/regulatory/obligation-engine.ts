@@ -313,12 +313,14 @@ function evaluateObligation(ctx: Context, obligationId: string): ObligationState
   const catalogue = ctx.catalogue.catalogue;
   const { knowledgeCutoff } = ctx.query;
   const defs = catalogue.definitions.filter((d) => d.obligationId === obligationId);
-  if (defs.length === 0) return [unresolved(ctx, obligationId, undefinedObligationRuleId(obligationId), ["CATTLE_OBLIGATION_NOT_IN_CATALOGUE"])];
-  const ruleId = defs[0].ruleId;
+  // Definitions recorded after the cutoff were set aside unvalidated; their identities still count as known terms below.
+  const pending = ctx.catalogue.laterDefinitions.filter((d) => d.obligationId === obligationId);
+  if (defs.length === 0 && pending.length === 0) return [unresolved(ctx, obligationId, undefinedObligationRuleId(obligationId), ["CATTLE_OBLIGATION_NOT_IN_CATALOGUE"])];
+  const ruleId = defs.length > 0 ? defs[0].ruleId : pending[0].ruleId;
   const knownDefs = defs.filter((d) => compareInstants(d.recordedAt, knowledgeCutoff) <= 0);
   if (knownDefs.length === 0) return [unresolved(ctx, obligationId, ruleId, ["CATTLE_OBLIGATION_NOT_KNOWN_AT_CUTOFF"])];
   const released = catalogue.ruleVersions.filter((r) => r.ruleId === ruleId && (r.productionState === "PRODUCTION" || r.productionState === "SUPERSEDED"));
-  const withoutTerms = released.filter((r) => !defs.some((d) => d.ruleVersion === r.version));
+  const withoutTerms = released.filter((r) => !defs.some((d) => d.ruleVersion === r.version) && !pending.some((d) => d.ruleId === ruleId && d.ruleVersion === r.version));
   if (withoutTerms.length > 0) {
     return [unresolved(ctx, obligationId, ruleId, withoutTerms.map((r) => `CATTLE_OBLIGATION_RULE_VERSION_WITHOUT_TERMS:v${r.version}`))];
   }
@@ -378,13 +380,20 @@ function evaluateObligation(ctx: Context, obligationId: string): ObligationState
     const gap = inputGapState(ctx, ruleEvaluation);
     return ruleLevel(gap.state, gap.reasons);
   }
-  if (ruleEvaluation.state === "NOT_APPLICABLE") return ruleLevel("NOT_APPLICABLE", ["CATTLE_OBLIGATION_RULE_NOT_APPLICABLE"]);
   if (ruleEvaluation.state === "FAIL") {
     return rule.gateRole === "HARD_GATE" ? ruleLevel("BLOCKED", ["CATTLE_OBLIGATION_HARD_GATE_FAIL"]) : ruleLevel("ADVISORY_FAIL", ["CATTLE_OBLIGATION_ADVISORY_FAIL"]);
   }
 
-  // C0 PASS: the obligation applies; derive occurrences.
+  // C0 PASS or NOT_APPLICABLE: derive occurrences. An unknown, conflicting or
+  // invalid anchor is never cleared as NOT_APPLICABLE.
   const derivation = deriveObligationOccurrences(obligationId, def.terms.anchor, ctx.ledger, ctx.snapshot);
+  if (ruleEvaluation.state === "NOT_APPLICABLE" && derivation.status === "OCCURRENCES") {
+    const unresolvedAnchors = derivation.occurrences.filter((o) => o.anchorState !== "KNOWN");
+    if (unresolvedAnchors.length === 0) return ruleLevel("NOT_APPLICABLE", ["CATTLE_OBLIGATION_RULE_NOT_APPLICABLE"]);
+    const state: ObligationState = unresolvedAnchors.some((o) => o.anchorState === "INVALID") ? "INVALID_EVIDENCE" : "EVIDENCE_CONFLICT";
+    return ruleLevel(state, ["CATTLE_OBLIGATION_RULE_NOT_APPLICABLE", ...unresolvedAnchors.map((o) => `CATTLE_OBLIGATION_ANCHOR_${o.anchorState}:${o.occurrenceId}`)]);
+  }
+  if (ruleEvaluation.state === "NOT_APPLICABLE" && derivation.status === "NOT_TRIGGERED") return ruleLevel("NOT_APPLICABLE", ["CATTLE_OBLIGATION_RULE_NOT_APPLICABLE"]);
   const evidence = obligationEvidence(ctx, obligationId, def);
   if (derivation.status !== "OCCURRENCES") {
     const state: ObligationState =
@@ -600,7 +609,7 @@ export function evaluateAnimalObligations(request: AnimalObligationRequest, hash
   const issues: ObligationRequestIssueCode[] = q.ok ? [] : [...q.issues];
   if (!rebuilt.ok) issues.push("CATTLE_OBLIGATION_INVALID_LEDGER");
   if (!q.ok || !rebuilt.ok) return { ok: false, issues, ledgerIssues: rebuilt.ok ? [] : rebuilt.issues };
-  return evaluateCanonical(rebuilt.ledger, Array.isArray(evidence) ? evidence : null, materialiseObligationCatalogue(catalogue), q.query, hash);
+  return evaluateCanonical(rebuilt.ledger, Array.isArray(evidence) ? evidence : null, materialiseObligationCatalogue(catalogue, q.query.knowledgeCutoff), q.query, hash);
 }
 
 // ---------------------------------------------------------------------------
@@ -686,7 +695,7 @@ export function evaluateHerdObligations(request: HerdObligationRequest, hash: Ca
       issues.push({ code: "CATTLE_OBLIGATION_HERD_EVIDENCE_UNATTRIBUTABLE", animalId: null });
     }
   }
-  const materialised = materialiseObligationCatalogue(catalogue);
+  const materialised = materialiseObligationCatalogue(catalogue, q.query.knowledgeCutoff);
   const animals: AnimalObligationEvaluation[] = [];
   for (const [animalId, list] of [...byAnimal.entries()].sort(([a], [b]) => compareStrings(a, b))) {
     if (list.length > 1) {

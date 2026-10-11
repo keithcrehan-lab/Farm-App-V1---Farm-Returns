@@ -38,6 +38,7 @@ import {
   ANIMAL_LOCATION_KINDS,
   ANIMAL_PRESENCE_STATUSES,
   deepFreezeAnimalValue,
+  compareInstants,
   isOpaqueRef,
   isValidAnimalInstant,
   type AnimalLocationKind,
@@ -170,8 +171,20 @@ export interface ObligationCatalogueIssue {
   ref: string | null;
 }
 
+/** Identity of a definition recorded after the materialisation knowledge cutoff. */
+export interface LaterObligationDefinitionRef {
+  obligationId: string;
+  ruleId: string;
+  ruleVersion: number;
+}
+
 export type ObligationCatalogueResult =
-  | { ok: true; catalogue: ObligationCatalogue }
+  | {
+      ok: true;
+      catalogue: ObligationCatalogue;
+      /** Readable identities of definitions set aside as recorded after the cutoff (sorted). */
+      laterDefinitions: readonly LaterObligationDefinitionRef[];
+    }
   | { ok: false; issues: ObligationCatalogueIssue[] };
 
 type Raw = Record<string, unknown>;
@@ -403,8 +416,13 @@ function definitionKey(d: ObligationDefinition): string {
  * Validates and materialises a supplied catalogue. Order-independent: every
  * list is sorted canonically; identical duplicates collapse; any malformed
  * or contradictory entry fails the whole catalogue (never partially used).
+ * With a `knowledgeCutoff`, a definition whose `recordedAt` is readable and
+ * after the cutoff is not yet known: it is set aside unvalidated, so a later
+ * record (even malformed or contradictory) cannot change an earlier
+ * reconstruction. A definition with an unreadable knowledge time stays in
+ * and fails closed.
  */
-export function materialiseObligationCatalogue(raw: unknown): ObligationCatalogueResult {
+export function materialiseObligationCatalogue(raw: unknown, knowledgeCutoff?: string): ObligationCatalogueResult {
   const issues: ObligationCatalogueIssue[] = [];
   if (!isRecord(raw)) return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_MALFORMED", ref: null }] };
   const { definitions, ruleVersions, sources, reviews, implementations } = raw;
@@ -418,8 +436,17 @@ export function materialiseObligationCatalogue(raw: unknown): ObligationCatalogu
     return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null }] };
   }
 
+  const cutoff = knowledgeCutoff !== undefined && isValidAnimalInstant(knowledgeCutoff) ? knowledgeCutoff : null;
+  const later = new Map<string, LaterObligationDefinitionRef>();
   const defs = new Map<string, { def: ObligationDefinition; key: string }>();
   for (const item of data.definitions) {
+    if (cutoff !== null && isRecord(item) && isValidAnimalInstant(item.recordedAt) && compareInstants(item.recordedAt, cutoff) > 0) {
+      const { obligationId, ruleId, ruleVersion } = item;
+      if (isOpaqueRef(obligationId) && isOpaqueRef(ruleId) && isPositiveInteger(ruleVersion)) {
+        later.set(canonicalizeValue([obligationId, ruleId, ruleVersion]), { obligationId, ruleId, ruleVersion });
+      }
+      continue;
+    }
     const def = definitionOf(item);
     if (!def) {
       issues.push({ code: "CATTLE_OBLIGATION_MALFORMED_DEFINITION", ref: isRecord(item) && isString(item.obligationId) ? item.obligationId : null });
@@ -498,7 +525,10 @@ export function materialiseObligationCatalogue(raw: unknown): ObligationCatalogu
       [...impls.entries()].sort(([a], [b]) => compareStrings(a, b)).map(([, impl]) => impl),
     ),
   };
-  return { ok: true, catalogue: Object.freeze(catalogue) };
+  const laterDefinitions = deepFreezeAnimalValue(
+    [...later.values()].sort((a, b) => compareStrings(a.obligationId, b.obligationId) || compareStrings(a.ruleId, b.ruleId) || a.ruleVersion - b.ruleVersion),
+  );
+  return { ok: true, catalogue: Object.freeze(catalogue), laterDefinitions };
 }
 
 /** Exact rule-version reference of a definition. */

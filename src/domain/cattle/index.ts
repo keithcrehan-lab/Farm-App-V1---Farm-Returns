@@ -15,3 +15,4 @@ export * from "./integrity";
 export * from "./rule";
 export * from "./source";
 export * from "./version";
+export * from "./regulatory";

@@ -3466,3 +3466,123 @@ ledgers, duplicate animal ledgers and invalid query times are issues (`clear: fa
 **Exclusions.** No weights, growth, condition scoring, breeding/fertility, health/disease,
 medicines, feed, economics, goals or advice; no registration/movement/disease rules; no
 AIM/ICBF/NVPS/HPRA connector or field; no persistence or UI.
+
+## Cattle C2 — Regulatory lifecycle engine (2026-10-11)
+
+C0 (`61c1124`) and C1 (`c5b25f2`) are **frozen**; C2 changes no C0/C1 file except one additive
+`export * from "./regulatory";` line in `src/domain/cattle/index.ts`. New, **non-frozen** pure
+modules under `src/domain/cattle/regulatory/` (barrel `regulatory/index.ts`); tests
+`regulatory/obligation.test.ts` (synthetic `SYNTH-*` rules, sources, windows and animals only).
+Engine, contracts and interfaces only: **no real legal, scheme, veterinary or welfare duty,
+deadline, window length or interpretation**; no persistence, schema, migration, UI, AI,
+network or connector. `PRODUCTION_OBLIGATION_CATALOGUE` is **empty** — real content must
+arrive through a separately authorised, evidence-reviewed task using the C0
+source/rule/review lifecycle.
+
+**Reuse decisions.** Rule identity, classification, gate role, applicability, required inputs,
+effective period `[effectiveFrom, effectiveTo)`, supersession, reviews, production state and
+source currency stay on the C0 `CattleRuleVersion` and are evaluated only through C0
+(`resolveEffectiveRuleVersion`, `evaluateEffectiveCattleRule`, `evaluateCattleRule`,
+`checkSourceBinding` via evaluation) — never copied or re-implemented. Animal state comes only
+from C1 (`rematerialiseAnimalLedger`, `projectAnimalSnapshot`, `animalAssertionHistory`,
+`computeAnimalSnapshotFingerprint`, `compareInstants`/`animalInstantKey`,
+`deepFreezeAnimalValue`). Fingerprints reuse `assessment-integrity.ts` canonicalisation and
+SHA-256 unchanged; because C0's `CattleFingerprintKind` is a closed union in frozen
+`integrity.ts`, C2 follows C1's precedent and wraps as `{kind, obligationPayloadVersion: 1,
+payload}` with new kinds `CATTLE_OBLIGATION_TERMS` and `CATTLE_OBLIGATION_STATE` — distinct from
+C0's and C1's wrappers, so no existing kind, payload version or canonicalisation changes. C1's
+provenance materialiser and supersession traversal are module-private, so C2 validates the same
+`AnimalDataProvenance` contract itself and implements the generic append-only bitemporal
+machinery once (`bitemporal-records.ts`) for later phases to import.
+
+| Module | Contract |
+|---|---|
+| `obligation-time.ts` | Strict-UTC instant arithmetic by integer civil-day maths (no `Date`, no clock, no timezone): `addObligationOffset` (closed units `DAY` = 86 400 s, `HOUR` = 3 600 s), `utcStartOfCalendarDate`, `obligationInstantJustBefore` (−1 ns), `canonicalObligationInstant` (one 9-digit spelling), `utcCalendarDateOf`; outside years 0000–9999 ⇒ `null` (fail closed) |
+| `obligation-definition.ts` | `ObligationDefinition` (obligation id, rule id + version, `recordedAt` knowledge time, `ObligationTerms`: opaque `obligationKind`, closed `ObligationAnchor` `DATE_OF_BIRTH` / `LIFECYCLE_STATUS_START(status)` / `LOCATION_START(locationKind\|null)`, window `{opensAfter, dueAfter, boundary}` with closed boundary `INCLUSIVE_START_EXCLUSIVE_END` (default) / `INCLUSIVE_START_INCLUSIVE_END` and `dueAfter > opensAfter`, closed `timeBasis` `UTC` / `HOLDING_LOCAL_TIME` (recognised, unsupported), `windowSource` `SourceVersionRef`); `computeObligationTermsFingerprint`; `obligationTermsMarker` — the rule version must carry it in C0 `assumptions`, so C0's rule fingerprint and version-bound reviews cover the exact terms; `ObligationCatalogue` + `materialiseObligationCatalogue` (cloned once, rebuilt from known fields, implementations captured once, sorted, deep-frozen; any malformed entry, contradictory duplicate, obligation bound to two rule ids or duplicate implementation id+version fails the whole catalogue); `PRODUCTION_OBLIGATION_CATALOGUE` (empty) |
+| `obligation-evidence.ts` | `ObligationFulfilmentEvidence` (`FULFILMENT` with valid-time `fulfilledAt`, or `RETRACTION` that must supersede ≥ 1 record; obligation id + exact rule id/version claimed; `occurrenceAnchor` `null` for single-occurrence anchors else the anchor instant; `AnimalDataProvenance` with `receivedAt` knowledge time; `supersedes`); `createObligationEvidenceLog` / `appendObligationEvidence` (any invalid record, self-supersession or same id + different content fails the log; identical duplicates idempotent, instants compared by instant); `resolveObligationEvidence` (corrections may only link within one obligation) |
+| `bitemporal-records.ts` | Generic `collectBitemporalRecords` / `resolveBitemporalRecords`: knowledge-cutoff filtering, supersession known by the cutoff only, unknown-target / out-of-scope / cycle links reported, live terminal descendants per corrected target, disagreeing terminals reported as a competition with no winner |
+| `obligation-anchor.ts` | `obligationInputsFromSnapshot` — C1 → C0 inputs under fixed keys `cattle.animal.species/dateOfBirth/sex` (FACT), `cattle.animal.lifecycleStatus/location.kind/location.ref/managementGroup` (OBSERVATION), `cattle.animal.externalIdentifier.<scheme>` (FACT); items only for KNOWN dimensions, one per supporting C1 assertion (provenance = assertion id + `receivedAt`); breed not exposed. `obligationInputDimensionState`. `deriveObligationOccurrences` (see below) |
+| `obligation-engine.ts` | `ObligationState`, `evaluateAnimalObligations` → `AnimalObligationEvaluation` of `ObligationStateRecord`s; `verifyObligationStateRecord`; `evaluateHerdObligations` |
+| `obligation-hard-gates.ts` | `projectObligationHardGates`, `obligationStateToPackState` |
+| `obligation-integrity.ts` | `computeObligationFingerprint` / `verifyObligationFingerprint`, `CATTLE_OBLIGATION_PAYLOAD_VERSION` |
+
+**Version and knowledge selection.** The C0 evaluation date is the UTC calendar date of
+`effectiveAt`. Only rule versions whose definition `recordedAt <= knowledgeCutoff`, and only
+reviews with `reviewedAt <= knowledgeCutoff`, are visible; evidence provably received after the
+cutoff is not admitted. A PRODUCTION/SUPERSEDED version with no definition at all ⇒
+UNSUPPORTED (never silently skipped). When C0 finds no effective released version but exactly
+one unreleased version is in force, it is evaluated through `evaluateCattleRule` and the
+obligation is REVIEW_REQUIRED. The rule in force at `effectiveAt` governs every occurrence (no
+"law at time of trigger" transitional semantics).
+
+**Occurrences.** `DATE_OF_BIRTH`: one occurrence at the UTC start of the C1 birth date (UTC
+time basis). `LIFECYCLE_STATUS_START` / `LOCATION_START`: an occurrence at `t` when a live C1
+assertion matching the anchor starts at `t`, C1 resolves the dimension at `t` KNOWN and
+matching, and one nanosecond earlier it was not KNOWN with the same value (continuations are not
+new starts); conflicting / invalid C1 state at or just before `t` ⇒ that occurrence's anchor is
+conflicting / invalid. No C1 evidence of the dimension ⇒ UNKNOWN; evidence but no matching
+start ⇒ `NOT_TRIGGERED` (never NOT_APPLICABLE). Occurrence id `<obligationId>|<anchorKind>|<t>`.
+
+**Window.** `opensAt = anchor + opensAfter`, `dueAt = anchor + dueAfter`; inclusive start;
+exclusive end unless the rule declares `INCLUSIVE_START_INCLUSIVE_END`. Unrepresentable ⇒
+UNSUPPORTED.
+
+**State precedence** (first match wins). Rule level (one record, `occurrence: null`):
+UNSUPPORTED (catalogue invalid; obligation absent / not known by cutoff; released version
+without terms; C0 UNSUPPORTED incl. no/ambiguous effective version, invalid lineage,
+implementation absent or mismatched; terms marker absent; window source not a rule binding;
+unsupported time basis) > REVIEW_REQUIRED (unreleased version in force; C0 REVIEW_REQUIRED) >
+INVALID_EVIDENCE > EVIDENCE_CONFLICT > UNKNOWN > INSUFFICIENT_EVIDENCE (C0 lacked a KNOWN input;
+decided from the referenced C1 dimension states; non-C1 key or rejected class/unit ⇒
+INSUFFICIENT_EVIDENCE) > NOT_APPLICABLE (C0, KNOWN inputs only) > BLOCKED (HARD_GATE FAIL) /
+ADVISORY_FAIL (ADVISORY FAIL). Anchor level (C0 PASS): INVALID_EVIDENCE > EVIDENCE_CONFLICT >
+UNKNOWN > NOT_TRIGGERED. Occurrence level: anchor invalid ⇒ INVALID_EVIDENCE > anchor conflict ⇒
+EVIDENCE_CONFLICT > UNSUPPORTED (window) > INVALID_EVIDENCE (log invalid, supersession defect,
+record whose occurrence shape does not fit the anchor) > EVIDENCE_CONFLICT (competing
+corrections; counted fulfilments disagreeing on timeliness) > SATISFIED (fulfilled in window) >
+SATISFIED_LATE (fulfilled after due end) > REVIEW_REQUIRED (only evidence for another rule
+version — never counted) > UPCOMING > OUTSTANDING > OVERDUE. Evidence counts only for the exact
+evaluated rule version, received by the cutoff and fulfilled by `effectiveAt`; fulfilment
+before the window opens never satisfies it. No source precedence, no latest-wins.
+
+**Output record.** `ObligationStateRecord`: `informationClass: "OBLIGATION_OR_CONSTRAINT"`,
+animal, obligation id/kind, classification and gate role verbatim from C0 (all eight
+classifications preserved), exact rule ref + rule fingerprint, terms fingerprint, the complete
+C0 `RuleEvaluationRecord`, occurrence (anchor + C1 assertion ids), window, state, reason codes,
+evidence summary (considered / superseded / counted records / before-window / not-yet-occurred /
+other-version / conflicting / invalid / unattributed ids), C1 snapshot fingerprint,
+`effectiveAt`, `knowledgeCutoff` (canonical spelling) and a `CATTLE_OBLIGATION_STATE`
+fingerprint over everything else. Results sorted by obligation id then occurrence id;
+evaluation detached and deep-frozen; inputs read/cloned once. Invalid query times / obligation
+ids / ledger ⇒ `ok: false`.
+
+**Hard-gate projection.** Entries for HARD_GATE obligations and (fail closed) obligations with
+no resolved gate role; ADVISORY excluded. Record fingerprints and animal/time consistency are
+re-verified first (mismatch ⇒ `ok: false`). Pack mapping (engine convention, not law):
+SATISFIED / SATISFIED_LATE → PASS; NOT_APPLICABLE → NOT_APPLICABLE; BLOCKED / OVERDUE → FAIL;
+REVIEW_REQUIRED → REVIEW_REQUIRED; UNSUPPORTED → UNSUPPORTED; EVIDENCE_CONFLICT → C0's
+conflicting-evidence state; everything else → INSUFFICIENT_EVIDENCE. Entries fold to one
+pack-compatible `RuleEvaluationRecord` per requested rule id (most restrictive: FAIL >
+REVIEW_REQUIRED > UNSUPPORTED > conflicting evidence > INSUFFICIENT_EVIDENCE > PASS >
+NOT_APPLICABLE) plus `requiredHardGateRuleIds`, ready for `buildRecommendationEvidencePack`
+(BLOCKED ⇒ pack BLOCKED; empty catalogue ⇒ pack INSUFFICIENT_EVIDENCE).
+
+**Herd.** `evaluateHerdObligations` evaluates each distinct valid animal (sorted; input-order
+independent). Invalid ledgers and animal ids supplied by more than one ledger are reported and
+not evaluated (never merged); evidence for an unevaluated animal is reported; evidence with no
+readable animal id is reported and offered to every animal so each evidence log fails closed.
+
+**Known limitations.** No real obligation content exists (empty catalogue). Source catalogue
+lifecycle is not bitemporal in C0, so reproducing an earlier cutoff after a source lifecycle
+change requires supplying the source catalogue as it then stood; a malformed catalogue entry
+fails every cutoff. Only the UTC time basis, `DAY`/`HOUR` offsets and three anchor kinds are
+supported (no calendar-month offsets, local time, location hierarchy or departure anchors).
+The rule version in force at `effectiveAt` governs past occurrences; evidence bound to another
+version needs review. Supplied predicates are trusted as C0 documents (source-text binding only).
+Fingerprints are change detection, not signatures; the projection trusts records whose
+fingerprints verify.
+
+**Exclusions.** No registration, BVD, TB, movement, procedure or welfare rule; no AIM/DAFM/ICBF
+connector, field mapping or API shape; no health/medicines (C3), weights (C4), performance
+(C5), goals (C6), veterinary programmes (C7), recommendation selection (C8), Plan integration
+(C9) or UI (C10); no persistence, schema, migration or AI.

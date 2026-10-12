@@ -732,6 +732,20 @@ describe("C3 canonical boundary and malformed input (CAT-INV-001/022)", () => {
     expect("healthRecordIdOf" in cattle || "productRecordKnownAfter" in cattle).toBe(false);
   });
 
+  it("withdrawal, resolution and binding evaluation is reachable only through the validated engine; outputs never alias caller periods", () => {
+    for (const unchecked of ["computeAdministrationWithdrawal", "foldWithdrawalGate", "resolveProductRecords", "bindAdministrationProduct"]) {
+      expect(unchecked in cattle).toBe(false);
+    }
+    const period = { amount: 10, unit: "DAY" };
+    const entry = { foodProduct: MEAT, route: null, period };
+    const projection = ok(run([adm("h-adm")], { products: [product({}, [entry, milk()])] }));
+    const used = projection.medicineLedger.entries[0].withdrawals.find((w) => w.foodProduct === MEAT)!;
+    period.amount = 0;
+    entry.foodProduct = MILK;
+    expect(used.productEntry).toEqual({ foodProduct: MEAT, route: null, period: { amount: 10, unit: "DAY" }, multiDoseBasis: null });
+    expect(isDeepFrozen(used) && gate(projection).state).toBe("IN_WITHDRAWAL");
+  });
+
   it("ships no product content: with no supplied product records every administration is unresolved, and the barrel exports C3", () => {
     expect(gate(ok(run([adm("h-adm")], { products: [] }))).state).toBe("UNKNOWN");
     expect(cattle.projectAnimalHealth).toBe(projectAnimalHealth);

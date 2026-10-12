@@ -10,11 +10,33 @@
 // `resolveValidScope`, `readScopeRequest`) trust already-canonical input and
 // are module-internal: the public paths are `projectWeightSeries`,
 // `resolveGroupScope` and `buildWeightReadContract`, which run the canonical
-// boundary first (CAT-INV-001/002).
-export * from "./weight-observation";
+// boundary first (CAT-INV-001/002). `materialiseWeightObservation` and
+// `latestKnownWeightOf` also trust already-canonical input and stay internal.
+export {
+  CANONICAL_WEIGHT_UNIT,
+  WEIGHT_COLLECTION_METHODS,
+  WEIGHT_UNITS,
+  WEIGHT_UNIT_CONVERSIONS,
+  canonicalWeightOf,
+  semanticWeightObservation,
+  weightInformationClass,
+  weightLinkAllowed,
+  weightMeasurementBasis,
+  weightObservationClaimKey,
+  weightObservationContentKey,
+  weightRecordIdOf,
+  type CanonicalWeight,
+  type CattleWeightObservation,
+  type RecordedWeight,
+  type SuppliedWeightQuality,
+  type WeightCollectionMethod,
+  type WeightMeasurementBasis,
+  type WeightRecordIssueCode,
+  type WeightRecordMaterialisation,
+  type WeightUnit,
+} from "./weight-observation";
 export * from "./weight-integrity";
 export {
-  latestKnownWeightOf,
   projectWeightSeries,
   weightSeriesPayload,
   type AnimalWeightSeries,

@@ -23,7 +23,10 @@
  * - anything else — a function, symbol, bigint, class instance, Date, Map,
  *   a cyclic reference, nesting deeper than `SNAPSHOT_MAX_DEPTH`, or a read
  *   that throws — is NOT DATA: it is never executed or coerced; the snapshot
- *   records a `NON_DATA` marker in its place and sets `nonData`.
+ *   records a `NON_DATA` marker in its place and sets `nonData`. A throwing
+ *   read is contained to its own property or element: every other field
+ *   already or subsequently captured (e.g. `receivedAt`, `animalId`) is
+ *   kept, and the throwing read is never retried.
  *
  * A snapshot with `nonData` still carries every readable value, so its
  * knowledge time can be established from the same single read: a record
@@ -74,7 +77,17 @@ export function snapshotInput(input: unknown): InputSnapshot {
         const length: unknown = (obj as unknown[]).length;
         if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0) return marker();
         const out: unknown[] = [];
-        for (let i = 0; i < length; i++) out.push(read((obj as unknown[])[i], depth + 1));
+        for (let i = 0; i < length; i++) {
+          // Per element: a throwing read marks THAT element only; it is never retried.
+          let raw: unknown;
+          let readable = true;
+          try {
+            raw = (obj as unknown[])[i];
+          } catch {
+            readable = false;
+          }
+          out.push(readable ? read(raw, depth + 1) : marker());
+        }
         return out;
       }
       const proto = Object.getPrototypeOf(obj);
@@ -82,15 +95,23 @@ export function snapshotInput(input: unknown): InputSnapshot {
       const out: Record<string, unknown> = {};
       for (const key of Reflect.ownKeys(obj)) {
         if (typeof key !== "string") continue;
-        const descriptor = Reflect.getOwnPropertyDescriptor(obj, key);
-        if (!descriptor || !descriptor.enumerable) continue;
-        const raw = "value" in descriptor ? descriptor.value : descriptor.get ? descriptor.get.call(obj) : undefined;
+        // Per property: a throwing descriptor read or getter marks THAT property
+        // only (never retried); every other captured field is kept.
+        let value: unknown;
+        try {
+          const descriptor = Reflect.getOwnPropertyDescriptor(obj, key);
+          if (!descriptor || !descriptor.enumerable) continue;
+          const raw = "value" in descriptor ? descriptor.value : descriptor.get ? descriptor.get.call(obj) : undefined;
+          value = read(raw, depth + 1);
+        } catch {
+          value = marker();
+        }
         // defineProperty: a key such as "__proto__" stays an ordinary own data property.
-        Object.defineProperty(out, key, { value: read(raw, depth + 1), enumerable: true, writable: true, configurable: true });
+        Object.defineProperty(out, key, { value, enumerable: true, writable: true, configurable: true });
       }
       return out;
     } catch {
-      return marker(); // a throwing trap or getter
+      return marker(); // the object itself is unreadable (its prototype, keys or length trap throws)
     } finally {
       active.delete(obj);
     }

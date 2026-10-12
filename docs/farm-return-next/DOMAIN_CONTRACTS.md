@@ -3551,7 +3551,7 @@ being projected — is read exactly once by `snapshotInput` into a detached, dee
 snapshot (lists by `length` once and each index once; plain objects by own enumerable string
 keys, each read once — a data property via its descriptor, an accessor's getter invoked once;
 functions, symbols, bigints, class instances such as Date/Map, cycles, excessive depth or a
-throwing read are recorded as NON_DATA and never executed or coerced). Admission, validation,
+throwing read are recorded as NON_DATA and never executed or coerced; a throwing read marks only its own property or element — every other captured field, e.g. `receivedAt` or `animalId`, is kept and the read is never retried). Admission, validation,
 supersession, evaluation and fingerprinting consume only that snapshot; the caller's object is
 never read again, so a changing getter or a later mutation of the object or any nested object
 (e.g. `provenance`) has no effect — the first captured value decides. From the one snapshot: a

@@ -32,7 +32,7 @@ import {
 import { appendObligationEvidence, createObligationEvidenceLog } from "./obligation-evidence";
 import { projectObligationHardGates } from "./obligation-hard-gates";
 import { addObligationOffset, canonicalObligationInstant, obligationInstantJustBefore, utcStartOfCalendarDate } from "./obligation-time";
-import { snapshotInput } from "./input-snapshot";
+import { NON_DATA_MARKER, snapshotInput } from "./input-snapshot";
 
 const A = "SYNTH-ANIMAL-1";
 const B = "SYNTH-ANIMAL-2";
@@ -1416,5 +1416,145 @@ describe("C2 final remediation — duplicate animal identity before ledger valid
     expect(r.issues).toEqual(expect.arrayContaining([{ code: "CATTLE_OBLIGATION_HERD_INVALID_LEDGER", animalId: null }]));
     expect(r.issues.some((i) => i.code === "CATTLE_OBLIGATION_HERD_DUPLICATE_ANIMAL")).toBe(false);
     expect(r.animals.map((x) => x.animalId)).toEqual([A]);
+  });
+});
+
+describe("C2 narrow fix — a throwing caller getter marks only its own property (F002/F006)", () => {
+  const EARLY = "2026-03-21T00:00:00Z";
+  const AT = "2026-04-01T00:00:00Z";
+  const LATE_RECEIPT = "2026-04-02T00:00:00Z";
+  const KNOWN_RECEIPT = "2026-03-01T00:00:00Z";
+  /** Adds an enumerable getter that throws on every read and counts its reads. */
+  const throwing = (o: Record<string, unknown>, key: string) => {
+    const counter = { reads: 0 };
+    delete o[key];
+    Object.defineProperty(o, key, {
+      enumerable: true,
+      configurable: true,
+      get: () => {
+        counter.reads++;
+        throw new Error(`SYNTH hostile getter ${key}`);
+      },
+    });
+    return counter;
+  };
+  const record = (receivedAt: string, id = "e-2") => ful(id, "2026-03-06T00:00:00Z", { provenance: { sourceCategory: "FARMER", receivedAt } }) as Record<string, unknown>;
+  const evaluate = (evidence: unknown[], catalogue: unknown = catalogueOf()) => run({ catalogue, effectiveAt: AT, knowledgeCutoff: EARLY, evidence });
+  const herd = (evidence: unknown[], ledgers: unknown[] = [BASE_LEDGER()]) => {
+    const r = evaluateHerdObligations({ ledgers, evidence, catalogue: catalogueOf(), query: { effectiveAt: AT, knowledgeCutoff: EARLY, obligationIds: [OBL] } }, hash);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    return r.herd;
+  };
+
+  it("1 — future animal evidence with a throwing extra getter leaves the historical result and fingerprint unchanged", () => {
+    const before = evaluate([ful("e-1", INSIDE)]);
+    const future = record(LATE_RECEIPT);
+    const counter = throwing(future, "extra");
+    const after = evaluate([ful("e-1", INSIDE), future]);
+    expect(after).toEqual(before);
+    expect(only(after).fingerprint).toEqual(only(before).fingerprint);
+    expect(counter.reads).toBe(1);
+  });
+
+  it("2 — future herd evidence with a throwing getter leaves the herd result unchanged", () => {
+    const before = herd([ful("e-1", INSIDE)]);
+    const future = record(LATE_RECEIPT);
+    throwing(future, "extra");
+    expect(herd([ful("e-1", INSIDE), future])).toEqual(before);
+    // A throwing nested provenance field other than receivedAt is contained too.
+    const nested = record(LATE_RECEIPT);
+    throwing(nested.provenance as Record<string, unknown>, "sourceCategory");
+    expect(herd([ful("e-1", INSIDE), nested])).toEqual(before);
+  });
+
+  it("3 — future catalogue records (review, definition, source) with a throwing getter leave the result unchanged", () => {
+    const base = catalogueOf();
+    const before = evaluate([ful("e-1", INSIDE)], base);
+    const review = { ...base.reviews[0], reviewedAt: LATE_RECEIPT } as Record<string, unknown>;
+    throwing(review, "dimension");
+    expect(evaluate([ful("e-1", INSIDE)], { ...base, reviews: [...base.reviews, review] })).toEqual(before);
+    const def = { ...definition({ ruleVersion: 2 }), recordedAt: LATE_RECEIPT } as Record<string, unknown>;
+    throwing(def, "terms");
+    expect(evaluate([ful("e-1", INSIDE)], { ...base, definitions: [...base.definitions, def] })).toEqual(before);
+    const source = { ...LEGAL_SOURCE, version: "SYNTH-v9", retrievedAt: LATE_RECEIPT } as Record<string, unknown>;
+    throwing(source, "publisher");
+    expect(evaluate([ful("e-1", INSIDE)], { ...base, sources: [...base.sources, source] })).toEqual(before);
+  });
+
+  it("4 — a known record with a throwing getter fails closed (animal, herd, catalogue)", () => {
+    const known = record(KNOWN_RECEIPT);
+    throwing(known, "fulfilledAt");
+    const ev = evaluate([ful("e-1", INSIDE), known]);
+    expect(only(ev).state).toBe("INVALID_EVIDENCE");
+    expect(ev.evidenceIssues.map((i) => i.code)).toContain("CATTLE_OBLIGATION_EVIDENCE_NOT_CLONEABLE");
+    const knownHerd = record(KNOWN_RECEIPT);
+    throwing(knownHerd, "extra");
+    expect(herd([ful("e-1", INSIDE), knownHerd]).animals[0].results[0].state).toBe("INVALID_EVIDENCE");
+    const base = catalogueOf();
+    const review = { ...base.reviews[0], reviewedAt: KNOWN_RECEIPT } as Record<string, unknown>;
+    throwing(review, "extra");
+    expect(only(evaluate([ful("e-1", INSIDE)], { ...base, reviews: [...base.reviews, review] })).state).toBe("UNSUPPORTED");
+    // A throwing knowledge time itself cannot be established: fails closed.
+    const noTime = record(KNOWN_RECEIPT);
+    throwing(noTime.provenance as Record<string, unknown>, "receivedAt");
+    expect(only(evaluate([ful("e-1", INSIDE), noTime])).state).toBe("INVALID_EVIDENCE");
+  });
+
+  it("5 — a ledger with a readable animal id and a throwing getter still counts for duplicates (with its invalid-ledger issue)", () => {
+    const hostile = () => {
+      const l = structuredClone(BASE_LEDGER()) as unknown as Record<string, unknown>;
+      throwing(l, "extra");
+      return l;
+    };
+    for (const ledgers of [[BASE_LEDGER(), hostile()], [hostile(), BASE_LEDGER()], [hostile(), hostile()]]) {
+      const r = herd([ful("e-1", INSIDE)], ledgers);
+      expect(r.animals).toEqual([]);
+      expect(r.issues).toContainEqual({ code: "CATTLE_OBLIGATION_HERD_DUPLICATE_ANIMAL", animalId: A });
+      expect(r.issues).toContainEqual({ code: "CATTLE_OBLIGATION_HERD_INVALID_LEDGER", animalId: A });
+    }
+  });
+
+  it("6 — several throwing properties: every readable field is captured independently", () => {
+    const o = { a: 1, b: "two", provenance: { receivedAt: LATE_RECEIPT, sourceCategory: "FARMER" }, animalId: A } as Record<string, unknown>;
+    throwing(o, "x");
+    throwing(o, "y");
+    throwing(o.provenance as Record<string, unknown>, "z");
+    const list = [1, 2, 3] as unknown[];
+    Object.defineProperty(list, 1, { enumerable: true, get: () => { throw new Error("SYNTH"); } });
+    o.list = list;
+    const snap = snapshotInput(o);
+    expect(snap.nonData).toBe(true);
+    expect(snap.value).toEqual({
+      a: 1,
+      b: "two",
+      provenance: { receivedAt: LATE_RECEIPT, sourceCategory: "FARMER", z: NON_DATA_MARKER },
+      animalId: A,
+      x: NON_DATA_MARKER,
+      y: NON_DATA_MARKER,
+      list: [1, NON_DATA_MARKER, 3],
+    });
+  });
+
+  it("7 — access counters: every property, including throwing ones, is read at most once", () => {
+    const o = record(LATE_RECEIPT);
+    const extra = throwing(o, "extra");
+    const nested = throwing(o.provenance as Record<string, unknown>, "note");
+    let receivedReads = 0;
+    const provenance = o.provenance as Record<string, unknown>;
+    delete provenance.receivedAt;
+    Object.defineProperty(provenance, "receivedAt", { enumerable: true, get: () => (receivedReads++, LATE_RECEIPT) });
+    evaluate([ful("e-1", INSIDE), o]);
+    expect([extra.reads, nested.reads, receivedReads]).toEqual([1, 1, 1]);
+  });
+
+  it("8 — mutating the caller's record after the snapshot has no effect", () => {
+    const o = record(LATE_RECEIPT);
+    throwing(o, "extra");
+    const snap = snapshotInput(o);
+    const before = structuredClone(snap);
+    (o.provenance as Record<string, unknown>).receivedAt = KNOWN_RECEIPT;
+    o.fulfilledAt = "2026-03-30T00:00:00Z";
+    expect(snap).toEqual(before);
+    expect(evaluate([ful("e-1", INSIDE), snap.value])).toEqual(evaluate([ful("e-1", INSIDE)]));
   });
 });

@@ -25,6 +25,10 @@ STOP if making Cattle correct would require changing frozen/shared semantics, fi
 
 Engines consume canonical plain data only; adapters materialise caller objects before invocation. Check entry points with `toCanonicalPlainData` (`src/domain/cattle/regulatory/canonical-input.ts`) and reject non-canonical input. Executable rule implementations come from a trusted code registry bound by C0 `RuleImplementationRef`, never from catalogue/request data. Historical reproducibility is guaranteed over admitted canonical records: a record first known after the cutoff never changes an earlier evaluation. Validate provenance times (strict UTC) and fingerprints (assessment-integrity shape) before use. Full text: `.agent/campaigns/cattle-engine-v1/CAMPAIGN.md`, "Canonical input contract".
 
+## Shared architecture (C3–C10)
+
+Read `docs/farm-return-next/cattle/index.md` first: invariant ids (CAT-INV-*), phase ownership/interfaces, temporal admission order, numeric and fingerprint semantics, and the conformance kit (`src/tooling/cattle-conformance/`, tests only).
+
 ## Information classes
 
 Keep these distinct:

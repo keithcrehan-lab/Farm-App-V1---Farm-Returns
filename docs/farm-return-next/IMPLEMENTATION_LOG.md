@@ -593,3 +593,24 @@ watchdog cleanup is covered directly. The expanded orchestration wrapper retains
 with a 1180/1200-second allowance. An unchanged product test timed out under concurrent load
 and passed all 15 tests in isolation; the final gate uses one test worker, with assertions and
 product-test time limits unchanged. Final complete gate passed: 251 test files / 3846 tests; typecheck, lint and build PASS. Logs: `.agent/history/quality-20260928T195447Z-37358/`. Final independent audit is recorded after this commit in the task runtime receipt, which must match HEAD; no task may close without it.
+
+## Shared Cattle Architecture & Conformance v1 — starting 1d84748 (2026-10-12)
+
+This was a human-authorised setup between C2 closure and C3. It changes
+documentation and test tooling only. C0, C1 and C2 are unchanged, C3 has
+not started, and nothing has been migrated, pushed or deployed.
+
+- **Shared docs.** Added `docs/farm-return-next/cattle/`:
+  - `index.md`, the map;
+  - `ARCHITECTURE.md`, `INVARIANTS.md` (CAT-INV-001…027) and
+    `TEMPORAL_EVIDENCE.md`;
+  - `PHASE_INTERFACES.md`, `NUMERIC_SEMANTICS.md`, `FINGERPRINTS.md` and
+    `VERIFICATION.md`.
+- **Conformance kit.** Added a tests-only kit in
+  `src/tooling/cattle-conformance/`, with self-tests. It plugs into the
+  frozen C2 bitemporal machinery without changing it.
+- **Briefs and manifest.**
+  - Each C3–C10 brief now opens with a phase contract.
+  - The C3–C9 verify commands now also run the conformance kit.
+  - `cattle/index.md` was added to the C3–C10 contracts.
+  - CAMPAIGN.md and the cattle skill point to the shared area.

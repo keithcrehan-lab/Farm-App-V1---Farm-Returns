@@ -4,6 +4,27 @@ Predecessor: C9 (frozen by the campaign receipt `receipts/C9.json`)
 Phase directories (new): `src/app/(app)/cattle/`, `src/components/cattle/`, `src/domain/cattle/presentation/`
 Verify command: `npx vitest run cattle src/components/shell --maxWorkers=1 && npm run typecheck && npm run lint`
 
+## Phase contract (Shared Cattle Architecture & Conformance v1)
+
+Read `docs/farm-return-next/cattle/index.md` first, then only the shared documents it routes you to. CAT-INV ids are defined in `docs/farm-return-next/cattle/INVARIANTS.md`; this phase's interface contract is its section of `docs/farm-return-next/cattle/PHASE_INTERFACES.md`. The canonical input boundary (CAMPAIGN.md, "Canonical input contract", 2026-10-12) applies: entry points check the complete input with `toCanonicalPlainData` and reject non-canonical input; engines reason only over detached canonical plain data; malformed canonical data fails closed. This contract does not expand the scope below.
+
+- **Outcome:** farmer-facing herd/animal/timeline experience rendering canonical Cattle outputs honestly.
+- **Owner:** presentation view-models, screens, display formatting.
+- **Inputs:** published C1–C8 outputs and evidence packs only.
+- **Outputs:** display structures with distinct honest states; screens.
+- **Invariants:** CAT-INV-009, 014, 017, 019, 022, 023.
+- **Temporal model:** renders the `effectiveAt`/`knowledgeCutoff` it was given; never computes them; UTC values rendered deterministically.
+- **Identity model:** displays domain ids; never derives new ones.
+- **Semantic equality:** display only; formatting never feeds back into domain calls.
+- **Status / evidence precedence:** `docs/farm-return-next/cattle/ARCHITECTURE.md` §Status and evidence precedence: declare the REQUIRED inputs of every authoritative outcome and document/test this phase's own precedence list; unresolved required evidence never surfaces as a resolved-looking state (CAT-INV-009).
+- **Units / precision:** display rounding documented in view-models only (CAT-INV-019).
+- **Provenance:** shows sources, evidence strength/type, assumptions and limitations from the pack.
+- **Forbidden dependencies:** formulas in components; independent eligibility, ADG, obligation state or ranking; mock data for real accounts. See also `PHASE_INTERFACES.md` common contract.
+- **Human gates:** product decision gate (UX meaning); frozen-contract gate. Use the stop conditions and gate-token discipline below.
+- **FAIL_TO_PASS test matrix:** every unknown/conflict/blocked/review/no-target/no-goal/in-withdrawal/no-recommendation state has a distinct honest display state; real-account mode renders no synthetic data; view-models perform no calculation (inputs → identical semantic values). Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
+- **PASS_TO_PASS regression surface:** frozen C0/C1/C2 suites and every earlier frozen phase suite under `src/domain/cattle`; conformance kit self-tests (`src/tooling/cattle-conformance`); directly affected predecessor integrity tests.
+- **Freeze definition:** `docs/farm-return-next/cattle/VERIFICATION.md` §Freeze definition (targeted + required conformance checks + PASS_TO_PASS + full quality gate + strict whole-phase audit CRITICAL=HIGH=MEDIUM=0).
+
 ## Campaign context
 
 - Campaign contract: `.agent/campaigns/cattle-engine-v1/CAMPAIGN.md` (locked architecture, rule classes, hard-gate principle, veterinary boundary, evidence-pack contract).

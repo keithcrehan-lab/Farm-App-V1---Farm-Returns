@@ -2,7 +2,28 @@
 
 Predecessor: C5 (frozen by the campaign receipt `receipts/C5.json`)
 Phase directory (new): `src/domain/cattle/goals/`
-Verify command: `npx vitest run src/domain/cattle --maxWorkers=1 && npm run typecheck && npm run lint`
+Verify command: `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint`
+
+## Phase contract (Shared Cattle Architecture & Conformance v1)
+
+Read `docs/farm-return-next/cattle/index.md` first, then only the shared documents it routes you to. CAT-INV ids are defined in `docs/farm-return-next/cattle/INVARIANTS.md`; this phase's interface contract is its section of `docs/farm-return-next/cattle/PHASE_INTERFACES.md`. The canonical input boundary (CAMPAIGN.md, "Canonical input contract", 2026-10-12) applies: entry points check the complete input with `toCanonicalPlainData` and reject non-canonical input; engines reason only over detached canonical plain data; malformed canonical data fails closed. This contract does not expand the scope below.
+
+- **Outcome:** explicit, versioned production intent with goal snapshots that keep historical evaluations reproducible.
+- **Owner:** production goals / farmer intent; goal snapshots; goal→rule routing (registry as data, empty by default).
+- **Inputs:** canonical append-only goal declaration records (actor/role, effective period, `receivedAt`, provenance, version); C1 identity; supplied routing registry; C5 targets by explicit ref/type only.
+- **Outputs:** active-goal projection (active / NONE / intent conflict / invalid) with full history; `GoalSnapshotRef` (new fingerprint kind); routing result; target-applicability helper.
+- **Invariants:** CAT-INV-001–014, 021–023, 025–027.
+- **Temporal model:** `effectiveAt` within declaration periods `[validFrom, validTo)`; `knowledgeCutoff` admits by `receivedAt`; a later goal change never rewrites an earlier evaluation or recommendation.
+- **Identity model:** goal record id + version; ending/withdrawal is a new record; identity before validity.
+- **Semantic equality:** instants by key; goal types exact enumeration; target ids exact.
+- **Status / evidence precedence:** `docs/farm-return-next/cattle/ARCHITECTURE.md` §Status and evidence precedence: declare the REQUIRED inputs of every authoritative outcome and document/test this phase's own precedence list; unresolved required evidence never surfaces as a resolved-looking state (CAT-INV-009).
+- **Units / precision:** target weight carries explicit unit (C4/NUMERIC_SEMANTICS rules); no conversion without an exact rule.
+- **Provenance:** declared-by actor and role required; SYSTEM records are suggestions only, never active goals.
+- **Forbidden dependencies:** inferring intent; non-structural compatibility matrix; built-in science; reading raw C4/C5 inputs. See also `PHASE_INTERFACES.md` common contract.
+- **Human gates:** product decision gate (goal compatibility semantics beyond structural); frozen-contract gate. Use the stop conditions and gate-token discipline below.
+- **FAIL_TO_PASS test matrix:** NONE never a default goal; intent conflict without a winner; later goal change invisible at earlier cutoff; malformed `receivedAt`; duplicate ids; snapshot fingerprint equivalent/material variants; input order; non-canonical input rejected. Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
+- **PASS_TO_PASS regression surface:** frozen C0/C1/C2 suites and every earlier frozen phase suite under `src/domain/cattle`; conformance kit self-tests (`src/tooling/cattle-conformance`); directly affected predecessor integrity tests.
+- **Freeze definition:** `docs/farm-return-next/cattle/VERIFICATION.md` §Freeze definition (targeted + required conformance checks + PASS_TO_PASS + full quality gate + strict whole-phase audit CRITICAL=HIGH=MEDIUM=0).
 
 ## Campaign context
 

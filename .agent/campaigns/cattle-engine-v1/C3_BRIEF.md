@@ -2,7 +2,28 @@
 
 Predecessor: C2 (frozen by the campaign receipt `receipts/C2.json`)
 Phase directory (new): `src/domain/cattle/health/`
-Verify command: `npx vitest run src/domain/cattle --maxWorkers=1 && npm run typecheck && npm run lint`
+Verify command: `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint`
+
+## Phase contract (Shared Cattle Architecture & Conformance v1)
+
+Read `docs/farm-return-next/cattle/index.md` first, then only the shared documents it routes you to. CAT-INV ids are defined in `docs/farm-return-next/cattle/INVARIANTS.md`; this phase's interface contract is its section of `docs/farm-return-next/cattle/PHASE_INTERFACES.md`. The canonical input boundary (CAMPAIGN.md, "Canonical input contract", 2026-10-12) applies: entry points check the complete input with `toCanonicalPlainData` and reject non-canonical input; engines reason only over detached canonical plain data; malformed canonical data fails closed. This contract does not expand the scope below.
+
+- **Outcome:** canonical, provenance-aware health and medicine timeline with authorised-product binding and a withdrawal hard-gate projection.
+- **Owner:** health event timeline, treatment/medicine administration facts, product binding, withdrawal state, health evidence.
+- **Inputs:** C1 `AnimalLedger`/`AnimalSnapshot` (via C1 exports only); canonical append-only health records; supplied authorised-product records with C0 source binding.
+- **Outputs:** health timeline projection; per-administration product binding state; per-food-product withdrawal end; withdrawal hard-gate projection (C2 hard-gate / C0 pack compatible); medicine ledger view; fingerprints with new kinds.
+- **Invariants:** CAT-INV-001–014, 016, 017, 021–027 (018/019 for withdrawal durations).
+- **Temporal model:** `effectiveAt` = administration/event instants and withdrawal evaluation instant; `knowledgeCutoff` admits health records by `receivedAt` and product records by retrieved/checked time — cutoff first (CAT-INV-003); a later-received administration or product revision never changes an earlier-cutoff projection.
+- **Identity model:** health record id (same id + different content fails closed, identity before validity); administration = record id + animal + product ref + administration instant; product record = product id + version.
+- **Semantic equality:** instants by `animalInstantKey`; dates as calendar dates; product/practitioner ids exact per contract; withdrawal durations by canonical value.
+- **Status / evidence precedence:** `docs/farm-return-next/cattle/ARCHITECTURE.md` §Status and evidence precedence: declare the REQUIRED inputs of every authoritative outcome and document/test this phase's own precedence list; unresolved required evidence never surfaces as a resolved-looking state (CAT-INV-009).
+- **Units / precision:** withdrawal period exactly as supplied (unit and exactness from the record); no rounding except a sourced rule's explicit step.
+- **Provenance:** every record carries source category/actor/role + `receivedAt`; DIAGNOSIS only with veterinary/laboratory provenance; product facts are supplied data with validated `SourceVersionRef`/fingerprint (CAT-INV-024).
+- **Forbidden dependencies:** diagnosis inference; prescribing, dose/route choice; universal vaccine/medicine assumptions; SPC interpretation beyond supplied fields; re-deriving C1 identity; C2 obligation logic; raw C1 assertion reinterpretation where a C1 snapshot export exists (CAT-INV-023). See also `PHASE_INTERFACES.md` common contract.
+- **Human gates:** veterinary decision gate (any diagnosis/treatment/dose/course judgement); external evidence gate (real product or withdrawal value); unsupported external API gate; frozen-contract gate. Use the stop conditions and gate-token discipline below.
+- **FAIL_TO_PASS test matrix:** cutoff before/at/after for administrations and product records (`checkFutureKnowledgeInvisible`, including well-timestamped malformed late records); malformed `receivedAt`/retrieved time (`checkMalformedKnowledgeTimeFailsClosed`); duplicate/colliding record ids (`checkDuplicateIdentity`); unknown/conflicting product binding or period never CLEAR (`checkUnresolvedEvidenceNotMasked`); correction keeps history (`checkCorrectionPreservesHistory`); input order (`checkOrderIndependence`); detached frozen output (`checkDetachedResult`); fingerprint equivalent/material variants (`checkFingerprintStability`); non-canonical input rejected at every entry point (collection and element). Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
+- **PASS_TO_PASS regression surface:** frozen C0/C1/C2 suites and every earlier frozen phase suite under `src/domain/cattle`; conformance kit self-tests (`src/tooling/cattle-conformance`); directly affected predecessor integrity tests.
+- **Freeze definition:** `docs/farm-return-next/cattle/VERIFICATION.md` §Freeze definition (targeted + required conformance checks + PASS_TO_PASS + full quality gate + strict whole-phase audit CRITICAL=HIGH=MEDIUM=0).
 
 ## Campaign context
 

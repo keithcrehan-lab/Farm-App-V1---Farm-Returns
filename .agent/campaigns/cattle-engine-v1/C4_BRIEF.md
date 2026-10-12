@@ -2,7 +2,28 @@
 
 Predecessor: C3 (frozen by the campaign receipt `receipts/C3.json`)
 Phase directory (new): `src/domain/cattle/weights/`
-Verify command: `npx vitest run src/domain/cattle --maxWorkers=1 && npm run typecheck && npm run lint`
+Verify command: `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint`
+
+## Phase contract (Shared Cattle Architecture & Conformance v1)
+
+Read `docs/farm-return-next/cattle/index.md` first, then only the shared documents it routes you to. CAT-INV ids are defined in `docs/farm-return-next/cattle/INVARIANTS.md`; this phase's interface contract is its section of `docs/farm-return-next/cattle/PHASE_INTERFACES.md`. The canonical input boundary (CAMPAIGN.md, "Canonical input contract", 2026-10-12) applies: entry points check the complete input with `toCanonicalPlainData` and reject non-canonical input; engines reason only over detached canonical plain data; malformed canonical data fails closed. This contract does not expand the scope below.
+
+- **Outcome:** canonical weight observations and a group-scope resolver over C1 group history, with the C5 read contract.
+- **Owner:** canonical weight observations; group-scope resolution at an instant (group truth stays in C1).
+- **Inputs:** canonical weight records (cattle-canonical type, not the legacy `src/domain/types.ts` one); C1 ledgers/snapshots for membership; explicit animal sets.
+- **Outputs:** historical series; latest-known weight with NONE / conflict states; per-observation method, provenance and quality; group-scope members + unknown/conflict/invalid sets + history; typed C5 read contract; fingerprint (new kind).
+- **Invariants:** CAT-INV-001–014, 018, 019, 021–024, 026, 027.
+- **Temporal model:** `effectiveAt` = observation instant; `knowledgeCutoff` admits by `receivedAt` (cutoff first); membership projected through C1 at the same instants.
+- **Identity model:** observation record id; distinct live observations for the same animal at the same instant ⇒ conflict, never averaged; identity before validity.
+- **Semantic equality:** instants by `animalInstantKey`; weights by canonical kg value, not formatting; recorded value/unit preserved (CAT-INV-011).
+- **Status / evidence precedence:** `docs/farm-return-next/cattle/ARCHITECTURE.md` §Status and evidence precedence: declare the REQUIRED inputs of every authoritative outcome and document/test this phase's own precedence list; unresolved required evidence never surfaces as a resolved-looking state (CAT-INV-009).
+- **Units / precision:** canonical kg; closed unit enumeration; conversion only exact/explicit/tested, else UNSUPPORTED; number representation decided and documented here (`NUMERIC_SEMANTICS.md`); no rounding.
+- **Provenance:** C1 `AnimalDataProvenance` categories; collection method never relabelled (estimate ≠ scale); supplied quality kept exactly, never invented.
+- **Forbidden dependencies:** ADG/trend/target logic; creating group truth; reading C3/C5+ outputs. See also `PHASE_INTERFACES.md` common contract.
+- **Human gates:** external evidence gate (a real conversion factor or quality rule); frozen-contract gate; scope-expansion gate. Use the stop conditions and gate-token discipline below.
+- **FAIL_TO_PASS test matrix:** cutoff before/at/after incl. malformed late records; malformed `receivedAt`; duplicate observation ids; same-instant conflict; correction keeps history; input-order permutations for series and scope; non-positive/non-finite/unknown-unit rejection; equivalent instant spellings ⇒ equal series fingerprint; group UNKNOWN/conflict never silently in/out; non-canonical input rejected. Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
+- **PASS_TO_PASS regression surface:** frozen C0/C1/C2 suites and every earlier frozen phase suite under `src/domain/cattle`; conformance kit self-tests (`src/tooling/cattle-conformance`); directly affected predecessor integrity tests.
+- **Freeze definition:** `docs/farm-return-next/cattle/VERIFICATION.md` §Freeze definition (targeted + required conformance checks + PASS_TO_PASS + full quality gate + strict whole-phase audit CRITICAL=HIGH=MEDIUM=0).
 
 ## Campaign context
 

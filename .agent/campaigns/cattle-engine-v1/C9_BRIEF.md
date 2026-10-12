@@ -2,7 +2,28 @@
 
 Predecessor: C8 (frozen by the campaign receipt `receipts/C8.json`)
 Phase directory (new): `src/domain/cattle/plan-interface/`
-Verify command: `npx vitest run src/domain/cattle src/domain/plan --maxWorkers=1 && npm run typecheck && npm run lint`
+Verify command: `npx vitest run src/domain/cattle src/tooling/cattle-conformance src/domain/plan --maxWorkers=1 && npm run typecheck && npm run lint`
+
+## Phase contract (Shared Cattle Architecture & Conformance v1)
+
+Read `docs/farm-return-next/cattle/index.md` first, then only the shared documents it routes you to. CAT-INV ids are defined in `docs/farm-return-next/cattle/INVARIANTS.md`; this phase's interface contract is its section of `docs/farm-return-next/cattle/PHASE_INTERFACES.md`. The canonical input boundary (CAMPAIGN.md, "Canonical input contract", 2026-10-12) applies: entry points check the complete input with `toCanonicalPlainData` and reject non-canonical input; engines reason only over detached canonical plain data; malformed canonical data fails closed. This contract does not expand the scope below.
+
+- **Outcome:** pure cattle-owned adapter translating C2/C7/C8 outputs into the existing Plan kernel inputs without duplicating cattle truth.
+- **Owner:** only the Cattle→Plan translation.
+- **Inputs:** C2 obligation states, C7 occurrences, C8 recommendations, C1 snapshots / C4 scopes, canonical C2/C3/C4/C6 records for completion evidence — all as published canonical outputs.
+- **Outputs:** existing Plan types only (job proposals, `ScopeReality`, `CanonicalEvidence`, action routes), each carrying cattle output ids/fingerprints.
+- **Invariants:** CAT-INV-009, 012, 014, 015, 021–023 (001/002 at the adapter entry points).
+- **Temporal model:** cattle windows map to Plan timing; recommended window ≠ sourced hard deadline; unknown window ⇒ no invented date; the cattle outputs' `effectiveAt`/`knowledgeCutoff` are carried, never recomputed.
+- **Identity model:** deduplication per the Plan kernel's `planJobIdentityKey`; several cattle reasons ⇒ one proposal with several supporting reasons.
+- **Semantic equality:** as the Plan kernel defines for its own types; cattle ids exact.
+- **Status / evidence precedence:** `docs/farm-return-next/cattle/ARCHITECTURE.md` §Status and evidence precedence: declare the REQUIRED inputs of every authoritative outcome and document/test this phase's own precedence list; unresolved required evidence never surfaces as a resolved-looking state (CAT-INV-009).
+- **Units / precision:** none new; values pass through unchanged.
+- **Provenance:** every proposal cites cattle output ids and fingerprints.
+- **Forbidden dependencies:** cattle calculations; reinterpreting cattle evidence; new Plan variants/routes; modifying Plan code (frozen Plan contract change ⇒ frozen-contract gate). See also `PHASE_INTERFACES.md` common contract.
+- **Human gates:** frozen-contract gate (any Plan kernel change); product decision gate (route/creation-source meaning); scope-expansion gate. Use the stop conditions and gate-token discipline below.
+- **FAIL_TO_PASS test matrix:** BLOCKED/UNKNOWN become Plan blockers, never dropped; unknown completion evidence never complete; round-trip through real Plan kernel functions; deduplication; input order; non-canonical input rejected. Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
+- **PASS_TO_PASS regression surface:** frozen C0/C1/C2 suites and every earlier frozen phase suite under `src/domain/cattle`; conformance kit self-tests (`src/tooling/cattle-conformance`); directly affected predecessor integrity tests.
+- **Freeze definition:** `docs/farm-return-next/cattle/VERIFICATION.md` §Freeze definition (targeted + required conformance checks + PASS_TO_PASS + full quality gate + strict whole-phase audit CRITICAL=HIGH=MEDIUM=0).
 
 ## Campaign context
 

@@ -2,7 +2,28 @@
 
 Predecessor: C7 (frozen by the campaign receipt `receipts/C7.json`)
 Phase directory (new): `src/domain/cattle/recommendations/`
-Verify command: `npx vitest run src/domain/cattle --maxWorkers=1 && npm run typecheck && npm run lint`
+Verify command: `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint`
+
+## Phase contract (Shared Cattle Architecture & Conformance v1)
+
+Read `docs/farm-return-next/cattle/index.md` first, then only the shared documents it routes you to. CAT-INV ids are defined in `docs/farm-return-next/cattle/INVARIANTS.md`; this phase's interface contract is its section of `docs/farm-return-next/cattle/PHASE_INTERFACES.md`. The canonical input boundary (CAMPAIGN.md, "Canonical input contract", 2026-10-12) applies: entry points check the complete input with `toCanonicalPlainData` and reject non-canonical input; engines reason only over detached canonical plain data; malformed canonical data fails closed. This contract does not expand the scope below.
+
+- **Outcome:** deterministic, evidence-first recommendation engine emitting verified C0 Recommendation Evidence Packs from one sealed context.
+- **Owner:** candidate actions, constraint-aware ranking, recommendation records, evidence-pack assembly (via C0 `buildRecommendationEvidencePack`).
+- **Inputs:** ONE sealed `CattleEvaluationContext` (`ARCHITECTURE.md`) built only from published C1–C7 outputs + bound economic observations; `CandidateActionDefinition` registry as data.
+- **Outputs:** per-animal recommendation records, herd ordering, verified evidence packs.
+- **Invariants:** CAT-INV-001–027 (015 and 020 are primary).
+- **Temporal model:** exactly one `effectiveAt` and one `knowledgeCutoff` for every context part; no fetch or re-read of mutable inputs mid-evaluation (CAT-INV-015); economic observations admitted by their knowledge time.
+- **Identity model:** action = kind + target scope; pack id/fingerprint from C0; ties broken by stable action identity, recorded.
+- **Semantic equality:** ranking compares canonical unrounded values; money = amount + currency + economic context.
+- **Status / evidence precedence:** `docs/farm-return-next/cattle/ARCHITECTURE.md` §Status and evidence precedence: declare the REQUIRED inputs of every authoritative outcome and document/test this phase's own precedence list; unresolved required evidence never surfaces as a resolved-looking state (CAT-INV-009).
+- **Units / precision:** money representation decided and documented here (`NUMERIC_SEMANTICS.md`); no currency mixing without a bound exchange-rate observation; no decision rounding.
+- **Provenance:** every economic value is a bound observation (value, currency/unit, source, observed/retrieved time, knowledge time, version/fingerprint — CAT-INV-020); every pack lists exact rule/source versions.
+- **Forbidden dependencies:** raw upstream records (CAT-INV-023); live price/market calls; new price/cost/probability/effect constants; forking the C0 pack builder; AI explanation. See also `PHASE_INTERFACES.md` common contract.
+- **Human gates:** scientific decision gate (effect model values); external evidence gate (economic sources); veterinary decision gate; frozen-contract gate. Use the stop conditions and gate-token discipline below.
+- **FAIL_TO_PASS test matrix:** pipeline order hard gates → eligibility → candidates → effect → value → ranking → pack; any FAIL/UNKNOWN/conflict/REVIEW gate ⇒ non-actionable (`checkUnresolvedEvidenceNotMasked` with ACTIONABLE forbidden); unknown value never ranks as zero/best; same context ⇒ identical pack fingerprint; later upstream change at a later cutoff never alters a stored recommendation; context parts with mismatched cutoffs rejected; input order; detached frozen output. Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
+- **PASS_TO_PASS regression surface:** frozen C0/C1/C2 suites and every earlier frozen phase suite under `src/domain/cattle`; conformance kit self-tests (`src/tooling/cattle-conformance`); directly affected predecessor integrity tests.
+- **Freeze definition:** `docs/farm-return-next/cattle/VERIFICATION.md` §Freeze definition (targeted + required conformance checks + PASS_TO_PASS + full quality gate + strict whole-phase audit CRITICAL=HIGH=MEDIUM=0).
 
 ## Campaign context
 

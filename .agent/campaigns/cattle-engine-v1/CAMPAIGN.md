@@ -88,6 +88,10 @@ Binding for C2 and every later cattle phase (C3–C10):
 - Provenance is validated before authoritative use: knowledge and provenance times are strict-UTC instants (C1 instant contract) and fingerprints match the assessment-integrity representation (current schema version, `SHA-256`, 64 lowercase hex). Malformed provenance fails closed.
 - Audits assess engines against this contract: canonical malformed records, cutoff leakage, provenance validation, identity collisions, implementation binding, unknown/conflict behaviour and historical determinism — not support for arbitrary hostile runtime objects outside it.
 
+### Shared Cattle architecture & conformance (v1, 2026-10-12)
+
+Binding for C3–C10: `docs/farm-return-next/cattle/` holds the shared invariant catalogue (CAT-INV-001…027), the phase ownership and interface contracts, the temporal/evidence, numeric/equality and fingerprint models, and the verification and finding-classification policy. Every C3–C10 brief opens with a phase contract that names its CAT-INV ids; read `docs/farm-return-next/cattle/index.md` first and load only the documents it routes you to. Shared conformance test helpers live in `src/tooling/cattle-conformance/` (tests only). This area records C0–C2's lessons; it does not change frozen C0/C1/C2 behaviour, and the frozen code and DOMAIN_CONTRACTS.md sections win on any conflict about it.
+
 ### Review separation
 
 Scientific, legal and veterinary approvals are distinct. Approval of one rule version does not approve a later version.

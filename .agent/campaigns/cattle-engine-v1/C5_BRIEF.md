@@ -2,7 +2,28 @@
 
 Predecessor: C4 (frozen by the campaign receipt `receipts/C4.json`)
 Phase directory (new): `src/domain/cattle/performance/`
-Verify command: `npx vitest run src/domain/cattle --maxWorkers=1 && npm run typecheck && npm run lint`
+Verify command: `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint`
+
+## Phase contract (Shared Cattle Architecture & Conformance v1)
+
+Read `docs/farm-return-next/cattle/index.md` first, then only the shared documents it routes you to. CAT-INV ids are defined in `docs/farm-return-next/cattle/INVARIANTS.md`; this phase's interface contract is its section of `docs/farm-return-next/cattle/PHASE_INTERFACES.md`. The canonical input boundary (CAMPAIGN.md, "Canonical input contract", 2026-10-12) applies: entry points check the complete input with `toCanonicalPlainData` and reject non-canonical input; engines reason only over detached canonical plain data; malformed canonical data fails closed. This contract does not expand the scope below.
+
+- **Outcome:** deterministic performance derivation (gain, ADG, coverage, explicit target comparison) over C4 outputs, reproducible historically.
+- **Owner:** derived performance values and target comparisons.
+- **Inputs:** C4 series/latest-known/quality and group scopes ONLY (never raw weight records — CAT-INV-023); supplied provenance-bound `PerformanceTarget` records; explicit supplied policies (trend, thresholds, tolerances).
+- **Outputs:** `DERIVED_VALUE`s with calculation traces (gain kg, ADG kg/day), series metrics, target comparison states, optional labelled `PREDICTION`, scope aggregates over KNOWN results with unknown counts; fingerprint (new kind).
+- **Invariants:** CAT-INV-009, 010, 012, 014, 018–023, 025, 027 (and 001–006 for targets/policies as supplied records).
+- **Temporal model:** passes `effectiveAt`/`knowledgeCutoff` through to C4; targets and policies admitted by their own knowledge time; a later target revision never changes a historical comparison.
+- **Identity model:** derived value = source observation ids + convention version; target = id + version.
+- **Semantic equality:** numeric meaning in canonical units; comparisons on unrounded values.
+- **Status / evidence precedence:** `docs/farm-return-next/cattle/ARCHITECTURE.md` §Status and evidence precedence: declare the REQUIRED inputs of every authoritative outcome and document/test this phase's own precedence list; unresolved required evidence never surfaces as a resolved-looking state (CAT-INV-009).
+- **Units / precision:** ADG kg/day; elapsed-days convention defined, documented and tested here; tolerance only as supplied with the target; no decision rounding (CAT-INV-019).
+- **Provenance:** target without provenance rejected; unreviewed target ⇒ TARGET_UNVERIFIED; trace names every input observation.
+- **Forbidden dependencies:** raw C4 inputs; universal targets; legacy `livestock.ts` constants as per-animal targets; undocumented epsilon; presentation rounding in logic. See also `PHASE_INTERFACES.md` common contract.
+- **Human gates:** scientific decision gate (any target, threshold or trend boundary needing a value); external evidence gate; frozen-contract gate. Use the stop conditions and gate-token discipline below.
+- **FAIL_TO_PASS test matrix:** <2 usable observations ⇒ insufficient; zero/negative elapsed ⇒ invalid; conflict propagated; mixed methods reported; no target ⇒ NO_TARGET never ON_TRACK (`checkUnresolvedEvidenceNotMasked`); exact boundary comparisons unrounded; later target revision invisible at earlier cutoff; input order; fingerprint variants; aggregates never average unknown into zero. Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
+- **PASS_TO_PASS regression surface:** frozen C0/C1/C2 suites and every earlier frozen phase suite under `src/domain/cattle`; conformance kit self-tests (`src/tooling/cattle-conformance`); directly affected predecessor integrity tests.
+- **Freeze definition:** `docs/farm-return-next/cattle/VERIFICATION.md` §Freeze definition (targeted + required conformance checks + PASS_TO_PASS + full quality gate + strict whole-phase audit CRITICAL=HIGH=MEDIUM=0).
 
 ## Campaign context
 

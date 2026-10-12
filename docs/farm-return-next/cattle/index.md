@@ -43,8 +43,10 @@ evidence-reviewed content task fills them.
   (C1 `animal-ledger.ts`); exact UTC arithmetic in C2 `obligation-time.ts`.
 - Append-only bitemporal records: `collectBitemporalRecords` /
   `resolveBitemporalRecords` (C2 `bitemporal-records.ts`).
-- Fingerprints: `computeCattleFingerprint` / `verifyCattleFingerprint`
-  (C0 `integrity.ts`).
+- Fingerprints: the `assessment-integrity.ts` pipeline through a
+  phase-local wrapper (C2 `regulatory/obligation-integrity.ts` pattern;
+  C0 `computeCattleFingerprint` only for its existing kinds) — see
+  `FINGERPRINTS.md`.
 - Conformance test kit (tests only):
   `src/tooling/cattle-conformance/cattle-conformance.ts`.
 

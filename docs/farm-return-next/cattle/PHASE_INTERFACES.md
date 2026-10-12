@@ -59,8 +59,8 @@ These apply unless a phase section below says otherwise.
   - None of these is ever zero, false, empty or a default.
 - **Output.**
   - Output is deep-frozen and order-independent.
-  - It carries a fingerprint with a new, distinct C0 kind and payload
-    version.
+  - It carries a fingerprint with a new, distinct kind and payload
+    version, through a phase-local wrapper (`FINGERPRINTS.md`).
   - It echoes the `effectiveAt` and `knowledgeCutoff` used.
 - **Forbidden for every phase.**
   - Modifying an earlier phase's modules: only additive barrel exports

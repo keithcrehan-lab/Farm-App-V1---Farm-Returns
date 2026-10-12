@@ -126,10 +126,13 @@ export type CanonicalWeight =
   | { state: "CONVERTED"; kg: number; conversion: "IDENTITY" }
   | { state: "UNSUPPORTED"; kg: null; conversion: null };
 
+/** Trusts an already-validated record weight; module-internal, not in the barrel (CAT-INV-001/002). */
 export function canonicalWeightOf(weight: RecordedWeight): CanonicalWeight {
-  return WEIGHT_UNIT_CONVERSIONS[weight.unit] === "IDENTITY"
-    ? { state: "CONVERTED", kg: weight.value, conversion: "IDENTITY" }
-    : { state: "UNSUPPORTED", kg: null, conversion: null };
+  return Object.freeze(
+    WEIGHT_UNIT_CONVERSIONS[weight.unit] === "IDENTITY"
+      ? { state: "CONVERTED", kg: weight.value, conversion: "IDENTITY" }
+      : { state: "UNSUPPORTED", kg: null, conversion: null },
+  );
 }
 
 export type WeightRecordIssueCode =

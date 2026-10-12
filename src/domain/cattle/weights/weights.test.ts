@@ -707,7 +707,7 @@ describe("C4 boundaries", () => {
   });
 
   it("helpers that trust already-canonical input stay out of the cattle barrel (CAT-INV-001/002)", () => {
-    for (const name of ["materialiseWeightObservation", "latestKnownWeightOf", "projectCanonicalWeightSeries", "resolveValidScope", "readScopeRequest"]) {
+    for (const name of ["materialiseWeightObservation", "latestKnownWeightOf", "projectCanonicalWeightSeries", "resolveValidScope", "readScopeRequest", "canonicalWeightOf"]) {
       expect(name in cattle, name).toBe(false);
     }
   });

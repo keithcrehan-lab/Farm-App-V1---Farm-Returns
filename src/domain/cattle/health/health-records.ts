@@ -35,6 +35,7 @@ import { canonicalizeValue } from "../../assessment-integrity";
 import {
   ANIMAL_DATA_SOURCE_CATEGORIES,
   animalInstantKey,
+  deepFreezeAnimalValue,
   isOpaqueRef,
   isValidAnimalInstant,
   type AnimalDataProvenance,
@@ -44,7 +45,8 @@ import {
 import type { CattleInformationClass } from "../information";
 import { compareStrings } from "../integrity";
 import type { SourceVersionRef } from "../source";
-import { isRecord, nullableRef, oneOf, sourceVersionRefOf, suppliedQuantityOf, type Raw } from "./health-input";
+import { toCanonicalPlainData } from "../regulatory/canonical-input";
+import { hasOnlyFields, healthRecordIdOf, isRecord, nullableRef, oneOf, sourceVersionRefOf, suppliedQuantityOf, type Raw } from "./health-input";
 
 export const HEALTH_RECORD_KINDS = [
   "HEALTH_OBSERVATION",
@@ -161,6 +163,7 @@ export function healthRecordInformationClass(kind: HealthRecordKind): CattleInfo
 }
 
 export type HealthRecordIssueCode =
+  | "CATTLE_HEALTH_RECORD_NON_CANONICAL"
   | "CATTLE_HEALTH_RECORD_NOT_OBJECT"
   | "CATTLE_HEALTH_RECORD_INVALID_ID"
   | "CATTLE_HEALTH_RECORD_FOR_OTHER_ANIMAL"
@@ -178,8 +181,10 @@ export type HealthRecordIssueCode =
 // Materialisation
 // ---------------------------------------------------------------------------
 
+const PROVENANCE_FIELDS = ["sourceCategory", "sourceSystem", "sourceRecordRef", "observedAt", "receivedAt", "actor", "actorRole"];
+
 function provenanceOf(raw: unknown): HealthRecordProvenance | null {
-  if (!isRecord(raw)) return null;
+  if (!isRecord(raw) || !hasOnlyFields(raw, PROVENANCE_FIELDS)) return null;
   if (!oneOf(ANIMAL_DATA_SOURCE_CATEGORIES, raw.sourceCategory) || !oneOf(HEALTH_ACTOR_ROLES, raw.actorRole)) return null;
   if (!isValidAnimalInstant(raw.receivedAt)) return null;
   const observedAt = raw.observedAt ?? null;
@@ -200,7 +205,7 @@ function provenanceOf(raw: unknown): HealthRecordProvenance | null {
 }
 
 function findingOf(raw: unknown): HealthFinding | null {
-  if (!isRecord(raw)) return null;
+  if (!isRecord(raw) || !hasOnlyFields(raw, ["codeSystem", "code", "text"])) return null;
   const codeSystem = nullableRef(raw.codeSystem);
   const code = nullableRef(raw.code);
   const text = raw.text ?? null;
@@ -225,11 +230,11 @@ export function isDiagnosingProvenance(provenance: HealthRecordProvenance): bool
 
 function prescriberWithdrawalOf(raw: unknown): { ok: boolean; value: PrescriberWithdrawal | null } {
   if (raw === undefined || raw === null) return { ok: true, value: null };
-  if (!isRecord(raw) || !isOpaqueRef(raw.prescriberRef) || !Array.isArray(raw.periods) || raw.periods.length === 0) return { ok: false, value: null };
+  if (!isRecord(raw) || !hasOnlyFields(raw, ["prescriberRef", "periods"]) || !isOpaqueRef(raw.prescriberRef) || !Array.isArray(raw.periods) || raw.periods.length === 0) return { ok: false, value: null };
   const periods: PrescriberWithdrawalPeriod[] = [];
   for (const p of raw.periods) {
     const period = isRecord(p) ? suppliedQuantityOf(p.period) : null;
-    if (!isRecord(p) || !isOpaqueRef(p.foodProduct) || period === null) return { ok: false, value: null };
+    if (!isRecord(p) || !hasOnlyFields(p, ["foodProduct", "period"]) || !isOpaqueRef(p.foodProduct) || period === null) return { ok: false, value: null };
     periods.push({ foodProduct: p.foodProduct, period });
   }
   if (new Set(periods.map((p) => p.foodProduct)).size !== periods.length) return { ok: false, value: null };
@@ -244,7 +249,7 @@ function administrationDetailOf(raw: Raw): MedicineAdministrationDetail | null {
   let recordedAuthorisation: ProductAuthorisationRef | null = null;
   const auth = raw.recordedAuthorisation ?? null;
   if (auth !== null) {
-    if (!isRecord(auth) || !isOpaqueRef(auth.scheme) || !isOpaqueRef(auth.number)) return null;
+    if (!isRecord(auth) || !hasOnlyFields(auth, ["scheme", "number"]) || !isOpaqueRef(auth.scheme) || !isOpaqueRef(auth.number)) return null;
     recordedAuthorisation = { scheme: auth.scheme, number: auth.number };
   }
   const rawDose = raw.dose ?? null;
@@ -327,17 +332,20 @@ const COMMON_FIELDS = ["recordId", "animalId", "kind", "occurredAt", "provenance
 
 export type HealthRecordMaterialisation = { ok: true; record: HealthRecord } | { ok: false; recordId: string | null; issues: HealthRecordIssueCode[] };
 
-/** The readable record id of a canonical raw record, or `null`. */
-export function healthRecordIdOf(raw: unknown): string | null {
-  return isRecord(raw) && isOpaqueRef(raw.recordId) ? raw.recordId : null;
-}
-
 /**
- * Validates one canonical raw record for `animalId` and rebuilds it from known
- * fields. Malformed content is reported, never repaired or coerced; an unknown
- * field is malformed (a value must never be silently dropped).
+ * Validates one record for `animalId` and rebuilds it from known fields. The
+ * input must be canonical plain data (checked first, never read through an
+ * accessor); the result is detached and deep-frozen. Malformed content is
+ * reported, never repaired or coerced; an unknown field is malformed (a value
+ * must never be silently dropped).
  */
 export function materialiseHealthRecord(animalId: FarmReturnAnimalId, raw: unknown): HealthRecordMaterialisation {
+  const canonical = toCanonicalPlainData(raw);
+  if (!canonical.ok) return deepFreezeAnimalValue({ ok: false, recordId: null, issues: ["CATTLE_HEALTH_RECORD_NON_CANONICAL"] });
+  return deepFreezeAnimalValue(materialiseCanonicalHealthRecord(animalId, canonical.value));
+}
+
+function materialiseCanonicalHealthRecord(animalId: FarmReturnAnimalId, raw: unknown): HealthRecordMaterialisation {
   if (!isRecord(raw)) return { ok: false, recordId: null, issues: ["CATTLE_HEALTH_RECORD_NOT_OBJECT"] };
   const recordId = healthRecordIdOf(raw);
   const issues: HealthRecordIssueCode[] = [];

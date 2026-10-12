@@ -38,12 +38,12 @@
  */
 
 import { canonicalizeValue } from "../../assessment-integrity";
-import { BOVINE_SPECIES, animalInstantKey, compareInstants, isOpaqueRef, isValidAnimalInstant } from "../animal-ledger";
+import { BOVINE_SPECIES, animalInstantKey, compareInstants, deepFreezeAnimalValue, isOpaqueRef, isValidAnimalInstant } from "../animal-ledger";
 import { compareStrings, sortedUnique } from "../integrity";
 import type { SourceVersionRef } from "../source";
-import { canonicalField } from "../regulatory/canonical-input";
+import { canonicalField, toCanonicalPlainData } from "../regulatory/canonical-input";
 import { collectBitemporalRecords, resolveBitemporalRecords, type BitemporalRecord } from "../regulatory/bitemporal-records";
-import { isRecord, nullableRef, oneOf, rawIdentityKey, sourceVersionRefOf, suppliedQuantityOf } from "./health-input";
+import { hasOnlyFields, isRecord, nullableRef, oneOf, rawIdentityKey, sourceVersionRefOf, suppliedQuantityOf } from "./health-input";
 import type { MedicineAdministrationRecord, ProductAuthorisationRef, SuppliedQuantity } from "./health-records";
 
 export const PRODUCT_RECORD_LIFECYCLES = ["ACTIVE", "HISTORICAL", "REVIEW_REQUIRED"] as const;
@@ -100,6 +100,7 @@ export interface ProductVersionRef {
 }
 
 export type ProductRecordIssueCode =
+  | "CATTLE_HEALTH_PRODUCT_RECORD_NON_CANONICAL"
   | "CATTLE_HEALTH_PRODUCT_RECORD_NOT_OBJECT"
   | "CATTLE_HEALTH_PRODUCT_RECORD_INVALID_IDENTITY"
   | "CATTLE_HEALTH_PRODUCT_RECORD_INVALID_KNOWLEDGE_TIME"
@@ -131,15 +132,15 @@ export function productKnownAt(record: AuthorisedProductRecord): string {
   return compareInstants(record.source.retrievedAt, record.source.checkedAt) >= 0 ? record.source.retrievedAt : record.source.checkedAt;
 }
 
-/** True when either readable knowledge time of a canonical raw record is after the cutoff. */
-export function productRecordKnownAfter(raw: unknown, knowledgeCutoff: string): boolean {
+/** True when either readable knowledge time of a canonical raw record is after the cutoff (module-internal). */
+function productRecordKnownAfter(raw: unknown, knowledgeCutoff: string): boolean {
   return [canonicalField(raw, "source", "retrievedAt"), canonicalField(raw, "source", "checkedAt")].some(
     (t) => isValidAnimalInstant(t) && compareInstants(t, knowledgeCutoff) > 0,
   );
 }
 
 function withdrawalEntryOf(raw: unknown): WithdrawalPeriodEntry | null {
-  if (!isRecord(raw) || !isOpaqueRef(raw.foodProduct)) return null;
+  if (!isRecord(raw) || !hasOnlyFields(raw, ["foodProduct", "route", "period", "multiDoseBasis"]) || !isOpaqueRef(raw.foodProduct)) return null;
   const route = nullableRef(raw.route);
   const rawPeriod = raw.period ?? null;
   const period = rawPeriod === null ? null : suppliedQuantityOf(rawPeriod);
@@ -149,7 +150,7 @@ function withdrawalEntryOf(raw: unknown): WithdrawalPeriodEntry | null {
 }
 
 function speciesAuthorisationOf(raw: unknown): SpeciesAuthorisation | null {
-  if (!isRecord(raw) || !isOpaqueRef(raw.species) || !Array.isArray(raw.withdrawalPeriods)) return null;
+  if (!isRecord(raw) || !hasOnlyFields(raw, ["species", "withdrawalPeriods"]) || !isOpaqueRef(raw.species) || !Array.isArray(raw.withdrawalPeriods)) return null;
   const entries: WithdrawalPeriodEntry[] = [];
   for (const e of raw.withdrawalPeriods) {
     const entry = withdrawalEntryOf(e);
@@ -166,8 +167,19 @@ export type ProductRecordMaterialisation = { ok: true; record: AuthorisedProduct
 
 const PRODUCT_FIELDS = new Set(["productId", "version", "supersedesVersions", "authorisation", "label", "lifecycle", "speciesAuthorisations", "source"]);
 
-/** Validates one canonical raw product record and rebuilds it from known fields. */
+/**
+ * Validates one product record and rebuilds it from known fields. The input
+ * must be canonical plain data (checked first, never read through an
+ * accessor); the result is detached and deep-frozen.
+ */
 export function materialiseProductRecord(raw: unknown): ProductRecordMaterialisation {
+  const canonical = toCanonicalPlainData(raw);
+  if (!canonical.ok) return deepFreezeAnimalValue({ ok: false, ref: null, issues: ["CATTLE_HEALTH_PRODUCT_RECORD_NON_CANONICAL"] });
+  return deepFreezeAnimalValue(materialiseCanonicalProductRecord(canonical.value));
+}
+
+/** Validation of an already-canonical raw record (module-internal). */
+function materialiseCanonicalProductRecord(raw: unknown): ProductRecordMaterialisation {
   if (!isRecord(raw)) return { ok: false, ref: null, issues: ["CATTLE_HEALTH_PRODUCT_RECORD_NOT_OBJECT"] };
   const ref = displayRef(raw.productId, raw.version);
   const issues: ProductRecordIssueCode[] = [];
@@ -179,7 +191,7 @@ export function materialiseProductRecord(raw: unknown): ProductRecordMaterialisa
   const sourceOk = isRecord(src) && isOpaqueRef(src.publisher) && sourceRef !== null && Object.keys(src).every((k) => ["publisher", "sourceRef", "retrievedAt", "checkedAt"].includes(k));
   if (!sourceOk) issues.push("CATTLE_HEALTH_PRODUCT_RECORD_INVALID_SOURCE");
   const auth = raw.authorisation;
-  const authOk = isRecord(auth) && isOpaqueRef(auth.scheme) && isOpaqueRef(auth.number);
+  const authOk = isRecord(auth) && hasOnlyFields(auth, ["scheme", "number"]) && isOpaqueRef(auth.scheme) && isOpaqueRef(auth.number);
   const rawSupersedes = raw.supersedesVersions ?? [];
   const supersedesOk = Array.isArray(rawSupersedes) && rawSupersedes.every(isOpaqueRef) && new Set(rawSupersedes).size === rawSupersedes.length;
   const species: SpeciesAuthorisation[] = [];
@@ -235,15 +247,26 @@ function envelope(r: AuthorisedProductRecord): ProductEnvelope {
 export type ProductAdmissionResult = { ok: true; records: AuthorisedProductRecord[] } | { ok: false; issues: ProductRecordIssue[] };
 
 /**
- * Admission at a cutoff over canonical raw records: provably-later records
- * are set aside unvalidated; identity collisions among the admitted are found
- * before content validity (CAT-INV-008); then content is validated. Any
- * malformed admitted record or collision fails the whole product input closed.
+ * Admission at a cutoff over canonical raw records. The complete collection
+ * must be canonical plain data (checked first, collection and elements; no
+ * accessor is invoked) and only the detached copy is used. Provably-later
+ * records are set aside unvalidated; identity collisions among the admitted
+ * are found before content validity (CAT-INV-008); then content is validated.
+ * Any malformed admitted record or collision fails the whole product input
+ * closed. The result is detached and deep-frozen.
  */
 export function admitProductRecords(raws: readonly unknown[], knowledgeCutoff: string): ProductAdmissionResult {
+  const canonical = toCanonicalPlainData(raws);
+  if (!canonical.ok || !Array.isArray(canonical.value)) {
+    return deepFreezeAnimalValue({ ok: false, issues: [{ code: "CATTLE_HEALTH_PRODUCT_RECORD_NON_CANONICAL", ref: null }] });
+  }
+  return deepFreezeAnimalValue(admitCanonicalProductRecords(canonical.value, knowledgeCutoff));
+}
+
+function admitCanonicalProductRecords(raws: readonly unknown[], knowledgeCutoff: string): ProductAdmissionResult {
   const admitted = raws.filter((raw) => !productRecordKnownAfter(raw, knowledgeCutoff));
   const issues: ProductRecordIssue[] = [];
-  const materialised = admitted.map((raw) => ({ raw, result: materialiseProductRecord(raw) }));
+  const materialised = admitted.map((raw) => ({ raw, result: materialiseCanonicalProductRecord(raw) }));
   const byIdentity = new Map<string, { ref: string; keys: Set<string> }>();
   for (const { raw, result } of materialised) {
     const ref = isRecord(raw) ? displayRef(raw.productId, raw.version) : null;

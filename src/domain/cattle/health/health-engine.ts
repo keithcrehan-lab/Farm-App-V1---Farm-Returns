@@ -40,7 +40,7 @@
  *   `effectiveAt`, and no competing administration correction.
  */
 
-import type { AssessmentFingerprint, FingerprintVerificationResult } from "../../assessment-integrity";
+import { canonicalizeValue, type AssessmentFingerprint, type FingerprintVerificationResult } from "../../assessment-integrity";
 import { compareInstants, animalInstantKey, deepFreezeAnimalValue, isOpaqueRef, isValidAnimalInstant, rematerialiseAnimalLedger, type AnimalLedger, type AnimalLedgerIssue, type FarmReturnAnimalId } from "../animal-ledger";
 import { computeAnimalSnapshotFingerprint, projectAnimalSnapshot } from "../animal-snapshot";
 import type { CattleInformationClass } from "../information";
@@ -64,7 +64,6 @@ import {
   healthLinkAllowed,
   healthRecordClaimKey,
   healthRecordContentKey,
-  healthRecordIdOf,
   healthRecordInformationClass,
   materialiseHealthRecord,
   semanticHealthRecord,
@@ -73,7 +72,7 @@ import {
   type HealthRecordKind,
   type MedicineAdministrationRecord,
 } from "./health-records";
-import { isRecord, oneOf, rawIdentityKey } from "./health-input";
+import { healthRecordIdOf, isRecord, oneOf, rawIdentityKey } from "./health-input";
 import { computeAdministrationWithdrawal, foldWithdrawalGate, type AdministrationWithdrawal, type WithdrawalGateEntry } from "./withdrawal";
 
 export interface HealthTimelineFilter {
@@ -351,11 +350,26 @@ function gatePayload(p: ProjectionContext & { foodProducts: string[] }, g: Omit<
   return { ...contextPayload(p), foodProducts: p.foodProducts, medicineLedgerFingerprint: g.medicineLedgerFingerprint, entries: g.entries };
 }
 
-/** Re-verifies the three fingerprints of a projection against its own content. */
+/** The distinct source versions of the bound product versions (sorted). */
+function boundSourceRefs(productVersionsUsed: readonly ProductVersionRef[]): SourceVersionRef[] {
+  return productVersionsUsed
+    .map((v) => v.source)
+    .sort(compareSourceVersionRefs)
+    .filter((s, i, arr) => i === 0 || compareSourceVersionRefs(arr[i - 1], s) !== 0);
+}
+
+/**
+ * Re-verifies a projection against its own content: the supported payload
+ * version, the three fingerprints, and `sourceRefs` as exactly the source
+ * versions of the fingerprinted `productVersionsUsed` (CAT-INV-021/024).
+ */
 export function verifyAnimalHealthProjection(projection: AnimalHealthProjection, hash: CattleHash): FingerprintVerificationResult {
   const canonical = toCanonicalPlainData(projection);
   if (!canonical.ok) return { valid: false, reasonCode: "CATTLE_HEALTH_PROJECTION_NON_CANONICAL", detail: canonical.path };
   const p = canonical.value as AnimalHealthProjection;
+  if (!isRecord(p) || p.healthPayloadVersion !== CATTLE_HEALTH_PAYLOAD_VERSION) {
+    return { valid: false, reasonCode: "CATTLE_HEALTH_PROJECTION_UNSUPPORTED_PAYLOAD_VERSION", detail: "unsupported health payload version" };
+  }
   const { fingerprint: tf, ...timeline } = p.timeline;
   const { fingerprint: lf, ...ledger } = p.medicineLedger;
   const { fingerprint: gf, ...gate } = p.withdrawalGate;
@@ -364,6 +378,9 @@ export function verifyAnimalHealthProjection(projection: AnimalHealthProjection,
   const l = verifyHealthFingerprint("CATTLE_MEDICINE_LEDGER", ledgerPayload(p, ledger), lf, hash);
   if (!l.valid) return l;
   if (gate.medicineLedgerFingerprint.digest !== lf.digest) return { valid: false, reasonCode: "CATTLE_HEALTH_GATE_LEDGER_MISMATCH", detail: "gate is bound to another medicine ledger" };
+  if (!Array.isArray(p.sourceRefs) || canonicalizeValue(p.sourceRefs) !== canonicalizeValue(boundSourceRefs(ledger.productVersionsUsed))) {
+    return { valid: false, reasonCode: "CATTLE_HEALTH_SOURCE_REFS_MISMATCH", detail: "sourceRefs differ from the bound product versions" };
+  }
   return verifyHealthFingerprint("CATTLE_WITHDRAWAL_GATE", gatePayload(p, gate), gf, hash);
 }
 
@@ -495,10 +512,7 @@ function project(
   const medicineLedger: MedicineLedgerView = { ...ledgerContent, fingerprint: computeHealthFingerprint("CATTLE_MEDICINE_LEDGER", ledgerPayload(context, ledgerContent), hash) };
   const gateContent = { entries: gateEntries, medicineLedgerFingerprint: medicineLedger.fingerprint };
   const withdrawalGate: WithdrawalGateProjection = { ...gateContent, fingerprint: computeHealthFingerprint("CATTLE_WITHDRAWAL_GATE", gatePayload(context, gateContent), hash) };
-  const sourceRefs = productVersionsUsed
-    .map((v) => v.source)
-    .sort(compareSourceVersionRefs)
-    .filter((s, i, arr) => i === 0 || compareSourceVersionRefs(arr[i - 1], s) !== 0);
+  const sourceRefs = boundSourceRefs(productVersionsUsed);
   const projection: AnimalHealthProjection = {
     healthPayloadVersion: CATTLE_HEALTH_PAYLOAD_VERSION,
     animalId,

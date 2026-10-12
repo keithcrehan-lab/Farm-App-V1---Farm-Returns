@@ -659,6 +659,79 @@ describe("C3 canonical boundary and malformed input (CAT-INV-001/022)", () => {
     ]);
   });
 
+  it("verification binds the payload version and the product source references (F001)", () => {
+    const p = ok(run([adm("h-adm")]));
+    expect(p.sourceRefs).toEqual([SOURCE_REF]);
+    expect(verifyAnimalHealthProjection(p, hash).valid).toBe(true);
+    const mutations: [string, AnimalHealthProjection][] = [
+      ["sourceRefs removed", { ...p, sourceRefs: [] }],
+      ["sourceRefs replaced", { ...p, sourceRefs: [{ ...SOURCE_REF, version: "v2" }] }],
+      ["sourceRefs extra", { ...p, sourceRefs: [...p.sourceRefs, { ...SOURCE_REF, sourceId: "SYNTH-SRC-OTHER" }] }],
+      ["payload version", { ...p, healthPayloadVersion: 999 as never }],
+    ];
+    for (const [label, mutated] of mutations) {
+      expect(verifyAnimalHealthProjection(mutated, hash).valid, label).toBe(false);
+      expect(projectWithdrawalHardGates(mutated, hash).ok, label).toBe(false);
+    }
+  });
+
+  it("unsupported nested fields in health and product records fail closed (F002)", () => {
+    const period = (extra: Rec) => ({ foodProduct: MEAT, route: null, period: { amount: 0, unit: "DAY", ...extra } });
+    const productCases: [string, Rec][] = [
+      ["withdrawal period qualifier", product({}, [period({ exactness: "UNKNOWN" })])],
+      ["withdrawal entry field", product({}, [{ ...meat(), exactness: "UNKNOWN" }])],
+      ["species authorisation field", product({ speciesAuthorisations: [{ species: "BOVINE", withdrawalPeriods: [meat()], note: "x" }] })],
+      ["authorisation field", product({ authorisation: { scheme: "SYNTH-SCHEME", number: "SYNTH-AUTH-1", region: "x" } })],
+      ["source ref field", product({ source: { publisher: "SYNTH-PUBLISHER", sourceRef: { ...SOURCE_REF, note: "x" }, retrievedAt: "2026-01-01T00:00:00Z", checkedAt: "2026-01-02T00:00:00Z" } })],
+      ["fingerprint field", product({ source: { publisher: "SYNTH-PUBLISHER", sourceRef: { ...SOURCE_REF, contentFingerprint: { ...SOURCE_REF.contentFingerprint, note: "x" } }, retrievedAt: "2026-01-01T00:00:00Z", checkedAt: "2026-01-02T00:00:00Z" } })],
+    ];
+    for (const [label, p] of productCases) expect(failsClosed(run([adm("h-adm")], { products: [p], foodProducts: [MEAT] })), label).toBe(true);
+    const healthCases: [string, Rec][] = [
+      ["dose qualifier", adm("x", { dose: { amount: 5, unit: "SYNTH-DOSE-UNIT", exactness: "UNKNOWN" } })],
+      ["prescriber period qualifier", adm("x", { prescriberWithdrawal: { prescriberRef: "P", periods: [{ foodProduct: MEAT, period: { amount: 0, unit: "DAY", exactness: "UNKNOWN" } }] } })],
+      ["prescriber period entry field", adm("x", { prescriberWithdrawal: { prescriberRef: "P", periods: [{ foodProduct: MEAT, period: { amount: 1, unit: "DAY" }, note: "x" }] } })],
+      ["prescriber field", adm("x", { prescriberWithdrawal: { prescriberRef: "P", periods: [{ foodProduct: MEAT, period: { amount: 1, unit: "DAY" } }], note: "x" } })],
+      ["recorded authorisation field", adm("x", { recordedAuthorisation: { scheme: "SYNTH-SCHEME", number: "SYNTH-AUTH-1", note: "x" } })],
+      ["provenance field", { ...adm("x"), provenance: prov(RECEIVED, "FARMER", "FARMER", { confidence: "low" }) }],
+      ["finding field", rec("x", "SYMPTOM", { finding: { text: "synthetic sign", severity: "high" } })],
+      ["source document field", adm("x", { sourceDocument: { ...SOURCE_REF, note: "x" } })],
+    ];
+    for (const [label, record] of healthCases) expect(failsClosed(run([record])), label).toBe(true);
+    // The reproduction: a qualified zero period must not resolve to CLEAR.
+    expect(gateStates(run([adm("h-adm")], { products: [product({}, [period({ exactness: "UNKNOWN" })])], foodProducts: [MEAT] }))).toEqual(["REJECTED"]);
+  });
+
+  it("public admission exports enforce the canonical boundary and return frozen output (F003)", () => {
+    let touched = false;
+    const getter = <T extends object>(o: T, key: string, value: unknown): T =>
+      Object.defineProperty({ ...o }, key, {
+        get: () => {
+          touched = true;
+          return value;
+        },
+        enumerable: true,
+      });
+    const collection = [product()];
+    Object.defineProperty(collection, 0, { get: () => ((touched = true), product()), enumerable: true });
+    const admitted = [collection, [getter(product(), "productId", PRODUCT)]].map((raws) => cattle.admitProductRecords(raws, CUTOFF));
+    for (const r of admitted) {
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.issues.map((i) => i.code)).toEqual(["CATTLE_HEALTH_PRODUCT_RECORD_NON_CANONICAL"]);
+    }
+    const product1 = cattle.materialiseProductRecord(getter(product(), "productId", PRODUCT));
+    expect(!product1.ok && product1.issues).toEqual(["CATTLE_HEALTH_PRODUCT_RECORD_NON_CANONICAL"]);
+    const health = cattle.materialiseHealthRecord(LEDGER.animalId, getter(adm("x"), "productId", PRODUCT));
+    expect(!health.ok && health.issues).toEqual(["CATTLE_HEALTH_RECORD_NON_CANONICAL"]);
+    const nested = cattle.materialiseHealthRecord(LEDGER.animalId, adm("x", { dose: getter({ amount: 5, unit: "U" }, "amount", 5) }));
+    expect(nested.ok).toBe(false);
+    expect(touched).toBe(false);
+    const good = cattle.admitProductRecords([product()], CUTOFF);
+    expect(good.ok && isDeepFrozen(good)).toBe(true);
+    const goodHealth = cattle.materialiseHealthRecord(LEDGER.animalId, adm("x"));
+    expect(goodHealth.ok && isDeepFrozen(goodHealth)).toBe(true);
+    expect("healthRecordIdOf" in cattle || "productRecordKnownAfter" in cattle).toBe(false);
+  });
+
   it("ships no product content: with no supplied product records every administration is unresolved, and the barrel exports C3", () => {
     expect(gate(ok(run([adm("h-adm")], { products: [] }))).state).toBe("UNKNOWN");
     expect(cattle.projectAnimalHealth).toBe(projectAnimalHealth);

@@ -20,8 +20,18 @@ export function isRecord(value: unknown): value is Raw {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/** True when every own key of `raw` is one of `fields` (an unsupported field is malformed, never dropped). */
+export function hasOnlyFields(raw: Raw, fields: readonly string[]): boolean {
+  return Object.keys(raw).every((k) => fields.includes(k));
+}
+
 export function oneOf<T extends string>(values: readonly T[], value: unknown): value is T {
   return typeof value === "string" && (values as readonly string[]).includes(value);
+}
+
+/** The readable record id of a canonical raw health record, or `null`. */
+export function healthRecordIdOf(raw: unknown): string | null {
+  return isRecord(raw) && isOpaqueRef(raw.recordId) ? raw.recordId : null;
 }
 
 /** `undefined`/`null` → `null`; an opaque ref → itself; anything else → invalid. */
@@ -34,21 +44,21 @@ const SHA256_HEX_DIGEST = /^[0-9a-f]{64}$/;
 
 /** A fingerprint exactly as `assessment-integrity.ts` produces it (CAT-INV-024). */
 export function fingerprintOf(raw: unknown): AssessmentFingerprint | null {
-  if (!isRecord(raw)) return null;
+  if (!isRecord(raw) || !hasOnlyFields(raw, ["schemaVersion", "algorithm", "digest"])) return null;
   if (raw.schemaVersion !== ASSESSMENT_INTEGRITY_SCHEMA_VERSION || raw.algorithm !== ASSESSMENT_FINGERPRINT_ALGORITHM) return null;
   if (typeof raw.digest !== "string" || !SHA256_HEX_DIGEST.test(raw.digest)) return null;
   return { schemaVersion: ASSESSMENT_INTEGRITY_SCHEMA_VERSION, algorithm: ASSESSMENT_FINGERPRINT_ALGORITHM, digest: raw.digest };
 }
 
 export function sourceVersionRefOf(raw: unknown): SourceVersionRef | null {
-  if (!isRecord(raw) || !isOpaqueRef(raw.sourceId) || !isOpaqueRef(raw.version)) return null;
+  if (!isRecord(raw) || !hasOnlyFields(raw, ["sourceId", "version", "contentFingerprint"]) || !isOpaqueRef(raw.sourceId) || !isOpaqueRef(raw.version)) return null;
   const contentFingerprint = fingerprintOf(raw.contentFingerprint);
   return contentFingerprint ? { sourceId: raw.sourceId, version: raw.version, contentFingerprint } : null;
 }
 
 /** A finite, non-negative amount with an opaque unit, kept exactly as supplied. */
 export function suppliedQuantityOf(raw: unknown): SuppliedQuantity | null {
-  if (!isRecord(raw)) return null;
+  if (!isRecord(raw) || !hasOnlyFields(raw, ["amount", "unit"])) return null;
   if (typeof raw.amount !== "number" || !Number.isFinite(raw.amount) || raw.amount < 0 || !isOpaqueRef(raw.unit)) return null;
   return { amount: raw.amount, unit: raw.unit };
 }

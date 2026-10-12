@@ -1285,6 +1285,22 @@ describe("C2 canonical input contract (architecture decision 2026-10-12)", () =>
     expect(fn).not.toHaveBeenCalled();
   });
 
+  it("4b — evidence-log creation rejects a non-canonical collection (array accessor, custom iterator) without executing it", () => {
+    const elementGetter = vi.fn(() => second("2026-03-01T00:00:00Z"));
+    const withElementGetter: unknown[] = [ful("e-1", INSIDE)];
+    Object.defineProperty(withElementGetter, "1", { enumerable: true, configurable: true, get: elementGetter });
+    const iterator = vi.fn(function* () {
+      yield ful("e-1", INSIDE);
+    });
+    const withIterator: unknown[] = [ful("e-1", INSIDE)];
+    Object.defineProperty(withIterator, Symbol.iterator, { value: iterator });
+    for (const bad of [withElementGetter, withIterator]) {
+      expect(createObligationEvidenceLog(A, bad)).toEqual({ ok: false, issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NON_CANONICAL", evidenceId: null }] });
+    }
+    expect(elementGetter).not.toHaveBeenCalled();
+    expect(iterator).not.toHaveBeenCalled();
+  });
+
   it("5 — rule data bound to a trusted registered implementation evaluates", () => {
     const registry = createObligationImplementationRegistry([passImpl]);
     const { implementations, ...data } = catalogueOf();

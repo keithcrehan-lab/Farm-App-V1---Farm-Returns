@@ -215,7 +215,11 @@ function strip(e: Envelope): ObligationFulfilmentEvidence {
  * fails the whole log closed.
  */
 export function createObligationEvidenceLog(animalId: string, inputs: readonly unknown[]): ObligationEvidenceLogResult {
-  return buildEvidenceLog(animalId, [], inputs);
+  // The whole collection is canonicalised before iteration: an array accessor
+  // or custom iterator is rejected, never executed.
+  const canonicalInputs = toCanonicalPlainData(inputs);
+  if (!canonicalInputs.ok) return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NON_CANONICAL", evidenceId: null }] };
+  return buildEvidenceLog(animalId, [], canonicalInputs.value as readonly unknown[]);
 }
 
 /**

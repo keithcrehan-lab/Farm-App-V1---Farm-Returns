@@ -46,17 +46,23 @@ export type BitemporalCollectResult<R> =
 
 /**
  * Collects already-validated records. `contentKey` must compare every field
- * (instants by instant). Output is sorted by `recordId`.
+ * (instants by instant). Output is sorted by `recordId`. Records in `stored`
+ * (an existing log being appended to) are kept exactly as stored: an
+ * identical duplicate never replaces a stored record's spelling. Among
+ * records that are not stored, the kept spelling is independent of input
+ * order.
  */
 export function collectBitemporalRecords<R extends BitemporalRecord>(
   records: readonly R[],
   contentKey: (record: R) => string,
+  stored: readonly R[] = [],
 ): BitemporalCollectResult<R> {
   const issues: BitemporalCollectIssue[] = [];
   const byId = new Map<string, { record: R; key: string }>();
   const duplicates = new Set<string>();
   const conflicted = new Set<string>();
-  for (const record of records) {
+  const pinned = new Set<R>(stored);
+  for (const record of [...stored, ...records]) {
     if (record.supersedes.includes(record.recordId)) {
       issues.push({ code: "CATTLE_RECORD_SELF_SUPERSESSION", recordId: record.recordId });
       continue;
@@ -67,7 +73,8 @@ export function collectBitemporalRecords<R extends BitemporalRecord>(
       byId.set(record.recordId, { record, key });
     } else if (existing.key === key) {
       duplicates.add(record.recordId);
-      if (compareStrings(canonicalizeValue(record), canonicalizeValue(existing.record)) < 0) byId.set(record.recordId, { record, key });
+      const keepExisting = pinned.has(existing.record) || (!pinned.has(record) && compareStrings(canonicalizeValue(record), canonicalizeValue(existing.record)) >= 0);
+      if (!keepExisting) byId.set(record.recordId, { record, key });
     } else if (!conflicted.has(record.recordId)) {
       conflicted.add(record.recordId);
       issues.push({ code: "CATTLE_RECORD_DUPLICATE_ID_DIFFERENT_CONTENT", recordId: record.recordId });

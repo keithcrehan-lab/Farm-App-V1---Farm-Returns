@@ -422,6 +422,34 @@ function provablyAfter(value: unknown, cutoff: string | null): boolean {
   return cutoff !== null && isValidAnimalInstant(value) && compareInstants(value, cutoff) > 0;
 }
 
+/** Reads one property of a caller value exactly once; a throwing getter or non-object reads as `undefined`. */
+function readOnce(item: unknown, key: string): unknown {
+  if (item === null || typeof item !== "object") return undefined;
+  try {
+    return (item as Record<string, unknown>)[key];
+  } catch {
+    return undefined;
+  }
+}
+
+type Admission = { status: "LATER"; copy: unknown } | { status: "ADMITTED"; copy: unknown } | { status: "NOT_CLONEABLE" };
+
+/**
+ * Admits ONE timestamped record by its own knowledge time before anything
+ * else about it is trusted. The record is cloned on its own; if it cannot
+ * be cloned, only its knowledge-time property is read (once): provably after
+ * the cutoff ⇒ set aside, otherwise it fails closed.
+ */
+function admitTimestamped(item: unknown, timeKey: string, cutoff: string | null): Admission {
+  let copy: unknown;
+  try {
+    copy = structuredClone(item);
+  } catch {
+    return provablyAfter(readOnce(item, timeKey), cutoff) ? { status: "LATER", copy: undefined } : { status: "NOT_CLONEABLE" };
+  }
+  return isRecord(copy) && provablyAfter(copy[timeKey], cutoff) ? { status: "LATER", copy } : { status: "ADMITTED", copy };
+}
+
 interface AdmittedCatalogue {
   definitions: unknown[];
   ruleVersions: unknown[];
@@ -429,79 +457,102 @@ interface AdmittedCatalogue {
   reviews: unknown[];
   implementations: unknown[];
   later: Map<string, LaterObligationDefinitionRef>;
+  issues: ObligationCatalogueIssue[];
 }
 
 /**
- * Knowledge-time admission — ONE rule for every catalogue record type,
- * applied before any validation, so nothing recorded after the cutoff (valid,
- * malformed or contradictory) can change an earlier reconstruction:
+ * Knowledge-time admission — applied per record before any validation, and
+ * decided ONLY by records known at the cutoff, so nothing recorded after the
+ * cutoff (valid, malformed, contradictory or uncloneable) can change an
+ * earlier reconstruction, and admission is monotonic in knowledge time:
  * - definitions (`recordedAt`), reviews (`reviewedAt`) and sources
  *   (`retrievedAt`) carry their own knowledge time: provably after the cutoff
- *   ⇒ set aside unvalidated; otherwise (including an unreadable time) admitted
- *   and validated, so malformed entries still fail closed;
- * - rule versions and implementations carry none: a rule version is set aside
- *   only when every record naming it (definition or review) was set aside and
- *   at least one did; an implementation only when every rule version naming
- *   it was set aside and at least one did. Anything unreadable, unreferenced
- *   or referenced by an admitted record is admitted and validated.
- * Without a cutoff everything is admitted.
+ *   ⇒ set aside unvalidated; otherwise (including an unreadable time)
+ *   admitted and validated, so malformed entries still fail closed;
+ * - rule versions and implementations carry none: a rule version is relevant
+ *   at the cutoff only when an ADMITTED definition or review names it, and an
+ *   implementation only when an admitted, relevant rule version names it.
+ *   Irrelevant ones cannot affect any obligation at that cutoff and are not
+ *   validated; one whose identity cannot be read is admitted and fails
+ *   closed. A later record can never make an earlier one relevant or not.
+ * Without a cutoff every record is admitted and validated.
  */
-function admitKnownCatalogue(data: { definitions: unknown[]; ruleVersions: unknown[]; sources: unknown[]; reviews: unknown[] }, implementations: unknown[], cutoff: string | null): AdmittedCatalogue {
+function admitKnownCatalogue(raw: { definitions: unknown[]; ruleVersions: unknown[]; sources: unknown[]; reviews: unknown[]; implementations: unknown[] }, cutoff: string | null): AdmittedCatalogue {
+  const issues: ObligationCatalogueIssue[] = [];
   const later = new Map<string, LaterObligationDefinitionRef>();
-  const ruleRefs = { admitted: new Set<string>(), later: new Set<string>() };
+  const named = new Set<string>();
+  const admitAll = (items: unknown[], timeKey: string, onAdmit: (copy: unknown) => void, onLater: (copy: unknown) => void = () => {}) => {
+    for (const item of items) {
+      const a = admitTimestamped(item, timeKey, cutoff);
+      if (a.status === "NOT_CLONEABLE") issues.push({ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null });
+      else if (a.status === "LATER") onLater(a.copy);
+      else onAdmit(a.copy);
+    }
+  };
   const definitions: unknown[] = [];
-  for (const item of data.definitions) {
-    const r = isRecord(item) ? item : null;
-    const identity = r ? ruleIdentity(r.ruleId, r.ruleVersion) : null;
-    if (r && provablyAfter(r.recordedAt, cutoff)) {
-      const { obligationId, ruleId, ruleVersion } = r;
+  admitAll(
+    raw.definitions,
+    "recordedAt",
+    (copy) => {
+      const identity = isRecord(copy) ? ruleIdentity(copy.ruleId, copy.ruleVersion) : null;
+      if (identity) named.add(identity);
+      definitions.push(copy);
+    },
+    (copy) => {
+      if (!isRecord(copy)) return;
+      const { obligationId, ruleId, ruleVersion } = copy;
       if (isOpaqueRef(obligationId) && isOpaqueRef(ruleId) && isPositiveInteger(ruleVersion)) {
         later.set(canonicalizeValue([obligationId, ruleId, ruleVersion]), { obligationId, ruleId, ruleVersion });
       }
-      if (identity) ruleRefs.later.add(identity);
-      continue;
-    }
-    if (identity) ruleRefs.admitted.add(identity);
-    definitions.push(item);
-  }
+    },
+  );
   const reviews: unknown[] = [];
-  for (const item of data.reviews) {
-    const r = isRecord(item) ? item : null;
-    const identity = r ? ruleIdentity(r.ruleId, r.ruleVersion) : null;
-    if (r && provablyAfter(r.reviewedAt, cutoff)) {
-      if (identity) ruleRefs.later.add(identity);
-      continue;
-    }
-    if (identity) ruleRefs.admitted.add(identity);
-    reviews.push(item);
-  }
-  const implRefs = { admitted: new Set<string>(), later: new Set<string>() };
+  admitAll(raw.reviews, "reviewedAt", (copy) => {
+    const identity = isRecord(copy) ? ruleIdentity(copy.ruleId, copy.ruleVersion) : null;
+    if (identity) named.add(identity);
+    reviews.push(copy);
+  });
+  const sources: unknown[] = [];
+  admitAll(raw.sources, "retrievedAt", (copy) => sources.push(copy));
+
+  const relevant = (identity: string | null) => cutoff === null || identity === null || named.has(identity);
+  const namedImpls = new Set<string>();
   const ruleVersions: unknown[] = [];
-  for (const item of data.ruleVersions) {
-    const r = isRecord(item) ? item : null;
-    const identity = r ? ruleIdentity(r.ruleId, r.version) : null;
-    const impl = r && isRecord(r.implementation) ? ruleIdentity(r.implementation.implementationId, r.implementation.version) : null;
-    if (identity && ruleRefs.later.has(identity) && !ruleRefs.admitted.has(identity)) {
-      if (impl) implRefs.later.add(impl);
+  for (const item of raw.ruleVersions) {
+    let copy: unknown;
+    try {
+      copy = structuredClone(item);
+    } catch {
+      if (!relevant(ruleIdentity(readOnce(item, "ruleId"), readOnce(item, "version")))) continue;
+      issues.push({ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null });
       continue;
     }
-    if (impl) implRefs.admitted.add(impl);
-    ruleVersions.push(item);
+    const r = isRecord(copy) ? copy : null;
+    if (!relevant(r ? ruleIdentity(r.ruleId, r.version) : null)) continue;
+    const impl = r && isRecord(r.implementation) ? ruleIdentity(r.implementation.implementationId, r.implementation.version) : null;
+    if (impl) namedImpls.add(impl);
+    ruleVersions.push(copy);
   }
-  const sources = data.sources.filter((item) => !(isRecord(item) && provablyAfter(item.retrievedAt, cutoff)));
-  const admittedImplementations: unknown[] = [];
-  for (const item of implementations) {
+  const implementations: unknown[] = [];
+  for (const item of raw.implementations) {
     if (item === null || typeof item !== "object") {
-      admittedImplementations.push(item);
+      implementations.push(item);
       continue;
     }
     // Each property read exactly once; validation reads this plain capture.
-    const { implementationId, version, evaluate } = item as Record<string, unknown>;
-    const identity = ruleIdentity(implementationId, version);
-    if (identity && implRefs.later.has(identity) && !implRefs.admitted.has(identity)) continue;
-    admittedImplementations.push({ implementationId, version, evaluate });
+    let captured: { implementationId: unknown; version: unknown; evaluate: unknown };
+    try {
+      const { implementationId, version, evaluate } = item as Record<string, unknown>;
+      captured = { implementationId, version, evaluate };
+    } catch {
+      implementations.push(null);
+      continue;
+    }
+    const identity = ruleIdentity(captured.implementationId, captured.version);
+    if (cutoff !== null && identity !== null && !namedImpls.has(identity)) continue;
+    implementations.push(captured);
   }
-  return { definitions, ruleVersions, sources, reviews, implementations: admittedImplementations, later };
+  return { definitions, ruleVersions, sources, reviews, implementations, later, issues };
 }
 
 /**
@@ -514,21 +565,18 @@ function admitKnownCatalogue(data: { definitions: unknown[]; ruleVersions: unkno
  * in and fails closed.
  */
 export function materialiseObligationCatalogue(raw: unknown, knowledgeCutoff?: string): ObligationCatalogueResult {
-  const issues: ObligationCatalogueIssue[] = [];
   if (!isRecord(raw)) return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_MALFORMED", ref: null }] };
   const { definitions, ruleVersions, sources, reviews, implementations } = raw;
   if (![definitions, ruleVersions, sources, reviews, implementations].every(Array.isArray)) {
     return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_MALFORMED", ref: null }] };
   }
-  let cloned: { definitions: unknown[]; ruleVersions: unknown[]; sources: unknown[]; reviews: unknown[] };
-  try {
-    cloned = structuredClone({ definitions, ruleVersions, sources, reviews } as { definitions: unknown[]; ruleVersions: unknown[]; sources: unknown[]; reviews: unknown[] });
-  } catch {
-    return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null }] };
-  }
-
   const cutoff = knowledgeCutoff !== undefined && isValidAnimalInstant(knowledgeCutoff) ? knowledgeCutoff : null;
-  const data = admitKnownCatalogue(cloned, Array.from(implementations as unknown[]), cutoff);
+  const list = (v: unknown) => Array.from(v as unknown[]);
+  const data = admitKnownCatalogue(
+    { definitions: list(definitions), ruleVersions: list(ruleVersions), sources: list(sources), reviews: list(reviews), implementations: list(implementations) },
+    cutoff,
+  );
+  const issues: ObligationCatalogueIssue[] = [...data.issues];
   const later = data.later;
   const defs = new Map<string, { def: ObligationDefinition; key: string }>();
   for (const item of data.definitions) {

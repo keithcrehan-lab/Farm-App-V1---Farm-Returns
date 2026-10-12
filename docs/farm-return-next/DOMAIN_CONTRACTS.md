@@ -3509,14 +3509,17 @@ machinery once (`bitemporal-records.ts`) for later phases to import.
 **Version and knowledge selection.** The C0 evaluation date is the UTC calendar date of
 `effectiveAt`. Only rule versions whose definition `recordedAt <= knowledgeCutoff`, and only
 reviews with `reviewedAt <= knowledgeCutoff`, are visible; evidence provably received after the
-cutoff is not admitted. **Catalogue knowledge admission** (one rule, applied before any
-validation, so nothing recorded after the cutoff — valid, malformed or contradictory — changes an
-earlier reconstruction): definitions (`recordedAt`), reviews (`reviewedAt`) and sources
-(`retrievedAt`) provably after the cutoff are set aside unvalidated; a rule version is set aside
-only when every definition/review naming it was set aside (and one did); an implementation only
-when every rule version naming it was set aside (and one did). An unreadable knowledge time, an
-unreferenced rule version/implementation, or one named by an admitted record is admitted and
-validated, so malformed entries still fail closed. A PRODUCTION/SUPERSEDED version with no definition at all ⇒
+cutoff is not admitted. **Catalogue knowledge admission** (per record, before any validation,
+decided only by records known at the cutoff — so nothing recorded after it, valid, malformed,
+contradictory or uncloneable, changes an earlier reconstruction): each record is cloned on its
+own; definitions (`recordedAt`), reviews (`reviewedAt`) and sources (`retrievedAt`) provably
+after the cutoff are set aside unvalidated (an uncloneable record has only its knowledge time
+read, once); a rule version is relevant only when an admitted definition or review names it, and
+an implementation only when a relevant rule version names it — irrelevant ones cannot affect any
+obligation at that cutoff and are not validated. An unreadable knowledge time or identity, or an
+uncloneable record not provably later, fails closed. Without a cutoff every record is validated.
+**Evidence append** keeps stored records exactly as stored: an identical duplicate (instants by
+instant) is idempotent and never rewrites a stored spelling or a historical fingerprint. A PRODUCTION/SUPERSEDED version with no definition at all ⇒
 UNSUPPORTED (never silently skipped). When C0 finds no effective released version but exactly
 one unreleased version is in force, it is evaluated through `evaluateCattleRule` and the
 obligation is REVIEW_REQUIRED. The rule in force at `effectiveAt` governs every occurrence (no

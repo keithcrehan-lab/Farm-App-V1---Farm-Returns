@@ -1058,27 +1058,50 @@ describe("C2 remediation — records known only after the cutoff never change a 
     failsClosed({ ...base, definitions: [...base.definitions, { ...def, ruleVersion: 2, recordedAt: "2026-04-01" }] });
   });
 
-  it("rule versions: one named only by later records is set aside; one named by a known record or by nothing is validated", () => {
+  it("rule versions: relevant only when a record known at the cutoff names them — never decided by later records", () => {
     const d2 = definition({ ruleVersion: 2, recordedAt: LATER });
     const malformedV2 = { ...boundRule(d2), applicability: "nope" };
-    const contradictoryV1Twin = { ...boundRule(d2), title: "contradictory later twin" };
+    const contradictoryTwin = { ...boundRule(d2), title: "contradictory later twin" };
     reproducesBefore({ ...base, definitions: [...base.definitions, d2], ruleVersions: [...base.ruleVersions, malformedV2] });
-    reproducesBefore({ ...base, definitions: [...base.definitions, d2], ruleVersions: [...base.ruleVersions, boundRule(d2), contradictoryV1Twin] });
+    reproducesBefore({ ...base, definitions: [...base.definitions, d2], ruleVersions: [...base.ruleVersions, boundRule(d2), contradictoryTwin] });
     reproducesBefore({ ...base, ruleVersions: [...base.ruleVersions, malformedV2], reviews: [...base.reviews, ...approve(boundRule(d2), undefined, LATER)] });
-    // Named by nothing: still validated (no knowledge time can set it aside).
-    failsClosed({ ...base, ruleVersions: [...base.ruleVersions, malformedV2] });
-    // Named by a known definition: validated.
-    failsClosed({ ...base, definitions: [...base.definitions, { ...d2, recordedAt: "2026-03-01T00:00:00Z" }], ruleVersions: [...base.ruleVersions, malformedV2] });
+    // Named by nothing known at the cutoff: irrelevant there, so it cannot change the result ...
+    const unreferenced = { ...base, ruleVersions: [...base.ruleVersions, malformedV2] };
+    reproducesBefore(unreferenced);
+    // ... and a LATER record naming it cannot change that earlier result either (the audit's F003 reproduction).
+    reproducesBefore({ ...unreferenced, reviews: [...base.reviews, { ...base.reviews[0], ruleVersion: 2, reviewedAt: LATER }] });
+    reproducesBefore({ ...unreferenced, definitions: [...base.definitions, d2] });
+    // Named by a record known at the cutoff: validated, fails closed.
+    failsClosed({ ...unreferenced, definitions: [...base.definitions, { ...d2, recordedAt: "2026-03-01T00:00:00Z" }] });
+    failsClosed({ ...unreferenced, reviews: [...base.reviews, { ...base.reviews[0], ruleVersion: 2, reviewedAt: "2026-03-01T00:00:00Z" }] });
+    // An unreadable identity can never be shown irrelevant: fails closed.
+    failsClosed({ ...base, ruleVersions: [...base.ruleVersions, { ...malformedV2, version: "two" }] });
   });
 
-  it("implementations: one named only by set-aside rule versions is set aside; otherwise validated", () => {
+  it("implementations: relevant only when a relevant rule version names them — never decided by later records", () => {
     const laterImpl = { implementationId: "SYNTH-IMPL-LATER", version: 1, evaluate: "not a function" };
     const d2 = definition({ ruleVersion: 2, recordedAt: LATER });
     const r2 = boundRule(d2, { implementation: { ...bindTo(passImpl), implementationId: "SYNTH-IMPL-LATER" } });
     reproducesBefore({ ...base, definitions: [...base.definitions, d2], ruleVersions: [...base.ruleVersions, r2], implementations: [...base.implementations, laterImpl] });
     reproducesBefore({ ...base, definitions: [...base.definitions, d2], ruleVersions: [...base.ruleVersions, r2], implementations: [...base.implementations, impl(() => "PASS", "SYNTH-IMPL-LATER"), impl(() => "FAIL", "SYNTH-IMPL-LATER")] });
-    failsClosed({ ...base, implementations: [...base.implementations, laterImpl] });
+    const unreferenced = { ...base, implementations: [...base.implementations, laterImpl] };
+    reproducesBefore(unreferenced);
+    reproducesBefore({ ...unreferenced, definitions: [...base.definitions, d2], ruleVersions: [...base.ruleVersions, r2] });
+    failsClosed({ ...unreferenced, definitions: [...base.definitions, { ...d2, recordedAt: "2026-03-01T00:00:00Z" }], ruleVersions: [...base.ruleVersions, r2] });
     failsClosed({ ...base, implementations: [...base.implementations, { implementationId: 7, version: 1, evaluate: () => "PASS" }] });
+  });
+
+  it("an uncloneable record recorded after the cutoff is set aside; one known by the cutoff (or with an unreadable time) fails closed", () => {
+    const fn = () => "not data";
+    const def = base.definitions[0];
+    const review = base.reviews[0];
+    reproducesBefore({ ...base, reviews: [...base.reviews, { ...review, reviewedAt: LATER, extra: fn }] });
+    reproducesBefore({ ...base, definitions: [...base.definitions, { ...def, ruleVersion: 2, recordedAt: LATER, extra: fn }] });
+    reproducesBefore({ ...base, sources: [...base.sources, { ...LEGAL_SOURCE, version: "SYNTH-v9", retrievedAt: LATER, extra: fn }] });
+    reproducesBefore({ ...base, ruleVersions: [...base.ruleVersions, { ...boundRule(definition({ ruleVersion: 2 })), extra: fn }] });
+    failsClosed({ ...base, reviews: [...base.reviews, { ...review, reviewedAt: "2026-03-01T00:00:00Z", extra: fn }] });
+    failsClosed({ ...base, reviews: [...base.reviews, { ...review, reviewedAt: "not-an-instant", extra: fn }] });
+    failsClosed({ ...base, ruleVersions: [{ ...base.ruleVersions[0], extra: fn }] });
   });
 
   it("sources: a source retrieved after the cutoff — malformed or a newer version — is set aside; an unreadable retrieval time is validated", () => {
@@ -1090,5 +1113,31 @@ describe("C2 remediation — records known only after the cutoff never change a 
   it("without a cutoff (direct materialisation) every record is validated", () => {
     expect(materialiseObligationCatalogue({ ...base, reviews: [...base.reviews, { ...base.reviews[0], dimension: "SYNTH-NOT-A-DIMENSION", reviewedAt: LATER }] }).ok).toBe(false);
     expect(materialiseObligationCatalogue({ ...base, reviews: [...base.reviews, { ...base.reviews[0], dimension: "SYNTH-NOT-A-DIMENSION", reviewedAt: LATER }] }, EARLY).ok).toBe(true);
+  });
+});
+
+describe("C2 remediation — appending an identical duplicate never rewrites stored evidence", () => {
+  it("keeps the stored spelling and the historical fingerprint (the audit's F004 reproduction)", () => {
+    const AT = "2026-04-01T00:00:00Z";
+    for (const [storedAt, retryAt] of [["2026-03-05T00:00:00.000Z", "2026-03-05T00:00:00Z"], ["2026-03-05T00:00:00Z", "2026-03-05T00:00:00.000Z"]]) {
+      const created = createObligationEvidenceLog(A, [ful("e-1", storedAt)]);
+      if (!created.ok) throw new Error(JSON.stringify(created));
+      const before = run({ effectiveAt: AT, evidence: [...created.log.records] });
+      const appended = appendObligationEvidence(created.log, [ful("e-1", retryAt)]);
+      if (!appended.ok) throw new Error(JSON.stringify(appended));
+      expect(appended.idempotentDuplicateIds).toEqual(["e-1"]);
+      expect(appended.log.records).toEqual(created.log.records);
+      expect(appended.log.records[0].fulfilledAt).toBe(storedAt);
+      const after = run({ effectiveAt: AT, evidence: [...appended.log.records] });
+      expect(after).toEqual(before);
+      expect(only(after).fingerprint).toEqual(only(before).fingerprint);
+    }
+  });
+
+  it("a duplicate with different content is still rejected on append", () => {
+    const created = createObligationEvidenceLog(A, [ful("e-1", INSIDE)]);
+    if (!created.ok) throw new Error(JSON.stringify(created));
+    const clash = appendObligationEvidence(created.log, [ful("e-1", "2026-03-06T00:00:00Z")]);
+    expect(clash.ok).toBe(false);
   });
 });

@@ -214,16 +214,31 @@ function strip(e: Envelope): ObligationFulfilmentEvidence {
  * fails the whole log closed.
  */
 export function createObligationEvidenceLog(animalId: string, inputs: readonly unknown[]): ObligationEvidenceLogResult {
+  return buildEvidenceLog(animalId, [], inputs);
+}
+
+/**
+ * Validates `storedInputs` (records already in a log) and `inputs` together.
+ * A stored record is kept exactly as stored: an identical duplicate (instants
+ * compared by instant) is idempotent and never replaces its spelling, so an
+ * idempotent retry cannot change a historical fingerprint.
+ */
+function buildEvidenceLog(animalId: string, storedInputs: readonly unknown[], inputs: readonly unknown[]): ObligationEvidenceLogResult {
   const id = toFarmReturnAnimalId(animalId);
   if (!id) return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_INVALID_ANIMAL_ID", evidenceId: null }] };
   const issues: ObligationEvidenceIssue[] = [];
-  const records: Envelope[] = [];
-  for (const input of Array.from(inputs)) {
-    const result = materialise(id, input);
-    if ("issues" in result) issues.push(...result.issues);
-    else records.push(envelope(result.record));
-  }
-  const collected = collectBitemporalRecords(records, (e) => obligationEvidenceContentKey(strip(e)));
+  const read = (list: readonly unknown[]): Envelope[] => {
+    const out: Envelope[] = [];
+    for (const input of Array.from(list)) {
+      const result = materialise(id, input);
+      if ("issues" in result) issues.push(...result.issues);
+      else out.push(envelope(result.record));
+    }
+    return out;
+  };
+  const stored = read(storedInputs);
+  const records = read(inputs);
+  const collected = collectBitemporalRecords(records, (e) => obligationEvidenceContentKey(strip(e)), stored);
   if (!collected.ok) {
     for (const i of collected.issues) {
       issues.push({
@@ -240,7 +255,11 @@ export function createObligationEvidenceLog(animalId: string, inputs: readonly u
   return { ok: true, log: deepFreezeAnimalValue(log), idempotentDuplicateIds: collected.idempotentDuplicateIds };
 }
 
-/** Appends records, returning a NEW log (the supplied one is re-validated, never modified). */
+/**
+ * Appends records, returning a NEW log (the supplied one is re-validated,
+ * never modified). Stored records keep their exact stored form: appending an
+ * identical duplicate is idempotent and never rewrites a stored spelling.
+ */
 export function appendObligationEvidence(log: ObligationEvidenceLog, inputs: readonly unknown[]): ObligationEvidenceLogResult {
   let existing: unknown;
   try {
@@ -251,7 +270,9 @@ export function appendObligationEvidence(log: ObligationEvidenceLog, inputs: rea
   if (!isRecord(existing) || !Array.isArray(existing.records) || typeof existing.animalId !== "string") {
     return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NOT_OBJECT", evidenceId: null }] };
   }
-  return createObligationEvidenceLog(existing.animalId, [...existing.records, ...Array.from(inputs)]);
+  const stored = createObligationEvidenceLog(existing.animalId, existing.records);
+  if (!stored.ok) return stored;
+  return buildEvidenceLog(existing.animalId, stored.log.records, inputs);
 }
 
 /** Resolves the log as known at `knowledgeCutoff`; corrections may only link within one obligation. */

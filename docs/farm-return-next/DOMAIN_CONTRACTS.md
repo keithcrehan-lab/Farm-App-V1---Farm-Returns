@@ -3761,3 +3761,126 @@ behaviour). Fingerprints are change detection, not signatures.
 dose/route choice or SPC interpretation beyond the supplied structured fields; no vaccination or
 health programmes (C7), weights (C4), recommendations (C8), Plan (C9) or UI (C10); no
 persistence, schema, migration, AI, network or connector.
+
+## Cattle C4 — Weight observations & groups (2026-10-12)
+
+C0 (`61c1124`), C1 (`c5b25f2`), C2 and C3 (frozen by their campaign receipts) are **frozen**; C4
+changes no earlier file except one additive `export * from "./weights";` line in
+`src/domain/cattle/index.ts`. New, **non-frozen** pure modules under `src/domain/cattle/weights/`
+(barrel `weights/index.ts`); tests `weights/weights.test.ts` (synthetic `SYNTH-*` animals, groups,
+devices, quality schemes and weights only). Canonical weight observations, a group-scope resolver
+over C1 group history and the C5 read contract only: **no ADG, gain, trend, coverage or target
+logic** (C5), no weight conversion factor, no group truth (C1 owns `MANAGEMENT_GROUP`), no legacy
+`src/domain/types.ts` / `livestock.ts` / `src/lib/farm-data/` change or adapter, no persistence,
+schema, migration, UI, AI, network or device/scale connector. Weight is never an animal property:
+the C1 ledger and snapshot are untouched. Shared contract: `docs/farm-return-next/cattle/`
+(CAT-INV-001–014, 018, 019, 021–024, 026, 027).
+
+**Reuse decisions.** Canonical boundary: C2 `toCanonicalPlainData`/`canonicalField` on the whole
+request (collections and elements) and on every read contract passed back in. Instants: C1
+`isValidAnimalInstant`/`animalInstantKey`/`compareInstants`; canonical spellings via C2
+`canonicalObligationInstant`. Provenance: the C1 `AnimalDataProvenance` contract
+(`ANIMAL_DATA_SOURCE_CATEGORIES`), re-validated here because C1's materialiser is module-private
+(C2/C3 precedent). Append-only collection and as-of-cutoff supersession reuse C2
+`collectBitemporalRecords`/`resolveBitemporalRecords` unchanged. Generic canonical readers
+(`isRecord`, `hasOnlyFields`, `oneOf`, `nullableRef`, `rawIdentityKey`) are imported from C3
+`health/health-input.ts` (their first implementation; no C3 output is read). Group membership
+only through C1 `rematerialiseAnimalLedger`, `projectAnimalSnapshot` (`managementGroup`),
+`animalAssertionHistory` and `assertionContentKey`. Fingerprints reuse `assessment-integrity.ts`
+canonicalisation and SHA-256 unchanged through the phase-local wrapper
+`{kind, weightPayloadVersion: 1, payload}` (template: C2 `obligation-integrity.ts`) with new kinds
+`CATTLE_WEIGHT_SERIES`, `CATTLE_GROUP_SCOPE`, `CATTLE_WEIGHT_READ_CONTRACT` — no existing kind,
+payload version or canonicalisation changes.
+
+| Module | Contract |
+|---|---|
+| `weight-observation.ts` | `CattleWeightObservation` (distinct from the legacy `WeightObservation`): `recordId`, C1 `animalId`, valid time `observedAt` (strict UTC, required), `weight {value, unit}` as recorded, `method`, `deviceRef\|null`, `quality {scheme, value: string\|number}\|null` verbatim, `conditionsNote\|null` verbatim, `provenance` (C1 `AnimalDataProvenance`; `receivedAt` = knowledge time; `provenance.observedAt` = the source's own recorded time, preserved, never valid time), `supersedes`. Closed `WEIGHT_UNITS` (`KILOGRAM`, `POUND`); `WEIGHT_UNIT_CONVERSIONS` (`KILOGRAM` → `IDENTITY`; `POUND` → `null`); `canonicalWeightOf` (`CONVERTED` kg / `UNSUPPORTED`). Closed `WEIGHT_COLLECTION_METHODS` (`SCALE`, `WEIGHBRIDGE`, `ESTIMATE_VISUAL`, `ESTIMATE_TAPE`, `DERIVED_EXTERNAL`, `UNKNOWN`); `weightMeasurementBasis` read from the method name (`MEASURED`/`ESTIMATED`/`DERIVED`/`UNKNOWN`); `weightInformationClass` (`DERIVED_EXTERNAL` ⇒ DERIVED_VALUE, else OBSERVATION). `materialiseWeightObservation` (unknown field, non-numeric / zero / negative value, missing or unknown unit, unknown method, malformed instant / device / quality / note / provenance / supersedes ⇒ rejected, never repaired); content key (instants by instant), claim key (provenance and links excluded); `weightLinkAllowed` (same animal AND same method) |
+| `weight-series.ts` | `projectWeightSeries(request, hash)` → `WeightSeriesProjection` (one `AnimalWeightSeries` per requested animal); `latestKnownWeightOf`; `weightSeriesPayload`. `projectCanonicalWeightSeries` is module-internal (not in the barrel) |
+| `group-scope.ts` | `resolveGroupScope(request, hash)` → `ScopeResolution`; `scopeResolutionPayload`. `readScopeRequest`/`resolveValidScope` are module-internal |
+| `weight-read-contract.ts` | `buildWeightReadContract(request, hash)` → `WeightReadContract` (the C5 read contract); `verifyWeightReadContract` |
+| `weight-integrity.ts` | `computeWeightFingerprint`/`verifyWeightFingerprint`, `CATTLE_WEIGHT_PAYLOAD_VERSION` |
+
+**Units and number representation (NUMERIC_SEMANTICS.md decisions).** A weight value is a
+finite, strictly positive IEEE-754 binary64 JavaScript number, kept exactly as recorded with its
+unit (CAT-INV-011). The canonical unit is the kilogram. The only conversion is the `KILOGRAM`
+identity: the canonical value *is* the recorded value — no arithmetic, so no rounding and no
+platform-dependent result (CAT-INV-018/019). `POUND` is recognised but has no conversion in this
+campaign (a factor needs separately reviewed external evidence), so its canonical value is
+`UNSUPPORTED` and the record keeps its recorded value/unit. Any other unit, a missing unit, or a
+non-numeric, zero or negative value is rejected; NaN/±Infinity are rejected at the canonical
+boundary. Weights compare by canonical kg value (numeric equality), never by formatting.
+
+**Request and admission.** `WeightSeriesRequest` = `{observations, animalIds (explicit set,
+unique opaque ids), query: {effectiveAt, knowledgeCutoff}}`. Order: whole-request canonical check
+(`CATTLE_WEIGHT_NON_CANONICAL_INPUT`) → query + animal set → knowledge admission (a readable
+`provenance.receivedAt` after the cutoff sets the record aside before any validation; an
+unreadable one fails closed) → identity before validity (same id + different content, invalid
+copy included ⇒ `CATTLE_WEIGHT_RECORD_DUPLICATE_ID_DIFFERENT_CONTENT`; identical content with
+equivalent instant spellings is idempotent, one spelling kept independent of input order) →
+content validation of **every** admitted record, whichever animal it names → supersession at the
+cutoff (unknown / not-yet-known target, another animal or another method, cycle, self ⇒
+`ok: false`; competing live corrections reported with no winner) → valid-time view. Query times
+are echoed in canonical nine-digit spelling; neither defaults to the other. No clock read.
+
+**Series** (per animal): `observations` = live observations with `observedAt <= effectiveAt`,
+chronological (instant, then id); `history` = every known record of the animal (superseded and
+not-yet-observed included) with status LIVE/SUPERSEDED, `supersededBy`, `inCompetition`,
+`inView`; `notYetObservedRecordIds`; `competitions`; `knownRecordIds`. Each entry carries the
+full record (recorded value/unit, method, device, supplied quality, conditions note,
+provenance), the canonical weight, the measurement basis and the information class.
+
+**Latest-known weight** (REQUIRED: the live observations in view, the latest such instant `L`,
+the observations at `L` and their competition state; first match wins): `NONE` (no live
+observation in view — never zero) > `EVIDENCE_CONFLICT` (more than one live observation at `L`,
+whatever their values — never averaged; or an observation at `L` in a competing-correction
+branch; `candidateKg` lists the distinct convertible values) > `UNSUPPORTED` (the single
+observation at `L` has no exact kg conversion; an earlier weight is never substituted) > `KNOWN`
+(canonical kg of the single observation at `L`). Agreeing same-instant observations under
+different record ids are a conflict by this contract: the adapter supersedes a duplicate entry.
+
+**Group scope.** `GroupScopeRequest` = `{scope: {kind: "GROUP", groupRef, ledgers (C1
+AnimalLedgers)} | {kind: "EXPLICIT_SET", animalIds}, query: {effectiveAt, knowledgeCutoff,
+historyFrom? (GROUP only, strictly before effectiveAt)}}`. Per animal, from the C1
+`managementGroup` resolution at the same instant and cutoff: C1 INVALID_EVIDENCE ⇒ `INVALID`;
+CONFLICTING_EVIDENCE ⇒ `EVIDENCE_CONFLICT` (whichever groups compete); UNKNOWN (including no
+group evidence) ⇒ `UNKNOWN`; KNOWN ⇒ `MEMBER` (exactly `groupRef`) / `NOT_MEMBER`. REQUIRED for
+MEMBER/NOT_MEMBER: a KNOWN C1 group. Output: `members`, `notMembers`, `unknown`, `conflict`,
+`invalid` (sorted; unresolved animals never silently in or out), and each animal's state, group,
+competing groups, C1 issues and evidence assertions. History: membership at `historyFrom` and
+at every MANAGEMENT_GROUP interval bound known by the cutoff in (`historyFrom`, `effectiveAt`],
+each projected through C1 and kept where it changes (complete, since membership is piecewise
+constant between bounds). Herd scope = the explicit set, every animal MEMBER by declaration, no
+ledger and no history. A malformed ledger, a repeated animal with a different ledger (identical
+repeats are idempotent) or a malformed query fails closed.
+
+**C5 read contract.** `buildWeightReadContract({observations, scope, query}, hash)` →
+`{effectiveAt, knowledgeCutoff, scope: ScopeResolution, series: one AnimalWeightSeries per
+scope member in member order, fingerprint}`; scope and series are projected at the same
+(`effectiveAt`, `knowledgeCutoff`). C5 must report the scope's unknown/conflict/invalid sets
+(their weights are not included). `verifyWeightReadContract` re-checks canonicality, payload
+version, every fingerprint, and the bindings (times, scope sets vs animal states, series vs
+members, observations vs history, latest vs observations); any defect ⇒ `valid: false`, never a
+throw.
+
+**Fingerprints.** All three are result fingerprints over semantic payloads (canonical instant
+keys, sorted sets, C1 assertions by `assertionContentKey`; the output keeps original spellings,
+CAT-INV-011). A series binds animal id, canonical times, its known record ids and every output
+field — another animal's records never change it; input order, key order and equivalent instant
+spellings do not; any value, unit, method, device, quality, note, provenance, instant,
+correction or query time does. The scope binds kind, group ref, times, every animal's state and
+evidence, the sets and the history. The read contract binds times, the scope fingerprint and
+each member's series fingerprint. Change detection only, not signatures.
+
+**Known limitations.** Only kilograms convert; `POUND` (and any future unit) is UNSUPPORTED
+until a reviewed conversion exists. A correction cannot change the collection method, so a
+differently collected weight is a new observation (and conflicts at the same instant). There is
+no retraction record kind: an erroneous observation can only be corrected. `observedAt` is
+required; a weight without an instant is rejected, not placed. Group membership is C1's
+`MANAGEMENT_GROUP` dimension only; presence/lifecycle is not combined (consumers read the C1
+snapshot). Completeness of the supplied observations and ledgers is the adapter's
+responsibility. Any malformed admitted observation, for any animal, fails the projection closed.
+
+**Exclusions.** No ADG, gain, trend, coverage, target comparison or performance interpretation
+(C5); no goals (C6), programmes (C7), recommendations (C8), Plan (C9) or UI (C10); no legacy
+weight/animal code change or legacy-to-canonical adapter; no persistence, schema, migration, AI,
+network, device or scale connector.

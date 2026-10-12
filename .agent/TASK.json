@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "task_id": "cattle-c3-health-and-medicines-engine-20261012",
-  "title": "Cattle C3 - Health and Medicines Engine",
-  "base_sha": "4a2350406030096751308d162521cd6518bb4993",
+  "task_id": "cattle-c4-weight-observations-and-groups-20261012",
+  "title": "Cattle C4 - Weight Observations and Groups",
+  "base_sha": "e5b1b2aead176c94b6f28b4ff83d77ea6c783c1b",
   "domains": [
     "ui",
     "agent-harness",
@@ -12,6 +12,7 @@
     "docs/farm-return-next/cattle/index.md",
     "docs/farm-return-next/cattle/INVARIANTS.md",
     "docs/farm-return-next/cattle/PHASE_INTERFACES.md",
+    "src/domain/types.ts",
     "docs/farm-return-next/cattle/ARCHITECTURE.md",
     "src/tooling/cattle-conformance",
     "src/domain/cattle",
@@ -22,8 +23,8 @@
     "src/domain/cattle/index.ts",
     "src/domain",
     "src/lib/farm-data",
-    "src/domain/types.ts",
-    "docs/farm-return-next/cattle/FINGERPRINTS.md"
+    "docs/farm-return-next/cattle/FINGERPRINTS.md",
+    "src/domain/livestock.ts"
   ],
   "contracts": [
     "AGENTS.md",

@@ -77,6 +77,17 @@ Every production rule must preserve:
 
 Historical rules and recommendation evidence remain auditable after supersession.
 
+### Canonical input contract (human architecture decision, 2026-10-12)
+
+Binding for C2 and every later cattle phase (C3–C10):
+
+- Cattle authoritative evaluation consumes **canonical plain-data inputs**. Runtime materialisation of arbitrary caller objects (API payloads, database rows, connector output) into canonical form is an **adapter responsibility**, performed before any cattle engine is invoked. Historical reproducibility is guaranteed over admitted canonical records.
+- Canonical plain data: strings, finite numbers, booleans, `null`/`undefined`, plain arrays and plain objects of enumerable data properties. No functions, symbols, bigints, accessors (getters/setters), hidden or symbol-keyed properties, class instances, cycles or Proxy-dependent behaviour. Reuse `src/domain/cattle/regulatory/canonical-input.ts` (`toCanonicalPlainData`) at each engine's entry points; non-canonical input is rejected before evaluation. Engines do not defend against adversarial JavaScript objects past this boundary.
+- **Executable rule implementations are trusted code bindings, never caller data.** Rule data names an implementation only by its C0 `RuleImplementationRef` (id, version, logic fingerprint); executables come from a trusted registry built by code (C2: `obligation-implementations.ts`) and C0 `evaluateCattleRule` checks the binding exactly as C0 defines. Do not materialise an `evaluate` function from catalogue or request objects.
+- The historical guarantee is unchanged and mandatory: a canonical record first known after `knowledgeCutoff` never alters an earlier evaluation; relevance at a cutoff depends only on canonical records known by it. Effective/knowledge time, append-only history, provenance, deterministic reconstruction and UNKNOWN / conflict / invalid fail-closed behaviour are not weakened.
+- Provenance is validated before authoritative use: knowledge and provenance times are strict-UTC instants (C1 instant contract) and fingerprints match the assessment-integrity representation (current schema version, `SHA-256`, 64 lowercase hex). Malformed provenance fails closed.
+- Audits assess engines against this contract: canonical malformed records, cutoff leakage, provenance validation, identity collisions, implementation binding, unknown/conflict behaviour and historical determinism — not support for arbitrary hostile runtime objects outside it.
+
 ### Review separation
 
 Scientific, legal and veterinary approvals are distinct. Approval of one rule version does not approve a later version.

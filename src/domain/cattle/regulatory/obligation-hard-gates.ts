@@ -31,7 +31,7 @@ import { deepFreezeAnimalValue } from "../animal-ledger";
 import type { CattleEvaluationState, RuleEvaluationRecord } from "../evaluation";
 import { compareStrings, sortedUnique, type CattleHash } from "../integrity";
 import type { CattleRuleClassification, CattleRuleGateRole, RuleVersionRef } from "../rule";
-import { snapshotInput } from "./input-snapshot";
+import { toCanonicalPlainData } from "./canonical-input";
 import { verifyObligationStateRecord, type AnimalObligationEvaluation, type ObligationState } from "./obligation-engine";
 
 export interface ObligationHardGateEntry {
@@ -87,10 +87,10 @@ export function obligationStateToPackState(state: ObligationState): CattleEvalua
 const RESTRICTIVENESS: CattleEvaluationState[] = ["FAIL", "REVIEW_REQUIRED", "UNSUPPORTED", "CONFLICTING_EVIDENCE", "INSUFFICIENT_EVIDENCE", "PASS", "NOT_APPLICABLE"];
 
 export function projectObligationHardGates(evaluation: AnimalObligationEvaluation, hash: CattleHash): ObligationHardGateProjectionResult {
-  // Read once into a detached snapshot; never re-read the caller's object.
-  const snap = snapshotInput(evaluation);
-  if (snap.nonData) return { ok: false, issues: ["CATTLE_OBLIGATION_HARD_GATE_INPUT_NOT_CLONEABLE"] };
-  const copy = structuredClone(snap.value) as AnimalObligationEvaluation;
+  // The evaluation must be canonical plain data; only the detached copy is used.
+  const canonical = toCanonicalPlainData(evaluation);
+  if (!canonical.ok) return { ok: false, issues: ["CATTLE_OBLIGATION_HARD_GATE_INPUT_NON_CANONICAL"] };
+  const copy = structuredClone(canonical.value) as AnimalObligationEvaluation;
   const issues: string[] = [];
   for (const record of copy.results) {
     if (record.animalId !== copy.animalId || record.effectiveAt !== copy.effectiveAt || record.knowledgeCutoff !== copy.knowledgeCutoff) {

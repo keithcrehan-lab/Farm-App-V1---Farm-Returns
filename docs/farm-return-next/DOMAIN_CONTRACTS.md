@@ -3498,27 +3498,26 @@ machinery once (`bitemporal-records.ts`) for later phases to import.
 | Module | Contract |
 |---|---|
 | `obligation-time.ts` | Strict-UTC instant arithmetic by integer civil-day maths (no `Date`, no clock, no timezone): `addObligationOffset` (closed units `DAY` = 86 400 s, `HOUR` = 3 600 s), `utcStartOfCalendarDate`, `obligationInstantJustBefore` (−1 ns), `canonicalObligationInstant` (one 9-digit spelling), `utcCalendarDateOf`; outside years 0000–9999 ⇒ `null` (fail closed) |
-| `obligation-definition.ts` | `ObligationDefinition` (obligation id, rule id + version, `recordedAt` knowledge time, `ObligationTerms`: opaque `obligationKind`, closed `ObligationAnchor` `DATE_OF_BIRTH` / `LIFECYCLE_STATUS_START(status)` / `LOCATION_START(locationKind\|null)`, window `{opensAfter, dueAfter, boundary}` with closed boundary `INCLUSIVE_START_EXCLUSIVE_END` (default) / `INCLUSIVE_START_INCLUSIVE_END` and `dueAfter > opensAfter`, closed `timeBasis` `UTC` / `HOLDING_LOCAL_TIME` (recognised, unsupported), `windowSource` `SourceVersionRef`); `computeObligationTermsFingerprint`; `obligationTermsMarker` — the rule version must carry it in C0 `assumptions`, so C0's rule fingerprint and version-bound reviews cover the exact terms; `ObligationCatalogue` + `materialiseObligationCatalogue` (cloned once, rebuilt from known fields, implementations captured once, sorted, deep-frozen; any malformed entry, contradictory duplicate, obligation bound to two rule ids or duplicate implementation id+version fails the whole catalogue); `PRODUCTION_OBLIGATION_CATALOGUE` (empty) |
+| `obligation-definition.ts` | `ObligationDefinition` (obligation id, rule id + version, `recordedAt` knowledge time, `ObligationTerms`: opaque `obligationKind`, closed `ObligationAnchor` `DATE_OF_BIRTH` / `LIFECYCLE_STATUS_START(status)` / `LOCATION_START(locationKind\|null)`, window `{opensAfter, dueAfter, boundary}` with closed boundary `INCLUSIVE_START_EXCLUSIVE_END` (default) / `INCLUSIVE_START_INCLUSIVE_END` and `dueAfter > opensAfter`, closed `timeBasis` `UTC` / `HOLDING_LOCAL_TIME` (recognised, unsupported), `windowSource` `SourceVersionRef`); `computeObligationTermsFingerprint`; `obligationTermsMarker` — the rule version must carry it in C0 `assumptions`, so C0's rule fingerprint and version-bound reviews cover the exact terms; `ObligationCatalogue` (canonical data only: definitions, rule versions, sources, reviews — no executable code) + `materialiseObligationCatalogue` (canonical check, copied, rebuilt from known fields, sorted, deep-frozen; any malformed admitted entry, contradictory duplicate or obligation bound to two rule ids fails the whole catalogue; source `retrievedAt`/`checkedAt` must be strict-UTC instants and every fingerprint — source content, rule source bindings, window source, review rule fingerprint, implementation logic fingerprint — must have the current assessment-integrity schema version, `SHA-256` and a 64-lowercase-hex digest); `PRODUCTION_OBLIGATION_CATALOGUE` (empty) |
 | `obligation-evidence.ts` | `ObligationFulfilmentEvidence` (`FULFILMENT` with valid-time `fulfilledAt`, or `RETRACTION` that must supersede ≥ 1 record; obligation id + exact rule id/version claimed; `occurrenceAnchor` `null` for single-occurrence anchors else the anchor instant; `AnimalDataProvenance` with `receivedAt` knowledge time; `supersedes`); `createObligationEvidenceLog` / `appendObligationEvidence` (any invalid record, self-supersession or same id + different content fails the log; identical duplicates idempotent, instants compared by instant); `resolveObligationEvidence` (corrections may only link within one obligation) |
 | `bitemporal-records.ts` | Generic `collectBitemporalRecords` / `resolveBitemporalRecords`: knowledge-cutoff filtering, supersession known by the cutoff only, unknown-target / out-of-scope / cycle links reported, live terminal descendants per corrected target, disagreeing terminals reported as a competition with no winner |
 | `obligation-anchor.ts` | `obligationInputsFromSnapshot` — C1 → C0 inputs under fixed keys `cattle.animal.species/dateOfBirth/sex` (FACT), `cattle.animal.lifecycleStatus/location.kind/location.ref/managementGroup` (OBSERVATION), `cattle.animal.externalIdentifier.<scheme>` (FACT); items only for KNOWN dimensions, one per supporting C1 assertion (provenance = assertion id + `receivedAt`); breed not exposed. `obligationInputDimensionState`. `deriveObligationOccurrences` (see below) |
 | `obligation-engine.ts` | `ObligationState`, `evaluateAnimalObligations` → `AnimalObligationEvaluation` of `ObligationStateRecord`s; `verifyObligationStateRecord`; `evaluateHerdObligations` |
 | `obligation-hard-gates.ts` | `projectObligationHardGates`, `obligationStateToPackState` |
-| `input-snapshot.ts` | `snapshotInput` / `snapshotListOnce` / `readListOnce` / `snapshotField` — the single-pass caller-input boundary (each semantic property read at most once into a detached deep-frozen snapshot; NON_DATA recorded, never executed) |
+| `canonical-input.ts` | `toCanonicalPlainData` (canonical plain-data check from property descriptors — no getter invoked, no function executed — returning a detached deep-frozen copy or the path of the first non-canonical position), `canonicalField` |
+| `obligation-implementations.ts` | `createObligationImplementationRegistry` (trusted code builds it; malformed or conflicting entries throw), `findObligationImplementation` (exact id + version; an untrusted look-alike registry resolves nothing), `PRODUCTION_OBLIGATION_IMPLEMENTATIONS` (empty) |
 | `obligation-integrity.ts` | `computeObligationFingerprint` / `verifyObligationFingerprint`, `CATTLE_OBLIGATION_PAYLOAD_VERSION` |
 
 **Version and knowledge selection.** The C0 evaluation date is the UTC calendar date of
 `effectiveAt`. Only rule versions whose definition `recordedAt <= knowledgeCutoff`, and only
 reviews with `reviewedAt <= knowledgeCutoff`, are visible; evidence provably received after the
 cutoff is not admitted. **Catalogue knowledge admission** (per record, before any validation,
-decided only by records known at the cutoff — so nothing recorded after it, valid, malformed,
-contradictory or uncloneable, changes an earlier reconstruction): each record is cloned on its
-own; definitions (`recordedAt`), reviews (`reviewedAt`) and sources (`retrievedAt`) provably
-after the cutoff are set aside unvalidated (an uncloneable record has only its knowledge time
-read, once); a rule version is relevant only when an admitted definition or review names it, and
-an implementation only when a relevant rule version names it — irrelevant ones cannot affect any
-obligation at that cutoff and are not validated. An unreadable knowledge time or identity, or an
-uncloneable record not provably later, fails closed. Without a cutoff every record is validated.
+decided only by canonical records known at the cutoff — so a record first known after it,
+however malformed or contradictory, never changes an earlier reconstruction): definitions
+(`recordedAt`), reviews (`reviewedAt`) and sources (`retrievedAt`) provably after the cutoff are
+set aside unvalidated; a rule version is relevant only when an admitted definition or review
+names it — irrelevant ones cannot affect any obligation at that cutoff and are not validated. An
+unreadable knowledge time or identity fails closed. Without a cutoff every record is validated.
 **Evidence append** keeps stored records exactly as stored: an identical duplicate (instants by
 instant) is idempotent and never rewrites a stored spelling or a historical fingerprint. A PRODUCTION/SUPERSEDED version with no definition at all ⇒
 UNSUPPORTED (never silently skipped). When C0 finds no effective released version but exactly
@@ -3542,22 +3541,26 @@ further occurrences, so it is reported as its own record (`occurrence: null`, re
 `CATTLE_OBLIGATION_ANCHOR_UNRESOLVED_PERIOD`, INVALID_EVIDENCE / EVIDENCE_CONFLICT / UNKNOWN)
 alongside any known occurrences — a satisfied occurrence never hides it, and the hard-gate
 projection folds it into the rule's state. Without occurrences the worse of the derivation and
-the whole-life resolution is reported. Evidence admission precedes cloning (animal and herd):
-evidence provably received after the cutoff — even uncloneable or unattributable — is set
-aside before validation or herd partitioning. **Input boundary** (`input-snapshot.ts`):
-every caller value — query, ledger, evidence records (animal, herd and evidence-log APIs),
-catalogue definitions/rule versions/sources/reviews, a log being appended to and an evaluation
-being projected — is read exactly once by `snapshotInput` into a detached, deep-frozen plain
-snapshot (lists by `length` once and each index once; plain objects by own enumerable string
-keys, each read once — a data property via its descriptor, an accessor's getter invoked once;
-functions, symbols, bigints, class instances such as Date/Map, cycles, excessive depth or a
-throwing read are recorded as NON_DATA and never executed or coerced; a throwing read marks only its own property or element — every other captured field, e.g. `receivedAt` or `animalId`, is kept and the read is never retried). Admission, validation,
-supersession, evaluation and fingerprinting consume only that snapshot; the caller's object is
-never read again, so a changing getter or a later mutation of the object or any nested object
-(e.g. `provenance`) has no effect — the first captured value decides. From the one snapshot: a
-knowledge time provably after the cutoff ⇒ invisible (even NON_DATA); otherwise NON_DATA or
-malformed content fails closed; an unreadable knowledge time fails closed. Rule implementations
-(executable by design) are captured once per entry. Occurrence id `<obligationId>|<anchorKind>|<t>`.
+the whole-life resolution is reported. Evidence admission precedes validation (animal and herd):
+evidence provably received after the cutoff — even malformed or unattributable — is set
+aside before validation or herd partitioning. **Canonical input contract** (human architecture
+decision, 2026-10-12): C2 authoritative evaluation consumes canonical plain-data inputs. Runtime
+materialisation of arbitrary caller objects is an adapter responsibility. Historical
+reproducibility is guaranteed over admitted canonical records. Executable rule implementations
+are trusted code bindings, not caller-provided data: rule data names an implementation only by
+its C0 `RuleImplementationRef` (id, version, logic fingerprint), and the engine takes a trusted
+registry (`obligation-implementations.ts`) whose entries C0 `evaluateCattleRule` checks against
+that binding exactly as C0 defines (unregistered or mismatched ⇒ UNSUPPORTED). Canonical plain
+data (`canonical-input.ts`) is strings, finite numbers, booleans, `null`/`undefined`, plain
+arrays and plain objects of enumerable data properties — no functions, symbols, bigints,
+accessors, hidden or symbol-keyed properties, class instances, cycles or excessive depth.
+Request data (query, ledger(s), evidence, catalogue), evidence-log inputs and projected
+evaluations that are not canonical are rejected before evaluation
+(`CATTLE_OBLIGATION_NON_CANONICAL_INPUT`, `CATTLE_OBLIGATION_CATALOGUE_NON_CANONICAL`,
+`CATTLE_OBLIGATION_EVIDENCE_NON_CANONICAL`, `CATTLE_OBLIGATION_HARD_GATE_INPUT_NON_CANONICAL`);
+canonical data is copied once and only the detached copy is used. Proxy-dependent behaviour is
+outside the contract; the engine does not defend against adversarial JavaScript objects past
+this boundary. Occurrence id `<obligationId>|<anchorKind>|<t>`.
 
 **Window.** `opensAt = anchor + opensAfter`, `dueAt = anchor + dueAfter`; inclusive start;
 exclusive end unless the rule declares `INCLUSIVE_START_INCLUSIVE_END`. Unrepresentable ⇒

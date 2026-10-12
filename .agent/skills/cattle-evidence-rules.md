@@ -21,6 +21,10 @@ Reuse safe generic behaviour. Prefer additive wrappers/types over refactoring es
 
 STOP if making Cattle correct would require changing frozen/shared semantics, fingerprint inputs, canonicalisation behaviour, existing source identifiers or a scientific/regulatory contract used by slurry/fertiliser.
 
+## Canonical input contract (decided 2026-10-12)
+
+Engines consume canonical plain data only; adapters materialise caller objects before invocation. Check entry points with `toCanonicalPlainData` (`src/domain/cattle/regulatory/canonical-input.ts`) and reject non-canonical input. Executable rule implementations come from a trusted code registry bound by C0 `RuleImplementationRef`, never from catalogue/request data. Historical reproducibility is guaranteed over admitted canonical records: a record first known after the cutoff never changes an earlier evaluation. Validate provenance times (strict UTC) and fingerprints (assessment-integrity shape) before use. Full text: `.agent/campaigns/cattle-engine-v1/CAMPAIGN.md`, "Canonical input contract".
+
 ## Information classes
 
 Keep these distinct:

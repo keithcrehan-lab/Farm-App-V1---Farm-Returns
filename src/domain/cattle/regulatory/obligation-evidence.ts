@@ -22,7 +22,7 @@
  * frozen), so the same `AnimalDataProvenance` contract is validated here.
  */
 
-import { readListOnce, snapshotInput } from "./input-snapshot";
+import { toCanonicalPlainData } from "./canonical-input";
 import { canonicalizeValue } from "../../assessment-integrity";
 import {
   ANIMAL_DATA_SOURCE_CATEGORIES,
@@ -66,7 +66,8 @@ export interface ObligationEvidenceLog {
 
 export type ObligationEvidenceIssueCode =
   | "CATTLE_OBLIGATION_EVIDENCE_INVALID_ANIMAL_ID"
-  | "CATTLE_OBLIGATION_EVIDENCE_NOT_CLONEABLE"
+  /** The record is not canonical plain data (`canonical-input.ts`). */
+  | "CATTLE_OBLIGATION_EVIDENCE_NON_CANONICAL"
   | "CATTLE_OBLIGATION_EVIDENCE_NOT_OBJECT"
   | "CATTLE_OBLIGATION_EVIDENCE_INVALID_ID"
   | "CATTLE_OBLIGATION_EVIDENCE_FOR_OTHER_ANIMAL"
@@ -123,11 +124,11 @@ function provenanceOf(raw: unknown): AnimalDataProvenance | null {
 }
 
 function materialise(animalId: FarmReturnAnimalId, input: unknown): { record: ObligationFulfilmentEvidence } | { issues: ObligationEvidenceIssue[] } {
-  // The input boundary: read once into a detached snapshot (`snapshotInput`);
-  // anything that is not data fails closed and nothing in it is executed.
-  const snap = snapshotInput(input);
-  if (snap.nonData) return { issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NOT_CLONEABLE", evidenceId: null }] };
-  const raw: unknown = snap.value;
+  // Evidence records are canonical plain data; anything else is rejected
+  // (never executed) and fails the log closed. Only the detached copy is used.
+  const canonical = toCanonicalPlainData(input);
+  if (!canonical.ok) return { issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NON_CANONICAL", evidenceId: null }] };
+  const raw: unknown = canonical.value;
   if (!isRecord(raw)) return { issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NOT_OBJECT", evidenceId: null }] };
   const evidenceId = isOpaqueRef(raw.evidenceId) ? raw.evidenceId : null;
   const issues: ObligationEvidenceIssue[] = [];
@@ -229,7 +230,7 @@ function buildEvidenceLog(animalId: string, storedInputs: readonly unknown[], in
   const issues: ObligationEvidenceIssue[] = [];
   const read = (list: readonly unknown[]): Envelope[] => {
     const out: Envelope[] = [];
-    for (const input of readListOnce(list) ?? [() => undefined]) {
+    for (const input of Array.isArray(list) ? list : [list]) {
       const result = materialise(id, input);
       if ("issues" in result) issues.push(...result.issues);
       else out.push(envelope(result.record));
@@ -261,10 +262,11 @@ function buildEvidenceLog(animalId: string, storedInputs: readonly unknown[], in
  * identical duplicate is idempotent and never rewrites a stored spelling.
  */
 export function appendObligationEvidence(log: ObligationEvidenceLog, inputs: readonly unknown[]): ObligationEvidenceLogResult {
-  const snap = snapshotInput(log); // read once; never re-read
-  if (snap.nonData) return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NOT_CLONEABLE", evidenceId: null }] };
-  const existing: unknown = snap.value;
-  const additions = readListOnce(inputs) ?? [() => undefined];
+  const canonicalLog = toCanonicalPlainData(log);
+  const canonicalInputs = toCanonicalPlainData(inputs);
+  if (!canonicalLog.ok || !canonicalInputs.ok) return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NON_CANONICAL", evidenceId: null }] };
+  const existing: unknown = canonicalLog.value;
+  const additions = Array.isArray(canonicalInputs.value) ? (canonicalInputs.value as unknown[]) : [canonicalInputs.value];
   if (!isRecord(existing) || !Array.isArray(existing.records) || typeof existing.animalId !== "string") {
     return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NOT_OBJECT", evidenceId: null }] };
   }

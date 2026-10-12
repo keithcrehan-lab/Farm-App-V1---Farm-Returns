@@ -27,12 +27,14 @@
  * Real content must arrive through a separately authorised, evidence-reviewed
  * task using the C0 source/rule/review lifecycle.
  *
- * Catalogue input is materialised once (data cloned and rebuilt from known
- * fields; implementations captured once by property read) and deep-frozen.
- * Any malformed or contradictory entry fails the whole catalogue closed.
+ * The catalogue is CANONICAL PLAIN DATA (`canonical-input.ts`): it is
+ * checked against that contract, copied, rebuilt from known fields and
+ * deep-frozen. It never carries executable code — rule implementations are
+ * trusted bindings (`obligation-implementations.ts`). Any malformed or
+ * contradictory admitted entry fails the whole catalogue closed.
  */
 
-import { canonicalizeValue, type AssessmentFingerprint } from "../../assessment-integrity";
+import { ASSESSMENT_FINGERPRINT_ALGORITHM, ASSESSMENT_INTEGRITY_SCHEMA_VERSION, canonicalizeValue, type AssessmentFingerprint } from "../../assessment-integrity";
 import { SOURCE_REGISTER, type SourceId } from "../../source-register";
 import {
   ANIMAL_LOCATION_KINDS,
@@ -44,7 +46,6 @@ import {
   type AnimalLocationKind,
   type AnimalPresenceStatus,
 } from "../animal-ledger";
-import type { CattleRuleImplementation, CattleRulePredicate } from "../evaluation";
 import type { CattleInformationClass, CattleInputScalar, RequiredInputDescriptor } from "../information";
 import { compareStrings, type CattleHash } from "../integrity";
 import type {
@@ -58,7 +59,7 @@ import type {
   RuleVersionRef,
 } from "../rule";
 import type { CattleEvidenceSource, CattleSourceAuthorityKind, CattleSourceLifecycle, SourceVersionRef } from "../source";
-import { readListOnce, snapshotField, snapshotListOnce, type InputSnapshot } from "./input-snapshot";
+import { toCanonicalPlainData } from "./canonical-input";
 import { computeObligationFingerprint } from "./obligation-integrity";
 import { canonicalObligationInstant, isValidObligationOffset, obligationOffsetSeconds, type ObligationOffset } from "./obligation-time";
 
@@ -141,7 +142,6 @@ export interface ObligationCatalogue {
   ruleVersions: readonly CattleRuleVersion[];
   sources: readonly CattleEvidenceSource[];
   reviews: readonly RuleReviewRecord[];
-  implementations: readonly CattleRuleImplementation[];
 }
 
 /** The production catalogue: deliberately EMPTY (no real obligation content). */
@@ -150,7 +150,6 @@ export const PRODUCTION_OBLIGATION_CATALOGUE: ObligationCatalogue = deepFreezeAn
   ruleVersions: [],
   sources: [],
   reviews: [],
-  implementations: [],
 });
 
 export type ObligationCatalogueIssueCode =
@@ -160,11 +159,10 @@ export type ObligationCatalogueIssueCode =
   | "CATTLE_OBLIGATION_MALFORMED_RULE_VERSION"
   | "CATTLE_OBLIGATION_MALFORMED_SOURCE"
   | "CATTLE_OBLIGATION_MALFORMED_REVIEW"
-  | "CATTLE_OBLIGATION_MALFORMED_IMPLEMENTATION"
+  | "CATTLE_OBLIGATION_CATALOGUE_NON_CANONICAL"
   | "CATTLE_OBLIGATION_DUPLICATE_DEFINITION_DIFFERENT_CONTENT"
   | "CATTLE_OBLIGATION_DEFINITIONS_DISAGREE_ON_RULE"
-  | "CATTLE_OBLIGATION_DUPLICATE_RULE_VERSION_DIFFERENT_CONTENT"
-  | "CATTLE_OBLIGATION_DUPLICATE_IMPLEMENTATION";
+  | "CATTLE_OBLIGATION_DUPLICATE_RULE_VERSION_DIFFERENT_CONTENT";
 
 export interface ObligationCatalogueIssue {
   code: ObligationCatalogueIssueCode;
@@ -235,10 +233,20 @@ const AUTHORITY_KINDS: readonly CattleSourceAuthorityKind[] = [
 ];
 const SOURCE_LIFECYCLES: readonly CattleSourceLifecycle[] = ["ACTIVE", "HISTORICAL", "SUPERSEDED", "REVIEW_REQUIRED"];
 
+/**
+ * SHA-256 digest representation used by `assessment-integrity.ts` (exactly 64
+ * lowercase hex characters — the shape its digest check enforces; the
+ * pattern itself is module-private there, so this mirrors that documented
+ * contract rather than inventing another).
+ */
+const SHA256_HEX_DIGEST = /^[0-9a-f]{64}$/;
+
+/** A fingerprint exactly as `assessment-integrity.ts` produces it: current schema, SHA-256, well-formed digest. */
 function fingerprintOf(raw: unknown): AssessmentFingerprint | null {
   if (!isRecord(raw)) return null;
-  if (!Number.isSafeInteger(raw.schemaVersion) || raw.algorithm !== "SHA-256" || !isString(raw.digest)) return null;
-  return { schemaVersion: raw.schemaVersion as number, algorithm: "SHA-256", digest: raw.digest };
+  if (raw.schemaVersion !== ASSESSMENT_INTEGRITY_SCHEMA_VERSION || raw.algorithm !== ASSESSMENT_FINGERPRINT_ALGORITHM) return null;
+  if (!isString(raw.digest) || !SHA256_HEX_DIGEST.test(raw.digest)) return null;
+  return { schemaVersion: ASSESSMENT_INTEGRITY_SCHEMA_VERSION, algorithm: ASSESSMENT_FINGERPRINT_ALGORITHM, digest: raw.digest };
 }
 
 function stringList(raw: unknown): string[] | null {
@@ -326,7 +334,8 @@ function sourceOf(raw: unknown): CattleEvidenceSource | null {
   const ref = sourceRefOf(raw);
   const { publisher, title, authorityKind, jurisdiction, context, retrievedAt, checkedAt, lifecycle, supersededByVersion, registeredSourceId } = raw;
   if (!ref || !isString(publisher) || !isString(title) || !oneOf(AUTHORITY_KINDS, authorityKind)) return null;
-  if (!isNullableString(jurisdiction) || !isNullableString(context) || !isString(retrievedAt) || !isString(checkedAt)) return null;
+  // Provenance times must be strict-UTC instants (the C1 instant contract); a bare string is not provenance.
+  if (!isNullableString(jurisdiction) || !isNullableString(context) || !isValidAnimalInstant(retrievedAt) || !isValidAnimalInstant(checkedAt)) return null;
   if (!oneOf(SOURCE_LIFECYCLES, lifecycle) || !isNullableString(supersededByVersion)) return null;
   if (registeredSourceId !== null && !(isString(registeredSourceId) && Object.prototype.hasOwnProperty.call(SOURCE_REGISTER, registeredSourceId))) return null;
   return {
@@ -400,41 +409,14 @@ function definitionOf(raw: unknown): ObligationDefinition | null {
   };
 }
 
-function captureImplementation(raw: unknown): CattleRuleImplementation | null {
-  if (raw === null || typeof raw !== "object") return null;
-  // Each property read exactly once, as C0's evaluation does.
-  const { implementationId, version, evaluate } = raw as Record<string, unknown>;
-  if (!isString(implementationId) || !Number.isSafeInteger(version) || typeof evaluate !== "function") return null;
-  return Object.freeze({ implementationId, version: version as number, evaluate: evaluate as CattleRulePredicate });
-}
-
 /** Content key for duplicate detection: the definition with `recordedAt` compared by instant. */
 function definitionKey(d: ObligationDefinition): string {
   return canonicalizeValue({ ...d, recordedAt: canonicalObligationInstant(d.recordedAt) });
 }
 
-/** Readable `[ruleId, version]` identity of a raw record, else `null`. */
+/** Readable `[ruleId, version]` identity of a canonical record, else `null`. */
 function ruleIdentity(ruleId: unknown, version: unknown): string | null {
   return isString(ruleId) && Number.isSafeInteger(version) ? canonicalizeValue([ruleId, version]) : null;
-}
-
-/**
- * Reads the caller's catalogue envelope exactly once: the five list
- * references, each list's elements once, each data record into a snapshot.
- * `null` when the envelope or a list is not readable as such.
- */
-function snapshotTopLevel(raw: unknown): { definitions: InputSnapshot[]; ruleVersions: InputSnapshot[]; sources: InputSnapshot[]; reviews: InputSnapshot[]; implementations: unknown[] } | null {
-  if (!isRecord(raw)) return null;
-  try {
-    const { definitions, ruleVersions, sources, reviews, implementations } = raw;
-    const lists = [definitions, ruleVersions, sources, reviews].map(snapshotListOnce);
-    const impls = readListOnce(implementations);
-    if (lists.some((l) => l === null) || impls === null) return null;
-    const [d, r, s, v] = lists as InputSnapshot[][];
-    return { definitions: d, ruleVersions: r, sources: s, reviews: v, implementations: impls };
-  } catch {
-    return null;
-  }
 }
 
 /** Strict-UTC knowledge time provably after the cutoff (an unreadable time is never "after"). */
@@ -447,120 +429,79 @@ interface AdmittedCatalogue {
   ruleVersions: unknown[];
   sources: unknown[];
   reviews: unknown[];
-  implementations: unknown[];
   later: Map<string, LaterObligationDefinitionRef>;
-  issues: ObligationCatalogueIssue[];
 }
 
 /**
- * Knowledge-time admission over SNAPSHOTS (`snapshotInput`: every caller
- * record was read exactly once into detached plain data before this runs;
- * nothing here or later reads a caller object). Decided per record and only
- * by records known at the cutoff, so nothing recorded after it — valid,
- * malformed, contradictory or not data — changes an earlier reconstruction:
+ * Knowledge-time admission over CANONICAL records (the catalogue passed the
+ * canonical plain-data contract first). Decided per record and only by
+ * records known at the cutoff, so a record first known after it can never
+ * change an earlier reconstruction:
  * - definitions (`recordedAt`), reviews (`reviewedAt`) and sources
- *   (`retrievedAt`): the snapshot's knowledge time provably after the cutoff
- *   ⇒ set aside unvalidated; otherwise (including an unreadable time) the
- *   snapshot is validated — one that is not data fails closed;
- * - rule versions and implementations carry no knowledge time: a rule
- *   version is relevant only when an ADMITTED definition or review names it,
- *   an implementation only when an admitted, relevant rule version names it.
- *   Irrelevant ones cannot affect any obligation at that cutoff and are not
- *   validated; an unreadable identity is relevant (fails closed if bad).
+ *   (`retrievedAt`): knowledge time provably after the cutoff ⇒ set aside
+ *   unvalidated; otherwise (including an unreadable time) validated, so a
+ *   malformed known record fails closed;
+ * - rule versions carry no knowledge time: one is relevant only when an
+ *   ADMITTED definition or review names it; irrelevant ones cannot affect
+ *   any obligation at that cutoff and are not validated; an unreadable
+ *   identity is relevant (validated, fails closed if bad).
  * Without a cutoff every record is admitted and validated.
  */
-function admitKnownCatalogue(
-  raw: { definitions: InputSnapshot[]; ruleVersions: InputSnapshot[]; sources: InputSnapshot[]; reviews: InputSnapshot[]; implementations: unknown[] },
-  cutoff: string | null,
-): AdmittedCatalogue {
-  const issues: ObligationCatalogueIssue[] = [];
+function admitKnownCatalogue(raw: { definitions: unknown[]; ruleVersions: unknown[]; sources: unknown[]; reviews: unknown[] }, cutoff: string | null): AdmittedCatalogue {
   const later = new Map<string, LaterObligationDefinitionRef>();
   const named = new Set<string>();
-  const admitAll = (items: InputSnapshot[], timeKey: string, onAdmit: (value: unknown) => void, onLater: (value: unknown) => void = () => {}) => {
-    for (const snap of items) {
-      if (provablyAfter(snapshotField(snap.value, timeKey), cutoff)) onLater(snap.value);
-      else if (snap.nonData) issues.push({ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null });
-      else onAdmit(snap.value);
-    }
-  };
   const definitions: unknown[] = [];
-  admitAll(
-    raw.definitions,
-    "recordedAt",
-    (value) => {
-      const identity = isRecord(value) ? ruleIdentity(value.ruleId, value.ruleVersion) : null;
-      if (identity) named.add(identity);
-      definitions.push(value);
-    },
-    (value) => {
-      if (!isRecord(value)) return;
-      const { obligationId, ruleId, ruleVersion } = value;
+  for (const item of raw.definitions) {
+    if (isRecord(item) && provablyAfter(item.recordedAt, cutoff)) {
+      const { obligationId, ruleId, ruleVersion } = item;
       if (isOpaqueRef(obligationId) && isOpaqueRef(ruleId) && isPositiveInteger(ruleVersion)) {
         later.set(canonicalizeValue([obligationId, ruleId, ruleVersion]), { obligationId, ruleId, ruleVersion });
       }
-    },
-  );
-  const reviews: unknown[] = [];
-  admitAll(raw.reviews, "reviewedAt", (value) => {
-    const identity = isRecord(value) ? ruleIdentity(value.ruleId, value.ruleVersion) : null;
+      continue;
+    }
+    const identity = isRecord(item) ? ruleIdentity(item.ruleId, item.ruleVersion) : null;
     if (identity) named.add(identity);
-    reviews.push(value);
-  });
-  const sources: unknown[] = [];
-  admitAll(raw.sources, "retrievedAt", (value) => sources.push(value));
-
+    definitions.push(item);
+  }
+  const reviews: unknown[] = [];
+  for (const item of raw.reviews) {
+    if (isRecord(item) && provablyAfter(item.reviewedAt, cutoff)) continue;
+    const identity = isRecord(item) ? ruleIdentity(item.ruleId, item.ruleVersion) : null;
+    if (identity) named.add(identity);
+    reviews.push(item);
+  }
+  const sources = raw.sources.filter((item) => !(isRecord(item) && provablyAfter(item.retrievedAt, cutoff)));
   const relevant = (identity: string | null) => cutoff === null || identity === null || named.has(identity);
-  const namedImpls = new Set<string>();
-  const ruleVersions: unknown[] = [];
-  for (const snap of raw.ruleVersions) {
-    const identity = ruleIdentity(snapshotField(snap.value, "ruleId"), snapshotField(snap.value, "version"));
-    if (!relevant(identity)) continue;
-    if (snap.nonData) {
-      issues.push({ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null });
-      continue;
-    }
-    const impl = ruleIdentity(snapshotField(snap.value, "implementation", "implementationId"), snapshotField(snap.value, "implementation", "version"));
-    if (impl) namedImpls.add(impl);
-    ruleVersions.push(snap.value);
-  }
-  const implementations: unknown[] = [];
-  for (const item of raw.implementations) {
-    if (item === null || typeof item !== "object") {
-      implementations.push(item);
-      continue;
-    }
-    // Executable code, not data: each property read exactly once into a plain capture.
-    let captured: { implementationId: unknown; version: unknown; evaluate: unknown };
-    try {
-      const { implementationId, version, evaluate } = item as Record<string, unknown>;
-      captured = { implementationId, version, evaluate };
-    } catch {
-      implementations.push(null);
-      continue;
-    }
-    const identity = ruleIdentity(captured.implementationId, captured.version);
-    if (cutoff !== null && identity !== null && !namedImpls.has(identity)) continue;
-    implementations.push(captured);
-  }
-  return { definitions, ruleVersions, sources, reviews, implementations, later, issues };
+  const ruleVersions = raw.ruleVersions.filter((item) => relevant(isRecord(item) ? ruleIdentity(item.ruleId, item.version) : null));
+  return { definitions, ruleVersions, sources, reviews, later };
 }
 
 /**
- * Validates and materialises a supplied catalogue. The caller's catalogue is
- * read once: its five lists once each, every data record once into a
- * detached snapshot (`snapshotInput`), every implementation once into a
- * plain capture. Order-independent: every list is sorted canonically;
- * identical duplicates collapse; any malformed or contradictory ADMITTED
- * entry fails the whole catalogue (never partially used). With a
- * `knowledgeCutoff`, records are first admitted by knowledge time
- * (`admitKnownCatalogue`).
+ * Validates and materialises a supplied catalogue. The catalogue must be
+ * canonical plain data (`toCanonicalPlainData`): anything else is rejected
+ * whole as `CATTLE_OBLIGATION_CATALOGUE_NON_CANONICAL` before any record is
+ * considered. It carries data only — executable implementations are trusted
+ * bindings supplied separately (`obligation-implementations.ts`).
+ * Order-independent: every list is sorted canonically; identical duplicates
+ * collapse; any malformed or contradictory ADMITTED entry fails the whole
+ * catalogue (never partially used). With a `knowledgeCutoff`, records are
+ * first admitted by knowledge time (`admitKnownCatalogue`).
  */
 export function materialiseObligationCatalogue(raw: unknown, knowledgeCutoff?: string): ObligationCatalogueResult {
-  const top = snapshotTopLevel(raw);
-  if (!top) return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_MALFORMED", ref: null }] };
+  const canonical = toCanonicalPlainData(raw);
+  if (!canonical.ok) return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_NON_CANONICAL", ref: canonical.path }] };
+  const top = canonical.value;
+  if (!isRecord(top)) return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_MALFORMED", ref: null }] };
+  const { definitions, ruleVersions, sources, reviews } = top;
+  if (![definitions, ruleVersions, sources, reviews].every(Array.isArray)) {
+    return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_MALFORMED", ref: null }] };
+  }
   const cutoff = knowledgeCutoff !== undefined && isValidAnimalInstant(knowledgeCutoff) ? knowledgeCutoff : null;
-  const data = admitKnownCatalogue(top, cutoff);
-  const issues: ObligationCatalogueIssue[] = [...data.issues];
+  const data = admitKnownCatalogue(
+    { definitions: definitions as unknown[], ruleVersions: ruleVersions as unknown[], sources: sources as unknown[], reviews: reviews as unknown[] },
+    cutoff,
+  );
+  const issues: ObligationCatalogueIssue[] = [];
   const later = data.later;
   const defs = new Map<string, { def: ObligationDefinition; key: string }>();
   for (const item of data.definitions) {
@@ -608,18 +549,6 @@ export function materialiseObligationCatalogue(raw: unknown, knowledgeCutoff?: s
     if (!review) issues.push({ code: "CATTLE_OBLIGATION_MALFORMED_REVIEW", ref: isRecord(item) && isString(item.ruleId) ? item.ruleId : null });
     else reviewList.push(review);
   }
-  const impls = new Map<string, CattleRuleImplementation>();
-  for (const item of data.implementations) {
-    const impl = captureImplementation(item);
-    if (!impl) {
-      issues.push({ code: "CATTLE_OBLIGATION_MALFORMED_IMPLEMENTATION", ref: null });
-      continue;
-    }
-    const id = `${impl.implementationId}@v${impl.version}`;
-    const existing = impls.get(id);
-    if (!existing) impls.set(id, impl);
-    else if (existing.evaluate !== impl.evaluate) issues.push({ code: "CATTLE_OBLIGATION_DUPLICATE_IMPLEMENTATION", ref: id });
-  }
 
   if (issues.length > 0) {
     const unique = new Map(issues.map((i) => [canonicalizeValue(i), i]));
@@ -638,9 +567,6 @@ export function materialiseObligationCatalogue(raw: unknown, knowledgeCutoff?: s
     ruleVersions: deepFreezeAnimalValue([...rules.values()].map((e) => e.rule).sort((a, b) => compareStrings(a.ruleId, b.ruleId) || a.version - b.version)),
     sources: deepFreezeAnimalValue(byCanonical(sourceList)),
     reviews: deepFreezeAnimalValue(byCanonical(reviewList)),
-    implementations: Object.freeze(
-      [...impls.entries()].sort(([a], [b]) => compareStrings(a, b)).map(([, impl]) => impl),
-    ),
   };
   const laterDefinitions = deepFreezeAnimalValue(
     [...later.values()].sort((a, b) => compareStrings(a.obligationId, b.obligationId) || compareStrings(a.ruleId, b.ruleId) || a.ruleVersion - b.ruleVersion),

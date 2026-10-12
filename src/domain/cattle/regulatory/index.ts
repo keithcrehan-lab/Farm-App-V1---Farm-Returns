@@ -6,11 +6,12 @@
  */
 
 export * from "./bitemporal-records";
-export * from "./input-snapshot";
+export * from "./canonical-input";
 export * from "./obligation-anchor";
 export * from "./obligation-definition";
 export * from "./obligation-engine";
 export * from "./obligation-evidence";
 export * from "./obligation-hard-gates";
+export * from "./obligation-implementations";
 export * from "./obligation-integrity";
 export * from "./obligation-time";

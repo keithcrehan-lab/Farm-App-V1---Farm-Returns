@@ -83,7 +83,8 @@ import {
   type ObligationEvidenceIssue,
   type ObligationFulfilmentEvidence,
 } from "./obligation-evidence";
-import { snapshotField, snapshotInput, snapshotListOnce, type InputSnapshot } from "./input-snapshot";
+import { canonicalField, toCanonicalPlainData } from "./canonical-input";
+import { findObligationImplementation, type ObligationImplementationRegistry } from "./obligation-implementations";
 import { CATTLE_OBLIGATION_PAYLOAD_VERSION, computeObligationFingerprint, verifyObligationFingerprint } from "./obligation-integrity";
 import { addObligationOffset, canonicalObligationInstant, utcCalendarDateOf } from "./obligation-time";
 
@@ -183,17 +184,26 @@ export type ObligationRequestIssueCode =
   | "CATTLE_OBLIGATION_INVALID_EFFECTIVE_AT"
   | "CATTLE_OBLIGATION_INVALID_KNOWLEDGE_CUTOFF"
   | "CATTLE_OBLIGATION_INVALID_OBLIGATION_IDS"
-  | "CATTLE_OBLIGATION_INVALID_LEDGER";
+  | "CATTLE_OBLIGATION_INVALID_LEDGER"
+  /** Some part of the request is not canonical plain data (`canonical-input.ts`): rejected before evaluation. */
+  | "CATTLE_OBLIGATION_NON_CANONICAL_INPUT";
 
 export type AnimalObligationResult =
   | { ok: true; evaluation: AnimalObligationEvaluation }
   | { ok: false; issues: ObligationRequestIssueCode[]; ledgerIssues: AnimalLedgerIssue[] };
 
+/**
+ * Every field except `implementations` must be CANONICAL PLAIN DATA
+ * (`canonical-input.ts`); materialising arbitrary caller objects into that
+ * form is an adapter responsibility. `implementations` is a trusted registry
+ * (`createObligationImplementationRegistry`), never caller data.
+ */
 export interface AnimalObligationRequest {
   ledger: AnimalLedger;
-  /** Fulfilment evidence inputs for this animal (validated; any invalid record fails the log closed). */
+  /** Fulfilment evidence records for this animal (validated; any invalid admitted record fails the log closed). */
   evidence: readonly unknown[];
   catalogue: ObligationCatalogue;
+  implementations: ObligationImplementationRegistry;
   query: ObligationQuery;
 }
 
@@ -236,6 +246,7 @@ interface Context {
   snapshotFingerprint: AssessmentFingerprint;
   inputs: ObligationAnimalInputs;
   catalogue: ObligationCatalogueResult;
+  implementations: ObligationImplementationRegistry;
   evidence: { ok: true; resolution: BitemporalResolution<EvidenceEnvelope> } | { ok: false };
   query: ValidQuery;
   evaluationDate: string;
@@ -356,7 +367,7 @@ function evaluateObligation(ctx: Context, obligationId: string): ObligationState
   const awaitingRelease = unreleased.length === 1;
   const rule = resolution.status === "RESOLVED" ? resolution.rule : awaitingRelease ? unreleased[0] : null;
   const implementation = rule
-    ? catalogue.implementations.find((i) => i.implementationId === rule.implementation.implementationId && i.version === rule.implementation.version)
+    ? (findObligationImplementation(ctx.implementations, rule.implementation.implementationId, rule.implementation.version) ?? undefined)
     : undefined;
   const c0Context = { evaluationDate: ctx.evaluationDate, inputs: ctx.inputs.items, catalogue: catalogue.sources, reviews };
   const ruleEvaluation =
@@ -563,46 +574,39 @@ function evaluateOccurrence(
   return done("OVERDUE", reasons, window);
 }
 
-/** Reads a caller list once (its elements once each) into snapshots. */
-function snapshotList(list: unknown): InputSnapshot[] {
-  // An unreadable list becomes one NON_DATA entry, so it fails closed.
-  return snapshotListOnce(list) ?? [snapshotInput(() => undefined)];
-}
-
 /** True only for a readable strict-UTC knowledge time after the cutoff. */
 function receivedAfter(receivedAt: unknown, knowledgeCutoff: string): boolean {
   return isValidAnimalInstant(receivedAt) && compareInstants(receivedAt, knowledgeCutoff) > 0;
 }
 
 /**
- * Stands in for an admitted evidence snapshot that is not data. It is never
- * cloneable, so the log reports it as not cloneable and fails closed. It is
- * an engine constant — never the caller's object.
+ * Knowledge-time admission over CANONICAL evidence records: `provenance.
+ * receivedAt` provably after the cutoff ⇒ the record does not exist for this
+ * query (even when semantically malformed or contradictory), so a record
+ * first known later can never change an earlier reconstruction. Otherwise
+ * (including an unreadable knowledge time) the record is validated by the
+ * log, and a malformed one fails the log closed.
  */
-const NON_DATA_EVIDENCE: unknown = Object.freeze(() => undefined);
+function admitKnownEvidence(records: readonly unknown[], knowledgeCutoff: string): unknown[] {
+  return records.filter((record) => !receivedAfter(canonicalField(record, "provenance", "receivedAt"), knowledgeCutoff));
+}
 
-/**
- * Knowledge-time admission over evidence SNAPSHOTS (each caller record was
- * read exactly once by `snapshotInput`; nothing here reads a caller object).
- * The snapshot's `provenance.receivedAt` provably after the cutoff ⇒ the
- * record does not exist for this query — even when malformed, contradictory
- * or not data — so it can never change an earlier reconstruction. Otherwise
- * (including an unreadable knowledge time) the snapshot is validated by the
- * log; a snapshot that is not data fails the log closed.
- */
-function admitKnownEvidence(snapshots: readonly InputSnapshot[], knowledgeCutoff: string): unknown[] {
-  const admitted: unknown[] = [];
-  for (const snap of snapshots) {
-    if (receivedAfter(snapshotField(snap.value, "provenance", "receivedAt"), knowledgeCutoff)) continue;
-    admitted.push(snap.nonData ? NON_DATA_EVIDENCE : snap.value);
+/** The canonical plain-data form of each request part, or `null` when any part is not canonical. */
+function canonicalRequestParts<K extends string>(parts: Record<K, unknown>): Record<K, unknown> | null {
+  const out = {} as Record<K, unknown>;
+  for (const key of Object.keys(parts) as K[]) {
+    const c = toCanonicalPlainData(parts[key]);
+    if (!c.ok) return null;
+    out[key] = c.value;
   }
-  return admitted;
+  return out;
 }
 
 function evaluateCanonical(
   ledger: AnimalLedger,
-  evidenceInputs: readonly InputSnapshot[] | null,
+  evidenceInputs: readonly unknown[] | null,
   catalogue: ObligationCatalogueResult,
+  implementations: ObligationImplementationRegistry,
   query: ValidQuery,
   hash: CattleHash,
 ): AnimalObligationResult {
@@ -618,6 +622,7 @@ function evaluateCanonical(
     snapshotFingerprint: computeAnimalSnapshotFingerprint(snapshot, hash),
     inputs: obligationInputsFromSnapshot(snapshot),
     catalogue,
+    implementations,
     evidence: log !== null && log.ok ? { ok: true, resolution: resolveObligationEvidence(log.log, query.knowledgeCutoff) } : { ok: false },
     query,
     evaluationDate: utcCalendarDateOf(query.effectiveAt),
@@ -641,29 +646,28 @@ function evaluateCanonical(
 }
 
 /**
- * Evaluates the queried obligations for one animal. The request is read once;
- * the ledger is re-materialised (a hand-built ledger is re-validated), the
- * evidence and catalogue are cloned/validated once, and the returned
- * evaluation is a detached, deep-frozen copy. Invalid query times, obligation
- * ids or ledger fail closed (`ok: false`); an invalid catalogue or evidence
- * log yields fail-closed per-obligation states instead.
+ * Evaluates the queried obligations for one animal. The request's data parts
+ * (ledger, evidence, catalogue, query) must be canonical plain data — any
+ * part that is not is rejected as `CATTLE_OBLIGATION_NON_CANONICAL_INPUT`
+ * before evaluation; each is copied once into a detached, deep-frozen form
+ * and only that copy is used. The ledger is re-materialised (a hand-built
+ * ledger is re-validated); `implementations` is the trusted registry. The
+ * returned evaluation is a detached, deep-frozen copy. Invalid query times,
+ * obligation ids or ledger fail closed (`ok: false`); an invalid catalogue
+ * or evidence log yields fail-closed per-obligation states instead.
  */
 export function evaluateAnimalObligations(request: AnimalObligationRequest, hash: CattleHash): AnimalObligationResult {
   if (request === null || typeof request !== "object") return { ok: false, issues: ["CATTLE_OBLIGATION_INVALID_REQUEST"], ledgerIssues: [] };
-  // The input boundary: each caller value is read exactly once into a
-  // detached snapshot; nothing after this reads the caller's objects.
-  const { ledger, evidence, catalogue, query } = request;
-  const q = readQuery(snapshotInput(query).value);
-  const ledgerSnap = snapshotInput(ledger);
-  const evidenceSnaps = Array.isArray(evidence) ? snapshotList(evidence) : null;
-  const rebuilt = ledgerSnap.nonData ? null : rematerialiseAnimalLedger(ledgerSnap.value);
+  const { ledger, evidence, catalogue, implementations, query } = request;
+  const parts = canonicalRequestParts({ ledger, evidence, catalogue, query });
+  if (!parts) return { ok: false, issues: ["CATTLE_OBLIGATION_NON_CANONICAL_INPUT"], ledgerIssues: [] };
+  const q = readQuery(parts.query);
+  const rebuilt = rematerialiseAnimalLedger(parts.ledger);
   const issues: ObligationRequestIssueCode[] = q.ok ? [] : [...q.issues];
-  if (!rebuilt || !rebuilt.ok) issues.push("CATTLE_OBLIGATION_INVALID_LEDGER");
-  if (!q.ok || !rebuilt || !rebuilt.ok) {
-    const ledgerIssues: AnimalLedgerIssue[] = !rebuilt ? [{ code: "CATTLE_ANIMAL_MALFORMED_LEDGER_HEADER", assertionId: null, inputIndex: null }] : rebuilt.ok ? [] : rebuilt.issues;
-    return { ok: false, issues, ledgerIssues };
-  }
-  return evaluateCanonical(rebuilt.ledger, evidenceSnaps, materialiseObligationCatalogue(catalogue, q.query.knowledgeCutoff), q.query, hash);
+  if (!rebuilt.ok) issues.push("CATTLE_OBLIGATION_INVALID_LEDGER");
+  if (!q.ok || !rebuilt.ok) return { ok: false, issues, ledgerIssues: rebuilt.ok ? [] : rebuilt.issues };
+  const evidenceRecords = Array.isArray(parts.evidence) ? (parts.evidence as unknown[]) : null;
+  return evaluateCanonical(rebuilt.ledger, evidenceRecords, materialiseObligationCatalogue(parts.catalogue, q.query.knowledgeCutoff), implementations, q.query, hash);
 }
 
 // ---------------------------------------------------------------------------
@@ -681,11 +685,13 @@ export interface HerdObligationIssue {
   animalId: string | null;
 }
 
+/** As `AnimalObligationRequest`: data parts canonical plain data; `implementations` a trusted registry. */
 export interface HerdObligationRequest {
   ledgers: readonly unknown[];
   /** Evidence for any animal in the herd, partitioned by `animalId`. */
   evidence: readonly unknown[];
   catalogue: ObligationCatalogue;
+  implementations: ObligationImplementationRegistry;
   query: ObligationQuery;
 }
 
@@ -711,44 +717,47 @@ export type HerdObligationResult = { ok: true; herd: HerdObligationEvaluation } 
  */
 export function evaluateHerdObligations(request: HerdObligationRequest, hash: CattleHash): HerdObligationResult {
   if (request === null || typeof request !== "object") return { ok: false, issues: ["CATTLE_OBLIGATION_INVALID_REQUEST"] };
-  const { ledgers, evidence, catalogue, query } = request;
-  const q = readQuery(snapshotInput(query).value);
+  const { ledgers: rawLedgers, evidence: rawEvidence, catalogue: rawCatalogue, implementations, query: rawQuery } = request;
+  const parts = canonicalRequestParts({ ledgers: rawLedgers, evidence: rawEvidence, catalogue: rawCatalogue, query: rawQuery });
+  if (!parts) return { ok: false, issues: ["CATTLE_OBLIGATION_NON_CANONICAL_INPUT"] };
+  const { ledgers, evidence, catalogue } = parts;
+  const q = readQuery(parts.query);
   if (!q.ok) return { ok: false, issues: q.issues };
   if (!Array.isArray(ledgers) || !Array.isArray(evidence)) return { ok: false, issues: ["CATTLE_OBLIGATION_INVALID_REQUEST"] };
   const issues: HerdObligationIssue[] = [];
-  // Identity admission → duplicate detection → ledger validation. Each ledger
-  // is read once into a snapshot; every readable animal id is counted —
-  // whether or not the rest of its ledger is valid — so two ledgers claiming
-  // one id are a duplicate (never evaluated) in addition to any individual
-  // invalid-ledger issue. An unreadable id is never invented.
-  const ledgerSnaps = snapshotList(ledgers);
+  // Identity admission → duplicate detection → ledger validation. Every
+  // readable animal id is counted across all canonical ledgers — whether or
+  // not the rest of the ledger is valid — so two ledgers claiming one id are
+  // a duplicate (never evaluated), in addition to any invalid-ledger issue.
+  // A missing or unreadable id is never counted and never invented.
   const claims = new Map<string, number>();
-  for (const snap of ledgerSnaps) {
-    const id = snapshotField(snap.value, "animalId");
+  for (const l of ledgers) {
+    const id = canonicalField(l, "animalId");
     if (isOpaqueRef(id)) claims.set(id, (claims.get(id) ?? 0) + 1);
   }
   const valid = new Map<string, AnimalLedger>();
-  for (const snap of ledgerSnaps) {
-    const id = snapshotField(snap.value, "animalId");
-    const rebuilt = snap.nonData ? null : rematerialiseAnimalLedger(snap.value);
-    if (!rebuilt || !rebuilt.ok) {
+  for (const l of ledgers) {
+    const id = canonicalField(l, "animalId");
+    const rebuilt = rematerialiseAnimalLedger(l);
+    if (!rebuilt.ok) {
       issues.push({ code: "CATTLE_OBLIGATION_HERD_INVALID_LEDGER", animalId: isOpaqueRef(id) ? id : null });
       continue;
     }
     if ((claims.get(rebuilt.ledger.animalId) ?? 0) === 1) valid.set(rebuilt.ledger.animalId, rebuilt.ledger);
   }
   for (const [animalId, count] of claims) if (count > 1) issues.push({ code: "CATTLE_OBLIGATION_HERD_DUPLICATE_ANIMAL", animalId });
-  const evidenceBy = new Map<string, InputSnapshot[]>();
-  const unattributable: InputSnapshot[] = [];
-  // Knowledge-time admission precedes partitioning, from each evidence
-  // snapshot alone: evidence provably received after the cutoff does not
-  // exist for this query and is neither partitioned nor reported.
-  for (const snap of snapshotList(evidence)) {
-    if (receivedAfter(snapshotField(snap.value, "provenance", "receivedAt"), q.query.knowledgeCutoff)) continue;
-    const id = snapshotField(snap.value, "animalId");
-    if (isOpaqueRef(id)) evidenceBy.set(id, [...(evidenceBy.get(id) ?? []), snap]);
+  const evidenceBy = new Map<string, unknown[]>();
+  const unattributable: unknown[] = [];
+  // Knowledge-time admission precedes partitioning: evidence provably
+  // received after the cutoff does not exist for this query and is neither
+  // partitioned nor reported. Evidence with no readable animal id is
+  // unattributable and is offered to every animal, failing each log closed.
+  for (const record of evidence) {
+    if (receivedAfter(canonicalField(record, "provenance", "receivedAt"), q.query.knowledgeCutoff)) continue;
+    const id = canonicalField(record, "animalId");
+    if (isOpaqueRef(id)) evidenceBy.set(id, [...(evidenceBy.get(id) ?? []), record]);
     else {
-      unattributable.push(snap);
+      unattributable.push(record);
       issues.push({ code: "CATTLE_OBLIGATION_HERD_EVIDENCE_UNATTRIBUTABLE", animalId: null });
     }
   }
@@ -756,7 +765,7 @@ export function evaluateHerdObligations(request: HerdObligationRequest, hash: Ca
   const animals: AnimalObligationEvaluation[] = [];
   for (const [animalId, ledger] of [...valid.entries()].sort(([a], [b]) => compareStrings(a, b))) {
     // Unattributable evidence is offered to every animal, so each log fails closed.
-    const result = evaluateCanonical(ledger, [...(evidenceBy.get(animalId) ?? []), ...unattributable], materialised, q.query, hash);
+    const result = evaluateCanonical(ledger, [...(evidenceBy.get(animalId) ?? []), ...unattributable], materialised, implementations, q.query, hash);
     if (result.ok) animals.push(result.evaluation);
     else issues.push({ code: "CATTLE_OBLIGATION_HERD_INVALID_LEDGER", animalId });
   }

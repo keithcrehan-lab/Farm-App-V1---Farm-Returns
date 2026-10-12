@@ -311,10 +311,32 @@
       "next_phase": "C3 NOT_STARTED"
     },
     "campaign_progress": {
-      "last_frozen_phase": "C2",
-      "next_phase": "C3",
+      "last_frozen_phase": "C3",
+      "next_phase": "C4",
       "next_phase_status": "NOT_STARTED",
       "updated_by": "scripts/agent-campaign-run"
+    },
+    "c3_health_medicines_engine": {
+      "status": "FROZEN_COMPLETE_IN_CODE",
+      "task": "cattle-c3-health-and-medicines-engine-20261012",
+      "base_sha": "4a2350406030096751308d162521cd6518bb4993",
+      "final_audited_sha": "c35748f128d9eb305e0370a923f59221d8f27a52",
+      "final_audit": ".agent/campaigns/cattle-engine-v1/audits/audit-20261012T183202Z-1695561237.md",
+      "final_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0",
+      "remediated_findings": [
+        "F001 (HIGH, audit-20261012T143603Z-3238652293.md): Projection verification permits provenance removal — sig 3f183c540b5faa7a",
+        "F004 (MEDIUM, audit-20261012T173545Z-3532160855.md): Malformed projections still throw during verification — sig 4fe7838e88c02976",
+        "F004 (MEDIUM, audit-20261012T163504Z-1396350258.md): Public validation paths throw on malformed canonical input — sig 873d813b8afbb8ad",
+        "F002 (HIGH, audit-20261012T143603Z-3238652293.md): Nested withdrawal qualifiers are silently discarded — sig a475c3a7e51d3c18",
+        "F003 (HIGH, audit-20261012T143603Z-3238652293.md): Public admission exports bypass the canonical boundary — sig afc6b3f36f0df900",
+        "F003 (HIGH, audit-20261012T153721Z-2253129957.md): Public withdrawal exports still bypass canonical validation — sig c3ff24c6afa223ea"
+      ],
+      "outstanding_low_findings": [],
+      "verification": "at c35748f128d9eb305e0370a923f59221d8f27a52: phase verify `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint` PASS; full suite scripts/quality-gate.sh PASS",
+      "receipt": ".agent/campaigns/cattle-engine-v1/receipts/C3.json",
+      "receipt_fingerprint": "6a072bd8d210c9501113948aca35c77ea11d0168da8b35ea5da43c28050d33f4",
+      "closed_by": "scripts/agent-campaign-run",
+      "next_phase": "C4 NOT_STARTED"
     }
   }
 }

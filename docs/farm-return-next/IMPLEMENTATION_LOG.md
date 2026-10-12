@@ -5,6 +5,18 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Cattle Engine v1, C3 close-out — Health & Medicines Engine — frozen at c35748f (2026-10-12)
+
+C3 (task `cattle-c3-health-and-medicines-engine-20261012`, base `4a23504`) is **frozen at `c35748f128d9eb305e0370a923f59221d8f27a52`** by `scripts/agent-campaign-run`. This is the
+functional freeze SHA; the documentation commit recording it is not.
+
+- Strict full-phase audit `audit-20261012T183202Z-1695561237.md` over `4a23504..c35748f`: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0.
+- Automatic remediation: 2 Medium round(s), 2 High round(s): F001 (HIGH, audit-20261012T143603Z-3238652293.md): Projection verification permits provenance removal — sig 3f183c540b5faa7a; F004 (MEDIUM, audit-20261012T173545Z-3532160855.md): Malformed projections still throw during verification — sig 4fe7838e88c02976; F004 (MEDIUM, audit-20261012T163504Z-1396350258.md): Public validation paths throw on malformed canonical input — sig 873d813b8afbb8ad; F002 (HIGH, audit-20261012T143603Z-3238652293.md): Nested withdrawal qualifiers are silently discarded — sig a475c3a7e51d3c18; F003 (HIGH, audit-20261012T143603Z-3238652293.md): Public admission exports bypass the canonical boundary — sig afc6b3f36f0df900; F003 (HIGH, audit-20261012T153721Z-2253129957.md): Public withdrawal exports still bypass canonical validation — sig c3ff24c6afa223ea.
+- Outstanding Low (recorded, not fixed): none.
+- Verification at `c35748f`: phase verify and full suite (`scripts/quality-gate.sh`) passed.
+- Receipt `.agent/campaigns/cattle-engine-v1/receipts/C3.json` (fingerprint `6a072bd8d210c950`). Migrations: none. Frozen contracts: ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md. Nothing pushed or deployed.
+- C4 **not started**.
+
 ## Cattle Engine v1, C2 close-out — Regulatory Lifecycle Engine — frozen at 6a0a976 (2026-10-12)
 
 C2 (task `cattle-c2-regulatory-lifecycle-engine-20261011`, base `3a7c0a6`) is **frozen at `6a0a976725b6ebd4f8f552d03f59e5bc773a1bbb`** by `scripts/agent-campaign-run`. This is the

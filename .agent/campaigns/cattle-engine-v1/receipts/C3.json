@@ -1,0 +1,269 @@
+{
+  "receipt_schema_version": 1,
+  "origin": "campaign",
+  "campaign_id": "cattle-engine-v1",
+  "phase_id": "C3",
+  "phase_title": "Health & Medicines Engine",
+  "phase_order": 3,
+  "task_id": "cattle-c3-health-and-medicines-engine-20261012",
+  "phase_base_sha": "4a2350406030096751308d162521cd6518bb4993",
+  "functional_freeze_sha": "c35748f128d9eb305e0370a923f59221d8f27a52",
+  "frozen_at": "2026-10-12T19:25:20Z",
+  "brief": ".agent/campaigns/cattle-engine-v1/C3_BRIEF.md",
+  "brief_sha256": "fccd3e8d36dd2af7b3c7c85bec6afce3ec87255d6a9b8b1a1b81472541b6c75f",
+  "contracts": [
+    {
+      "path": "AGENTS.md",
+      "blob_at_freeze": "c608fb74479ed5ef58544105aee90d6fa07ce918"
+    },
+    {
+      "path": ".agent/AUDIT_RULES.md",
+      "blob_at_freeze": "6113ce9869627f7102a6420242036c8fb2e07358"
+    },
+    {
+      "path": ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
+      "blob_at_freeze": "4f8b6c99e9397e2fd9da1e12f4bde1ad29ca0e1f"
+    },
+    {
+      "path": ".agent/skills/cattle-evidence-rules.md",
+      "blob_at_freeze": "34103147824c01008e92dba49531ff406294fce7"
+    },
+    {
+      "path": "docs/farm-return-next/cattle/index.md",
+      "blob_at_freeze": "ed787671c170f51492d718821dfe439bfdfc1108"
+    },
+    {
+      "path": "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+      "blob_at_freeze": "be25894a3209a55c467b9ffdb08ffa8dfdb6e02d"
+    }
+  ],
+  "verify_command": "npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint",
+  "verification": [
+    {
+      "name": "phase_verify",
+      "cmd": "npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint",
+      "head": "c35748f128d9eb305e0370a923f59221d8f27a52",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C3-freeze-phase_verify-20261012T183612257018Z.log"
+    },
+    {
+      "name": "full_suite",
+      "cmd": "bash scripts/quality-gate.sh",
+      "head": "c35748f128d9eb305e0370a923f59221d8f27a52",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C3-freeze-full_suite-20261012T183705351574Z.log"
+    }
+  ],
+  "strict_audit": {
+    "artifact": ".agent/campaigns/cattle-engine-v1/audits/audit-20261012T183202Z-1695561237.md",
+    "original": ".agent/history/audit-20261012T183202Z-1695561237.md",
+    "sha256": "4eca8b42465aa6270bc2cab63bbb19dbf6eb093a4c6520b648994d392974f8c1",
+    "range": "4a2350406030096751308d162521cd6518bb4993..c35748f128d9eb305e0370a923f59221d8f27a52",
+    "counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "tier": "strict"
+  },
+  "audits": [
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T143603Z-3238652293.md",
+      "head": "ff23580e745a96dd7919d14285859e5072c98a0d",
+      "counts": {
+        "critical": 0,
+        "high": 3,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T153721Z-2253129957.md",
+      "head": "8016c703c2ec823109463693da9586e836cb61fd",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T163504Z-1396350258.md",
+      "head": "a83a36f35ea3a41db79f4d5491181e19b3045909",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T173146Z-3619766299.md",
+      "head": "205fe30b637f93f5ff40d253af5845cd57912f7e",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261012T173545Z-3532160855.md",
+      "head": "205fe30b637f93f5ff40d253af5845cd57912f7e",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261012T183202Z-1695561237.md",
+      "head": "c35748f128d9eb305e0370a923f59221d8f27a52",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    }
+  ],
+  "remediation": {
+    "medium_rounds": 2,
+    "high_rounds": 2,
+    "rounds": [
+      {
+        "n": 1,
+        "tier": "standard",
+        "audit": "audit-20261012T143603Z-3238652293.md",
+        "ids": [
+          "F001",
+          "F002",
+          "F003"
+        ],
+        "severities": [
+          "HIGH"
+        ],
+        "fix_commit": "8016c703c2ec823109463693da9586e836cb61fd"
+      },
+      {
+        "n": 2,
+        "tier": "standard",
+        "audit": "audit-20261012T153721Z-2253129957.md",
+        "ids": [
+          "F003"
+        ],
+        "severities": [
+          "HIGH"
+        ],
+        "fix_commit": "a83a36f35ea3a41db79f4d5491181e19b3045909"
+      },
+      {
+        "n": 3,
+        "tier": "standard",
+        "audit": "audit-20261012T163504Z-1396350258.md",
+        "ids": [
+          "F004"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "205fe30b637f93f5ff40d253af5845cd57912f7e"
+      },
+      {
+        "n": 4,
+        "tier": "strict",
+        "audit": "audit-20261012T173545Z-3532160855.md",
+        "ids": [
+          "F004"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "c35748f128d9eb305e0370a923f59221d8f27a52"
+      }
+    ]
+  },
+  "finding_signatures": {
+    "3f183c540b5faa7a": {
+      "severity": "HIGH",
+      "title": "Projection verification permits provenance removal",
+      "file": "src/domain/cattle/health/health-engine.ts",
+      "attempts": 1,
+      "ids": [
+        "F001@audit-20261012T143603Z-3238652293.md"
+      ]
+    },
+    "4fe7838e88c02976": {
+      "severity": "MEDIUM",
+      "title": "Malformed projections still throw during verification",
+      "file": "src/domain/cattle/health/health-engine.ts",
+      "attempts": 1,
+      "ids": [
+        "F004@audit-20261012T173545Z-3532160855.md"
+      ]
+    },
+    "873d813b8afbb8ad": {
+      "severity": "MEDIUM",
+      "title": "Public validation paths throw on malformed canonical input",
+      "file": "src/domain/cattle/health/health-engine.ts:373;",
+      "attempts": 1,
+      "ids": [
+        "F004@audit-20261012T163504Z-1396350258.md"
+      ]
+    },
+    "a475c3a7e51d3c18": {
+      "severity": "HIGH",
+      "title": "Nested withdrawal qualifiers are silently discarded",
+      "file": "src/domain/cattle/health/health-input.ts",
+      "attempts": 1,
+      "ids": [
+        "F002@audit-20261012T143603Z-3238652293.md"
+      ]
+    },
+    "afc6b3f36f0df900": {
+      "severity": "HIGH",
+      "title": "Public admission exports bypass the canonical boundary",
+      "file": "src/domain/cattle/health/authorised-product.ts",
+      "attempts": 1,
+      "ids": [
+        "F003@audit-20261012T143603Z-3238652293.md"
+      ]
+    },
+    "c3ff24c6afa223ea": {
+      "severity": "HIGH",
+      "title": "Public withdrawal exports still bypass canonical validation",
+      "file": "src/domain/cattle/health/withdrawal.ts",
+      "attempts": 1,
+      "ids": [
+        "F003@audit-20261012T153721Z-2253129957.md"
+      ]
+    }
+  },
+  "outstanding_low_findings": [],
+  "migration_status": "NONE",
+  "frozen_contract_status": "ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md",
+  "human_gate_status": "NONE",
+  "pushed_or_deployed": false,
+  "predecessor": "C2",
+  "predecessor_receipt_fingerprint": "80e8f12cc4c4550d5ea78a730bff9b1747820cf822c9e6c9a3e08489d5646724",
+  "policy": {
+    "medium_rounds": 4,
+    "high_rounds": 2,
+    "attempts_per_signature": 2
+  },
+  "receipt_fingerprint": "6a072bd8d210c9501113948aca35c77ea11d0168da8b35ea5da43c28050d33f4"
+}

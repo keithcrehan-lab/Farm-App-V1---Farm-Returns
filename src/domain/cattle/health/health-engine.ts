@@ -385,6 +385,13 @@ function projectionShapeOk(p: Record<string, unknown>): boolean {
   );
 }
 
+/** True when a canonical fingerprint payload holds no absent (`undefined`) value at any depth (CAT-INV-022). */
+function payloadComplete(v: unknown): boolean {
+  if (v === undefined) return false;
+  if (Array.isArray(v)) return v.every(payloadComplete);
+  return v === null || typeof v !== "object" || Object.values(v).every(payloadComplete);
+}
+
 /**
  * Re-verifies a projection against its own content: the supported payload
  * version, the three fingerprints, and `sourceRefs` as exactly the source
@@ -403,15 +410,19 @@ export function verifyAnimalHealthProjection(projection: AnimalHealthProjection,
   const { fingerprint: tf, ...timeline } = p.timeline;
   const { fingerprint: lf, ...ledger } = p.medicineLedger;
   const { fingerprint: gf, ...gate } = p.withdrawalGate;
-  const t = verifyHealthFingerprint("CATTLE_HEALTH_TIMELINE", timelinePayload(p, timeline), tf, hash);
+  const payloads = { timeline: timelinePayload(p, timeline), ledger: ledgerPayload(p, ledger), gate: gatePayload(p, gate) };
+  if (!payloadComplete(payloads) || !payloadComplete(p.sourceRefs)) {
+    return { valid: false, reasonCode: "CATTLE_HEALTH_PROJECTION_MALFORMED", detail: "fingerprint payload is incomplete" };
+  }
+  const t = verifyHealthFingerprint("CATTLE_HEALTH_TIMELINE", payloads.timeline, tf, hash);
   if (!t.valid) return t;
-  const l = verifyHealthFingerprint("CATTLE_MEDICINE_LEDGER", ledgerPayload(p, ledger), lf, hash);
+  const l = verifyHealthFingerprint("CATTLE_MEDICINE_LEDGER", payloads.ledger, lf, hash);
   if (!l.valid) return l;
   if (gate.medicineLedgerFingerprint.digest !== lf.digest) return { valid: false, reasonCode: "CATTLE_HEALTH_GATE_LEDGER_MISMATCH", detail: "gate is bound to another medicine ledger" };
   if (!Array.isArray(p.sourceRefs) || canonicalizeValue(p.sourceRefs) !== canonicalizeValue(boundSourceRefs(ledger.productVersionsUsed))) {
     return { valid: false, reasonCode: "CATTLE_HEALTH_SOURCE_REFS_MISMATCH", detail: "sourceRefs differ from the bound product versions" };
   }
-  return verifyHealthFingerprint("CATTLE_WITHDRAWAL_GATE", gatePayload(p, gate), gf, hash);
+  return verifyHealthFingerprint("CATTLE_WITHDRAWAL_GATE", payloads.gate, gf, hash);
 }
 
 // ---------------------------------------------------------------------------

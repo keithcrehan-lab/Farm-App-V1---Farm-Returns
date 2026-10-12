@@ -748,6 +748,17 @@ describe("C3 canonical boundary and malformed input (CAT-INV-001/022)", () => {
       ["gate entries not array", { ...p, withdrawalGate: { ...p.withdrawalGate, entries: {} } }],
       ["gate entry reason codes missing", { ...p, withdrawalGate: { ...p.withdrawalGate, entries: [{ ...p.withdrawalGate.entries[0], reasonCodes: null }] } }],
       ["effectiveAt malformed", { ...p, effectiveAt: 5 }],
+      ["timeline filter missing", { ...p, timeline: { ...p.timeline, filter: undefined } }],
+      ["timeline competitions missing", { ...p, timeline: { ...p.timeline, competitions: undefined } }],
+      ["timeline not-yet-occurred ids missing", { ...p, timeline: { ...p.timeline, notYetOccurredRecordIds: undefined } }],
+      ["known record ids missing", { ...p, knownRecordIds: undefined }],
+      ["food products missing", { ...p, foodProducts: undefined }],
+      ["snapshot fingerprint missing", { ...p, snapshotFingerprint: undefined }],
+      ["animal id missing", { ...p, animalId: undefined }],
+      ["knowledge cutoff missing", { ...p, knowledgeCutoff: undefined }],
+      ["ledger entry field missing", { ...p, medicineLedger: { ...p.medicineLedger, entries: [{ ...entry0, binding: undefined }] } }],
+      ["ledger entry record field missing", { ...p, medicineLedger: { ...p.medicineLedger, entries: [{ ...entry0, record: { ...entry0.record, kind: undefined } }] } }],
+      ["gate entry nested field missing", { ...p, withdrawalGate: { ...p.withdrawalGate, entries: [{ ...p.withdrawalGate.entries[0], foodProduct: p.withdrawalGate.entries[0].foodProduct, extra: [undefined] }] } }],
     ];
     for (const [label, mutated] of malformed) {
       expect(() => verifyAnimalHealthProjection(mutated as never, hash), label).not.toThrow();

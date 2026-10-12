@@ -3535,7 +3535,16 @@ start ⇒ `NOT_TRIGGERED` (never NOT_APPLICABLE) only when the dimension is reso
 at the query and at every live assertion's `validFrom`/`validTo`; invalid or conflicting at any
 probe, or UNKNOWN at the query or a probe not after it ⇒ INVALID / CONFLICT / UNKNOWN (that
 precedence; each state is tracked independently of evidence ids, so an evidence-free UNKNOWN
-gap between intervals counts). Occurrence id `<obligationId>|<anchorKind>|<t>`.
+gap between intervals counts). With C0 PASS the anchor must also be resolved for the whole
+life (`resolveObligationAnchor`, as for NOT_APPLICABLE): an unresolved period could conceal
+further occurrences, so it is reported as its own record (`occurrence: null`, reason
+`CATTLE_OBLIGATION_ANCHOR_UNRESOLVED_PERIOD`, INVALID_EVIDENCE / EVIDENCE_CONFLICT / UNKNOWN)
+alongside any known occurrences — a satisfied occurrence never hides it, and the hard-gate
+projection folds it into the rule's state. Without occurrences the worse of the derivation and
+the whole-life resolution is reported. Evidence admission precedes cloning (animal and herd):
+evidence provably received after the cutoff — even uncloneable or unattributable — is set
+aside before validation or herd partitioning (an uncloneable record has only `provenance` and
+`receivedAt` read, once); an uncloneable record not provably later fails closed. Occurrence id `<obligationId>|<anchorKind>|<t>`.
 
 **Window.** `opensAt = anchor + opensAfter`, `dueAt = anchor + dueAfter`; inclusive start;
 exclusive end unless the rule declares `INCLUSIVE_START_INCLUSIVE_END`. Unrepresentable ⇒

@@ -409,21 +409,31 @@ function evaluateObligation(ctx: Context, obligationId: string): ObligationState
     ]);
   }
 
-  // C0 PASS: derive occurrences.
+  // C0 PASS: derive occurrences. The anchor must also be resolved for the
+  // animal's whole life to the query (`resolveObligationAnchor`): an
+  // unresolved period could conceal further occurrences, so it is reported
+  // as its own record — alongside any known occurrences — and is never
+  // hidden by a satisfied occurrence (the hard-gate projection folds it in).
   const derivation = deriveObligationOccurrences(obligationId, def.terms.anchor, ctx.ledger, ctx.snapshot);
+  const anchor = resolveObligationAnchor(def.terms.anchor, ctx.ledger, ctx.snapshot);
   const evidence = obligationEvidence(ctx, obligationId, def);
+  const anchorRecord = (state: ObligationState, reasonCodes: string[], unattributedEvidenceIds: string[]) =>
+    finalise(ctx, { ...common, occurrence: null, window: null, state, reasonCodes, evidence: { ...emptySummary(), unattributedEvidenceIds } });
+  const anchorReasons = [...anchor.reasonCodes, ...anchor.assertionIds.map((id) => `CATTLE_OBLIGATION_ANCHOR_ASSERTION:${id}`)];
   if (derivation.status !== "OCCURRENCES") {
-    const state: ObligationState =
-      derivation.status === "INVALID" ? "INVALID_EVIDENCE" : derivation.status === "CONFLICT" ? "EVIDENCE_CONFLICT" : derivation.status === "UNKNOWN" ? "UNKNOWN" : "NOT_TRIGGERED";
+    const worst = [derivation.status, anchor.state].includes("INVALID")
+      ? "INVALID"
+      : [derivation.status, anchor.state].includes("CONFLICT")
+        ? "CONFLICT"
+        : [derivation.status, anchor.state].includes("UNKNOWN")
+          ? "UNKNOWN"
+          : "NOT_TRIGGERED";
     return [
-      finalise(ctx, {
-        ...common,
-        occurrence: null,
-        window: null,
-        state,
-        reasonCodes: [`CATTLE_OBLIGATION_ANCHOR_${derivation.status}`, ...derivation.anchorAssertionIds.map((id) => `CATTLE_OBLIGATION_ANCHOR_ASSERTION:${id}`)],
-        evidence: { ...emptySummary(), unattributedEvidenceIds: evidence.ok ? evidence.liveIds : [] },
-      }),
+      anchorRecord(
+        ANCHOR_STATE[worst],
+        [`CATTLE_OBLIGATION_ANCHOR_${derivation.status}`, ...derivation.anchorAssertionIds.map((id) => `CATTLE_OBLIGATION_ANCHOR_ASSERTION:${id}`), ...anchorReasons],
+        evidence.ok ? evidence.liveIds : [],
+      ),
     ];
   }
   const attributedIds = new Set<string>();
@@ -433,8 +443,17 @@ function evaluateObligation(ctx: Context, obligationId: string): ObligationState
     return result;
   });
   const unattributed = evidence.ok ? evidence.liveIds.filter((id) => !attributedIds.has(id)) : [];
-  return records.map((r) => finalise(ctx, { ...common, ...r.draft, evidence: { ...r.draft.evidence, unattributedEvidenceIds: unattributed } }));
+  const out = records.map((r) => finalise(ctx, { ...common, ...r.draft, evidence: { ...r.draft.evidence, unattributedEvidenceIds: unattributed } }));
+  if (anchor.state !== "KNOWN") out.push(anchorRecord(ANCHOR_STATE[anchor.state], ["CATTLE_OBLIGATION_ANCHOR_UNRESOLVED_PERIOD", ...anchorReasons], unattributed));
+  return out;
 }
+
+const ANCHOR_STATE: Record<"INVALID" | "CONFLICT" | "UNKNOWN" | "NOT_TRIGGERED", ObligationState> = {
+  INVALID: "INVALID_EVIDENCE",
+  CONFLICT: "EVIDENCE_CONFLICT",
+  UNKNOWN: "UNKNOWN",
+  NOT_TRIGGERED: "NOT_TRIGGERED",
+};
 
 type ObligationEvidenceView =
   | { ok: false; reasons: string[]; invalidIds: string[] }
@@ -544,12 +563,34 @@ function evaluateOccurrence(
 }
 
 /**
+ * KNOWLEDGE time of a raw evidence input, read before anything else about it
+ * is trusted: `provenance` then `receivedAt`, each read exactly once (a
+ * throwing getter or a non-object reads as unreadable).
+ */
+function evidenceKnowledgeTime(input: unknown): unknown {
+  if (input === null || typeof input !== "object") return undefined;
+  try {
+    const provenance = (input as Record<string, unknown>).provenance;
+    return provenance !== null && typeof provenance === "object" ? (provenance as Record<string, unknown>).receivedAt : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** True only for a readable strict-UTC knowledge time after the cutoff. */
+function receivedAfter(receivedAt: unknown, knowledgeCutoff: string): boolean {
+  return isValidAnimalInstant(receivedAt) && compareInstants(receivedAt, knowledgeCutoff) > 0;
+}
+
+/**
  * Evidence that provably arrived after the cutoff (a valid `receivedAt` later
  * than it) does not exist for this query, so a later record — even a
- * malformed or contradictory one — can never change an earlier
- * reconstruction. Everything else, including a record whose knowledge time
- * cannot be read, is validated (and fails the log closed if malformed). Each
- * input is cloned once; the private copy is what the log validates.
+ * malformed, contradictory or uncloneable one — can never change an earlier
+ * reconstruction. Admission comes first: a record that cannot be cloned has
+ * only its knowledge time read (once) and is set aside when provably later.
+ * Everything else, including a record whose knowledge time cannot be read,
+ * is validated (and fails the log closed if malformed). Each admitted input
+ * is cloned once; the private copy is what the log validates.
  */
 function admitKnownEvidence(inputs: readonly unknown[], knowledgeCutoff: string): unknown[] {
   const admitted: unknown[] = [];
@@ -558,12 +599,11 @@ function admitKnownEvidence(inputs: readonly unknown[], knowledgeCutoff: string)
     try {
       copy = structuredClone(input);
     } catch {
+      if (receivedAfter(evidenceKnowledgeTime(input), knowledgeCutoff)) continue;
       admitted.push(input); // the log reports it as not cloneable
       continue;
     }
-    const provenance = copy !== null && typeof copy === "object" ? (copy as Record<string, unknown>).provenance : null;
-    const receivedAt = provenance !== null && typeof provenance === "object" ? (provenance as Record<string, unknown>).receivedAt : null;
-    if (isValidAnimalInstant(receivedAt) && compareInstants(receivedAt, knowledgeCutoff) > 0) continue;
+    if (receivedAfter(evidenceKnowledgeTime(copy), knowledgeCutoff)) continue;
     admitted.push(copy);
   }
   return admitted;
@@ -698,14 +738,29 @@ export function evaluateHerdObligations(request: HerdObligationRequest, hash: Ca
   }
   const evidenceBy = new Map<string, unknown[]>();
   const unattributable: unknown[] = [];
+  // Knowledge-time admission precedes partitioning: evidence provably received
+  // after the cutoff (cloneable or not) does not exist for this query and is
+  // neither partitioned nor reported. An uncloneable record known by the
+  // cutoff has its animal id read once and fails that animal's log closed.
   for (const raw of Array.from(evidence)) {
     let copy: unknown;
+    let cloned = true;
     try {
       copy = structuredClone(raw);
     } catch {
-      copy = null;
+      cloned = false;
     }
-    const id = copy !== null && typeof copy === "object" ? (copy as Record<string, unknown>).animalId : null;
+    if (receivedAfter(evidenceKnowledgeTime(cloned ? copy : raw), q.query.knowledgeCutoff)) continue;
+    let id: unknown = null;
+    if (cloned) id = copy !== null && typeof copy === "object" ? (copy as Record<string, unknown>).animalId : null;
+    else {
+      try {
+        id = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>).animalId : null;
+      } catch {
+        id = null;
+      }
+      copy = raw;
+    }
     if (isOpaqueRef(id)) evidenceBy.set(id, [...(evidenceBy.get(id) ?? []), copy]);
     else {
       unattributable.push(copy);

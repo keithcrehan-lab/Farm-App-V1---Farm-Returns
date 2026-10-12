@@ -315,7 +315,7 @@ describe("C2 interval anchors", () => {
   const locCat = catalogueOf({ def: locDef });
 
   it("each start at a new location is an occurrence; evidence is matched by anchor instant", () => {
-    const ledger = ledgerOf([loc("l-1", "field-1", "2026-01-01T00:00:00Z", "2026-05-01T00:00:00Z"), loc("l-2", "field-2", "2026-05-01T00:00:00Z", null)]);
+    const ledger = ledgerOf([dob("a-dob", "2026-01-01"), loc("l-1", "field-1", "2026-01-01T00:00:00Z", "2026-05-01T00:00:00Z"), loc("l-2", "field-2", "2026-05-01T00:00:00Z", null)]);
     const ev = run({
       catalogue: locCat,
       ledger,
@@ -329,15 +329,16 @@ describe("C2 interval anchors", () => {
   });
 
   it("a continuation at the same location is not a new start", () => {
-    const ledger = ledgerOf([loc("l-1", "field-1", "2026-01-01T00:00:00Z", "2026-03-01T00:00:00Z"), loc("l-2", "field-1", "2026-03-01T00:00:00Z", null)]);
+    const ledger = ledgerOf([dob("a-dob", "2026-01-01"), loc("l-1", "field-1", "2026-01-01T00:00:00Z", "2026-03-01T00:00:00Z"), loc("l-2", "field-1", "2026-03-01T00:00:00Z", null)]);
     const ev = run({ catalogue: locCat, ledger });
     expect(ev.results.map((r) => r.occurrence?.anchorAt)).toEqual(["2026-01-01T00:00:00.000000000Z"]);
   });
 
   it("an overlapping, conflicting location at a start is EVIDENCE_CONFLICT for that occurrence", () => {
-    const ledger = ledgerOf([loc("l-1", "field-1", "2026-01-01T00:00:00Z", null), loc("l-2", "field-2", "2026-02-01T00:00:00Z", null)]);
+    const ledger = ledgerOf([dob("a-dob", "2026-01-01"), loc("l-1", "field-1", "2026-01-01T00:00:00Z", null), loc("l-2", "field-2", "2026-02-01T00:00:00Z", null)]);
     const ev = run({ catalogue: locCat, ledger });
-    expect(ev.results.map((r) => r.state)).toEqual(["OVERDUE", "EVIDENCE_CONFLICT"]);
+    // The conflict also leaves the anchor unresolved for the life: reported as its own record (occurrence null, sorted first).
+    expect(ev.results.map((r) => [r.occurrence === null, r.state])).toEqual([[true, "EVIDENCE_CONFLICT"], [false, "OVERDUE"], [false, "EVIDENCE_CONFLICT"]]);
   });
 
   it("no evidence of the dimension is UNKNOWN; evidence without a matching start is NOT_TRIGGERED", () => {
@@ -378,7 +379,7 @@ describe("C2 interval anchors", () => {
   });
 
   it("evidence whose occurrence shape does not fit the anchor fails closed", () => {
-    const ledger = ledgerOf([loc("l-1", "field-1", "2026-01-01T00:00:00Z", null)]);
+    const ledger = ledgerOf([dob("a-dob", "2026-01-01"), loc("l-1", "field-1", "2026-01-01T00:00:00Z", null)]);
     expect(stateOf({ catalogue: locCat, ledger, evidence: [ful("e-1", "2026-01-02T00:00:00Z")] })).toBe("INVALID_EVIDENCE");
     expect(stateOf({ evidence: [ful("e-1", INSIDE, { occurrenceAnchor: ANCHOR })] })).toBe("INVALID_EVIDENCE");
   });
@@ -1139,5 +1140,72 @@ describe("C2 remediation — appending an identical duplicate never rewrites sto
     if (!created.ok) throw new Error(JSON.stringify(created));
     const clash = appendObligationEvidence(created.log, [ful("e-1", "2026-03-06T00:00:00Z")]);
     expect(clash.ok).toBe(false);
+  });
+});
+
+describe("C2 remediation — a satisfied occurrence never hides an unresolved anchor period", () => {
+  const AT = "2026-04-01T00:00:00Z";
+  const departedCat = catalogueOf({ def: definition({}, { anchor: { kind: "LIFECYCLE_STATUS_START", status: "DEPARTED" } }) });
+  const fieldCat = catalogueOf({ def: definition({}, { anchor: { kind: "LOCATION_START", locationKind: "FIELD" } }) });
+  const departedAt = "2026-03-02T00:00:00Z";
+  const fulfil = ful("e-1", "2026-03-05T00:00:00Z", { occurrenceAnchor: departedAt });
+
+  const cases: [string, ObligationCatalogue, AnimalAssertionInput[], string][] = [
+    ["lifecycle gap after the satisfied start", departedCat, [life("l-1", "PRESENT", "2026-03-01T00:00:00Z", departedAt), life("l-2", "DEPARTED", departedAt, "2026-03-10T00:00:00Z"), life("l-3", "PRESENT", "2026-03-15T00:00:00Z", null)], "UNKNOWN"],
+    ["lifecycle conflict after the satisfied start", departedCat, [life("l-1", "PRESENT", "2026-03-01T00:00:00Z", departedAt), life("l-2", "DEPARTED", departedAt, null), life("l-3", "PRESENT", "2026-03-20T00:00:00Z", null)], "EVIDENCE_CONFLICT"],
+    ["lifecycle record starting after birth", departedCat, [life("l-2", "DEPARTED", departedAt, null)], "UNKNOWN"],
+    ["location gap after the satisfied start", fieldCat, [loc("f-0", "shed", "2026-03-01T00:00:00Z", departedAt, "HOUSING"), loc("f-1", "field-1", departedAt, "2026-03-10T00:00:00Z"), loc("f-2", "field-2", "2026-03-15T00:00:00Z", null)], "UNKNOWN"],
+    ["location conflict after the satisfied start", fieldCat, [loc("f-0", "shed", "2026-03-01T00:00:00Z", departedAt, "HOUSING"), loc("f-1", "field-1", departedAt, null), loc("f-2", "field-2", "2026-03-20T00:00:00Z", null)], "EVIDENCE_CONFLICT"],
+  ];
+  for (const [name, catalogue, records, expected] of cases) {
+    it(`${name}: the unresolved period is its own ${expected} record and the pack is not ACTIONABLE`, () => {
+      const ev = run({ catalogue, ledger: ledgerOf([dob("a-dob", DOB), ...records]), effectiveAt: AT, evidence: [fulfil] });
+      const unresolved = ev.results.filter((r) => r.occurrence === null);
+      expect(unresolved.map((r) => r.state)).toEqual([expected]);
+      expect(unresolved[0].reasonCodes).toContain("CATTLE_OBLIGATION_ANCHOR_UNRESOLVED_PERIOD");
+      const satisfied = ev.results.find((r) => r.occurrence?.anchorAt === canonicalObligationInstant(departedAt));
+      if (!name.includes("conflict")) expect(satisfied?.state).toBe("SATISFIED");
+      const gates = projectObligationHardGates(ev, hash);
+      expect(gates.ok && gates.projection.ruleEvaluations.map((r) => r.state)).not.toContain("PASS");
+      expect(packFor(ev).pack.outcome).not.toBe("ACTIONABLE");
+    });
+  }
+
+  it("a fully resolved life keeps only the occurrence records, and a satisfied gate can pass", () => {
+    const ev = run({ catalogue: departedCat, ledger: ledgerOf([dob("a-dob", DOB), life("l-1", "PRESENT", "2026-03-01T00:00:00Z", departedAt), life("l-2", "DEPARTED", departedAt, null)]), effectiveAt: AT, evidence: [fulfil] });
+    expect(ev.results.map((r) => [r.occurrence === null, r.state])).toEqual([[false, "SATISFIED"]]);
+    expect(packFor(ev).pack.outcome).toBe("ACTIONABLE");
+  });
+});
+
+describe("C2 remediation — evidence received after the cutoff is admitted out before cloning (animal and herd)", () => {
+  const EARLY = "2026-03-21T00:00:00Z";
+  const AT = "2026-04-01T00:00:00Z";
+  const fn = () => "not data";
+  const later = (extra: Record<string, unknown>) => ful("e-later", "2026-03-06T00:00:00Z", { provenance: { sourceCategory: "FARMER", receivedAt: "2026-04-02T00:00:00Z" }, ...extra });
+  const herdOf = (evidence: unknown[]) => {
+    const r = evaluateHerdObligations({ ledgers: [BASE_LEDGER()], evidence, catalogue: catalogueOf(), query: { effectiveAt: AT, knowledgeCutoff: EARLY, obligationIds: [OBL] } }, hash);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    return r.herd;
+  };
+
+  it("later uncloneable, later unattributable and later malformed evidence never change an earlier result", () => {
+    const before = run({ effectiveAt: AT, knowledgeCutoff: EARLY, evidence: [ful("e-1", INSIDE)] });
+    const herdBefore = herdOf([ful("e-1", INSIDE)]);
+    expect(only(before).state).toBe("SATISFIED");
+    for (const extra of [later({ extra: fn }), later({ animalId: null }), later({ animalId: null, extra: fn }), later({ kind: "SYNTH-KIND" })]) {
+      expect(run({ effectiveAt: AT, knowledgeCutoff: EARLY, evidence: [ful("e-1", INSIDE), extra] })).toEqual(before);
+      expect(herdOf([ful("e-1", INSIDE), extra])).toEqual(herdBefore);
+    }
+  });
+
+  it("uncloneable evidence known by the cutoff, or with an unreadable knowledge time, still fails closed", () => {
+    const known = ful("e-2", INSIDE, { extra: fn });
+    const unreadable = ful("e-2", INSIDE, { extra: fn, provenance: { sourceCategory: "FARMER", receivedAt: "not-an-instant" } });
+    for (const bad of [known, unreadable]) {
+      expect(stateOf({ effectiveAt: AT, knowledgeCutoff: EARLY, evidence: [ful("e-1", INSIDE), bad] })).toBe("INVALID_EVIDENCE");
+      const herd = herdOf([ful("e-1", INSIDE), bad]);
+      expect(herd.animals[0].results[0].state).toBe("INVALID_EVIDENCE");
+    }
   });
 });

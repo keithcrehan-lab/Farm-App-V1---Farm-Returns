@@ -1,22 +1,29 @@
 {
   "schema_version": 1,
-  "task_id": "cattle-c2-regulatory-lifecycle-engine-20261011",
-  "title": "Cattle C2 - Regulatory Lifecycle Engine",
-  "base_sha": "3a7c0a6f2c0c8cf471d93b699c3a867d351b6246",
+  "task_id": "cattle-c3-health-and-medicines-engine-20261012",
+  "title": "Cattle C3 - Health and Medicines Engine",
+  "base_sha": "4a2350406030096751308d162521cd6518bb4993",
   "domains": [
     "ui",
     "agent-harness",
     "cattle"
   ],
   "expected_changed_files": [
+    "docs/farm-return-next/cattle/index.md",
+    "docs/farm-return-next/cattle/INVARIANTS.md",
+    "docs/farm-return-next/cattle/PHASE_INTERFACES.md",
+    "docs/farm-return-next/cattle/ARCHITECTURE.md",
+    "src/tooling/cattle-conformance",
+    "src/domain/cattle",
+    "docs/farm-return-next/cattle/VERIFICATION.md",
     ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
     ".agent/skills/cattle-evidence-rules.md",
     "docs/farm-return-next/DOMAIN_CONTRACTS.md",
-    "src/domain/cattle",
     "src/domain/cattle/index.ts",
     "src/domain",
     "src/lib/farm-data",
-    "src/domain/types.ts"
+    "src/domain/types.ts",
+    "docs/farm-return-next/cattle/FINGERPRINTS.md"
   ],
   "contracts": [
     "AGENTS.md",
@@ -24,6 +31,7 @@
     ".agent/PRODUCT_RULES.md",
     ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
     ".agent/skills/cattle-evidence-rules.md",
+    "docs/farm-return-next/cattle/index.md",
     "docs/farm-return-next/DOMAIN_CONTRACTS.md"
   ],
   "evidence": [

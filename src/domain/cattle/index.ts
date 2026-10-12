@@ -16,3 +16,4 @@ export * from "./rule";
 export * from "./source";
 export * from "./version";
 export * from "./regulatory";
+export * from "./health";

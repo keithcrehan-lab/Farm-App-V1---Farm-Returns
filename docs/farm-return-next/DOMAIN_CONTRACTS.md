@@ -3635,3 +3635,129 @@ fingerprints verify.
 connector, field mapping or API shape; no health/medicines (C3), weights (C4), performance
 (C5), goals (C6), veterinary programmes (C7), recommendation selection (C8), Plan integration
 (C9) or UI (C10); no persistence, schema, migration or AI.
+
+## Cattle C3 — Health & medicines engine (2026-10-12)
+
+C0 (`61c1124`), C1 (`c5b25f2`) and C2 (frozen by its campaign receipt) are **frozen**; C3 changes
+no earlier file except one additive `export * from "./health";` line in
+`src/domain/cattle/index.ts`. New, **non-frozen** pure modules under `src/domain/cattle/health/`
+(barrel `health/index.ts`); tests `health/health.test.ts` (synthetic `SYNTH-*` animals,
+products, authorisations, food-product codes, routes, periods, doses and practitioners only).
+Engine, contracts and interfaces only: **no real product, authorisation number, withdrawal
+period, dose, route, vaccine or veterinary schedule**, and no product catalogue ships with the
+engine (CAT-INV-027); no diagnosis inference, prescribing or dose/route choice; no persistence,
+schema, migration, UI, AI, network or HPRA/EMA/NVPS connector or API shape. Shared contract:
+`docs/farm-return-next/cattle/` (CAT-INV-001–014, 016, 017, 021–027; 018/019 for periods).
+
+**Reuse decisions.** Canonical boundary: C2 `toCanonicalPlainData`/`canonicalField` on the whole
+request (collections and elements) and on every projection passed back in. Animal identity and
+state only through C1 (`rematerialiseAnimalLedger`, `projectAnimalSnapshot`,
+`computeAnimalSnapshotFingerprint`, `isValidAnimalInstant`/`animalInstantKey`/`compareInstants`,
+`deepFreezeAnimalValue`, `BOVINE_SPECIES`); the `AnimalDataProvenance` contract is re-validated
+here because C1's materialiser is module-private (C2 precedent). Append-only collection and
+as-of-cutoff supersession reuse C2 `collectBitemporalRecords`/`resolveBitemporalRecords`
+unchanged (for health records and for product versions). Exact UTC period arithmetic reuses C2
+`addObligationOffset`/`isValidObligationOffset`/`canonicalObligationInstant`/`utcCalendarDateOf`.
+Fingerprints reuse `assessment-integrity.ts` canonicalisation and SHA-256 unchanged through the
+phase-local wrapper `{kind, healthPayloadVersion: 1, payload}` (template: C2
+`obligation-integrity.ts`) with new kinds `CATTLE_HEALTH_TIMELINE`, `CATTLE_MEDICINE_LEDGER`,
+`CATTLE_WITHDRAWAL_GATE` — no existing kind, payload version or canonicalisation changes. Pack
+compatibility uses C0 `RuleEvaluationRecord`/`buildRecommendationEvidencePack` as C2's hard-gate
+projection does. No C2 obligation logic is used or duplicated.
+
+| Module | Contract |
+|---|---|
+| `health-records.ts` | `HealthRecord` kinds `HEALTH_OBSERVATION` (`OBSERVED_SIGN` / `SUSPECTED_CONDITION`, finding as supplied), `SYMPTOM`, `DIAGNOSIS` (condition + `diagnosedByRef`), `VETERINARY_EVENT` (closed `VISIT`/`EXAMINATION`/`PROCEDURE`/`OTHER`, practitioner ref), `TREATMENT` (course; prescription/practitioner refs), `MEDICINE_ADMINISTRATION` (product id or `null`, recorded authorisation/label, batch, dose `{amount, unit}` / route / site exactly as supplied, administered-by, prescription ref, `treatmentRecordId`, prescriber-specified withdrawal periods per food product), `RETRACTION` (supersedes ≥ 1, no time, no claim). Common: record id, C1 animal id, valid time `occurredAt` (`null` = not supplied), `HealthRecordProvenance` (C1 provenance + closed `actorRole` `VETERINARIAN`/`LABORATORY`/`FARMER`/`FARM_STAFF`/`SYSTEM`/`OTHER`; `receivedAt` knowledge time), optional source document `SourceVersionRef` (fingerprint shape validated), `supersedes`. `materialiseHealthRecord` (unknown field, malformed value or finding ⇒ rejected, never repaired); `isDiagnosingProvenance`: a DIAGNOSIS only from `VETERINARIAN` via `VETERINARY_SOURCE`, or `LABORATORY` via `VETERINARY_SOURCE`/`OTHER` — anything else is rejected (`CATTLE_HEALTH_DIAGNOSIS_SOURCE_NOT_DIAGNOSTIC`); `healthLinkAllowed`: corrections stay within their kind (a symptom can never be corrected into a diagnosis), a retraction may retract any non-retraction record; content key (instants by instant) and claim key (provenance/source/links excluded); `healthRecordInformationClass` (observation/symptom/diagnosis ⇒ OBSERVATION; event/treatment/administration ⇒ FACT) |
+| `authorised-product.ts` | `AuthorisedProductRecord` (identity product id + version; `supersedesVersions`; authorisation scheme/number; label; lifecycle `ACTIVE`/`HISTORICAL`/`REVIEW_REQUIRED`; species authorisations with withdrawal entries `{foodProduct, route\|null, period\|null, multiDoseBasis\|null}` unique per (food product, route); source binding publisher + `SourceVersionRef` + `retrievedAt`/`checkedAt`). Knowledge time = the later of retrieved/checked. `admitProductRecords` (provably-later records set aside unvalidated; identity collisions among the admitted, invalid copies included, found before validity; any malformed admitted record fails closed); `resolveProductRecords`; `bindAdministrationProduct` → `ProductBinding` (precedence below); `ProductVersionRef` |
+| `withdrawal.ts` | `computeAdministrationWithdrawal`, `foldWithdrawalGate`, `WithdrawalGateState` `CLEAR`/`IN_WITHDRAWAL`/`UNKNOWN`/`EVIDENCE_CONFLICT` |
+| `health-engine.ts` | `projectAnimalHealth(request, hash)` → `AnimalHealthProjection` (timeline, medicine ledger view, withdrawal gate, source refs); `verifyAnimalHealthProjection` |
+| `health-hard-gates.ts` | `projectWithdrawalHardGates`, `withdrawalStateToPackState`, `withdrawalGateRuleId` |
+| `health-integrity.ts` | `computeHealthFingerprint`/`verifyHealthFingerprint`, `CATTLE_HEALTH_PAYLOAD_VERSION` |
+| `health-input.ts` | module-internal canonical readers (fingerprint/source-ref shape, supplied quantities); not in the barrel |
+
+**Request and admission.** `AnimalHealthRequest` = `{ledger, healthRecords, productRecords,
+query: {effectiveAt, knowledgeCutoff, foodProducts (opaque codes, non-empty, unique, matched
+exactly), timelineFilter?: {kinds|null, occurredFrom|null (inclusive), occurredTo|null
+(exclusive)}}}`. Order: whole-request canonical check (`CATTLE_HEALTH_NON_CANONICAL_INPUT`) →
+query + C1 ledger → knowledge admission (health `provenance.receivedAt`; product
+`retrievedAt`/`checkedAt` — a readable time after the cutoff sets the record aside before any
+validation; an unreadable one fails closed) → identity before validity (same id + different
+content, invalid copy included ⇒ `CATTLE_HEALTH_RECORD_DUPLICATE_ID_DIFFERENT_CONTENT` /
+`CATTLE_HEALTH_PRODUCT_RECORD_DUPLICATE_VERSION_DIFFERENT_CONTENT`; identical content with
+equivalent instant spellings is idempotent, one spelling kept independent of input order) →
+content validation → supersession at the cutoff (unknown target / out-of-scope / cycle ⇒
+`ok: false`; competing live corrections reported with no winner) → valid-time view (records that
+occurred by `effectiveAt`, or whose time is unknown; later ones are `notYetOccurredRecordIds`).
+Any malformed admitted record, collision or health supersession defect ⇒ `ok: false` (fail
+closed). Query times are echoed in canonical nine-digit spelling. No clock read.
+
+**Product binding** (per administration; first match wins): `UNKNOWN` (no product id, or no
+record known by the cutoff) > `INVALID` (a revision names a version not known by the cutoff, or a
+cycle) > `EVIDENCE_CONFLICT` (competing revisions or more than one live version — no precedence,
+no latest-wins) > `REVIEW_REQUIRED` (live version not ACTIVE) > `UNSUPPORTED` (no exact `BOVINE`
+species authorisation) > `EVIDENCE_CONFLICT` (authorisation recorded on the administration
+differs exactly) > `BOUND` (the single live version known at the cutoff).
+
+**Withdrawal end** (per administration and food product; REQUIRED: BOUND binding, known
+administration instant, exactly one applicable period, a computable period and, for a course, a
+supplied basis): one BOVINE entry for the food product whose route equals the administration's
+route or is `null` (supplied as not route-specific); an administration without a recorded route
+matches only when no route-specific entry exists. `period: null` ⇒ UNKNOWN. Computation only for
+whole non-negative `DAY` (86 400 s) / `HOUR` (3 600 s) amounts, exact UTC; any other unit or a
+fractional amount ⇒ UNKNOWN (no conversion, no rounding). A supplied zero is data. A course
+(TREATMENT with more than one live administration known by the cutoff, by `treatmentRecordId`)
+needs a supplied `multiDoseBasis` (`PERIOD_FROM_EACH_ADMINISTRATION`), else UNKNOWN. A supplied
+prescriber period must itself be computable; the later end governs (`governingPeriod`), so a
+longer prescriber period is honoured and a shorter one never shortens the product period.
+Non-bound binding ⇒ UNKNOWN (EVIDENCE_CONFLICT for a conflicting binding). **Boundary
+convention (engine convention, not law):** the end is exclusive — strictly before it ⇒ in
+withdrawal; at it ⇒ not.
+
+**Withdrawal gate** (per queried food product, over live administrations in view):
+EVIDENCE_CONFLICT (competing administration corrections, or any conflicting computation) >
+UNKNOWN (any administration unknown) > IN_WITHDRAWAL (`inWithdrawalUntil` = latest end; every end
+known and the latest after `effectiveAt`) > CLEAR. Each entry lists the administration ids and
+product versions used. CLEAR is the only resolved-looking state; it asserts only that no
+administration in the supplied medicine record known by the cutoff holds the food product in
+withdrawal at `effectiveAt` (reason `CATTLE_HEALTH_WITHDRAWAL_NO_RECORDED_ADMINISTRATION` when the
+record is empty) — completeness of the supplied medicine record is the adapter's responsibility.
+
+**Outputs.** `HealthTimeline` (entries ordered by occurred-at instant, unknown time last, then id;
+status LIVE/SUPERSEDED with `supersededBy`, `inCompetition`, information class, full record;
+competitions; kind/period filter; unknown-time records outside a period filter listed, never
+silently dropped). `MedicineLedgerView` (administrations in view incl. superseded history,
+chronological; binding, course size, treatment-record-known flag, per-food-product withdrawals;
+product versions used). `WithdrawalGateProjection` (entries + the ledger fingerprint it is bound
+to). Fingerprints are result fingerprints over semantic payloads (canonical instant keys, sorted
+sets; the output keeps each record's original spelling, CAT-INV-011): each binds animal id,
+canonical `effectiveAt`/`knowledgeCutoff`, the C1 snapshot fingerprint and its content; the
+timeline also binds every known record id; the gate binds the ledger fingerprint. Input order,
+key order and equivalent instant spellings do not change them; any material field does. Results
+are detached and deep-frozen.
+
+**Hard-gate projection.** `projectWithdrawalHardGates(projection, hash)` re-verifies the three
+fingerprints (mismatch or non-canonical ⇒ `ok: false`) and emits one pack-compatible
+`RuleEvaluationRecord` per food product: requested rule id `CATTLE_HEALTH_WITHDRAWAL:<food
+product>`, gate role HARD_GATE, `rule`/`ruleFingerprint`/`implementation`/`classification`
+`null` (an engine projection, not a C0 rule), reason codes binding the gate fingerprint, plus
+`requiredHardGateRuleIds` and the bound product `sourceRefs` (for `additionalSourceRefs`).
+Mapping (engine convention): CLEAR → PASS; IN_WITHDRAWAL → FAIL (pack BLOCKED); UNKNOWN →
+INSUFFICIENT_EVIDENCE (missing input `cattle.health.withdrawal.<food product>`);
+EVIDENCE_CONFLICT → C0 conflicting evidence.
+
+**Known limitations.** No product content ships (empty by contract): with no supplied product
+records every administration's withdrawal is UNKNOWN. The bound product version is the single
+live version known at the cutoff; the engine does not decide which historical
+product-information version governed a past administration. Only `DAY`/`HOUR` periods compute;
+other units stay UNKNOWN. Course membership is only by explicit `treatmentRecordId`; ungrouped
+repeat administrations are independent (the latest end still governs the gate). A product not
+authorised for BOVINE in the supplied data is UNSUPPORTED even when a prescriber supplies a
+period. Any competing administration correction puts every food product in conflict. A
+malformed admitted product record, even for an unrelated product, fails the projection closed.
+The C1 snapshot fingerprint bound into every payload is representation-sensitive (C1
+behaviour). Fingerprints are change detection, not signatures.
+
+**Exclusions.** No diagnosis inference, condition classification, risk scoring, prescribing,
+dose/route choice or SPC interpretation beyond the supplied structured fields; no vaccination or
+health programmes (C7), weights (C4), recommendations (C8), Plan (C9) or UI (C10); no
+persistence, schema, migration, AI, network or connector.

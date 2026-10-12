@@ -73,7 +73,7 @@ import {
   type MedicineAdministrationRecord,
 } from "./health-records";
 import { healthRecordIdOf, isRecord, oneOf, rawIdentityKey } from "./health-input";
-import { computeAdministrationWithdrawal, foldWithdrawalGate, type AdministrationWithdrawal, type WithdrawalGateEntry } from "./withdrawal";
+import { computeAdministrationWithdrawal, foldWithdrawalGate, type AdministrationWithdrawal, type WithdrawalGateEntry, type WithdrawalGateState } from "./withdrawal";
 
 export interface HealthTimelineFilter {
   /** `null` = every kind. */
@@ -358,6 +358,33 @@ function boundSourceRefs(productVersionsUsed: readonly ProductVersionRef[]): Sou
     .filter((s, i, arr) => i === 0 || compareSourceVersionRefs(arr[i - 1], s) !== 0);
 }
 
+const nullableInstant = (v: unknown) => v === null || isValidAnimalInstant(v);
+const isStringArray = (v: unknown) => Array.isArray(v) && v.every((s) => typeof s === "string");
+const GATE_STATES: readonly WithdrawalGateState[] = ["CLEAR", "IN_WITHDRAWAL", "UNKNOWN", "EVIDENCE_CONFLICT"];
+
+function entryShapeOk(e: unknown): boolean {
+  if (!isRecord(e) || !nullableInstant(e.occurredAt) || !isRecord(e.record)) return false;
+  const r = e.record;
+  return nullableInstant(r.occurredAt) && isRecord(r.provenance) && isValidAnimalInstant(r.provenance.receivedAt) && nullableInstant(r.provenance.observedAt);
+}
+
+function sourceRefShapeOk(s: unknown): boolean {
+  return isRecord(s) && typeof s.sourceId === "string" && typeof s.version === "string" && isRecord(s.contentFingerprint) && typeof s.contentFingerprint.digest === "string";
+}
+
+/** Structure every verification/hard-gate step reads, checked before any destructuring or comparison (CAT-INV-022). */
+function projectionShapeOk(p: Record<string, unknown>): boolean {
+  const { timeline: t, medicineLedger: l, withdrawalGate: g } = p;
+  return (
+    isValidAnimalInstant(p.effectiveAt) &&
+    isRecord(t) && isRecord(t.fingerprint) && Array.isArray(t.entries) && t.entries.every(entryShapeOk) &&
+    isRecord(l) && isRecord(l.fingerprint) && Array.isArray(l.entries) && l.entries.every(entryShapeOk) &&
+    Array.isArray(l.productVersionsUsed) && l.productVersionsUsed.every((v) => isRecord(v) && sourceRefShapeOk(v.source)) &&
+    isRecord(g) && isRecord(g.fingerprint) && isRecord(g.medicineLedgerFingerprint) && Array.isArray(g.entries) &&
+    g.entries.every((e) => isRecord(e) && typeof e.foodProduct === "string" && oneOf(GATE_STATES, e.state) && isStringArray(e.reasonCodes))
+  );
+}
+
 /**
  * Re-verifies a projection against its own content: the supported payload
  * version, the three fingerprints, and `sourceRefs` as exactly the source
@@ -369,6 +396,9 @@ export function verifyAnimalHealthProjection(projection: AnimalHealthProjection,
   const p = canonical.value as AnimalHealthProjection;
   if (!isRecord(p) || p.healthPayloadVersion !== CATTLE_HEALTH_PAYLOAD_VERSION) {
     return { valid: false, reasonCode: "CATTLE_HEALTH_PROJECTION_UNSUPPORTED_PAYLOAD_VERSION", detail: "unsupported health payload version" };
+  }
+  if (!projectionShapeOk(p as unknown as Record<string, unknown>)) {
+    return { valid: false, reasonCode: "CATTLE_HEALTH_PROJECTION_MALFORMED", detail: "projection structure is malformed" };
   }
   const { fingerprint: tf, ...timeline } = p.timeline;
   const { fingerprint: lf, ...ledger } = p.medicineLedger;

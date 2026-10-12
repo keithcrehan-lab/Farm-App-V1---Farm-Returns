@@ -100,6 +100,7 @@ export interface ProductVersionRef {
 }
 
 export type ProductRecordIssueCode =
+  | "CATTLE_HEALTH_PRODUCT_INVALID_KNOWLEDGE_CUTOFF"
   | "CATTLE_HEALTH_PRODUCT_RECORD_NON_CANONICAL"
   | "CATTLE_HEALTH_PRODUCT_RECORD_NOT_OBJECT"
   | "CATTLE_HEALTH_PRODUCT_RECORD_INVALID_IDENTITY"
@@ -247,7 +248,8 @@ function envelope(r: AuthorisedProductRecord): ProductEnvelope {
 export type ProductAdmissionResult = { ok: true; records: AuthorisedProductRecord[] } | { ok: false; issues: ProductRecordIssue[] };
 
 /**
- * Admission at a cutoff over canonical raw records. The complete collection
+ * Admission at a cutoff over canonical raw records. A cutoff that is not a
+ * strict UTC instant is rejected before any record is read. The complete collection
  * must be canonical plain data (checked first, collection and elements; no
  * accessor is invoked) and only the detached copy is used. Provably-later
  * records are set aside unvalidated; identity collisions among the admitted
@@ -256,6 +258,9 @@ export type ProductAdmissionResult = { ok: true; records: AuthorisedProductRecor
  * closed. The result is detached and deep-frozen.
  */
 export function admitProductRecords(raws: readonly unknown[], knowledgeCutoff: string): ProductAdmissionResult {
+  if (!isValidAnimalInstant(knowledgeCutoff)) {
+    return deepFreezeAnimalValue({ ok: false, issues: [{ code: "CATTLE_HEALTH_PRODUCT_INVALID_KNOWLEDGE_CUTOFF", ref: null }] });
+  }
   const canonical = toCanonicalPlainData(raws);
   if (!canonical.ok || !Array.isArray(canonical.value)) {
     return deepFreezeAnimalValue({ ok: false, issues: [{ code: "CATTLE_HEALTH_PRODUCT_RECORD_NON_CANONICAL", ref: null }] });

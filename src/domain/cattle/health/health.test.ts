@@ -732,6 +732,42 @@ describe("C3 canonical boundary and malformed input (CAT-INV-001/022)", () => {
     expect("healthRecordIdOf" in cattle || "productRecordKnownAfter" in cattle).toBe(false);
   });
 
+  it("malformed canonical projections and cutoffs return explicit rejections, never throw (F004)", () => {
+    const p = ok(run([adm("h-adm")]));
+    const entry0 = p.medicineLedger.entries[0];
+    const malformed: [string, unknown][] = [
+      ["payload version only", { healthPayloadVersion: 1 }],
+      ["timeline missing", { ...p, timeline: undefined }],
+      ["timeline fingerprint missing", { ...p, timeline: { ...p.timeline, fingerprint: null } }],
+      ["timeline entries not array", { ...p, timeline: { ...p.timeline, entries: 7 } }],
+      ["ledger entry null", { ...p, medicineLedger: { ...p.medicineLedger, entries: [null] } }],
+      ["ledger entry bad instant", { ...p, medicineLedger: { ...p.medicineLedger, entries: [{ ...entry0, occurredAt: "yesterday" }] } }],
+      ["ledger entry record without provenance", { ...p, medicineLedger: { ...p.medicineLedger, entries: [{ ...entry0, record: { ...entry0.record, provenance: null } }] } }],
+      ["product versions malformed", { ...p, medicineLedger: { ...p.medicineLedger, productVersionsUsed: [{ productId: PRODUCT }] } }],
+      ["gate ledger fingerprint missing", { ...p, withdrawalGate: { ...p.withdrawalGate, medicineLedgerFingerprint: null } }],
+      ["gate entries not array", { ...p, withdrawalGate: { ...p.withdrawalGate, entries: {} } }],
+      ["gate entry reason codes missing", { ...p, withdrawalGate: { ...p.withdrawalGate, entries: [{ ...p.withdrawalGate.entries[0], reasonCodes: null }] } }],
+      ["effectiveAt malformed", { ...p, effectiveAt: 5 }],
+    ];
+    for (const [label, mutated] of malformed) {
+      expect(() => verifyAnimalHealthProjection(mutated as never, hash), label).not.toThrow();
+      expect(verifyAnimalHealthProjection(mutated as never, hash).valid, label).toBe(false);
+      expect(() => projectWithdrawalHardGates(mutated as never, hash), label).not.toThrow();
+      expect(projectWithdrawalHardGates(mutated as never, hash).ok, label).toBe(false);
+    }
+    expect(verifyAnimalHealthProjection({ healthPayloadVersion: 1 } as never, hash).reasonCode).toBe("CATTLE_HEALTH_PROJECTION_MALFORMED");
+    for (const cutoff of ["invalid", "2026-04-05", null, 5]) {
+      for (const raws of [[product()], []]) {
+        const label = `${String(cutoff)} / ${raws.length}`;
+        expect(() => cattle.admitProductRecords(raws, cutoff as never), label).not.toThrow();
+        const result = cattle.admitProductRecords(raws, cutoff as never);
+        expect(!result.ok && result.issues.map((i) => i.code), label).toEqual(["CATTLE_HEALTH_PRODUCT_INVALID_KNOWLEDGE_CUTOFF"]);
+      }
+    }
+    expect(verifyAnimalHealthProjection(p, hash).valid).toBe(true);
+    expect(projectWithdrawalHardGates(p, hash).ok).toBe(true);
+  });
+
   it("withdrawal, resolution and binding evaluation is reachable only through the validated engine; outputs never alias caller periods", () => {
     for (const unchecked of ["computeAdministrationWithdrawal", "foldWithdrawalGate", "resolveProductRecords", "bindAdministrationProduct"]) {
       expect(unchecked in cattle).toBe(false);

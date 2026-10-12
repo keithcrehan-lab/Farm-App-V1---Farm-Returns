@@ -928,3 +928,167 @@ describe("C2 herd helper", () => {
     expect(result.herd.issues.map((i) => i.code)).toEqual(["CATTLE_OBLIGATION_HERD_EVIDENCE_UNATTRIBUTABLE"]);
   });
 });
+
+describe("C2 remediation — NOT_APPLICABLE requires an anchor resolved for the animal's whole life (whole class)", () => {
+  const female = { input: descriptor("cattle.animal.sex"), equals: "FEMALE" };
+  const anchors = {
+    dob: { kind: "DATE_OF_BIRTH" },
+    departed: { kind: "LIFECYCLE_STATUS_START", status: "DEPARTED" },
+    housing: { kind: "LOCATION_START", locationKind: "HOUSING" },
+    anyLocation: { kind: "LOCATION_START", locationKind: null },
+  } as const;
+  const catFor = (anchor: ObligationTerms["anchor"]) => {
+    const def = definition({}, { anchor });
+    return catalogueOf({ def, rule: boundRule(def, { applicability: [female] }) });
+  };
+  const male = (...rest: AnimalAssertionInput[]) => ledgerOf([sex("a-sex", "MALE"), ...rest]);
+  const AT = "2026-03-10T00:00:00Z";
+  const field = (id: string, from: string, to: string | null) => loc(id, `ref-${id}`, from, to);
+
+  /** Interval records for one dimension; `life` for lifecycle anchors, `field` for location anchors. */
+  const records = (anchorKind: "departed" | "housing" | "anyLocation", spans: [string, string | null][]) =>
+    spans.map(([from, to], i) => (anchorKind === "departed" ? life(`r-${i}`, "PRESENT", from, to) : field(`r-${i}`, from, to)));
+
+  function expectNeverCleared(anchor: ObligationTerms["anchor"], ledger: AnimalLedger, expected: string) {
+    const ev = run({ catalogue: catFor(anchor), ledger, effectiveAt: AT });
+    const r = only(ev);
+    expect(r.state).toBe(expected);
+    expect(r.reasonCodes).toContain("CATTLE_OBLIGATION_RULE_NOT_APPLICABLE");
+    const gates = projectObligationHardGates(ev, hash);
+    expect(gates.ok && gates.projection.entries.map((e) => e.packState)).not.toContain("NOT_APPLICABLE");
+    expect(packFor(ev).pack.outcome).not.toBe("ACTIONABLE");
+  }
+
+  it("date-of-birth anchor: unknown, source-reported unknown, conflicting and invalid birth dates are never cleared", () => {
+    expectNeverCleared(anchors.dob, male(), "UNKNOWN");
+    expectNeverCleared(anchors.dob, male(dob("d-1", null)), "UNKNOWN");
+    expectNeverCleared(anchors.dob, male(dob("d-1", DOB), dob("d-2", "2026-03-02")), "EVIDENCE_CONFLICT");
+    expectNeverCleared(anchors.dob, male(dob("d-1", DOB, undefined, { supersedes: ["d-missing"] })), "INVALID_EVIDENCE");
+    expect(stateOf({ catalogue: catFor(anchors.dob), ledger: male(dob("d-1", DOB)), effectiveAt: AT })).toBe("NOT_APPLICABLE");
+  });
+
+  for (const name of ["departed", "housing", "anyLocation"] as const) {
+    const anchor = anchors[name];
+    describe(`${name} anchor`, () => {
+      it("unknown, conflicting or invalid life start (birth date) is never cleared", () => {
+        const covered = records(name, [["2026-01-01T00:00:00Z", null]]);
+        expectNeverCleared(anchor, male(...covered), "UNKNOWN");
+        expectNeverCleared(anchor, male(dob("d-1", null), ...covered), "UNKNOWN");
+        expectNeverCleared(anchor, male(dob("d-1", DOB), dob("d-2", "2026-02-01"), ...covered), "EVIDENCE_CONFLICT");
+        expectNeverCleared(anchor, male(dob("d-1", DOB, undefined, { supersedes: ["d-missing"] }), ...covered), "INVALID_EVIDENCE");
+      });
+
+      it("no record, a gap, a record starting after birth, or a record ending before the query is UNKNOWN", () => {
+        expectNeverCleared(anchor, male(dob("a-dob", DOB)), "UNKNOWN");
+        // The audit's reproduction: a gap between intervals before the query (no evidence inside it).
+        expectNeverCleared(anchor, male(dob("a-dob", DOB), ...records(name, [["2026-03-01T00:00:00Z", "2026-03-02T00:00:00Z"], ["2026-03-04T00:00:00Z", null]])), "UNKNOWN");
+        expectNeverCleared(anchor, male(dob("a-dob", DOB), ...records(name, [["2026-03-03T00:00:00Z", null]])), "UNKNOWN");
+        expectNeverCleared(anchor, male(dob("a-dob", DOB), ...records(name, [["2026-03-01T00:00:00Z", "2026-03-09T00:00:00Z"]])), "UNKNOWN");
+      });
+
+      it("a conflict anywhere in the life — past, at the query or after it — is EVIDENCE_CONFLICT", () => {
+        for (const spans of [
+          [["2026-03-01T00:00:00Z", null], ["2026-03-02T00:00:00Z", "2026-03-04T00:00:00Z"]],
+          [["2026-03-01T00:00:00Z", null], ["2026-03-05T00:00:00Z", null]],
+          [["2026-03-01T00:00:00Z", null], ["2026-04-01T00:00:00Z", null]],
+        ] as [string, string | null][][]) {
+          const conflicting = name === "departed" ? spans.map(([from, to], i) => life(`r-${i}`, i === 0 ? "PRESENT" : "DECEASED", from, to)) : records(name, spans);
+          expectNeverCleared(anchor, male(dob("a-dob", DOB), ...conflicting), "EVIDENCE_CONFLICT");
+        }
+      });
+
+      it("an invalid supersession in the dimension is INVALID_EVIDENCE", () => {
+        const [first] = records(name, [["2026-03-01T00:00:00Z", null]]);
+        expectNeverCleared(anchor, male(dob("a-dob", DOB), { ...first, supersedes: ["r-missing"] } as AnimalAssertionInput), "INVALID_EVIDENCE");
+      });
+
+      it("is NOT_APPLICABLE only when the dimension is known from the start of the birth date to the query", () => {
+        const exact = records(name, [["2026-03-01T00:00:00Z", "2026-03-05T00:00:00Z"], ["2026-03-05T00:00:00Z", null]]);
+        expect(stateOf({ catalogue: catFor(anchor), ledger: male(dob("a-dob", DOB), ...exact), effectiveAt: AT })).toBe("NOT_APPLICABLE");
+        const before = records(name, [["2026-01-01T00:00:00Z", null]]);
+        expect(stateOf({ catalogue: catFor(anchor), ledger: male(dob("a-dob", DOB), ...before), effectiveAt: AT })).toBe("NOT_APPLICABLE");
+        // A query before birth has no life to cover.
+        expect(stateOf({ catalogue: catFor(anchor), ledger: male(dob("a-dob", DOB)), effectiveAt: "2026-02-01T00:00:00Z" })).toBe("NOT_APPLICABLE");
+      });
+    });
+  }
+
+  it("an applicable rule with an unknown gap is UNKNOWN, never NOT_TRIGGERED", () => {
+    const departed = catalogueOf({ def: definition({}, { anchor: anchors.departed }) });
+    const gap = ledgerOf([dob("a-dob", DOB), life("l-1", "PRESENT", "2026-03-01T00:00:00Z", "2026-03-02T00:00:00Z"), life("l-2", "PRESENT", "2026-03-04T00:00:00Z", null)]);
+    expect(stateOf({ catalogue: departed, ledger: gap, effectiveAt: AT })).toBe("UNKNOWN");
+    const housing = catalogueOf({ def: definition({}, { anchor: anchors.housing }) });
+    const locGap = ledgerOf([dob("a-dob", DOB), field("l-1", "2026-03-01T00:00:00Z", "2026-03-02T00:00:00Z"), field("l-2", "2026-03-04T00:00:00Z", null)]);
+    expect(stateOf({ catalogue: housing, ledger: locGap, effectiveAt: AT })).toBe("UNKNOWN");
+  });
+});
+
+describe("C2 remediation — records known only after the cutoff never change a reconstruction (every catalogue record type)", () => {
+  const EARLY = "2026-03-21T00:00:00Z";
+  const AT = "2026-04-01T00:00:00Z";
+  const LATER = "2026-04-01T00:00:00Z";
+  const evidence = [ful("e-1", INSIDE)];
+  const base = catalogueOf();
+  const before = () => run({ catalogue: base, effectiveAt: AT, knowledgeCutoff: EARLY, evidence });
+  const reproducesBefore = (catalogue: unknown) => {
+    const expected = before();
+    expect(only(expected).state).toBe("SATISFIED");
+    const reproduced = run({ catalogue, effectiveAt: AT, knowledgeCutoff: EARLY, evidence });
+    expect(reproduced).toEqual(expected);
+    expect(reproduced.results[0].fingerprint).toEqual(expected.results[0].fingerprint);
+    const herd = evaluateHerdObligations({ ledgers: [BASE_LEDGER()], evidence, catalogue: catalogue as ObligationCatalogue, query: { effectiveAt: AT, knowledgeCutoff: EARLY, obligationIds: [OBL] } }, hash);
+    expect(herd.ok && herd.herd.animals[0]).toEqual(expected);
+  };
+  const failsClosed = (catalogue: unknown) => expect(stateOf({ catalogue, effectiveAt: AT, knowledgeCutoff: EARLY, evidence })).toBe("UNSUPPORTED");
+
+  it("reviews: a later malformed or contradictory review is set aside; an unreadable review time fails closed", () => {
+    const review = base.reviews[0];
+    reproducesBefore({ ...base, reviews: [...base.reviews, { ...review, dimension: "SYNTH-NOT-A-DIMENSION", reviewedAt: LATER }] });
+    reproducesBefore({ ...base, reviews: [...base.reviews, { ...review, ruleFingerprint: null, reviewedAt: LATER }] });
+    reproducesBefore({ ...base, reviews: [...base.reviews, { ...review, decision: "REJECTED", reviewedAt: LATER }] });
+    failsClosed({ ...base, reviews: [...base.reviews, { ...review, dimension: "SYNTH-NOT-A-DIMENSION", reviewedAt: "not-an-instant" }] });
+    failsClosed({ ...base, reviews: [...base.reviews, { ...review, dimension: "SYNTH-NOT-A-DIMENSION" }] });
+  });
+
+  it("definitions: a later malformed, contradictory or new-obligation definition is set aside", () => {
+    const def = base.definitions[0];
+    reproducesBefore({ ...base, definitions: [...base.definitions, { ...def, ruleVersion: 0, recordedAt: LATER }] });
+    reproducesBefore({ ...base, definitions: [...base.definitions, { ...def, recordedAt: LATER, terms: { ...def.terms, obligationKind: "SYNTH-OTHER" } }] });
+    reproducesBefore({ ...base, definitions: [...base.definitions, { ...def, obligationId: "SYNTH-OBLIGATION-LATER", ruleId: "SYNTH-RULE-OTHER", recordedAt: LATER }] });
+    failsClosed({ ...base, definitions: [...base.definitions, { ...def, ruleVersion: 2, recordedAt: "2026-04-01" }] });
+  });
+
+  it("rule versions: one named only by later records is set aside; one named by a known record or by nothing is validated", () => {
+    const d2 = definition({ ruleVersion: 2, recordedAt: LATER });
+    const malformedV2 = { ...boundRule(d2), applicability: "nope" };
+    const contradictoryV1Twin = { ...boundRule(d2), title: "contradictory later twin" };
+    reproducesBefore({ ...base, definitions: [...base.definitions, d2], ruleVersions: [...base.ruleVersions, malformedV2] });
+    reproducesBefore({ ...base, definitions: [...base.definitions, d2], ruleVersions: [...base.ruleVersions, boundRule(d2), contradictoryV1Twin] });
+    reproducesBefore({ ...base, ruleVersions: [...base.ruleVersions, malformedV2], reviews: [...base.reviews, ...approve(boundRule(d2), undefined, LATER)] });
+    // Named by nothing: still validated (no knowledge time can set it aside).
+    failsClosed({ ...base, ruleVersions: [...base.ruleVersions, malformedV2] });
+    // Named by a known definition: validated.
+    failsClosed({ ...base, definitions: [...base.definitions, { ...d2, recordedAt: "2026-03-01T00:00:00Z" }], ruleVersions: [...base.ruleVersions, malformedV2] });
+  });
+
+  it("implementations: one named only by set-aside rule versions is set aside; otherwise validated", () => {
+    const laterImpl = { implementationId: "SYNTH-IMPL-LATER", version: 1, evaluate: "not a function" };
+    const d2 = definition({ ruleVersion: 2, recordedAt: LATER });
+    const r2 = boundRule(d2, { implementation: { ...bindTo(passImpl), implementationId: "SYNTH-IMPL-LATER" } });
+    reproducesBefore({ ...base, definitions: [...base.definitions, d2], ruleVersions: [...base.ruleVersions, r2], implementations: [...base.implementations, laterImpl] });
+    reproducesBefore({ ...base, definitions: [...base.definitions, d2], ruleVersions: [...base.ruleVersions, r2], implementations: [...base.implementations, impl(() => "PASS", "SYNTH-IMPL-LATER"), impl(() => "FAIL", "SYNTH-IMPL-LATER")] });
+    failsClosed({ ...base, implementations: [...base.implementations, laterImpl] });
+    failsClosed({ ...base, implementations: [...base.implementations, { implementationId: 7, version: 1, evaluate: () => "PASS" }] });
+  });
+
+  it("sources: a source retrieved after the cutoff — malformed or a newer version — is set aside; an unreadable retrieval time is validated", () => {
+    reproducesBefore({ ...base, sources: [...base.sources, { ...LEGAL_SOURCE, version: "SYNTH-v9", contentFingerprint: null, retrievedAt: LATER }] });
+    reproducesBefore({ ...base, sources: [...base.sources.map((s) => (s === LEGAL_SOURCE ? s : s)), { ...LEGAL_SOURCE, version: "SYNTH-v9", retrievedAt: LATER, checkedAt: LATER }] });
+    failsClosed({ ...base, sources: [...base.sources, { ...LEGAL_SOURCE, version: "SYNTH-v9", contentFingerprint: null, retrievedAt: "not-an-instant" }] });
+  });
+
+  it("without a cutoff (direct materialisation) every record is validated", () => {
+    expect(materialiseObligationCatalogue({ ...base, reviews: [...base.reviews, { ...base.reviews[0], dimension: "SYNTH-NOT-A-DIMENSION", reviewedAt: LATER }] }).ok).toBe(false);
+    expect(materialiseObligationCatalogue({ ...base, reviews: [...base.reviews, { ...base.reviews[0], dimension: "SYNTH-NOT-A-DIMENSION", reviewedAt: LATER }] }, EARLY).ok).toBe(true);
+  });
+});

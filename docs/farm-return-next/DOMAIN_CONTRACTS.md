@@ -3509,7 +3509,14 @@ machinery once (`bitemporal-records.ts`) for later phases to import.
 **Version and knowledge selection.** The C0 evaluation date is the UTC calendar date of
 `effectiveAt`. Only rule versions whose definition `recordedAt <= knowledgeCutoff`, and only
 reviews with `reviewedAt <= knowledgeCutoff`, are visible; evidence provably received after the
-cutoff is not admitted. A PRODUCTION/SUPERSEDED version with no definition at all ⇒
+cutoff is not admitted. **Catalogue knowledge admission** (one rule, applied before any
+validation, so nothing recorded after the cutoff — valid, malformed or contradictory — changes an
+earlier reconstruction): definitions (`recordedAt`), reviews (`reviewedAt`) and sources
+(`retrievedAt`) provably after the cutoff are set aside unvalidated; a rule version is set aside
+only when every definition/review naming it was set aside (and one did); an implementation only
+when every rule version naming it was set aside (and one did). An unreadable knowledge time, an
+unreferenced rule version/implementation, or one named by an admitted record is admitted and
+validated, so malformed entries still fail closed. A PRODUCTION/SUPERSEDED version with no definition at all ⇒
 UNSUPPORTED (never silently skipped). When C0 finds no effective released version but exactly
 one unreleased version is in force, it is evaluated through `evaluateCattleRule` and the
 obligation is REVIEW_REQUIRED. The rule in force at `effectiveAt` governs every occurrence (no
@@ -3524,8 +3531,8 @@ conflicting / invalid. No C1 evidence of the dimension ⇒ UNKNOWN; evidence but
 start ⇒ `NOT_TRIGGERED` (never NOT_APPLICABLE) only when the dimension is resolved: C1 is probed
 at the query and at every live assertion's `validFrom`/`validTo`; invalid or conflicting at any
 probe, or UNKNOWN at the query or a probe not after it ⇒ INVALID / CONFLICT / UNKNOWN (that
-precedence), and a C0 NOT_APPLICABLE with occurrences is never cleared while that probe is not
-KNOWN. Occurrence id `<obligationId>|<anchorKind>|<t>`.
+precedence; each state is tracked independently of evidence ids, so an evidence-free UNKNOWN
+gap between intervals counts). Occurrence id `<obligationId>|<anchorKind>|<t>`.
 
 **Window.** `opensAt = anchor + opensAfter`, `dueAt = anchor + dueAfter`; inclusive start;
 exclusive end unless the rule declares `INCLUSIVE_START_INCLUSIVE_END`. Unrepresentable ⇒
@@ -3539,7 +3546,11 @@ implementation absent or mismatched; terms marker absent; window source not a ru
 unsupported time basis) > REVIEW_REQUIRED (unreleased version in force; C0 REVIEW_REQUIRED) >
 INVALID_EVIDENCE > EVIDENCE_CONFLICT > UNKNOWN > INSUFFICIENT_EVIDENCE (C0 lacked a KNOWN input;
 decided from the referenced C1 dimension states; non-C1 key or rejected class/unit ⇒
-INSUFFICIENT_EVIDENCE) > NOT_APPLICABLE (C0, KNOWN inputs only) > BLOCKED (HARD_GATE FAIL) /
+INSUFFICIENT_EVIDENCE) > NOT_APPLICABLE (C0, KNOWN inputs only, and only for a RESOLVED anchor
+— `resolveObligationAnchor`: the birth date is KNOWN and, for interval anchors, the dimension is
+KNOWN at the UTC start of the birth date, at every live `validFrom`/`validTo` up to the query and
+at the query, with no conflicting/invalid state at any live boundary; otherwise the anchor's
+INVALID_EVIDENCE > EVIDENCE_CONFLICT > UNKNOWN — a query before birth has no life to cover) > BLOCKED (HARD_GATE FAIL) /
 ADVISORY_FAIL (ADVISORY FAIL). Anchor level (C0 PASS): INVALID_EVIDENCE > EVIDENCE_CONFLICT >
 UNKNOWN > NOT_TRIGGERED. Occurrence level: anchor invalid ⇒ INVALID_EVIDENCE > anchor conflict ⇒
 EVIDENCE_CONFLICT > UNSUPPORTED (window) > INVALID_EVIDENCE (log invalid, supersession defect,
@@ -3580,7 +3591,9 @@ readable animal id is reported and offered to every animal so each evidence log 
 **Known limitations.** No real obligation content exists (empty catalogue). Source catalogue
 lifecycle is not bitemporal in C0, so reproducing an earlier cutoff after a source lifecycle
 change requires supplying the source catalogue as it then stood; a malformed catalogue entry
-fails every cutoff. Only the UTC time basis, `DAY`/`HOUR` offsets and three anchor kinds are
+admitted at a cutoff fails that cutoff. NOT_APPLICABLE for interval anchors needs the dimension
+recorded for the animal's whole life to the query, so a partially recorded history stays UNKNOWN
+(conservative by contract). Only the UTC time basis, `DAY`/`HOUR` offsets and three anchor kinds are
 supported (no calendar-month offsets, local time, location hierarchy or departure anchors).
 The rule version in force at `effectiveAt` governs past occurrences; evidence bound to another
 version needs review. Supplied predicates are trusted as C0 documents (source-text binding only).

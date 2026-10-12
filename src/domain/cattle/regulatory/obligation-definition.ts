@@ -412,15 +412,106 @@ function definitionKey(d: ObligationDefinition): string {
   return canonicalizeValue({ ...d, recordedAt: canonicalObligationInstant(d.recordedAt) });
 }
 
+/** Readable `[ruleId, version]` identity of a raw record, else `null`. */
+function ruleIdentity(ruleId: unknown, version: unknown): string | null {
+  return isString(ruleId) && Number.isSafeInteger(version) ? canonicalizeValue([ruleId, version]) : null;
+}
+
+/** Strict-UTC knowledge time provably after the cutoff (an unreadable time is never "after"). */
+function provablyAfter(value: unknown, cutoff: string | null): boolean {
+  return cutoff !== null && isValidAnimalInstant(value) && compareInstants(value, cutoff) > 0;
+}
+
+interface AdmittedCatalogue {
+  definitions: unknown[];
+  ruleVersions: unknown[];
+  sources: unknown[];
+  reviews: unknown[];
+  implementations: unknown[];
+  later: Map<string, LaterObligationDefinitionRef>;
+}
+
+/**
+ * Knowledge-time admission — ONE rule for every catalogue record type,
+ * applied before any validation, so nothing recorded after the cutoff (valid,
+ * malformed or contradictory) can change an earlier reconstruction:
+ * - definitions (`recordedAt`), reviews (`reviewedAt`) and sources
+ *   (`retrievedAt`) carry their own knowledge time: provably after the cutoff
+ *   ⇒ set aside unvalidated; otherwise (including an unreadable time) admitted
+ *   and validated, so malformed entries still fail closed;
+ * - rule versions and implementations carry none: a rule version is set aside
+ *   only when every record naming it (definition or review) was set aside and
+ *   at least one did; an implementation only when every rule version naming
+ *   it was set aside and at least one did. Anything unreadable, unreferenced
+ *   or referenced by an admitted record is admitted and validated.
+ * Without a cutoff everything is admitted.
+ */
+function admitKnownCatalogue(data: { definitions: unknown[]; ruleVersions: unknown[]; sources: unknown[]; reviews: unknown[] }, implementations: unknown[], cutoff: string | null): AdmittedCatalogue {
+  const later = new Map<string, LaterObligationDefinitionRef>();
+  const ruleRefs = { admitted: new Set<string>(), later: new Set<string>() };
+  const definitions: unknown[] = [];
+  for (const item of data.definitions) {
+    const r = isRecord(item) ? item : null;
+    const identity = r ? ruleIdentity(r.ruleId, r.ruleVersion) : null;
+    if (r && provablyAfter(r.recordedAt, cutoff)) {
+      const { obligationId, ruleId, ruleVersion } = r;
+      if (isOpaqueRef(obligationId) && isOpaqueRef(ruleId) && isPositiveInteger(ruleVersion)) {
+        later.set(canonicalizeValue([obligationId, ruleId, ruleVersion]), { obligationId, ruleId, ruleVersion });
+      }
+      if (identity) ruleRefs.later.add(identity);
+      continue;
+    }
+    if (identity) ruleRefs.admitted.add(identity);
+    definitions.push(item);
+  }
+  const reviews: unknown[] = [];
+  for (const item of data.reviews) {
+    const r = isRecord(item) ? item : null;
+    const identity = r ? ruleIdentity(r.ruleId, r.ruleVersion) : null;
+    if (r && provablyAfter(r.reviewedAt, cutoff)) {
+      if (identity) ruleRefs.later.add(identity);
+      continue;
+    }
+    if (identity) ruleRefs.admitted.add(identity);
+    reviews.push(item);
+  }
+  const implRefs = { admitted: new Set<string>(), later: new Set<string>() };
+  const ruleVersions: unknown[] = [];
+  for (const item of data.ruleVersions) {
+    const r = isRecord(item) ? item : null;
+    const identity = r ? ruleIdentity(r.ruleId, r.version) : null;
+    const impl = r && isRecord(r.implementation) ? ruleIdentity(r.implementation.implementationId, r.implementation.version) : null;
+    if (identity && ruleRefs.later.has(identity) && !ruleRefs.admitted.has(identity)) {
+      if (impl) implRefs.later.add(impl);
+      continue;
+    }
+    if (impl) implRefs.admitted.add(impl);
+    ruleVersions.push(item);
+  }
+  const sources = data.sources.filter((item) => !(isRecord(item) && provablyAfter(item.retrievedAt, cutoff)));
+  const admittedImplementations: unknown[] = [];
+  for (const item of implementations) {
+    if (item === null || typeof item !== "object") {
+      admittedImplementations.push(item);
+      continue;
+    }
+    // Each property read exactly once; validation reads this plain capture.
+    const { implementationId, version, evaluate } = item as Record<string, unknown>;
+    const identity = ruleIdentity(implementationId, version);
+    if (identity && implRefs.later.has(identity) && !implRefs.admitted.has(identity)) continue;
+    admittedImplementations.push({ implementationId, version, evaluate });
+  }
+  return { definitions, ruleVersions, sources, reviews, implementations: admittedImplementations, later };
+}
+
 /**
  * Validates and materialises a supplied catalogue. Order-independent: every
  * list is sorted canonically; identical duplicates collapse; any malformed
- * or contradictory entry fails the whole catalogue (never partially used).
- * With a `knowledgeCutoff`, a definition whose `recordedAt` is readable and
- * after the cutoff is not yet known: it is set aside unvalidated, so a later
- * record (even malformed or contradictory) cannot change an earlier
- * reconstruction. A definition with an unreadable knowledge time stays in
- * and fails closed.
+ * or contradictory ADMITTED entry fails the whole catalogue (never partially
+ * used). With a `knowledgeCutoff`, records are first admitted by knowledge
+ * time (`admitKnownCatalogue`): anything provably recorded after the cutoff
+ * is set aside unvalidated; anything with an unreadable knowledge time stays
+ * in and fails closed.
  */
 export function materialiseObligationCatalogue(raw: unknown, knowledgeCutoff?: string): ObligationCatalogueResult {
   const issues: ObligationCatalogueIssue[] = [];
@@ -429,24 +520,18 @@ export function materialiseObligationCatalogue(raw: unknown, knowledgeCutoff?: s
   if (![definitions, ruleVersions, sources, reviews, implementations].every(Array.isArray)) {
     return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_MALFORMED", ref: null }] };
   }
-  let data: { definitions: unknown[]; ruleVersions: unknown[]; sources: unknown[]; reviews: unknown[] };
+  let cloned: { definitions: unknown[]; ruleVersions: unknown[]; sources: unknown[]; reviews: unknown[] };
   try {
-    data = structuredClone({ definitions, ruleVersions, sources, reviews } as { definitions: unknown[]; ruleVersions: unknown[]; sources: unknown[]; reviews: unknown[] });
+    cloned = structuredClone({ definitions, ruleVersions, sources, reviews } as { definitions: unknown[]; ruleVersions: unknown[]; sources: unknown[]; reviews: unknown[] });
   } catch {
     return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null }] };
   }
 
   const cutoff = knowledgeCutoff !== undefined && isValidAnimalInstant(knowledgeCutoff) ? knowledgeCutoff : null;
-  const later = new Map<string, LaterObligationDefinitionRef>();
+  const data = admitKnownCatalogue(cloned, Array.from(implementations as unknown[]), cutoff);
+  const later = data.later;
   const defs = new Map<string, { def: ObligationDefinition; key: string }>();
   for (const item of data.definitions) {
-    if (cutoff !== null && isRecord(item) && isValidAnimalInstant(item.recordedAt) && compareInstants(item.recordedAt, cutoff) > 0) {
-      const { obligationId, ruleId, ruleVersion } = item;
-      if (isOpaqueRef(obligationId) && isOpaqueRef(ruleId) && isPositiveInteger(ruleVersion)) {
-        later.set(canonicalizeValue([obligationId, ruleId, ruleVersion]), { obligationId, ruleId, ruleVersion });
-      }
-      continue;
-    }
     const def = definitionOf(item);
     if (!def) {
       issues.push({ code: "CATTLE_OBLIGATION_MALFORMED_DEFINITION", ref: isRecord(item) && isString(item.obligationId) ? item.obligationId : null });
@@ -492,7 +577,7 @@ export function materialiseObligationCatalogue(raw: unknown, knowledgeCutoff?: s
     else reviewList.push(review);
   }
   const impls = new Map<string, CattleRuleImplementation>();
-  for (const item of Array.from(implementations as unknown[])) {
+  for (const item of data.implementations) {
     const impl = captureImplementation(item);
     if (!impl) {
       issues.push({ code: "CATTLE_OBLIGATION_MALFORMED_IMPLEMENTATION", ref: null });

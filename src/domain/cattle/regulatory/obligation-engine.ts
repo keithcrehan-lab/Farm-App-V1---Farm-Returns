@@ -27,7 +27,10 @@
  *      — C0 lacked a KNOWN input: a referenced C1 dimension is invalid,
  *      conflicting or unknown; any other gap (non-C1 key, rejected class or
  *      unit) is INSUFFICIENT_EVIDENCE.
- *   4. NOT_APPLICABLE — C0 NOT_APPLICABLE from KNOWN inputs only.
+ *   4. NOT_APPLICABLE — C0 NOT_APPLICABLE from KNOWN inputs only, and only
+ *      when the anchor is resolved for the animal's whole life up to the
+ *      query (`resolveObligationAnchor`); otherwise the anchor's
+ *      INVALID_EVIDENCE > EVIDENCE_CONFLICT > UNKNOWN.
  *   5. BLOCKED (HARD_GATE rule FAIL) / ADVISORY_FAIL (ADVISORY rule FAIL).
  *   Anchor level (C0 PASS): INVALID_EVIDENCE > EVIDENCE_CONFLICT > UNKNOWN >
  *      NOT_TRIGGERED when no occurrence can be established.
@@ -59,6 +62,7 @@ import {
   deriveObligationOccurrences,
   obligationInputDimensionState,
   obligationInputsFromSnapshot,
+  resolveObligationAnchor,
   type ObligationAnimalInputs,
   type ObligationOccurrence,
 } from "./obligation-anchor";
@@ -391,26 +395,22 @@ function evaluateObligation(ctx: Context, obligationId: string): ObligationState
     return rule.gateRole === "HARD_GATE" ? ruleLevel("BLOCKED", ["CATTLE_OBLIGATION_HARD_GATE_FAIL"]) : ruleLevel("ADVISORY_FAIL", ["CATTLE_OBLIGATION_ADVISORY_FAIL"]);
   }
 
-  // C0 PASS or NOT_APPLICABLE: derive occurrences. An unknown, conflicting or
-  // invalid anchor is never cleared as NOT_APPLICABLE.
-  const derivation = deriveObligationOccurrences(obligationId, def.terms.anchor, ctx.ledger, ctx.snapshot);
-  if (ruleEvaluation.state === "NOT_APPLICABLE" && derivation.status === "OCCURRENCES") {
-    const unresolvedAnchors = derivation.occurrences.filter((o) => o.anchorState !== "KNOWN");
-    const dim = derivation.dimensionState;
-    if (unresolvedAnchors.length === 0 && dim === "KNOWN") return ruleLevel("NOT_APPLICABLE", ["CATTLE_OBLIGATION_RULE_NOT_APPLICABLE"]);
-    const state: ObligationState =
-      dim === "INVALID" || unresolvedAnchors.some((o) => o.anchorState === "INVALID")
-        ? "INVALID_EVIDENCE"
-        : dim === "CONFLICT" || unresolvedAnchors.length > 0
-          ? "EVIDENCE_CONFLICT"
-          : "UNKNOWN";
+  // C0 NOT_APPLICABLE is reported only for a RESOLVED anchor (see
+  // `resolveObligationAnchor`): an unknown, conflicting or invalid anchor —
+  // anywhere in the animal's life up to the query — is never cleared.
+  if (ruleEvaluation.state === "NOT_APPLICABLE") {
+    const anchor = resolveObligationAnchor(def.terms.anchor, ctx.ledger, ctx.snapshot);
+    if (anchor.state === "KNOWN") return ruleLevel("NOT_APPLICABLE", ["CATTLE_OBLIGATION_RULE_NOT_APPLICABLE"]);
+    const state: ObligationState = anchor.state === "INVALID" ? "INVALID_EVIDENCE" : anchor.state === "CONFLICT" ? "EVIDENCE_CONFLICT" : "UNKNOWN";
     return ruleLevel(state, [
       "CATTLE_OBLIGATION_RULE_NOT_APPLICABLE",
-      ...unresolvedAnchors.map((o) => `CATTLE_OBLIGATION_ANCHOR_${o.anchorState}:${o.occurrenceId}`),
-      ...(dim === "KNOWN" ? [] : [`CATTLE_OBLIGATION_ANCHOR_DIMENSION_${dim}`, ...derivation.dimensionAssertionIds.map((id) => `CATTLE_OBLIGATION_ANCHOR_ASSERTION:${id}`)]),
+      ...anchor.reasonCodes,
+      ...anchor.assertionIds.map((id) => `CATTLE_OBLIGATION_ANCHOR_ASSERTION:${id}`),
     ]);
   }
-  if (ruleEvaluation.state === "NOT_APPLICABLE" && derivation.status === "NOT_TRIGGERED") return ruleLevel("NOT_APPLICABLE", ["CATTLE_OBLIGATION_RULE_NOT_APPLICABLE"]);
+
+  // C0 PASS: derive occurrences.
+  const derivation = deriveObligationOccurrences(obligationId, def.terms.anchor, ctx.ledger, ctx.snapshot);
   const evidence = obligationEvidence(ctx, obligationId, def);
   if (derivation.status !== "OCCURRENCES") {
     const state: ObligationState =

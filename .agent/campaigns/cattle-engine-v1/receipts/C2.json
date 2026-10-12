@@ -1,0 +1,316 @@
+{
+  "receipt_schema_version": 1,
+  "origin": "campaign",
+  "campaign_id": "cattle-engine-v1",
+  "phase_id": "C2",
+  "phase_title": "Regulatory Lifecycle Engine",
+  "phase_order": 2,
+  "task_id": "cattle-c2-regulatory-lifecycle-engine-20261011",
+  "phase_base_sha": "3a7c0a6f2c0c8cf471d93b699c3a867d351b6246",
+  "functional_freeze_sha": "6a0a976725b6ebd4f8f552d03f59e5bc773a1bbb",
+  "frozen_at": "2026-10-12T12:54:47Z",
+  "brief": ".agent/campaigns/cattle-engine-v1/C2_BRIEF.md",
+  "brief_sha256": "2afdb0bf172df79348f0aa0b01257478d14a35d1c4f7d8059aaea63abddf44ba",
+  "contracts": [
+    {
+      "path": "AGENTS.md",
+      "blob_at_freeze": "c608fb74479ed5ef58544105aee90d6fa07ce918"
+    },
+    {
+      "path": ".agent/AUDIT_RULES.md",
+      "blob_at_freeze": "6113ce9869627f7102a6420242036c8fb2e07358"
+    },
+    {
+      "path": ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
+      "blob_at_freeze": "b00e5f78ebfc12a1784f64f0eac29dceb1fb8fb8"
+    },
+    {
+      "path": ".agent/skills/cattle-evidence-rules.md",
+      "blob_at_freeze": "f8f972d413e06fae73470717e57d5a9468fec985"
+    },
+    {
+      "path": "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+      "blob_at_freeze": "bcf060357d2dfa7dc35aa425edb7013b761176b9"
+    }
+  ],
+  "verify_command": "npx vitest run src/domain/cattle --maxWorkers=1 && npm run typecheck && npm run lint",
+  "verification": [
+    {
+      "name": "phase_verify",
+      "cmd": "npx vitest run src/domain/cattle --maxWorkers=1 && npm run typecheck && npm run lint",
+      "head": "6a0a976725b6ebd4f8f552d03f59e5bc773a1bbb",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C2-freeze-phase_verify-20261012T120436677907Z.log"
+    },
+    {
+      "name": "full_suite",
+      "cmd": "bash scripts/quality-gate.sh",
+      "head": "6a0a976725b6ebd4f8f552d03f59e5bc773a1bbb",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C2-freeze-full_suite-20261012T120534647502Z.log"
+    }
+  ],
+  "strict_audit": {
+    "artifact": ".agent/campaigns/cattle-engine-v1/audits/audit-20261012T115840Z-2033079710.md",
+    "original": ".agent/history/audit-20261012T115840Z-2033079710.md",
+    "sha256": "59ca272584f3431e03f9a178b508155b6a51cd05d9142ee76fcfb3c02f7347ab",
+    "range": "3a7c0a6f2c0c8cf471d93b699c3a867d351b6246..6a0a976725b6ebd4f8f552d03f59e5bc773a1bbb",
+    "counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "tier": "strict"
+  },
+  "audits": [
+    {
+      "tier": "standard",
+      "artifact": "audit-20261011T211434Z-1415219967.md",
+      "head": "d98cf0d3f959d3c7a52609a66ca348782125e188",
+      "counts": {
+        "critical": 0,
+        "high": 2,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261011T221107Z-2260008195.md",
+      "head": "92d4db8ec26765903e943e1c567d0fed21fc534e",
+      "counts": {
+        "critical": 0,
+        "high": 2,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261011T230956Z-3246327964.md",
+      "head": "ec9997e0e2fdc7235efec1fcdf4a1504d58b922c",
+      "counts": {
+        "critical": 0,
+        "high": 2,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T063019Z-372237681.md",
+      "head": "e2bf65351fd280f72051732b728d268e6a7a79a8",
+      "counts": {
+        "critical": 0,
+        "high": 3,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T070419Z-3416790039.md",
+      "head": "faf5119394cea02bb087d3e724d4b384078edf6e",
+      "counts": {
+        "critical": 0,
+        "high": 2,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T071306Z-3494511077.md",
+      "head": "b2b4ca536422b28ff6c692e4adca74e3e7cd809e",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T072352Z-130103520.md",
+      "head": "c5ca069e1e5c822002d3ce3d5f12702653f0f247",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T083539Z-103727470.md",
+      "head": "9d5ad0f7b590800ff130d4d32c6c9aba496d045e",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T094743Z-655454744.md",
+      "head": "2b8d5f3f9ee99aa5c688091d66d6e245bf67a342",
+      "counts": {
+        "critical": 0,
+        "high": 3,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T105632Z-2916327359.md",
+      "head": "e79e5c6510918c15556467929a959073b23c705f",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T115248Z-3317412654.md",
+      "head": "6a0a976725b6ebd4f8f552d03f59e5bc773a1bbb",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261012T115840Z-2033079710.md",
+      "head": "6a0a976725b6ebd4f8f552d03f59e5bc773a1bbb",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    }
+  ],
+  "remediation": {
+    "medium_rounds": 1,
+    "high_rounds": 2,
+    "rounds": [
+      {
+        "n": 1,
+        "tier": "standard",
+        "audit": "audit-20261011T211434Z-1415219967.md",
+        "ids": [
+          "F001",
+          "F002"
+        ],
+        "severities": [
+          "HIGH"
+        ],
+        "fix_commit": "92d4db8ec26765903e943e1c567d0fed21fc534e"
+      },
+      {
+        "n": 2,
+        "tier": "standard",
+        "audit": "audit-20261011T221107Z-2260008195.md",
+        "ids": [
+          "F001",
+          "F002"
+        ],
+        "severities": [
+          "HIGH"
+        ],
+        "fix_commit": "ec9997e0e2fdc7235efec1fcdf4a1504d58b922c"
+      },
+      {
+        "n": 3,
+        "tier": "standard",
+        "audit": "audit-20261012T105632Z-2916327359.md",
+        "ids": [
+          "F008"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "6a0a976725b6ebd4f8f552d03f59e5bc773a1bbb"
+      }
+    ]
+  },
+  "finding_signatures": {
+    "392f60114f09a881": {
+      "severity": "HIGH",
+      "title": "Future definitions change historical obligation results",
+      "file": "src/domain/cattle/regulatory/obligation-engine.ts",
+      "attempts": 1,
+      "ids": [
+        "F002@audit-20261011T221107Z-2260008195.md"
+      ]
+    },
+    "63e094bafb2dfb93": {
+      "severity": "MEDIUM",
+      "title": "Evidence-log creation bypasses collection validation",
+      "file": "src/domain/cattle/regulatory/obligation-evidence.ts",
+      "attempts": 1,
+      "ids": [
+        "F008@audit-20261012T105632Z-2916327359.md"
+      ]
+    },
+    "7472cdfd3a9995f3": {
+      "severity": "HIGH",
+      "title": "Future malformed definitions alter historical results",
+      "file": "src/domain/cattle/regulatory/obligation-definition.ts",
+      "attempts": 1,
+      "ids": [
+        "F002@audit-20261011T211434Z-1415219967.md"
+      ]
+    },
+    "7acf015479bca435": {
+      "severity": "HIGH",
+      "title": "Unknown anchors can clear a hard gate",
+      "file": "src/domain/cattle/regulatory/obligation-engine.ts",
+      "attempts": 1,
+      "ids": [
+        "F001@audit-20261011T211434Z-1415219967.md"
+      ]
+    },
+    "ee03645dc7e7be4f": {
+      "severity": "HIGH",
+      "title": "Conflicting interval anchors still clear hard gates",
+      "file": "src/domain/cattle/regulatory/obligation-anchor.ts",
+      "attempts": 1,
+      "ids": [
+        "F001@audit-20261011T221107Z-2260008195.md"
+      ]
+    }
+  },
+  "outstanding_low_findings": [],
+  "migration_status": "NONE",
+  "frozen_contract_status": "ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md",
+  "human_gate_status": "NONE",
+  "pushed_or_deployed": false,
+  "predecessor": "C1",
+  "predecessor_receipt_fingerprint": "17fb634de0db37d6243bea83c5b457f80cb98dc9fa1d5ac946bf26a302139d96",
+  "policy": {
+    "medium_rounds": 4,
+    "high_rounds": 2,
+    "attempts_per_signature": 2
+  },
+  "receipt_fingerprint": "80e8f12cc4c4550d5ea78a730bff9b1747820cf822c9e6c9a3e08489d5646724"
+}

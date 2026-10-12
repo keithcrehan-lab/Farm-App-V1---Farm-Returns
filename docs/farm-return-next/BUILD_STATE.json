@@ -288,6 +288,33 @@
       "tests": "scripts/tests/agent-campaign.test.py (fake CLIs, no model call), run by scripts/tests/agent-run.test.sh",
       "c2_status": "NOT_STARTED",
       "pushed_or_deployed": false
+    },
+    "c2_regulatory_lifecycle_engine": {
+      "status": "FROZEN_COMPLETE_IN_CODE",
+      "task": "cattle-c2-regulatory-lifecycle-engine-20261011",
+      "base_sha": "3a7c0a6f2c0c8cf471d93b699c3a867d351b6246",
+      "final_audited_sha": "6a0a976725b6ebd4f8f552d03f59e5bc773a1bbb",
+      "final_audit": ".agent/campaigns/cattle-engine-v1/audits/audit-20261012T115840Z-2033079710.md",
+      "final_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0",
+      "remediated_findings": [
+        "F002 (HIGH, audit-20261011T221107Z-2260008195.md): Future definitions change historical obligation results — sig 392f60114f09a881",
+        "F008 (MEDIUM, audit-20261012T105632Z-2916327359.md): Evidence-log creation bypasses collection validation — sig 63e094bafb2dfb93",
+        "F002 (HIGH, audit-20261011T211434Z-1415219967.md): Future malformed definitions alter historical results — sig 7472cdfd3a9995f3",
+        "F001 (HIGH, audit-20261011T211434Z-1415219967.md): Unknown anchors can clear a hard gate — sig 7acf015479bca435",
+        "F001 (HIGH, audit-20261011T221107Z-2260008195.md): Conflicting interval anchors still clear hard gates — sig ee03645dc7e7be4f"
+      ],
+      "outstanding_low_findings": [],
+      "verification": "at 6a0a976725b6ebd4f8f552d03f59e5bc773a1bbb: phase verify `npx vitest run src/domain/cattle --maxWorkers=1 && npm run typecheck && npm run lint` PASS; full suite scripts/quality-gate.sh PASS",
+      "receipt": ".agent/campaigns/cattle-engine-v1/receipts/C2.json",
+      "receipt_fingerprint": "80e8f12cc4c4550d5ea78a730bff9b1747820cf822c9e6c9a3e08489d5646724",
+      "closed_by": "scripts/agent-campaign-run",
+      "next_phase": "C3 NOT_STARTED"
+    },
+    "campaign_progress": {
+      "last_frozen_phase": "C2",
+      "next_phase": "C3",
+      "next_phase_status": "NOT_STARTED",
+      "updated_by": "scripts/agent-campaign-run"
     }
   }
 }

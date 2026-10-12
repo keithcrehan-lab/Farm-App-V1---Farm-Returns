@@ -5,6 +5,18 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Cattle Engine v1, C2 close-out — Regulatory Lifecycle Engine — frozen at 6a0a976 (2026-10-12)
+
+C2 (task `cattle-c2-regulatory-lifecycle-engine-20261011`, base `3a7c0a6`) is **frozen at `6a0a976725b6ebd4f8f552d03f59e5bc773a1bbb`** by `scripts/agent-campaign-run`. This is the
+functional freeze SHA; the documentation commit recording it is not.
+
+- Strict full-phase audit `audit-20261012T115840Z-2033079710.md` over `3a7c0a6..6a0a976`: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0.
+- Automatic remediation: 1 Medium round(s), 2 High round(s): F002 (HIGH, audit-20261011T221107Z-2260008195.md): Future definitions change historical obligation results — sig 392f60114f09a881; F008 (MEDIUM, audit-20261012T105632Z-2916327359.md): Evidence-log creation bypasses collection validation — sig 63e094bafb2dfb93; F002 (HIGH, audit-20261011T211434Z-1415219967.md): Future malformed definitions alter historical results — sig 7472cdfd3a9995f3; F001 (HIGH, audit-20261011T211434Z-1415219967.md): Unknown anchors can clear a hard gate — sig 7acf015479bca435; F001 (HIGH, audit-20261011T221107Z-2260008195.md): Conflicting interval anchors still clear hard gates — sig ee03645dc7e7be4f.
+- Outstanding Low (recorded, not fixed): none.
+- Verification at `6a0a976`: phase verify and full suite (`scripts/quality-gate.sh`) passed.
+- Receipt `.agent/campaigns/cattle-engine-v1/receipts/C2.json` (fingerprint `80e8f12cc4c4550d`). Migrations: none. Frozen contracts: ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md. Nothing pushed or deployed.
+- C3 **not started**.
+
 ## Cattle Engine v1 — campaign orchestrator — starting 9cc32b8 (2026-10-10)
 
 Task `cattle-campaign-orchestrator-20261010`. Harness/tooling only; no cattle-domain, UI,

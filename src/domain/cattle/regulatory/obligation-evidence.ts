@@ -22,6 +22,7 @@
  * frozen), so the same `AnimalDataProvenance` contract is validated here.
  */
 
+import { readListOnce, snapshotInput } from "./input-snapshot";
 import { canonicalizeValue } from "../../assessment-integrity";
 import {
   ANIMAL_DATA_SOURCE_CATEGORIES,
@@ -122,12 +123,11 @@ function provenanceOf(raw: unknown): AnimalDataProvenance | null {
 }
 
 function materialise(animalId: FarmReturnAnimalId, input: unknown): { record: ObligationFulfilmentEvidence } | { issues: ObligationEvidenceIssue[] } {
-  let raw: unknown;
-  try {
-    raw = structuredClone(input);
-  } catch {
-    return { issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NOT_CLONEABLE", evidenceId: null }] };
-  }
+  // The input boundary: read once into a detached snapshot (`snapshotInput`);
+  // anything that is not data fails closed and nothing in it is executed.
+  const snap = snapshotInput(input);
+  if (snap.nonData) return { issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NOT_CLONEABLE", evidenceId: null }] };
+  const raw: unknown = snap.value;
   if (!isRecord(raw)) return { issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NOT_OBJECT", evidenceId: null }] };
   const evidenceId = isOpaqueRef(raw.evidenceId) ? raw.evidenceId : null;
   const issues: ObligationEvidenceIssue[] = [];
@@ -229,7 +229,7 @@ function buildEvidenceLog(animalId: string, storedInputs: readonly unknown[], in
   const issues: ObligationEvidenceIssue[] = [];
   const read = (list: readonly unknown[]): Envelope[] => {
     const out: Envelope[] = [];
-    for (const input of Array.from(list)) {
+    for (const input of readListOnce(list) ?? [() => undefined]) {
       const result = materialise(id, input);
       if ("issues" in result) issues.push(...result.issues);
       else out.push(envelope(result.record));
@@ -261,18 +261,16 @@ function buildEvidenceLog(animalId: string, storedInputs: readonly unknown[], in
  * identical duplicate is idempotent and never rewrites a stored spelling.
  */
 export function appendObligationEvidence(log: ObligationEvidenceLog, inputs: readonly unknown[]): ObligationEvidenceLogResult {
-  let existing: unknown;
-  try {
-    existing = structuredClone(log);
-  } catch {
-    return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NOT_CLONEABLE", evidenceId: null }] };
-  }
+  const snap = snapshotInput(log); // read once; never re-read
+  if (snap.nonData) return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NOT_CLONEABLE", evidenceId: null }] };
+  const existing: unknown = snap.value;
+  const additions = readListOnce(inputs) ?? [() => undefined];
   if (!isRecord(existing) || !Array.isArray(existing.records) || typeof existing.animalId !== "string") {
     return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_EVIDENCE_NOT_OBJECT", evidenceId: null }] };
   }
   const stored = createObligationEvidenceLog(existing.animalId, existing.records);
   if (!stored.ok) return stored;
-  return buildEvidenceLog(existing.animalId, stored.log.records, inputs);
+  return buildEvidenceLog(existing.animalId, stored.log.records, additions);
 }
 
 /** Resolves the log as known at `knowledgeCutoff`; corrections may only link within one obligation. */

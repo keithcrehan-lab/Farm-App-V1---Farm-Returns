@@ -6,6 +6,7 @@
  */
 
 export * from "./bitemporal-records";
+export * from "./input-snapshot";
 export * from "./obligation-anchor";
 export * from "./obligation-definition";
 export * from "./obligation-engine";

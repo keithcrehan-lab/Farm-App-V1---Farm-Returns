@@ -32,6 +32,7 @@ import {
 import { appendObligationEvidence, createObligationEvidenceLog } from "./obligation-evidence";
 import { projectObligationHardGates } from "./obligation-hard-gates";
 import { addObligationOffset, canonicalObligationInstant, obligationInstantJustBefore, utcStartOfCalendarDate } from "./obligation-time";
+import { snapshotInput } from "./input-snapshot";
 
 const A = "SYNTH-ANIMAL-1";
 const B = "SYNTH-ANIMAL-2";
@@ -1210,60 +1211,15 @@ describe("C2 remediation — evidence received after the cutoff is admitted out 
   });
 });
 
-describe("C2 remediation — caller data is captured once before cloning; unstable or uncloneable input fails closed", () => {
+describe("C2 remediation — duplicate animal identity is detected before ledger validity filtering", () => {
   const EARLY = "2026-03-21T00:00:00Z";
   const AT = "2026-04-01T00:00:00Z";
   const fn = () => "not data";
-  /** A getter returning `first` on the first read and `rest` afterwards. */
-  const changing = <T extends object>(base: T, key: string, first: unknown, rest: unknown, extra: Record<string, unknown> = {}): T => {
-    let reads = 0;
-    const o = { ...base, ...extra } as Record<string, unknown>;
-    delete o[key];
-    Object.defineProperty(o, key, { enumerable: true, get: () => (reads++ === 0 ? first : rest) });
-    return o as T;
-  };
   const herdOf = (evidence: unknown[], ledgers: unknown[] = [BASE_LEDGER()], catalogue: unknown = catalogueOf()) => {
     const r = evaluateHerdObligations({ ledgers, evidence, catalogue: catalogue as ObligationCatalogue, query: { effectiveAt: AT, knowledgeCutoff: EARLY, obligationIds: [OBL] } }, hash);
     if (!r.ok) throw new Error(JSON.stringify(r));
     return r.herd;
   };
-
-  it("evidence whose knowledge time changes between reads never clears a gate (animal and herd)", () => {
-    const prov = (receivedAt: string) => ({ sourceCategory: "FARMER", receivedAt });
-    // Factories: each evaluation gets a fresh getter (a consumed one would read stably).
-    const unstable = [
-      // later on the first read, known on the next: must not be set aside as later nor admitted as clean
-      () => changing(ful("e-2", "2026-03-06T00:00:00Z"), "provenance", prov("2026-04-02T00:00:00Z"), prov("2026-03-01T00:00:00Z")),
-      // known on the first read, later on the next
-      () => changing(ful("e-2", "2026-03-06T00:00:00Z"), "provenance", prov("2026-03-01T00:00:00Z"), prov("2026-04-02T00:00:00Z")),
-      // uncloneable on the first attempt only is never retried
-      () => changing(ful("e-2", "2026-03-06T00:00:00Z"), "extra", fn, null),
-    ];
-    for (const bad of unstable) {
-      const ev = run({ effectiveAt: AT, knowledgeCutoff: EARLY, evidence: [ful("e-1", INSIDE), bad()] });
-      expect(only(ev).state).toBe("INVALID_EVIDENCE");
-      expect(ev.evidenceIssues.length).toBeGreaterThan(0);
-      expect(herdOf([ful("e-1", INSIDE), bad()]).animals[0].results[0].state).toBe("INVALID_EVIDENCE");
-    }
-    // An animal id that changes between reads is never trusted for partitioning.
-    const movingAnimal = changing(ful("e-2", INSIDE), "animalId", A, "SYNTH-ANIMAL-OTHER");
-    expect(herdOf([ful("e-1", INSIDE), movingAnimal]).animals[0].results[0].state).toBe("INVALID_EVIDENCE");
-  });
-
-  it("catalogue records whose knowledge time or identity changes between reads fail closed", () => {
-    const base = catalogueOf();
-    const variants = [
-      { ...base, reviews: [...base.reviews, changing(base.reviews[0], "reviewedAt", "2026-04-02T00:00:00Z", "2026-03-01T00:00:00Z")] },
-      { ...base, reviews: [...base.reviews, changing(base.reviews[0], "reviewedAt", "2026-03-01T00:00:00Z", "2026-04-02T00:00:00Z")] },
-      { ...base, definitions: [...base.definitions, changing(definition({ ruleVersion: 2 }), "recordedAt", "2026-04-02T00:00:00Z", "2026-03-01T00:00:00Z")] },
-      { ...base, sources: [...base.sources, changing({ ...LEGAL_SOURCE, version: "SYNTH-v9" }, "retrievedAt", "2026-04-02T00:00:00Z", "2026-03-01T00:00:00Z")] },
-      { ...base, ruleVersions: [...base.ruleVersions, changing(base.ruleVersions[0], "version", 7, 1)] },
-      { ...base, reviews: [...base.reviews, changing(base.reviews[0], "extra", fn, null, { reviewedAt: "2026-03-01T00:00:00Z" })] },
-    ];
-    for (const catalogue of variants) {
-      expect(stateOf({ catalogue, effectiveAt: AT, knowledgeCutoff: EARLY, evidence: [ful("e-1", INSIDE)] })).toBe("UNSUPPORTED");
-    }
-  });
 
   it("an animal id claimed by an invalid ledger and a valid one is a duplicate: never evaluated (the audit's F006 reproduction)", () => {
     const ovine = { ...BASE_LEDGER(), species: "OVINE" };
@@ -1277,5 +1233,188 @@ describe("C2 remediation — caller data is captured once before cloning; unstab
     const other = ledgerOf([dob("b-dob", DOB, undefined, { animalId: B })], B);
     const herd = herdOf([ful("e-1", INSIDE)], [ovine, other]);
     expect(herd.animals.map((a) => a.animalId)).toEqual([B]);
+  });
+});
+
+describe("C2 final remediation — single-pass detached input materialisation (F005 matrix A–I)", () => {
+  const EARLY = "2026-03-21T00:00:00Z";
+  const AT = "2026-04-01T00:00:00Z";
+  const LATE_RECEIPT = "2026-04-02T00:00:00Z";
+  const KNOWN_RECEIPT = "2026-03-01T00:00:00Z";
+  /** Defines `key` on `o` as a getter returning `values[n]` on read n (last value repeats) and counting reads. */
+  const sequence = (o: Record<string, unknown>, key: string, values: unknown[]) => {
+    const counter = { reads: 0 };
+    delete o[key];
+    Object.defineProperty(o, key, { enumerable: true, configurable: true, get: () => values[Math.min(counter.reads++, values.length - 1)] });
+    return counter;
+  };
+  const evaluate = (evidence: unknown[], knowledgeCutoff = EARLY) => run({ effectiveAt: AT, knowledgeCutoff, evidence });
+  const herd = (evidence: unknown[], knowledgeCutoff = EARLY) => {
+    const r = evaluateHerdObligations({ ledgers: [BASE_LEDGER()], evidence, catalogue: catalogueOf(), query: { effectiveAt: AT, knowledgeCutoff, obligationIds: [OBL] } }, hash);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    return r.herd.animals[0];
+  };
+  const baseline = () => evaluate([ful("e-1", INSIDE)]);
+  const second = (receivedAt = KNOWN_RECEIPT) => ful("e-2", "2026-03-06T00:00:00Z", { provenance: { sourceCategory: "FARMER", receivedAt } }) as Record<string, unknown>;
+
+  it("A — receivedAt stable, another provenance field changes between reads: read once, the first captured value decides", () => {
+    for (const [values, expected] of [[["SYNTH-NOT-A-CATEGORY", "FARMER"], "INVALID_EVIDENCE"], [["FARMER", "SYNTH-NOT-A-CATEGORY"], "SATISFIED"]] as const) {
+      for (const via of [evaluate, herd] as const) {
+        const record = second();
+        const counter = sequence(record.provenance as Record<string, unknown>, "sourceCategory", [...values]);
+        const result = via([ful("e-1", INSIDE), record]);
+        expect(counter.reads).toBe(1);
+        expect(("results" in result ? result.results : [])[0].state).toBe(expected);
+      }
+    }
+  });
+
+  it("B — receivedAt itself changes between reads: read once; the first captured time decides admission", () => {
+    // First read later than the cutoff: invisible (zero effect), even though a re-read would say "known".
+    const later = second();
+    const c1 = sequence(later.provenance as Record<string, unknown>, "receivedAt", [LATE_RECEIPT, KNOWN_RECEIPT]);
+    expect(evaluate([ful("e-1", INSIDE), later])).toEqual(baseline());
+    expect(c1.reads).toBe(1);
+    // First read known: admitted and validated from that same single snapshot.
+    const known = { ...second(), fulfilledAt: "2026-03-20T00:00:00Z" } as Record<string, unknown>;
+    const c2 = sequence(known.provenance as Record<string, unknown>, "receivedAt", [KNOWN_RECEIPT, LATE_RECEIPT]);
+    expect(only(evaluate([ful("e-1", INSIDE), known])).state).toBe("EVIDENCE_CONFLICT"); // in-window and late fulfilments disagree
+    expect(c2.reads).toBe(1);
+  });
+
+  it("C — a nested provenance getter changing between reads: only the one captured value affects evaluation", () => {
+    for (const via of [evaluate, herd] as const) {
+      const record = second();
+      const counter = sequence(record, "provenance", [{ sourceCategory: 7, receivedAt: KNOWN_RECEIPT }, { sourceCategory: "FARMER", receivedAt: KNOWN_RECEIPT }]);
+      const result = via([ful("e-1", INSIDE), record]);
+      expect(counter.reads).toBe(1);
+      expect(("results" in result ? result.results : [])[0].state).toBe("INVALID_EVIDENCE");
+    }
+  });
+
+  it("D — a future record whose payload is not data has zero historical effect (animal and herd)", () => {
+    const executed = vi.fn(() => "executed");
+    const future = { ...second(LATE_RECEIPT), extra: executed, nested: { more: Symbol("x"), big: BigInt(1) } };
+    expect(evaluate([ful("e-1", INSIDE), future])).toEqual(baseline());
+    expect(herd([ful("e-1", INSIDE), future])).toEqual(herd([ful("e-1", INSIDE)]));
+    expect(executed).not.toHaveBeenCalled();
+  });
+
+  it("E — a known record whose payload is not data fails closed, and nothing in it is executed", () => {
+    const executed = vi.fn(() => "executed");
+    for (const bad of [{ ...second(), extra: executed }, { ...second(), provenance: { sourceCategory: "FARMER", receivedAt: KNOWN_RECEIPT, when: new Date(0) } }]) {
+      const ev = evaluate([ful("e-1", INSIDE), bad]);
+      expect(only(ev).state).toBe("INVALID_EVIDENCE");
+      expect(ev.evidenceIssues.map((i) => i.code)).toContain("CATTLE_OBLIGATION_EVIDENCE_NOT_CLONEABLE");
+      expect(herd([ful("e-1", INSIDE), bad]).results[0].state).toBe("INVALID_EVIDENCE");
+    }
+    // A record whose knowledge time cannot be established fails closed too.
+    const unreadable = second() as Record<string, unknown>;
+    sequence(unreadable, "provenance", [() => "not data"]);
+    expect(only(evaluate([ful("e-1", INSIDE), unreadable])).state).toBe("INVALID_EVIDENCE");
+    expect(executed).not.toHaveBeenCalled();
+  });
+
+  it("F/G — mutating the caller's object or a nested object after the call changes nothing", () => {
+    const record = second() as Record<string, unknown>;
+    const ev = evaluate([ful("e-1", INSIDE), record]);
+    const frozenCopy = structuredClone(ev);
+    record.fulfilledAt = "2026-03-30T00:00:00Z";
+    (record.provenance as Record<string, unknown>).sourceCategory = "SYNTH-MUTATED";
+    (record.provenance as Record<string, unknown>).receivedAt = LATE_RECEIPT;
+    expect(ev).toEqual(frozenCopy);
+    expect(Object.isFrozen(ev.results[0].evidence)).toBe(true);
+    // A catalogue mutated after the call does not alter the returned result either.
+    const catalogue = catalogueOf() as unknown as { definitions: Record<string, unknown>[] };
+    const viaCatalogue = run({ catalogue, effectiveAt: AT, knowledgeCutoff: EARLY, evidence: [ful("e-1", INSIDE)] });
+    const before = structuredClone(viaCatalogue);
+    (catalogue.definitions[0].terms as Record<string, unknown>).obligationKind = "SYNTH-MUTATED";
+    expect(viaCatalogue).toEqual(before);
+  });
+
+  it("H — the same materialised snapshot evaluated repeatedly gives an identical result and fingerprint", () => {
+    const snap = snapshotInput(second());
+    expect(snap.nonData).toBe(false);
+    expect(Object.isFrozen(snap.value) && Object.isFrozen((snap.value as Record<string, unknown>).provenance)).toBe(true);
+    const first = evaluate([ful("e-1", INSIDE), snap.value]);
+    const again = evaluate([ful("e-1", INSIDE), snap.value]);
+    expect(again).toEqual(first);
+    expect(only(again).fingerprint).toEqual(only(first).fingerprint);
+    expect(snapshotInput(snap.value)).toEqual(snap);
+  });
+
+  it("I — every semantic property the engine needs is read at most once per evaluation (access counters)", () => {
+    const reads = new Map<string, number>();
+    const counting = <T>(value: T, path: string): T => {
+      if (value === null || typeof value !== "object") return value;
+      const target = value as unknown as object;
+      return new Proxy(target, {
+        get(o, key, receiver) {
+          if (typeof key === "string") reads.set(`${path}.${key}#get`, (reads.get(`${path}.${key}#get`) ?? 0) + 1);
+          return counting(Reflect.get(o, key, receiver), `${path}.${String(key)}`);
+        },
+        getOwnPropertyDescriptor(o, key) {
+          const d = Reflect.getOwnPropertyDescriptor(o, key);
+          if (typeof key === "string") reads.set(`${path}.${key}#desc`, (reads.get(`${path}.${key}#desc`) ?? 0) + 1);
+          return d && "value" in d ? { ...d, value: counting(d.value, `${path}.${String(key)}`) } : d;
+        },
+      }) as unknown as T;
+    };
+    // Unfrozen plain copies: a Proxy over a frozen target cannot wrap nested values (Proxy invariants).
+    const cat = catalogueOf();
+    const { implementations, ...data } = cat;
+    const catalogue = counting({ ...structuredClone(data), implementations }, "catalogue");
+    const evidence = counting([ful("e-1", INSIDE), second()], "evidence");
+    const ledger = counting(structuredClone(BASE_LEDGER()), "ledger");
+    const result = evaluateAnimalObligations({ ledger, evidence, catalogue, query: { effectiveAt: AT, knowledgeCutoff: EARLY, obligationIds: [OBL] } }, hash);
+    expect(result.ok && result.evaluation.results[0].state).toBe("SATISFIED");
+    // Each property: one read in total (a getter call or a descriptor read), never both, never twice.
+    const perProperty = new Map<string, number>();
+    for (const [key, n] of reads) {
+      const prop = key.replace(/#(get|desc)$/, "");
+      perProperty.set(prop, (perProperty.get(prop) ?? 0) + n);
+    }
+    const repeated = [...perProperty].filter(([prop, n]) => n > 1 && !prop.endsWith(".implementations") && !prop.includes(".implementations."));
+    expect(repeated).toEqual([]);
+    for (const prop of ["evidence.1.provenance", "evidence.1.provenance.receivedAt", "evidence.1.provenance.sourceCategory", "catalogue.definitions.0.recordedAt", "catalogue.reviews.0.reviewedAt", "ledger.animalId"]) {
+      expect(perProperty.get(prop)).toBe(1);
+    }
+  });
+});
+
+describe("C2 final remediation — duplicate animal identity before ledger validity (F006)", () => {
+  const AT = "2026-04-01T00:00:00Z";
+  const ovine = () => ({ ...BASE_LEDGER(), species: "OVINE" });
+  const badSchema = () => ({ ...BASE_LEDGER(), ledgerSchemaVersion: 99 });
+  const herdOf = (ledgers: unknown[]) => {
+    const r = evaluateHerdObligations({ ledgers, evidence: [ful("e-1", INSIDE)], catalogue: catalogueOf(), query: { effectiveAt: AT, knowledgeCutoff: CUTOFF, obligationIds: [OBL] } }, hash);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    return r.herd;
+  };
+  const dup = { code: "CATTLE_OBLIGATION_HERD_DUPLICATE_ANIMAL", animalId: A };
+  const invalid = { code: "CATTLE_OBLIGATION_HERD_INVALID_LEDGER", animalId: A };
+
+  it("two valid, one valid + one invalid, and two invalid ledgers with one id are all duplicates", () => {
+    expect(herdOf([BASE_LEDGER(), BASE_LEDGER()]).issues).toContainEqual(dup);
+    expect(herdOf([BASE_LEDGER(), ovine()]).issues).toEqual(expect.arrayContaining([dup, invalid]));
+    const twoInvalid = herdOf([ovine(), badSchema()]);
+    expect(twoInvalid.issues.filter((i) => i.code === "CATTLE_OBLIGATION_HERD_INVALID_LEDGER")).toEqual([invalid, invalid]);
+    expect(twoInvalid.issues).toContainEqual(dup);
+    expect(twoInvalid.animals).toEqual([]);
+  });
+
+  it("three ledgers with one id report one duplicate deterministically; order never matters", () => {
+    const three = [BASE_LEDGER(), ovine(), badSchema()];
+    const a = herdOf(three);
+    expect(a.issues.filter((i) => i.code === "CATTLE_OBLIGATION_HERD_DUPLICATE_ANIMAL")).toEqual([dup]);
+    expect(a.animals).toEqual([]);
+    for (const order of [[1, 2, 0], [2, 0, 1], [2, 1, 0]]) expect(herdOf(order.map((i) => three[i]))).toEqual(a);
+  });
+
+  it("an invalid ledger with an unreadable id keeps the existing invalid-ledger behaviour and invents no id", () => {
+    const r = herdOf([{ ...BASE_LEDGER(), animalId: 42 }, BASE_LEDGER()]);
+    expect(r.issues).toEqual(expect.arrayContaining([{ code: "CATTLE_OBLIGATION_HERD_INVALID_LEDGER", animalId: null }]));
+    expect(r.issues.some((i) => i.code === "CATTLE_OBLIGATION_HERD_DUPLICATE_ANIMAL")).toBe(false);
+    expect(r.animals.map((x) => x.animalId)).toEqual([A]);
   });
 });

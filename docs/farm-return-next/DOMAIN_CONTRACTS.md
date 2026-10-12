@@ -3504,6 +3504,7 @@ machinery once (`bitemporal-records.ts`) for later phases to import.
 | `obligation-anchor.ts` | `obligationInputsFromSnapshot` — C1 → C0 inputs under fixed keys `cattle.animal.species/dateOfBirth/sex` (FACT), `cattle.animal.lifecycleStatus/location.kind/location.ref/managementGroup` (OBSERVATION), `cattle.animal.externalIdentifier.<scheme>` (FACT); items only for KNOWN dimensions, one per supporting C1 assertion (provenance = assertion id + `receivedAt`); breed not exposed. `obligationInputDimensionState`. `deriveObligationOccurrences` (see below) |
 | `obligation-engine.ts` | `ObligationState`, `evaluateAnimalObligations` → `AnimalObligationEvaluation` of `ObligationStateRecord`s; `verifyObligationStateRecord`; `evaluateHerdObligations` |
 | `obligation-hard-gates.ts` | `projectObligationHardGates`, `obligationStateToPackState` |
+| `input-snapshot.ts` | `snapshotInput` / `snapshotListOnce` / `readListOnce` / `snapshotField` — the single-pass caller-input boundary (each semantic property read at most once into a detached deep-frozen snapshot; NON_DATA recorded, never executed) |
 | `obligation-integrity.ts` | `computeObligationFingerprint` / `verifyObligationFingerprint`, `CATTLE_OBLIGATION_PAYLOAD_VERSION` |
 
 **Version and knowledge selection.** The C0 evaluation date is the UTC calendar date of
@@ -3543,11 +3544,20 @@ alongside any known occurrences — a satisfied occurrence never hides it, and t
 projection folds it into the rule's state. Without occurrences the worse of the derivation and
 the whole-life resolution is reported. Evidence admission precedes cloning (animal and herd):
 evidence provably received after the cutoff — even uncloneable or unattributable — is set
-aside before validation or herd partitioning. Admission metadata (knowledge time; the herd's
-animal id; a rule version's identity) is captured once BEFORE cloning and the input is cloned
-once: a clone failure is set aside only when the captured time is provably later, otherwise it
-fails closed without retaining, re-reading or retrying the caller's object; metadata that differs
-between the capture and the clone (a changing getter) fails closed. Occurrence id `<obligationId>|<anchorKind>|<t>`.
+aside before validation or herd partitioning. **Input boundary** (`input-snapshot.ts`):
+every caller value — query, ledger, evidence records (animal, herd and evidence-log APIs),
+catalogue definitions/rule versions/sources/reviews, a log being appended to and an evaluation
+being projected — is read exactly once by `snapshotInput` into a detached, deep-frozen plain
+snapshot (lists by `length` once and each index once; plain objects by own enumerable string
+keys, each read once — a data property via its descriptor, an accessor's getter invoked once;
+functions, symbols, bigints, class instances such as Date/Map, cycles, excessive depth or a
+throwing read are recorded as NON_DATA and never executed or coerced). Admission, validation,
+supersession, evaluation and fingerprinting consume only that snapshot; the caller's object is
+never read again, so a changing getter or a later mutation of the object or any nested object
+(e.g. `provenance`) has no effect — the first captured value decides. From the one snapshot: a
+knowledge time provably after the cutoff ⇒ invisible (even NON_DATA); otherwise NON_DATA or
+malformed content fails closed; an unreadable knowledge time fails closed. Rule implementations
+(executable by design) are captured once per entry. Occurrence id `<obligationId>|<anchorKind>|<t>`.
 
 **Window.** `opensAt = anchor + opensAfter`, `dueAt = anchor + dueAfter`; inclusive start;
 exclusive end unless the rule declares `INCLUSIVE_START_INCLUSIVE_END`. Unrepresentable ⇒
@@ -3599,9 +3609,11 @@ NOT_APPLICABLE) plus `requiredHardGateRuleIds`, ready for `buildRecommendationEv
 (BLOCKED ⇒ pack BLOCKED; empty catalogue ⇒ pack INSUFFICIENT_EVIDENCE).
 
 **Herd.** `evaluateHerdObligations` evaluates each distinct valid animal (sorted; input-order
-independent). Invalid ledgers and animal ids supplied by more than one ledger — valid or
-invalid; an id claimed by an invalid ledger and a valid one is a duplicate — are reported and
-not evaluated (never merged); evidence for an unevaluated animal is reported; evidence with no
+independent). Identity admission precedes validity filtering: every readable animal id is
+counted across all supplied ledgers, valid or not, so two or more ledgers claiming one id are
+reported once as a duplicate (in addition to each invalid-ledger issue) and that animal is not
+evaluated (never merged); an unreadable id is reported as an invalid ledger and no id is
+invented; evidence for an unevaluated animal is reported; evidence with no
 readable animal id is reported and offered to every animal so each evidence log fails closed.
 
 **Known limitations.** No real obligation content exists (empty catalogue). Source catalogue

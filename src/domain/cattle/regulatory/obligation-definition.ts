@@ -58,6 +58,7 @@ import type {
   RuleVersionRef,
 } from "../rule";
 import type { CattleEvidenceSource, CattleSourceAuthorityKind, CattleSourceLifecycle, SourceVersionRef } from "../source";
+import { readListOnce, snapshotField, snapshotListOnce, type InputSnapshot } from "./input-snapshot";
 import { computeObligationFingerprint } from "./obligation-integrity";
 import { canonicalObligationInstant, isValidObligationOffset, obligationOffsetSeconds, type ObligationOffset } from "./obligation-time";
 
@@ -417,40 +418,28 @@ function ruleIdentity(ruleId: unknown, version: unknown): string | null {
   return isString(ruleId) && Number.isSafeInteger(version) ? canonicalizeValue([ruleId, version]) : null;
 }
 
+/**
+ * Reads the caller's catalogue envelope exactly once: the five list
+ * references, each list's elements once, each data record into a snapshot.
+ * `null` when the envelope or a list is not readable as such.
+ */
+function snapshotTopLevel(raw: unknown): { definitions: InputSnapshot[]; ruleVersions: InputSnapshot[]; sources: InputSnapshot[]; reviews: InputSnapshot[]; implementations: unknown[] } | null {
+  if (!isRecord(raw)) return null;
+  try {
+    const { definitions, ruleVersions, sources, reviews, implementations } = raw;
+    const lists = [definitions, ruleVersions, sources, reviews].map(snapshotListOnce);
+    const impls = readListOnce(implementations);
+    if (lists.some((l) => l === null) || impls === null) return null;
+    const [d, r, s, v] = lists as InputSnapshot[][];
+    return { definitions: d, ruleVersions: r, sources: s, reviews: v, implementations: impls };
+  } catch {
+    return null;
+  }
+}
+
 /** Strict-UTC knowledge time provably after the cutoff (an unreadable time is never "after"). */
 function provablyAfter(value: unknown, cutoff: string | null): boolean {
   return cutoff !== null && isValidAnimalInstant(value) && compareInstants(value, cutoff) > 0;
-}
-
-/** Reads one property of a caller value exactly once; a throwing getter or non-object reads as `undefined`. */
-function readOnce(item: unknown, key: string): unknown {
-  if (item === null || typeof item !== "object") return undefined;
-  try {
-    return (item as Record<string, unknown>)[key];
-  } catch {
-    return undefined;
-  }
-}
-
-type Admission = { status: "LATER"; copy: unknown } | { status: "ADMITTED"; copy: unknown } | { status: "NOT_CLONEABLE" };
-
-/**
- * Admits ONE timestamped record by its own knowledge time before anything
- * else about it is trusted. The record is cloned on its own; if it cannot
- * be cloned, only its knowledge-time property is read (once): provably after
- * the cutoff ⇒ set aside, otherwise it fails closed.
- */
-function admitTimestamped(item: unknown, timeKey: string, cutoff: string | null): Admission {
-  const captured = readOnce(item, timeKey); // captured once, BEFORE cloning
-  let copy: unknown;
-  try {
-    copy = structuredClone(item);
-  } catch {
-    return provablyAfter(captured, cutoff) ? { status: "LATER", copy: undefined } : { status: "NOT_CLONEABLE" };
-  }
-  // A clone whose knowledge time differs from the captured one (a changing getter) fails closed.
-  if (readOnce(copy, timeKey) !== captured) return { status: "NOT_CLONEABLE" };
-  return provablyAfter(captured, cutoff) ? { status: "LATER", copy } : { status: "ADMITTED", copy };
 }
 
 interface AdmittedCatalogue {
@@ -464,86 +453,75 @@ interface AdmittedCatalogue {
 }
 
 /**
- * Knowledge-time admission — applied per record before any validation, and
- * decided ONLY by records known at the cutoff, so nothing recorded after the
- * cutoff (valid, malformed, contradictory or uncloneable) can change an
- * earlier reconstruction, and admission is monotonic in knowledge time:
+ * Knowledge-time admission over SNAPSHOTS (`snapshotInput`: every caller
+ * record was read exactly once into detached plain data before this runs;
+ * nothing here or later reads a caller object). Decided per record and only
+ * by records known at the cutoff, so nothing recorded after it — valid,
+ * malformed, contradictory or not data — changes an earlier reconstruction:
  * - definitions (`recordedAt`), reviews (`reviewedAt`) and sources
- *   (`retrievedAt`) carry their own knowledge time: provably after the cutoff
- *   ⇒ set aside unvalidated; otherwise (including an unreadable time)
- *   admitted and validated, so malformed entries still fail closed;
- * - rule versions and implementations carry none: a rule version is relevant
- *   at the cutoff only when an ADMITTED definition or review names it, and an
- *   implementation only when an admitted, relevant rule version names it.
+ *   (`retrievedAt`): the snapshot's knowledge time provably after the cutoff
+ *   ⇒ set aside unvalidated; otherwise (including an unreadable time) the
+ *   snapshot is validated — one that is not data fails closed;
+ * - rule versions and implementations carry no knowledge time: a rule
+ *   version is relevant only when an ADMITTED definition or review names it,
+ *   an implementation only when an admitted, relevant rule version names it.
  *   Irrelevant ones cannot affect any obligation at that cutoff and are not
- *   validated; one whose identity cannot be read is admitted and fails
- *   closed. A later record can never make an earlier one relevant or not.
+ *   validated; an unreadable identity is relevant (fails closed if bad).
  * Without a cutoff every record is admitted and validated.
  */
-function admitKnownCatalogue(raw: { definitions: unknown[]; ruleVersions: unknown[]; sources: unknown[]; reviews: unknown[]; implementations: unknown[] }, cutoff: string | null): AdmittedCatalogue {
+function admitKnownCatalogue(
+  raw: { definitions: InputSnapshot[]; ruleVersions: InputSnapshot[]; sources: InputSnapshot[]; reviews: InputSnapshot[]; implementations: unknown[] },
+  cutoff: string | null,
+): AdmittedCatalogue {
   const issues: ObligationCatalogueIssue[] = [];
   const later = new Map<string, LaterObligationDefinitionRef>();
   const named = new Set<string>();
-  const admitAll = (items: unknown[], timeKey: string, onAdmit: (copy: unknown) => void, onLater: (copy: unknown) => void = () => {}) => {
-    for (const item of items) {
-      const a = admitTimestamped(item, timeKey, cutoff);
-      if (a.status === "NOT_CLONEABLE") issues.push({ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null });
-      else if (a.status === "LATER") onLater(a.copy);
-      else onAdmit(a.copy);
+  const admitAll = (items: InputSnapshot[], timeKey: string, onAdmit: (value: unknown) => void, onLater: (value: unknown) => void = () => {}) => {
+    for (const snap of items) {
+      if (provablyAfter(snapshotField(snap.value, timeKey), cutoff)) onLater(snap.value);
+      else if (snap.nonData) issues.push({ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null });
+      else onAdmit(snap.value);
     }
   };
   const definitions: unknown[] = [];
   admitAll(
     raw.definitions,
     "recordedAt",
-    (copy) => {
-      const identity = isRecord(copy) ? ruleIdentity(copy.ruleId, copy.ruleVersion) : null;
+    (value) => {
+      const identity = isRecord(value) ? ruleIdentity(value.ruleId, value.ruleVersion) : null;
       if (identity) named.add(identity);
-      definitions.push(copy);
+      definitions.push(value);
     },
-    (copy) => {
-      if (!isRecord(copy)) return;
-      const { obligationId, ruleId, ruleVersion } = copy;
+    (value) => {
+      if (!isRecord(value)) return;
+      const { obligationId, ruleId, ruleVersion } = value;
       if (isOpaqueRef(obligationId) && isOpaqueRef(ruleId) && isPositiveInteger(ruleVersion)) {
         later.set(canonicalizeValue([obligationId, ruleId, ruleVersion]), { obligationId, ruleId, ruleVersion });
       }
     },
   );
   const reviews: unknown[] = [];
-  admitAll(raw.reviews, "reviewedAt", (copy) => {
-    const identity = isRecord(copy) ? ruleIdentity(copy.ruleId, copy.ruleVersion) : null;
+  admitAll(raw.reviews, "reviewedAt", (value) => {
+    const identity = isRecord(value) ? ruleIdentity(value.ruleId, value.ruleVersion) : null;
     if (identity) named.add(identity);
-    reviews.push(copy);
+    reviews.push(value);
   });
   const sources: unknown[] = [];
-  admitAll(raw.sources, "retrievedAt", (copy) => sources.push(copy));
+  admitAll(raw.sources, "retrievedAt", (value) => sources.push(value));
 
   const relevant = (identity: string | null) => cutoff === null || identity === null || named.has(identity);
   const namedImpls = new Set<string>();
   const ruleVersions: unknown[] = [];
-  for (const item of raw.ruleVersions) {
-    // Identity captured once, BEFORE cloning; never re-read from the caller.
-    const capturedId = readOnce(item, "ruleId");
-    const capturedVersion = readOnce(item, "version");
-    const identity = ruleIdentity(capturedId, capturedVersion);
-    let copy: unknown;
-    try {
-      copy = structuredClone(item);
-    } catch {
-      if (!relevant(identity)) continue;
-      issues.push({ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null });
-      continue;
-    }
-    const r = isRecord(copy) ? copy : null;
-    if (r && (r.ruleId !== capturedId || r.version !== capturedVersion)) {
-      // Identity changed while it was read (a changing getter): always fails closed.
-      issues.push({ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null });
-      continue;
-    }
+  for (const snap of raw.ruleVersions) {
+    const identity = ruleIdentity(snapshotField(snap.value, "ruleId"), snapshotField(snap.value, "version"));
     if (!relevant(identity)) continue;
-    const impl = r && isRecord(r.implementation) ? ruleIdentity(r.implementation.implementationId, r.implementation.version) : null;
+    if (snap.nonData) {
+      issues.push({ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null });
+      continue;
+    }
+    const impl = ruleIdentity(snapshotField(snap.value, "implementation", "implementationId"), snapshotField(snap.value, "implementation", "version"));
     if (impl) namedImpls.add(impl);
-    ruleVersions.push(copy);
+    ruleVersions.push(snap.value);
   }
   const implementations: unknown[] = [];
   for (const item of raw.implementations) {
@@ -551,7 +529,7 @@ function admitKnownCatalogue(raw: { definitions: unknown[]; ruleVersions: unknow
       implementations.push(item);
       continue;
     }
-    // Each property read exactly once; validation reads this plain capture.
+    // Executable code, not data: each property read exactly once into a plain capture.
     let captured: { implementationId: unknown; version: unknown; evaluate: unknown };
     try {
       const { implementationId, version, evaluate } = item as Record<string, unknown>;
@@ -568,26 +546,20 @@ function admitKnownCatalogue(raw: { definitions: unknown[]; ruleVersions: unknow
 }
 
 /**
- * Validates and materialises a supplied catalogue. Order-independent: every
- * list is sorted canonically; identical duplicates collapse; any malformed
- * or contradictory ADMITTED entry fails the whole catalogue (never partially
- * used). With a `knowledgeCutoff`, records are first admitted by knowledge
- * time (`admitKnownCatalogue`): anything provably recorded after the cutoff
- * is set aside unvalidated; anything with an unreadable knowledge time stays
- * in and fails closed.
+ * Validates and materialises a supplied catalogue. The caller's catalogue is
+ * read once: its five lists once each, every data record once into a
+ * detached snapshot (`snapshotInput`), every implementation once into a
+ * plain capture. Order-independent: every list is sorted canonically;
+ * identical duplicates collapse; any malformed or contradictory ADMITTED
+ * entry fails the whole catalogue (never partially used). With a
+ * `knowledgeCutoff`, records are first admitted by knowledge time
+ * (`admitKnownCatalogue`).
  */
 export function materialiseObligationCatalogue(raw: unknown, knowledgeCutoff?: string): ObligationCatalogueResult {
-  if (!isRecord(raw)) return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_MALFORMED", ref: null }] };
-  const { definitions, ruleVersions, sources, reviews, implementations } = raw;
-  if (![definitions, ruleVersions, sources, reviews, implementations].every(Array.isArray)) {
-    return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_MALFORMED", ref: null }] };
-  }
+  const top = snapshotTopLevel(raw);
+  if (!top) return { ok: false, issues: [{ code: "CATTLE_OBLIGATION_CATALOGUE_MALFORMED", ref: null }] };
   const cutoff = knowledgeCutoff !== undefined && isValidAnimalInstant(knowledgeCutoff) ? knowledgeCutoff : null;
-  const list = (v: unknown) => Array.from(v as unknown[]);
-  const data = admitKnownCatalogue(
-    { definitions: list(definitions), ruleVersions: list(ruleVersions), sources: list(sources), reviews: list(reviews), implementations: list(implementations) },
-    cutoff,
-  );
+  const data = admitKnownCatalogue(top, cutoff);
   const issues: ObligationCatalogueIssue[] = [...data.issues];
   const later = data.later;
   const defs = new Map<string, { def: ObligationDefinition; key: string }>();

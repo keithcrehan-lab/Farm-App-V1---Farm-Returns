@@ -1209,3 +1209,73 @@ describe("C2 remediation — evidence received after the cutoff is admitted out 
     }
   });
 });
+
+describe("C2 remediation — caller data is captured once before cloning; unstable or uncloneable input fails closed", () => {
+  const EARLY = "2026-03-21T00:00:00Z";
+  const AT = "2026-04-01T00:00:00Z";
+  const fn = () => "not data";
+  /** A getter returning `first` on the first read and `rest` afterwards. */
+  const changing = <T extends object>(base: T, key: string, first: unknown, rest: unknown, extra: Record<string, unknown> = {}): T => {
+    let reads = 0;
+    const o = { ...base, ...extra } as Record<string, unknown>;
+    delete o[key];
+    Object.defineProperty(o, key, { enumerable: true, get: () => (reads++ === 0 ? first : rest) });
+    return o as T;
+  };
+  const herdOf = (evidence: unknown[], ledgers: unknown[] = [BASE_LEDGER()], catalogue: unknown = catalogueOf()) => {
+    const r = evaluateHerdObligations({ ledgers, evidence, catalogue: catalogue as ObligationCatalogue, query: { effectiveAt: AT, knowledgeCutoff: EARLY, obligationIds: [OBL] } }, hash);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    return r.herd;
+  };
+
+  it("evidence whose knowledge time changes between reads never clears a gate (animal and herd)", () => {
+    const prov = (receivedAt: string) => ({ sourceCategory: "FARMER", receivedAt });
+    // Factories: each evaluation gets a fresh getter (a consumed one would read stably).
+    const unstable = [
+      // later on the first read, known on the next: must not be set aside as later nor admitted as clean
+      () => changing(ful("e-2", "2026-03-06T00:00:00Z"), "provenance", prov("2026-04-02T00:00:00Z"), prov("2026-03-01T00:00:00Z")),
+      // known on the first read, later on the next
+      () => changing(ful("e-2", "2026-03-06T00:00:00Z"), "provenance", prov("2026-03-01T00:00:00Z"), prov("2026-04-02T00:00:00Z")),
+      // uncloneable on the first attempt only is never retried
+      () => changing(ful("e-2", "2026-03-06T00:00:00Z"), "extra", fn, null),
+    ];
+    for (const bad of unstable) {
+      const ev = run({ effectiveAt: AT, knowledgeCutoff: EARLY, evidence: [ful("e-1", INSIDE), bad()] });
+      expect(only(ev).state).toBe("INVALID_EVIDENCE");
+      expect(ev.evidenceIssues.length).toBeGreaterThan(0);
+      expect(herdOf([ful("e-1", INSIDE), bad()]).animals[0].results[0].state).toBe("INVALID_EVIDENCE");
+    }
+    // An animal id that changes between reads is never trusted for partitioning.
+    const movingAnimal = changing(ful("e-2", INSIDE), "animalId", A, "SYNTH-ANIMAL-OTHER");
+    expect(herdOf([ful("e-1", INSIDE), movingAnimal]).animals[0].results[0].state).toBe("INVALID_EVIDENCE");
+  });
+
+  it("catalogue records whose knowledge time or identity changes between reads fail closed", () => {
+    const base = catalogueOf();
+    const variants = [
+      { ...base, reviews: [...base.reviews, changing(base.reviews[0], "reviewedAt", "2026-04-02T00:00:00Z", "2026-03-01T00:00:00Z")] },
+      { ...base, reviews: [...base.reviews, changing(base.reviews[0], "reviewedAt", "2026-03-01T00:00:00Z", "2026-04-02T00:00:00Z")] },
+      { ...base, definitions: [...base.definitions, changing(definition({ ruleVersion: 2 }), "recordedAt", "2026-04-02T00:00:00Z", "2026-03-01T00:00:00Z")] },
+      { ...base, sources: [...base.sources, changing({ ...LEGAL_SOURCE, version: "SYNTH-v9" }, "retrievedAt", "2026-04-02T00:00:00Z", "2026-03-01T00:00:00Z")] },
+      { ...base, ruleVersions: [...base.ruleVersions, changing(base.ruleVersions[0], "version", 7, 1)] },
+      { ...base, reviews: [...base.reviews, changing(base.reviews[0], "extra", fn, null, { reviewedAt: "2026-03-01T00:00:00Z" })] },
+    ];
+    for (const catalogue of variants) {
+      expect(stateOf({ catalogue, effectiveAt: AT, knowledgeCutoff: EARLY, evidence: [ful("e-1", INSIDE)] })).toBe("UNSUPPORTED");
+    }
+  });
+
+  it("an animal id claimed by an invalid ledger and a valid one is a duplicate: never evaluated (the audit's F006 reproduction)", () => {
+    const ovine = { ...BASE_LEDGER(), species: "OVINE" };
+    for (const ledgers of [[BASE_LEDGER(), ovine], [ovine, BASE_LEDGER()], [BASE_LEDGER(), { ...BASE_LEDGER(), extra: fn }]]) {
+      const herd = herdOf([ful("e-1", INSIDE)], ledgers);
+      expect(herd.animals).toEqual([]);
+      expect(herd.issues).toContainEqual({ code: "CATTLE_OBLIGATION_HERD_DUPLICATE_ANIMAL", animalId: A });
+      expect(herd.issues).toContainEqual({ code: "CATTLE_OBLIGATION_HERD_INVALID_LEDGER", animalId: A });
+    }
+    // A lone invalid ledger is reported, and other animals are unaffected.
+    const other = ledgerOf([dob("b-dob", DOB, undefined, { animalId: B })], B);
+    const herd = herdOf([ful("e-1", INSIDE)], [ovine, other]);
+    expect(herd.animals.map((a) => a.animalId)).toEqual([B]);
+  });
+});

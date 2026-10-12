@@ -583,28 +583,60 @@ function receivedAfter(receivedAt: unknown, knowledgeCutoff: string): boolean {
 }
 
 /**
+ * Stands in for an input that could not be admitted as plain data (it could
+ * not be cloned, or its admission metadata changed while it was read). It is
+ * never cloneable, so the log reports it as not cloneable and fails closed —
+ * and the caller's object is never retained, re-read or retried.
+ */
+const UNADMITTABLE_EVIDENCE: unknown = Object.freeze(() => undefined);
+
+type EvidenceAdmission = { status: "LATER" } | { status: "ADMITTED"; copy: unknown };
+
+/**
+ * Admits ONE raw evidence input. Its admission metadata (knowledge time, and
+ * any `extra` keys such as the herd's animal id) is captured exactly once
+ * BEFORE cloning; the input is then cloned once. Clone failure ⇒ set aside
+ * only when the captured time is provably after the cutoff, otherwise
+ * UNADMITTABLE (fail closed). A clone whose metadata differs from the
+ * captured metadata (a changing getter) ⇒ UNADMITTABLE. Otherwise the clone
+ * decides: provably later ⇒ set aside; else admitted.
+ */
+function admitEvidenceInput(input: unknown, knowledgeCutoff: string, extra: readonly string[] = []): EvidenceAdmission & { captured: Record<string, unknown> } {
+  const captured: Record<string, unknown> = { receivedAt: evidenceKnowledgeTime(input) };
+  for (const key of extra) captured[key] = readEvidenceKey(input, key);
+  let copy: unknown;
+  try {
+    copy = structuredClone(input);
+  } catch {
+    return receivedAfter(captured.receivedAt, knowledgeCutoff) ? { status: "LATER", captured } : { status: "ADMITTED", copy: UNADMITTABLE_EVIDENCE, captured };
+  }
+  const stable = evidenceKnowledgeTime(copy) === captured.receivedAt && extra.every((key) => readEvidenceKey(copy, key) === captured[key]);
+  if (!stable) return { status: "ADMITTED", copy: UNADMITTABLE_EVIDENCE, captured };
+  return receivedAfter(captured.receivedAt, knowledgeCutoff) ? { status: "LATER", captured } : { status: "ADMITTED", copy, captured };
+}
+
+function readEvidenceKey(input: unknown, key: string): unknown {
+  if (input === null || typeof input !== "object") return undefined;
+  try {
+    return (input as Record<string, unknown>)[key];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Evidence that provably arrived after the cutoff (a valid `receivedAt` later
  * than it) does not exist for this query, so a later record — even a
  * malformed, contradictory or uncloneable one — can never change an earlier
- * reconstruction. Admission comes first: a record that cannot be cloned has
- * only its knowledge time read (once) and is set aside when provably later.
- * Everything else, including a record whose knowledge time cannot be read,
- * is validated (and fails the log closed if malformed). Each admitted input
- * is cloned once; the private copy is what the log validates.
+ * reconstruction (`admitEvidenceInput`). Everything else, including a record
+ * whose knowledge time cannot be read, is validated (and fails the log
+ * closed if malformed). The private copy is what the log validates.
  */
 function admitKnownEvidence(inputs: readonly unknown[], knowledgeCutoff: string): unknown[] {
   const admitted: unknown[] = [];
   for (const input of Array.from(inputs)) {
-    let copy: unknown;
-    try {
-      copy = structuredClone(input);
-    } catch {
-      if (receivedAfter(evidenceKnowledgeTime(input), knowledgeCutoff)) continue;
-      admitted.push(input); // the log reports it as not cloneable
-      continue;
-    }
-    if (receivedAfter(evidenceKnowledgeTime(copy), knowledgeCutoff)) continue;
-    admitted.push(copy);
+    const a = admitEvidenceInput(input, knowledgeCutoff);
+    if (a.status === "ADMITTED") admitted.push(a.copy);
   }
   return admitted;
 }
@@ -720,57 +752,50 @@ export function evaluateHerdObligations(request: HerdObligationRequest, hash: Ca
   if (!Array.isArray(ledgers) || !Array.isArray(evidence)) return { ok: false, issues: ["CATTLE_OBLIGATION_INVALID_REQUEST"] };
   const issues: HerdObligationIssue[] = [];
   const byAnimal = new Map<string, AnimalLedger[]>();
+  // Animal ids claimed by ledgers that are invalid: such an id is supplied by
+  // more than one ledger once any other ledger claims it, so that animal is
+  // excluded as a duplicate (never evaluated from the valid copy alone).
+  const invalidClaims = new Set<string>();
   for (const raw of Array.from(ledgers)) {
+    const claimed = readEvidenceKey(raw, "animalId"); // captured once, before cloning
     let copy: unknown;
     try {
       copy = structuredClone(raw);
     } catch {
-      issues.push({ code: "CATTLE_OBLIGATION_HERD_INVALID_LEDGER", animalId: null });
+      if (isOpaqueRef(claimed)) invalidClaims.add(claimed);
+      issues.push({ code: "CATTLE_OBLIGATION_HERD_INVALID_LEDGER", animalId: isOpaqueRef(claimed) ? claimed : null });
       continue;
     }
     const rebuilt = rematerialiseAnimalLedger(copy);
-    if (!rebuilt.ok) {
-      const id = copy !== null && typeof copy === "object" ? (copy as Record<string, unknown>).animalId : null;
-      issues.push({ code: "CATTLE_OBLIGATION_HERD_INVALID_LEDGER", animalId: isOpaqueRef(id) ? id : null });
+    const id = copy !== null && typeof copy === "object" ? (copy as Record<string, unknown>).animalId : null;
+    if (!rebuilt.ok || id !== claimed) {
+      for (const c of [claimed, id]) if (isOpaqueRef(c)) invalidClaims.add(c);
+      issues.push({ code: "CATTLE_OBLIGATION_HERD_INVALID_LEDGER", animalId: isOpaqueRef(id) ? id : isOpaqueRef(claimed) ? claimed : null });
       continue;
     }
     byAnimal.set(rebuilt.ledger.animalId, [...(byAnimal.get(rebuilt.ledger.animalId) ?? []), rebuilt.ledger]);
   }
   const evidenceBy = new Map<string, unknown[]>();
   const unattributable: unknown[] = [];
-  // Knowledge-time admission precedes partitioning: evidence provably received
-  // after the cutoff (cloneable or not) does not exist for this query and is
-  // neither partitioned nor reported. An uncloneable record known by the
-  // cutoff has its animal id read once and fails that animal's log closed.
+  // Knowledge-time admission precedes partitioning (`admitEvidenceInput`,
+  // animal id captured once with the knowledge time): evidence provably
+  // received after the cutoff does not exist for this query and is neither
+  // partitioned nor reported. Unadmittable evidence known by the cutoff is
+  // partitioned by its captured animal id and fails that log closed.
   for (const raw of Array.from(evidence)) {
-    let copy: unknown;
-    let cloned = true;
-    try {
-      copy = structuredClone(raw);
-    } catch {
-      cloned = false;
-    }
-    if (receivedAfter(evidenceKnowledgeTime(cloned ? copy : raw), q.query.knowledgeCutoff)) continue;
-    let id: unknown = null;
-    if (cloned) id = copy !== null && typeof copy === "object" ? (copy as Record<string, unknown>).animalId : null;
+    const a = admitEvidenceInput(raw, q.query.knowledgeCutoff, ["animalId"]);
+    if (a.status === "LATER") continue;
+    const id = a.captured.animalId;
+    if (isOpaqueRef(id)) evidenceBy.set(id, [...(evidenceBy.get(id) ?? []), a.copy]);
     else {
-      try {
-        id = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>).animalId : null;
-      } catch {
-        id = null;
-      }
-      copy = raw;
-    }
-    if (isOpaqueRef(id)) evidenceBy.set(id, [...(evidenceBy.get(id) ?? []), copy]);
-    else {
-      unattributable.push(copy);
+      unattributable.push(a.copy);
       issues.push({ code: "CATTLE_OBLIGATION_HERD_EVIDENCE_UNATTRIBUTABLE", animalId: null });
     }
   }
   const materialised = materialiseObligationCatalogue(catalogue, q.query.knowledgeCutoff);
   const animals: AnimalObligationEvaluation[] = [];
   for (const [animalId, list] of [...byAnimal.entries()].sort(([a], [b]) => compareStrings(a, b))) {
-    if (list.length > 1) {
+    if (list.length > 1 || invalidClaims.has(animalId)) {
       issues.push({ code: "CATTLE_OBLIGATION_HERD_DUPLICATE_ANIMAL", animalId });
       continue;
     }

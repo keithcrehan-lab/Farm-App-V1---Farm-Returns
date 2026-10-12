@@ -3543,8 +3543,11 @@ alongside any known occurrences — a satisfied occurrence never hides it, and t
 projection folds it into the rule's state. Without occurrences the worse of the derivation and
 the whole-life resolution is reported. Evidence admission precedes cloning (animal and herd):
 evidence provably received after the cutoff — even uncloneable or unattributable — is set
-aside before validation or herd partitioning (an uncloneable record has only `provenance` and
-`receivedAt` read, once); an uncloneable record not provably later fails closed. Occurrence id `<obligationId>|<anchorKind>|<t>`.
+aside before validation or herd partitioning. Admission metadata (knowledge time; the herd's
+animal id; a rule version's identity) is captured once BEFORE cloning and the input is cloned
+once: a clone failure is set aside only when the captured time is provably later, otherwise it
+fails closed without retaining, re-reading or retrying the caller's object; metadata that differs
+between the capture and the clone (a changing getter) fails closed. Occurrence id `<obligationId>|<anchorKind>|<t>`.
 
 **Window.** `opensAt = anchor + opensAfter`, `dueAt = anchor + dueAfter`; inclusive start;
 exclusive end unless the rule declares `INCLUSIVE_START_INCLUSIVE_END`. Unrepresentable ⇒
@@ -3596,7 +3599,8 @@ NOT_APPLICABLE) plus `requiredHardGateRuleIds`, ready for `buildRecommendationEv
 (BLOCKED ⇒ pack BLOCKED; empty catalogue ⇒ pack INSUFFICIENT_EVIDENCE).
 
 **Herd.** `evaluateHerdObligations` evaluates each distinct valid animal (sorted; input-order
-independent). Invalid ledgers and animal ids supplied by more than one ledger are reported and
+independent). Invalid ledgers and animal ids supplied by more than one ledger — valid or
+invalid; an id claimed by an invalid ledger and a valid one is a duplicate — are reported and
 not evaluated (never merged); evidence for an unevaluated animal is reported; evidence with no
 readable animal id is reported and offered to every animal so each evidence log fails closed.
 

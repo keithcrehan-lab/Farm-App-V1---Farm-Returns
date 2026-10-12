@@ -441,13 +441,16 @@ type Admission = { status: "LATER"; copy: unknown } | { status: "ADMITTED"; copy
  * the cutoff ⇒ set aside, otherwise it fails closed.
  */
 function admitTimestamped(item: unknown, timeKey: string, cutoff: string | null): Admission {
+  const captured = readOnce(item, timeKey); // captured once, BEFORE cloning
   let copy: unknown;
   try {
     copy = structuredClone(item);
   } catch {
-    return provablyAfter(readOnce(item, timeKey), cutoff) ? { status: "LATER", copy: undefined } : { status: "NOT_CLONEABLE" };
+    return provablyAfter(captured, cutoff) ? { status: "LATER", copy: undefined } : { status: "NOT_CLONEABLE" };
   }
-  return isRecord(copy) && provablyAfter(copy[timeKey], cutoff) ? { status: "LATER", copy } : { status: "ADMITTED", copy };
+  // A clone whose knowledge time differs from the captured one (a changing getter) fails closed.
+  if (readOnce(copy, timeKey) !== captured) return { status: "NOT_CLONEABLE" };
+  return provablyAfter(captured, cutoff) ? { status: "LATER", copy } : { status: "ADMITTED", copy };
 }
 
 interface AdmittedCatalogue {
@@ -519,16 +522,25 @@ function admitKnownCatalogue(raw: { definitions: unknown[]; ruleVersions: unknow
   const namedImpls = new Set<string>();
   const ruleVersions: unknown[] = [];
   for (const item of raw.ruleVersions) {
+    // Identity captured once, BEFORE cloning; never re-read from the caller.
+    const capturedId = readOnce(item, "ruleId");
+    const capturedVersion = readOnce(item, "version");
+    const identity = ruleIdentity(capturedId, capturedVersion);
     let copy: unknown;
     try {
       copy = structuredClone(item);
     } catch {
-      if (!relevant(ruleIdentity(readOnce(item, "ruleId"), readOnce(item, "version")))) continue;
+      if (!relevant(identity)) continue;
       issues.push({ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null });
       continue;
     }
     const r = isRecord(copy) ? copy : null;
-    if (!relevant(r ? ruleIdentity(r.ruleId, r.version) : null)) continue;
+    if (r && (r.ruleId !== capturedId || r.version !== capturedVersion)) {
+      // Identity changed while it was read (a changing getter): always fails closed.
+      issues.push({ code: "CATTLE_OBLIGATION_CATALOGUE_NOT_CLONEABLE", ref: null });
+      continue;
+    }
+    if (!relevant(identity)) continue;
     const impl = r && isRecord(r.implementation) ? ruleIdentity(r.implementation.implementationId, r.implementation.version) : null;
     if (impl) namedImpls.add(impl);
     ruleVersions.push(copy);

@@ -261,8 +261,14 @@ function targetWeightOf(raw: unknown): { ok: boolean; value: GoalTargetWeight | 
     return { ok: false, value: null };
   }
   const canonical: GoalCanonicalWeight = WEIGHT_UNIT_CONVERSIONS[raw.unit] === "IDENTITY" ? { state: "KNOWN", kg: raw.value } : { state: "UNSUPPORTED" };
-  if ("canonical" in raw && canonicalizeValue(raw.canonical) !== canonicalizeValue(canonical)) return { ok: false, value: null };
+  if ("canonical" in raw && !(isCanonicalWeightShape(raw.canonical) && canonicalizeValue(raw.canonical) === canonicalizeValue(canonical))) return { ok: false, value: null };
   return { ok: true, value: { value: raw.value, unit: raw.unit, canonical } };
+}
+
+function isCanonicalWeightShape(raw: unknown): raw is GoalCanonicalWeight {
+  if (!isRecord(raw)) return false;
+  if (raw.state === "KNOWN") return hasOnlyFields(raw, ["state", "kg"]) && typeof raw.kg === "number" && Number.isFinite(raw.kg);
+  return raw.state === "UNSUPPORTED" && hasOnlyFields(raw, ["state"]);
 }
 
 function targetOutcomeOf(raw: unknown): { ok: boolean; value: GoalTargetOutcome | null } {

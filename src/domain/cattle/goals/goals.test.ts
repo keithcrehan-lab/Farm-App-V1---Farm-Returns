@@ -127,6 +127,13 @@ describe("C6 declarations: declare, correct, supersede, end, withdraw", () => {
     }
   });
 
+  it("a malformed supplied canonical weight fails closed instead of throwing", () => {
+    for (const canonical of [undefined, { state: "KNOWN", kg: undefined }, { state: "UNSUPPORTED", kg: undefined }]) {
+      const p = ok(project([goal("SYNTH-GOAL-1", { targetWeight: { value: 600, unit: "KILOGRAM", canonical } })]));
+      expect(issueCodes(p), String(canonical && canonical.state)).toEqual(["CATTLE_GOAL_RECORD_INVALID_TARGET_OUTCOME"]);
+    }
+  });
+
   it("a correction supersedes; the corrected version stays in history", () => {
     const v2 = goal("SYNTH-GOAL-1", { version: "v2", supersedesVersions: ["v1"], goalType: "BREEDING", ...received(LATER) });
     const p = ok(project([goal("SYNTH-GOAL-1"), v2]));

@@ -311,8 +311,8 @@
       "next_phase": "C3 NOT_STARTED"
     },
     "campaign_progress": {
-      "last_frozen_phase": "C5",
-      "next_phase": "C6",
+      "last_frozen_phase": "C6",
+      "next_phase": "C7",
       "next_phase_status": "NOT_STARTED",
       "updated_by": "scripts/agent-campaign-run"
     },
@@ -378,6 +378,27 @@
       "receipt_fingerprint": "55cbaccb15255033a995dff6b6553535ce04a07f89130ba7b20f8bbcf0052a2a",
       "closed_by": "scripts/agent-campaign-run",
       "next_phase": "C6 NOT_STARTED"
+    },
+    "c6_production_goal_engine": {
+      "status": "FROZEN_COMPLETE_IN_CODE",
+      "task": "cattle-c6-production-goal-engine-20261013",
+      "base_sha": "ffb6ad12e1b90eda7637da9e5fff6d90c050788b",
+      "final_audited_sha": "594755a639cab090640fa678b577ef02511ae47e",
+      "final_audit": ".agent/campaigns/cattle-engine-v1/audits/audit-20261013T134135Z-3819286947.md",
+      "final_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0",
+      "remediated_findings": [
+        "F001 (HIGH, audit-20261013T062725Z-856363304.md): Fingerprint verification admits malformed C5 target evidence — sig 3b635cbfd7991043",
+        "F001 (HIGH, audit-20261013T075959Z-828681660.md): Fingerprint verification admits malformed C5 evidence — sig 48cf31257b748fcc",
+        "F002 (MEDIUM, audit-20261013T062725Z-856363304.md): Exported declaration shape is rejected as input — sig 84d6bdf190fe23f0",
+        "F002 (MEDIUM, audit-20261013T075959Z-828681660.md): Exported declaration cannot replay its own output — sig 9b3c8cb3f0f29029",
+        "F003 (MEDIUM, audit-20261013T085820Z-990744301.md): Malformed canonical weight throws during validation — sig a3c3bc74a0b9d99c"
+      ],
+      "outstanding_low_findings": [],
+      "verification": "at 594755a639cab090640fa678b577ef02511ae47e: phase verify `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint` PASS; full suite scripts/quality-gate.sh PASS",
+      "receipt": ".agent/campaigns/cattle-engine-v1/receipts/C6.json",
+      "receipt_fingerprint": "63b7113053f0f81098f4ae4c18873318bdeba8860eece37057f199dd1e73e69b",
+      "closed_by": "scripts/agent-campaign-run",
+      "next_phase": "C7 NOT_STARTED"
     }
   }
 }

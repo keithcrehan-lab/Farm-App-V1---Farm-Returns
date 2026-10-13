@@ -1,0 +1,236 @@
+{
+  "receipt_schema_version": 1,
+  "origin": "campaign",
+  "campaign_id": "cattle-engine-v1",
+  "phase_id": "C6",
+  "phase_title": "Production Goal Engine",
+  "phase_order": 6,
+  "task_id": "cattle-c6-production-goal-engine-20261013",
+  "phase_base_sha": "ffb6ad12e1b90eda7637da9e5fff6d90c050788b",
+  "functional_freeze_sha": "594755a639cab090640fa678b577ef02511ae47e",
+  "frozen_at": "2026-10-13T14:35:37Z",
+  "brief": ".agent/campaigns/cattle-engine-v1/C6_BRIEF.md",
+  "brief_sha256": "bd8a6f1bea810df2c1599d6c83822eeabdcea33c5e0d4da036d5c90c0a02cbe5",
+  "contracts": [
+    {
+      "path": "AGENTS.md",
+      "blob_at_freeze": "c608fb74479ed5ef58544105aee90d6fa07ce918"
+    },
+    {
+      "path": ".agent/AUDIT_RULES.md",
+      "blob_at_freeze": "6113ce9869627f7102a6420242036c8fb2e07358"
+    },
+    {
+      "path": ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
+      "blob_at_freeze": "4f8b6c99e9397e2fd9da1e12f4bde1ad29ca0e1f"
+    },
+    {
+      "path": ".agent/skills/cattle-evidence-rules.md",
+      "blob_at_freeze": "34103147824c01008e92dba49531ff406294fce7"
+    },
+    {
+      "path": "docs/farm-return-next/cattle/index.md",
+      "blob_at_freeze": "ed787671c170f51492d718821dfe439bfdfc1108"
+    },
+    {
+      "path": "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+      "blob_at_freeze": "ac012782ac4f677dd08c6f3ee940b0954ca1555e"
+    }
+  ],
+  "verify_command": "npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint",
+  "verification": [
+    {
+      "name": "phase_verify",
+      "cmd": "npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint",
+      "head": "594755a639cab090640fa678b577ef02511ae47e",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C6-freeze-phase_verify-20261013T134700366917Z.log"
+    },
+    {
+      "name": "full_suite",
+      "cmd": "bash scripts/quality-gate.sh",
+      "head": "594755a639cab090640fa678b577ef02511ae47e",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C6-freeze-full_suite-20261013T134759675186Z.log"
+    }
+  ],
+  "strict_audit": {
+    "artifact": ".agent/campaigns/cattle-engine-v1/audits/audit-20261013T134135Z-3819286947.md",
+    "original": ".agent/history/audit-20261013T134135Z-3819286947.md",
+    "sha256": "e4dc2b7ffa06a2c371aa659901a566553ccf88817043f8e0dbb46bbecc77e01c",
+    "range": "ffb6ad12e1b90eda7637da9e5fff6d90c050788b..594755a639cab090640fa678b577ef02511ae47e",
+    "counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "tier": "strict"
+  },
+  "audits": [
+    {
+      "tier": "standard",
+      "artifact": "audit-20261013T062725Z-856363304.md",
+      "head": "0b3a35f0abbf804070eec0deda16f91d9b324ddb",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261013T075959Z-828681660.md",
+      "head": "0b3a35f0abbf804070eec0deda16f91d9b324ddb",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261013T085820Z-990744301.md",
+      "head": "5cc7deb2f8a204a542b204aeac6dfb1c9c90edd2",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261013T095437Z-2581866996.md",
+      "head": "7ccc2a05847e3cabdac0987ab79d704e7b9de907",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261013T133622Z-315538099.md",
+      "head": "594755a639cab090640fa678b577ef02511ae47e",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261013T134135Z-3819286947.md",
+      "head": "594755a639cab090640fa678b577ef02511ae47e",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    }
+  ],
+  "remediation": {
+    "medium_rounds": 3,
+    "high_rounds": 2,
+    "rounds": [
+      {
+        "n": 1,
+        "tier": "standard",
+        "audit": "audit-20261013T075959Z-828681660.md",
+        "ids": [
+          "F001",
+          "F002"
+        ],
+        "severities": [
+          "HIGH",
+          "MEDIUM"
+        ],
+        "fix_commit": "5cc7deb2f8a204a542b204aeac6dfb1c9c90edd2"
+      },
+      {
+        "n": 2,
+        "tier": "standard",
+        "audit": "audit-20261013T085820Z-990744301.md",
+        "ids": [
+          "F003"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "7ccc2a05847e3cabdac0987ab79d704e7b9de907"
+      }
+    ]
+  },
+  "finding_signatures": {
+    "3b635cbfd7991043": {
+      "severity": "HIGH",
+      "title": "Fingerprint verification admits malformed C5 target evidence",
+      "file": "src/domain/cattle/goals/goal-target-applicability.ts",
+      "attempts": 1,
+      "ids": [
+        "F001@audit-20261013T062725Z-856363304.md"
+      ]
+    },
+    "48cf31257b748fcc": {
+      "severity": "HIGH",
+      "title": "Fingerprint verification admits malformed C5 evidence",
+      "file": "src/domain/cattle/goals/goal-target-applicability.ts",
+      "attempts": 1,
+      "ids": [
+        "F001@audit-20261013T075959Z-828681660.md"
+      ]
+    },
+    "84d6bdf190fe23f0": {
+      "severity": "MEDIUM",
+      "title": "Exported declaration shape is rejected as input",
+      "file": "src/domain/cattle/goals/goal-declaration.ts",
+      "attempts": 1,
+      "ids": [
+        "F002@audit-20261013T062725Z-856363304.md"
+      ]
+    },
+    "9b3c8cb3f0f29029": {
+      "severity": "MEDIUM",
+      "title": "Exported declaration cannot replay its own output",
+      "file": "src/domain/cattle/goals/goal-declaration.ts",
+      "attempts": 1,
+      "ids": [
+        "F002@audit-20261013T075959Z-828681660.md"
+      ]
+    },
+    "a3c3bc74a0b9d99c": {
+      "severity": "MEDIUM",
+      "title": "Malformed canonical weight throws during validation",
+      "file": "src/domain/cattle/goals/goal-declaration.ts",
+      "attempts": 1,
+      "ids": [
+        "F003@audit-20261013T085820Z-990744301.md"
+      ]
+    }
+  },
+  "outstanding_low_findings": [],
+  "migration_status": "NONE",
+  "frozen_contract_status": "ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md",
+  "human_gate_status": "NONE",
+  "pushed_or_deployed": false,
+  "predecessor": "C5",
+  "predecessor_receipt_fingerprint": "55cbaccb15255033a995dff6b6553535ce04a07f89130ba7b20f8bbcf0052a2a",
+  "policy": {
+    "medium_rounds": 4,
+    "high_rounds": 2,
+    "attempts_per_signature": 2
+  },
+  "receipt_fingerprint": "63b7113053f0f81098f4ae4c18873318bdeba8860eece37057f199dd1e73e69b"
+}

@@ -5,6 +5,18 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Cattle Engine v1, C6 close-out — Production Goal Engine — frozen at 594755a (2026-10-13)
+
+C6 (task `cattle-c6-production-goal-engine-20261013`, base `ffb6ad1`) is **frozen at `594755a639cab090640fa678b577ef02511ae47e`** by `scripts/agent-campaign-run`. This is the
+functional freeze SHA; the documentation commit recording it is not.
+
+- Strict full-phase audit `audit-20261013T134135Z-3819286947.md` over `ffb6ad1..594755a`: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0.
+- Automatic remediation: 3 Medium round(s), 2 High round(s): F001 (HIGH, audit-20261013T062725Z-856363304.md): Fingerprint verification admits malformed C5 target evidence — sig 3b635cbfd7991043; F001 (HIGH, audit-20261013T075959Z-828681660.md): Fingerprint verification admits malformed C5 evidence — sig 48cf31257b748fcc; F002 (MEDIUM, audit-20261013T062725Z-856363304.md): Exported declaration shape is rejected as input — sig 84d6bdf190fe23f0; F002 (MEDIUM, audit-20261013T075959Z-828681660.md): Exported declaration cannot replay its own output — sig 9b3c8cb3f0f29029; F003 (MEDIUM, audit-20261013T085820Z-990744301.md): Malformed canonical weight throws during validation — sig a3c3bc74a0b9d99c.
+- Outstanding Low (recorded, not fixed): none.
+- Verification at `594755a`: phase verify and full suite (`scripts/quality-gate.sh`) passed.
+- Receipt `.agent/campaigns/cattle-engine-v1/receipts/C6.json` (fingerprint `63b7113053f0f810`). Migrations: none. Frozen contracts: ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md. Nothing pushed or deployed.
+- C7 **not started**.
+
 ## Cattle Engine v1, C5 close-out — Performance Engine — frozen at a1619cd (2026-10-13)
 
 C5 (task `cattle-c5-performance-engine-20261013`, base `41ee7a1`) is **frozen at `a1619cd523362b280f26e27b58a9494bd6c76d58`** by `scripts/agent-campaign-run`. This is the

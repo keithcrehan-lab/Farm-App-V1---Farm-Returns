@@ -298,7 +298,7 @@ describe("C5 quality: mixed methods and explicit thresholds", () => {
   it("resolved and conflicting policy definitions are retained and bound by both fingerprints (CAT-INV-021)", () => {
     const fingerprints = (policies: unknown[]) => {
       const r = ok(evaluate({ observations: PAIR, policies }));
-      return [r.fingerprint, r.animals[0].fingerprint];
+      return [r.fingerprint.digest, r.animals[0].fingerprint.digest];
     };
     const conflict = (v2: string, days2: number) => [
       policy("SYNTH-POLICY-MIN-1", { kind: "MINIMUM_INTERVAL", minimumDays: 1 }),

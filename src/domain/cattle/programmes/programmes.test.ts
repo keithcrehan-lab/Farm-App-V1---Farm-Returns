@@ -494,6 +494,29 @@ describe("C7 test 4 — completion evidence", () => {
     expect(v).toEqual(CONFORMS);
   });
 
+  it("a counted completion never masks unresolved candidate evidence (state and hard gate)", () => {
+    const mixed = run({ completions: [declaration("d-1"), declaration("d-2", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "SYNTH-MISSING-RECORD" } })] });
+    const record = animalOf(mixed).records.find((x) => x.occurrence?.index === 0)!;
+    expect(record.completion?.counted.length).toBe(1);
+    expect(record.completion?.unresolved).toEqual([{ ref: "d-2", reason: "CATTLE_PROGRAMME_LINKED_RECORD_NOT_KNOWN" }]);
+    expect(record.state).toBe("INSUFFICIENT_EVIDENCE");
+    const g = projectProgrammeHardGates(ok(mixed), A, hash);
+    if (!g.ok) throw new Error(JSON.stringify(g.issues));
+    expect(g.gates.ruleEvaluations[0].state).not.toBe("PASS");
+    // Counted by declared criteria with an unresolved candidate (time unknown) is not COMPLETED either.
+    const criteria = run({ health: [healthFor([adm("h-1", "2026-03-15T00:00:00Z"), adm("h-2", null)])] });
+    expect(occurrenceState(criteria, 0)).toBe("INSUFFICIENT_EVIDENCE");
+    const v = checkUnresolvedEvidenceNotMasked(
+      [
+        { label: "counted declaration + unknown linked record", result: mixed },
+        { label: "counted criteria record + candidate without time", result: criteria },
+      ],
+      (res) => [occurrenceState(res, 0)],
+      RESOLVED_LOOKING_STATES,
+    );
+    expect(v).toEqual(CONFORMS);
+  });
+
   it("a retraction withdraws a declaration; the earlier cutoff still shows it (append-only)", () => {
     const original = [declaration("d-1")];
     const retraction = declaration("d-9", { kind: "RETRACTION", evidence: null, supersedes: ["d-1"], provenance: { ...(declaration("x").provenance as Rec), receivedAt: "2026-04-01T00:00:00Z" } });
@@ -869,6 +892,32 @@ describe("C7 test 9 — determinism, aliasing, fingerprints, boundary", () => {
     expect(v).toEqual(CONFORMS);
     const a = animalOf(run(base));
     expect(a.fingerprint).toEqual(animalOf(run({ ...base, completions: [...completions].reverse() })).fingerprint);
+  });
+
+  it("result fingerprints bind completion and review content, provenance and supersession", () => {
+    const base: Run = { completions: [declaration("d-1")] };
+    const d1 = declaration("d-1");
+    const prov1 = d1.provenance as Rec;
+    const v = checkFingerprintStability(
+      "evaluation",
+      base,
+      [],
+      [
+        { label: "completion declarer", payload: { completions: [declaration("d-1", { declaredBy: { role: "VETERINARIAN", actor: "SYNTH-VET-9" } })] } },
+        { label: "completion receivedAt", payload: { completions: [declaration("d-1", { provenance: { ...prov1, receivedAt: "2026-03-17T00:00:00Z" } })] } },
+        { label: "completion sourceRecordRef", payload: { completions: [declaration("d-1", { provenance: { ...prov1, sourceRecordRef: "SYNTH-REF-9" } })] } },
+        { label: "completion superseded", payload: { completions: [d1, declaration("d-2", { supersedes: ["d-1"], provenance: { ...prov1, receivedAt: "2026-03-18T00:00:00Z" } })] } },
+        { label: "reviewer", payload: { ...base, reviews: [review(DEF, { reviewer: { role: "VETERINARIAN", actor: "SYNTH-REVIEWER-9" } })] } },
+        { label: "reviewedAt", payload: { ...base, reviews: [review(DEF, { reviewedAt: "2026-01-03T00:00:00Z" })] } },
+        { label: "review supersession", payload: { ...base, reviews: [review(DEF), review(DEF, { reviewId: "SYNTH-REVIEW-2", supersedes: [review(DEF).reviewId], reviewedAt: "2026-01-03T00:00:00Z" })] } },
+      ],
+      (payload) => ok(run(payload)).fingerprint.digest,
+    );
+    expect(v).toEqual(CONFORMS);
+    const changed = run({ completions: [declaration("d-1", { declaredBy: { role: "VETERINARIAN", actor: "SYNTH-VET-9" } })] });
+    expect(animalOf(changed).fingerprint).not.toEqual(animalOf(run(base)).fingerprint);
+    expect(animalOf(run(base)).declarations).toEqual([expect.objectContaining({ recordId: "d-1", declaredBy: { role: "FARMER", actor: "SYNTH-FARMER-1" } })]);
+    expect(verifyProgrammeStatusEvaluation(ok(changed), hash).valid).toBe(true);
   });
 
   it("non-canonical input is rejected before evaluation", () => {

@@ -61,7 +61,9 @@
  *                      declaration for the exact governing version, or a
  *                      live in-window C3 record matching the declared
  *                      criteria, occurring by `effectiveAt` and not before
- *                      the window opens);
+ *                      the window opens) and no unresolved candidate
+ *                      evidence (an unresolved candidate could conceal a
+ *                      timing conflict; CAT-INV-009);
  *   REVIEW_REQUIRED    only declarations for another programme version
  *                      (never counted, CAT-INV-025);
  *   INSUFFICIENT_EVIDENCE  unresolved candidate evidence (C3 projection not
@@ -114,6 +116,7 @@ import {
   type ProgrammeApplicability,
   type ProgrammeClassification,
   type ProgrammeRecordIssueCode,
+  type ProgrammeReviewRecord,
   type ProgrammeReviewState,
   type ProgrammeVersionHistory,
 } from "./programme-definition";
@@ -253,6 +256,8 @@ export interface ProgrammeAnimalStatus {
   records: ProgrammeOccurrenceRecord[];
   /** Live completion declarations for this animal and programme naming no derived occurrence (sorted). */
   unmatchedDeclarationIds: string[];
+  /** Every completion declaration for this animal and programme known by the cutoff, live or superseded, with its declarer, provenance and supersession (sorted by id; CAT-INV-021). */
+  declarations: ProgrammeCompletionRecord[];
   inputs: ProgrammeAnimalInputs;
   fingerprint: AssessmentFingerprint;
 }
@@ -279,7 +284,8 @@ export interface ProgrammeStatus {
   classification: ProgrammeClassification;
   informationClass: "RULE" | "INTENT";
   versionState: "GOVERNING" | "NOT_IN_FORCE" | "VERSION_CONFLICT";
-  governing: { version: ProgrammeVersionEntry; review: ProgrammeReviewState } | null;
+  /** `reviewRecords`: the live review records bound to the governing version (sorted by id), retained so reviewer, time and supersession are bound to the result (CAT-INV-021). */
+  governing: { version: ProgrammeVersionEntry; review: ProgrammeReviewState; reviewRecords: ProgrammeReviewRecord[] } | null;
   /** Versions effective at `effectiveAt` when in conflict (no winner). */
   conflictingVersions: ProgrammeVersionEntry[];
   /** Every known version (history, incl. superseded), sorted by version. */
@@ -719,7 +725,7 @@ function occurrenceRecord(o: OccurrenceContext, occ: ProgrammeOccurrence, gates:
   if (completion.conflicting.length > 0 || timings.size > 1) {
     state = "EVIDENCE_CONFLICT";
     reasons.push(timings.size > 1 ? "CATTLE_PROGRAMME_COMPLETION_TIMING_DISAGREES" : "CATTLE_PROGRAMME_COMPLETION_COMPETING_EVIDENCE");
-  } else if (completion.counted.length > 0) {
+  } else if (completion.counted.length > 0 && completion.unresolved.length === 0) {
     state = "COMPLETED";
     reasons.push(timings.has("LATE") ? "CATTLE_PROGRAMME_COMPLETED_LATE" : "CATTLE_PROGRAMME_COMPLETED_IN_WINDOW");
   } else if (completion.otherVersionDeclarationIds.length > 0) {
@@ -774,6 +780,7 @@ function animalStatus(
   membership: ProgrammeMembership | null,
   records: ProgrammeOccurrenceRecord[],
   unmatchedDeclarationIds: string[],
+  declarations: readonly ProgrammeCompletionRecord[],
   hash: CattleHash,
 ): ProgrammeAnimalStatus {
   const sorted = [...records].sort(compareRecords);
@@ -787,6 +794,7 @@ function animalStatus(
     status: foldProgrammeStates(sorted.map((r) => r.state)) ?? "NOT_APPLICABLE",
     records: sorted,
     unmatchedDeclarationIds: sortedUnique(unmatchedDeclarationIds),
+    declarations: [...declarations].sort((a, b) => compareStrings(a.recordId, b.recordId)),
     inputs: ctx.inputs,
   };
   return { ...content, fingerprint: computeProgrammeFingerprint("CATTLE_PROGRAMME_ANIMAL_STATUS", animalStatusPayload(content, base.effectiveAt, base.knowledgeCutoff), hash) };
@@ -817,18 +825,22 @@ function evaluateProgramme(programmeId: string, versions: readonly ProgrammeVers
     return { ...head, versionState: "NOT_IN_FORCE", governing: null, conflictingVersions: [], scope: null, status: "NOT_IN_FORCE", animals: [] };
   }
   const base = { programmeId, classification, effectiveAt, knowledgeCutoff };
+  const declarationsOf = (animalId: string) => inputs.completions.known.filter((d) => d.animalId === animalId && d.programmeId === programmeId);
   const statusOf = (list: ProgrammeAnimalStatus[], extra: ProgrammeOccurrenceState[] = []): ProgrammeStatusValue =>
     list.length === 0 && extra.length === 0 ? "NO_ANIMALS_EVALUATED" : (foldProgrammeStates([...list.map((a) => a.status), ...extra]) ?? "NOT_APPLICABLE");
   if (resolution.state === "VERSION_CONFLICT") {
     const conflicting = resolution.versions.map(entryOf);
     const list = animalList.map((ctx) =>
-      animalStatus({ ...base, version: null }, ctx, null, [programmeLevel(programmeId, null, ctx.animalId, "EVIDENCE_CONFLICT", ["CATTLE_PROGRAMME_VERSIONS_IN_CONFLICT"])], [], hash),
+      animalStatus({ ...base, version: null }, ctx, null, [programmeLevel(programmeId, null, ctx.animalId, "EVIDENCE_CONFLICT", ["CATTLE_PROGRAMME_VERSIONS_IN_CONFLICT"])], [], declarationsOf(ctx.animalId), hash),
     );
     return { ...head, versionState: "VERSION_CONFLICT", governing: null, conflictingVersions: conflicting, scope: null, status: list.length === 0 ? "EVIDENCE_CONFLICT" : statusOf(list), animals: list };
   }
   const governing = entryOf(resolution.version);
   const definition = governing.definition;
   const review = programmeReviewState(definition, governing.definitionFingerprint, inputs.reviews);
+  const reviewRecords = inputs.reviews
+    .filter((r) => review.dimensions.some((d) => d.reviewIds.includes(r.reviewId)))
+    .sort((a, b) => compareStrings(a.reviewId, b.reviewId));
   const version = definition.version;
   const vBase = { ...base, version };
   if (!review.approved) {
@@ -836,8 +848,8 @@ function evaluateProgramme(programmeId: string, versions: readonly ProgrammeVers
       ...(definition.productionState === "PRODUCTION" ? [] : [`CATTLE_PROGRAMME_NOT_CURRENT:${definition.productionState}`]),
       ...review.dimensions.filter((d) => d.state !== "APPROVED").map((d) => `CATTLE_PROGRAMME_REVIEW_${d.state}:${d.dimension}`),
     ];
-    const list = animalList.map((ctx) => animalStatus(vBase, ctx, null, [programmeLevel(programmeId, version, ctx.animalId, "REVIEW_REQUIRED", reasons)], [], hash));
-    return { ...head, versionState: "GOVERNING", governing: { version: governing, review }, conflictingVersions: [], scope: null, status: list.length === 0 ? "REVIEW_REQUIRED" : statusOf(list), animals: list };
+    const list = animalList.map((ctx) => animalStatus(vBase, ctx, null, [programmeLevel(programmeId, version, ctx.animalId, "REVIEW_REQUIRED", reasons)], [], declarationsOf(ctx.animalId), hash));
+    return { ...head, versionState: "GOVERNING", governing: { version: governing, review, reviewRecords }, conflictingVersions: [], scope: null, status: list.length === 0 ? "REVIEW_REQUIRED" : statusOf(list), animals: list };
   }
 
   const scope: ProgrammeScopeSummary = {
@@ -854,11 +866,11 @@ function evaluateProgramme(programmeId: string, versions: readonly ProgrammeVers
     const membership = membershipAt(definition.applicability, ctx, effectiveAt, knowledgeCutoff, hash);
     const bucket = { MEMBER: scope.members, NOT_MEMBER: scope.notMembers, UNKNOWN: scope.unknown, EVIDENCE_CONFLICT: scope.conflict, INVALID: scope.invalid }[membership.state];
     bucket.push(ctx.animalId);
-    const declarations = inputs.completions.known.filter((d) => d.animalId === ctx.animalId && d.programmeId === programmeId);
+    const declarations = declarationsOf(ctx.animalId);
     if (membership.state !== "MEMBER") {
       const record = programmeLevel(programmeId, version, ctx.animalId, MEMBERSHIP_TO_STATE[membership.state], [`CATTLE_PROGRAMME_MEMBERSHIP_${membership.state}`, ...membership.reasonCodes]);
       const liveIds = declarations.filter((d) => inputs.completions.live.some((l) => l.recordId === d.recordId) && d.kind === "COMPLETION").map((d) => d.recordId);
-      list.push(animalStatus(vBase, ctx, membership, [record], liveIds, hash));
+      list.push(animalStatus(vBase, ctx, membership, [record], liveIds, declarations, hash));
       continue;
     }
     const records: ProgrammeOccurrenceRecord[] = [];
@@ -905,10 +917,10 @@ function evaluateProgramme(programmeId: string, versions: readonly ProgrammeVers
     }
     const liveSet = new Set(inputs.completions.live.map((d) => d.recordId));
     const unmatched = declarations.filter((d) => liveSet.has(d.recordId) && d.kind === "COMPLETION" && !occurrenceKeys.has(JSON.stringify([d.actionId, d.occurrenceId]))).map((d) => d.recordId);
-    list.push(animalStatus(vBase, ctx, membership, records, unmatched, hash));
+    list.push(animalStatus(vBase, ctx, membership, records, unmatched, declarations, hash));
   }
   const missing: ProgrammeOccurrenceState[] = scope.declaredMembersNotEvaluated.length > 0 ? ["INSUFFICIENT_EVIDENCE"] : [];
-  return { ...head, versionState: "GOVERNING", governing: { version: governing, review }, conflictingVersions: [], scope, status: statusOf(list, missing), animals: list };
+  return { ...head, versionState: "GOVERNING", governing: { version: governing, review, reviewRecords }, conflictingVersions: [], scope, status: statusOf(list, missing), animals: list };
 }
 
 // ---------------------------------------------------------------------------

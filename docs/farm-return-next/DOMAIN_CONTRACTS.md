@@ -4256,7 +4256,8 @@ INVALID_EVIDENCE (unrepresentable) > NOT_APPLICABLE (window opens outside the go
 effective period) > group membership when the window opened (windows opened by `effectiveAt`; C4 at
 `opensAt`): INVALID_EVIDENCE > EVIDENCE_CONFLICT > UNKNOWN > NOT_APPLICABLE > EVIDENCE_CONFLICT
 (competing declaration corrections, a relevant C3 record in competition, or counted completions
-disagreeing on timing) > COMPLETED > REVIEW_REQUIRED (only other-version declarations) >
+disagreeing on timing) > COMPLETED (only with no unresolved candidate) > REVIEW_REQUIRED (only
+other-version declarations) >
 INSUFFICIENT_EVIDENCE (unresolved candidates) > UPCOMING > BLOCKED (window open or passed and a
 declared gate is not PASS / NOT_APPLICABLE — FAIL, INSUFFICIENT_EVIDENCE, conflicting, UNSUPPORTED,
 REVIEW_REQUIRED or not supplied; gates come only from the supplied C2 / C3 hard-gate projections) >
@@ -4269,10 +4270,12 @@ Unresolved required evidence never surfaces as COMPLETED or NOT_APPLICABLE (CAT-
 **Outputs.** `ProgrammeStatusEvaluation` = `{programmePayloadVersion, effectiveAt, knowledgeCutoff,
 outcome NO_PROGRAMME (nothing declared — never "compliant") | NONE_IN_FORCE | EVALUATED, animalIds,
 programmes}`; each `ProgrammeStatus` carries classification and information class verbatim, version
-state, governing version + review state, conflicting versions, full version history, scope summary
+state, governing version + review state + the live bound review records (reviewer, time,
+supersession), conflicting versions, full version history, scope summary
 (members / non-members / unknown / conflict / invalid / declared members not evaluated), status and
 one `ProgrammeAnimalStatus` per evaluated animal (membership, folded status, records with occurrence,
-window, state, reason codes, completion summary and gate checks, unmatched declaration ids, input
+window, state, reason codes, completion summary and gate checks, unmatched declaration ids, every
+known completion declaration for the animal and programme (declarer, provenance, supersession), input
 fingerprints: C1 snapshot, C3 timeline / ledger / gate, C2 record fingerprints). Sorted, detached and
 deep-frozen. **Fingerprints:** `CATTLE_PROGRAMME_ANIMAL_STATUS` binds both canonical times and every
 animal-status field (incl. the input fingerprints); `CATTLE_PROGRAMME_STATUS` binds the whole

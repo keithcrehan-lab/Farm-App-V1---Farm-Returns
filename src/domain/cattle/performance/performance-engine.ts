@@ -32,9 +32,9 @@
  *   only when supplied — a single resolved minimum-interval / accepted-bases
  *   policy;
  * - trend: a single resolved TREND policy and a DERIVED period ADG;
- * - target comparison: a single live target version, every applicability
- *   input it restricts on KNOWN, a PRODUCTION review state, and a resolved
- *   observed metric;
+ * - target comparison: a single live target version with a finite band, a
+ *   resolved observed metric (resolved before applicability or review), every
+ *   applicability input it restricts on KNOWN, and a PRODUCTION review state;
  * - aggregation: per-animal results; unresolved results are counted, never
  *   averaged; scope animals with unknown / conflicting / invalid membership
  *   are reported (C4 supplies no weights for them).
@@ -314,8 +314,16 @@ function distribution(animals: readonly AnimalPerformance[], valueOf: (d: Interv
     const n = values.length;
     let sum = 0;
     for (const v of values) sum += v;
+    // Overflow-safe fallback (|Σ v/n| ≤ max |v|): used only when the plain sum is not finite.
+    let mean = sum / n;
+    if (!Number.isFinite(mean)) {
+      mean = 0;
+      for (const v of values) mean += v / n;
+    }
     const mid = Math.floor(n / 2);
-    statistics = { count: n, min: values[0], max: values[n - 1], mean: sum / n, median: n % 2 === 1 ? values[mid] : (values[mid - 1] + values[mid]) / 2 };
+    const midpoint = (values[mid - 1] + values[mid]) / 2;
+    const median = n % 2 === 1 ? values[mid] : Number.isFinite(midpoint) ? midpoint : values[mid - 1] / 2 + values[mid] / 2;
+    statistics = { count: n, min: values[0], max: values[n - 1], mean, median };
   }
   return {
     knownAnimalIds: known.map((k) => k.id).sort(compareStrings),
@@ -402,6 +410,10 @@ function evaluateRequest(request: PerformanceRequest, hash: CattleHash): Perform
   const derivationPolicies: DerivationPolicies = { minimumInterval: policies.minimumInterval, acceptedBases: policies.acceptedBases };
   const acceptedBases = policies.acceptedBases.state === "SUPPLIED" ? policies.acceptedBases.rule.acceptedBases : null;
   const targetIds = [...targets.byId.keys()].sort(compareStrings);
+  const targetDefinitions = targetIds.map((targetId) => {
+    const r = targets.byId.get(targetId)!;
+    return { targetId, state: r.state, versions: r.state === "RESOLVED" ? [r.record] : r.records };
+  });
 
   const animals: AnimalPerformance[] = contract.series.map((series) => {
     const allPoints = performancePoints(series.observations, acceptedBases);
@@ -422,8 +434,8 @@ function evaluateRequest(request: PerformanceRequest, hash: CattleHash): Perform
       comparisons: targetIds.map((id) => compareWithTarget(id, targets.byId.get(id)!, series.animalId, context, effectiveAt, period, allPoints, derivationPolicies)),
       prediction: projectionAt.value === null ? null : predictWeight(period, projectionAt.value),
     };
-    // A result fingerprint binds its evaluation context (FINGERPRINTS.md rule 4).
-    const payload = { effectiveAt, knowledgeCutoff, windowFrom: windowFrom.value, projectionAt: projectionAt.value, policies, result: content };
+    // A result fingerprint binds its evaluation context (FINGERPRINTS.md rule 4), including the exact target definitions compared.
+    const payload = { effectiveAt, knowledgeCutoff, windowFrom: windowFrom.value, projectionAt: projectionAt.value, policies, targetDefinitions, result: content };
     return { ...content, fingerprint: computePerformanceFingerprint("CATTLE_PERFORMANCE_ANIMAL_RESULT", payload, hash) };
   });
 
@@ -436,10 +448,7 @@ function evaluateRequest(request: PerformanceRequest, hash: CattleHash): Perform
     weightContractFingerprint: contract.fingerprint,
     policies,
     targetIds,
-    targetDefinitions: targetIds.map((targetId) => {
-      const r = targets.byId.get(targetId)!;
-      return { targetId, state: r.state, versions: r.state === "RESOLVED" ? [r.record] : r.records };
-    }),
+    targetDefinitions,
     animals,
     aggregate: aggregateOf(contract, animals, targetIds),
   };

@@ -380,14 +380,17 @@ function admitDefinitions<R extends { version: string; supersedesVersions: strin
   const materialised = admitted.map((raw) => ({ raw, result: spec.materialise(raw) }));
   const issues: DefinitionIssue[] = [];
   // Identity before validity (CAT-INV-008): an invalid copy still collides.
-  const byIdentity = new Map<string, Set<string>>();
+  // Keyed by the (id, version) tuple; the display spelling is diagnostics only.
+  const byIdentity = new Map<string, { ref: string; keys: Set<string> }>();
   for (const { raw, result } of materialised) {
     const ref = isRecord(raw) ? displayRef(raw[spec.idField], raw.version) : null;
     if (ref === null) continue;
+    const identity = recordKey((raw as Raw)[spec.idField] as string, (raw as Raw).version as string);
     const key = result.ok ? `valid:${spec.contentKey(result.record)}` : `raw:${rawIdentityKey(raw)}`;
-    byIdentity.set(ref, (byIdentity.get(ref) ?? new Set()).add(key));
+    const entry = byIdentity.get(identity) ?? { ref, keys: new Set<string>() };
+    byIdentity.set(identity, { ref, keys: entry.keys.add(key) });
   }
-  for (const [ref, keys] of byIdentity) if (keys.size > 1) issues.push({ code: "DUPLICATE_VERSION_DIFFERENT_CONTENT", ref });
+  for (const { ref, keys } of byIdentity.values()) if (keys.size > 1) issues.push({ code: "DUPLICATE_VERSION_DIFFERENT_CONTENT", ref });
   type Envelope = { def: R } & BitemporalRecord;
   const envelopes: Envelope[] = [];
   for (const { result } of materialised) {

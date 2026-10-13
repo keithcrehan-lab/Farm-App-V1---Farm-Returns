@@ -409,6 +409,13 @@ describe("C5 target comparison", () => {
     }
   });
 
+  it("distinct (id, version) tuples never collide through their display spelling", () => {
+    const targets = [target("SYNTH-X@Y", { version: "Z" }), target("SYNTH-X", { version: "Y@Z", metric: { kind: "ADG", valueKgPerDay: 2 } })];
+    expect(ok(evaluate({ observations: PAIR, targets })).targetIds).toEqual(["SYNTH-X", "SYNTH-X@Y"]);
+    const policies = [policy("SYNTH-P@Y", { kind: "MINIMUM_INTERVAL", minimumDays: 1 }, { version: "Z" }), policy("SYNTH-P", { kind: "TREND", fallingBelowKgPerDay: 0, risingAboveKgPerDay: 2 }, { version: "Y@Z" })];
+    expect(ok(evaluate({ observations: PAIR, policies })).policies).toMatchObject({ minimumInterval: { state: "SUPPLIED" }, trend: { state: "SUPPLIED" } });
+  });
+
   it("malformed target content fails closed (non-finite, negative tolerance, unknown metric, empty validity)", () => {
     const bad = [
       { metric: { kind: "ADG", valueKgPerDay: "1" } },
@@ -460,6 +467,62 @@ describe("C5 target comparison", () => {
       { label: "target versions in conflict", result: animal(evaluate({ observations: PAIR, targets: [...t, { ...t[0], version: "v2", metric: { kind: "ADG", valueKgPerDay: 3 } }, { ...t[1], version: "v2" }] })) },
     ];
     expect(checkUnresolvedEvidenceNotMasked(targetCases, (a) => a.comparisons.map((c) => c.state), forbidden)).toEqual(CONFORMS);
+  });
+
+  it("unresolved metric evidence is never masked by a known applicability mismatch or review state (CAT-INV-009)", () => {
+    const contexts = [{ animalId: A, goalRef: "SYNTH-GOAL-X" }];
+    const restricted = [
+      { applicability: { animalIds: [B] } },
+      { applicability: { goalRef: "SYNTH-GOAL-Y" } },
+      { validTo: "2026-03-01T00:00:00Z" },
+      { reviewState: "DRAFT" },
+      { applicability: { productionSystemRef: "SYNTH-SYSTEM-Y" } },
+    ];
+    const weightAt = { metric: { kind: "WEIGHT_AT", at: D90, valueKg: 290 } };
+    const evidence: [string, unknown[], string][] = [
+      ["conflicting end", [...PAIR, obs("w-90b", D90, 300)], "EVIDENCE_CONFLICT"],
+      ["one observation", [obs("w-0", D0, 200)], "INSUFFICIENT_EVIDENCE"],
+      ["no observation", [], "INSUFFICIENT_EVIDENCE"],
+    ];
+    const cases = evidence.flatMap(([label, observations, expected]) =>
+      restricted.flatMap((fields) =>
+        [{}, weightAt].map((metric) => ({ label: `${label} ${JSON.stringify({ ...fields, ...metric })}`, expected, result: animal(evaluate({ observations, contexts, targets: [target("SYNTH-TARGET-1", { ...fields, ...metric })] })) })),
+      ),
+    );
+    const forbidden = [...RESOLVED_LOOKING_STATES, "ON_TRACK", "AHEAD", "BEHIND", "TARGET_NOT_APPLICABLE", "TARGET_UNVERIFIED"];
+    expect(checkUnresolvedEvidenceNotMasked(cases, (a) => a.comparisons.map((c) => c.state), forbidden)).toEqual(CONFORMS);
+    for (const c of cases) expect(c.result.comparisons[0].state, c.label).toBe(c.expected);
+  });
+});
+
+describe("C5 unrepresentable arithmetic fails closed (no non-finite value hashed)", () => {
+  it("an ADG that overflows binary64 ⇒ INVALID, never Infinity", () => {
+    const r = evaluate({ observations: [obs("w-0", D0, 1), obs("w-1", "2026-01-01T00:00:00.000000001Z", 1e308)], targets: [target("SYNTH-TARGET-1")], projectionAt: "2026-07-10T00:00:00Z" });
+    const a = animal(r);
+    expect(a.period).toMatchObject({ state: "INVALID", gainKg: null, adgKgPerDay: null, reasonCodes: ["CATTLE_PERFORMANCE_VALUE_NOT_REPRESENTABLE"] });
+    expect(a.comparisons[0].state).toBe("INVALID");
+    expect(a.prediction).toMatchObject({ state: "NOT_PROJECTED", projectedKg: null, reasonState: "INVALID" });
+    expect(ok(r).aggregate.periodAdgKgPerDay.statistics).toBeNull();
+  });
+
+  it("a target band whose bound overflows ⇒ INVALID with null bounds", () => {
+    for (const tolerance of [{ below: 0, above: 1.7e308 }, { below: 1.7e308, above: 0 }]) {
+      const value = tolerance.above > 0 ? 1.7e308 : -1.7e308;
+      const [c] = animal(evaluate({ observations: PAIR, targets: [target("SYNTH-TARGET-1", { metric: { kind: "ADG", valueKgPerDay: value }, tolerance })] })).comparisons;
+      expect(c).toMatchObject({ state: "INVALID", lowerBound: null, upperBound: null, reasonCodes: ["CATTLE_PERFORMANCE_VALUE_NOT_REPRESENTABLE"] });
+    }
+  });
+
+  it("a projection that overflows ⇒ NOT_PROJECTED (INVALID)", () => {
+    const a = animal(evaluate({ observations: [obs("w-0", D0, 1), obs("w-90", D90, 1e308)], projectionAt: "9000-01-01T00:00:00Z" }));
+    expect(a.period.state).toBe("DERIVED");
+    expect(a.prediction).toMatchObject({ state: "NOT_PROJECTED", projectedKg: null, reasonState: "INVALID" });
+  });
+
+  it("aggregate mean and median of large finite gains stay finite and exact", () => {
+    const observations = [obs("w-0", D0, 1), obs("w-90", D90, 1e308), obs("b-0", D0, 1, { animalId: B }), obs("b-90", D90, 1e308, { animalId: B })];
+    const r = ok(evaluate({ observations, scope: { kind: "EXPLICIT_SET", animalIds: [A, B] } }));
+    expect(r.aggregate.periodGainKg.statistics).toEqual({ count: 2, min: 1e308, max: 1e308, mean: 1e308, median: 1e308 });
   });
 });
 
@@ -726,6 +789,9 @@ describe("C5 determinism, detachment and fingerprints (CAT-INV-002/010/012/021)"
       ),
     ).toEqual(CONFORMS);
     const r = ok(evaluate(base));
+    // A material target change that preserves every comparison outcome still changes the animal fingerprint.
+    const animalFp = (targetFields: Rec) => animal(evaluate({ observations: PAIR, targets: [target("SYNTH-TARGET-1", targetFields)] })).fingerprint.digest;
+    expect(animalFp({ applicability: { animalIds: [A] } })).not.toBe(animalFp({}));
     expect(cattle.verifyPerformanceFingerprint("CATTLE_PERFORMANCE_RESULT", (({ fingerprint, ...rest }) => (void fingerprint, rest))(r), r.fingerprint, hash).valid).toBe(true);
     expect(r.animals[0].fingerprint.digest).toMatch(/^[0-9a-f]{64}$/);
   });

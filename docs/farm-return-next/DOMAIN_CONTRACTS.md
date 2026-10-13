@@ -3959,7 +3959,7 @@ reported in `quality.excludedRecordIds`; a CONFLICT point is never excluded) > U
 exact kg) > USABLE. Interval (two points): INVALID (elapsed ≤ 0) > EVIDENCE_CONFLICT (a
 MINIMUM_INTERVAL / ACCEPTED_BASES policy in conflict, or a CONFLICT point) > UNSUPPORTED >
 INSUFFICIENT_EVIDENCE (supplied minimum interval not met: elapsed days < minimum days) >
-DERIVED. Period = first → last non-excluded window point: policy conflict ⇒ EVIDENCE_CONFLICT;
+INVALID (gain or ADG not finite binary64: `..._VALUE_NOT_REPRESENTABLE`) > DERIVED. Period = first → last non-excluded window point: policy conflict ⇒ EVIDENCE_CONFLICT;
 fewer than two points ⇒ INSUFFICIENT_EVIDENCE (or the single point's CONFLICT / UNSUPPORTED);
 else the interval rule. Per-interval list over consecutive non-excluded points. Every derivation
 is a `DERIVED_VALUE` identified by its source record ids + convention version; a DERIVED value
@@ -3976,35 +3976,41 @@ largest gap days, interval count (`null` spans with fewer than two points).
 EVIDENCE_CONFLICT; period not DERIVED ⇒ its state; else FALLING (ADG < fallingBelow), RISING
 (ADG > risingAbove), FLAT (both bounds inclusive).
 
-**Target comparison** (per animal, one per known target id; REQUIRED: one live target version,
-every applicability input it restricts on KNOWN, review state PRODUCTION, a resolved observed
-metric). Precedence: target versions in conflict ⇒ EVIDENCE_CONFLICT > a restricted context
-field absent ⇒ INSUFFICIENT_EVIDENCE (`..._APPLICABILITY_UNKNOWN`; applicability inputs must be
-KNOWN before "not applicable") > `effectiveAt` outside the target validity, animal not in the
-target's animal set, or a known goal / production system / attribute mismatch ⇒
-TARGET_NOT_APPLICABLE > review state not PRODUCTION ⇒ TARGET_UNVERIFIED > observed metric
-unresolved ⇒ INVALID / EVIDENCE_CONFLICT / INSUFFICIENT_EVIDENCE (ADG: the period; WEIGHT_AT: the
-point at exactly `at` among all in-view observations — none, unsupported, excluded or `at` after
-`effectiveAt` ⇒ INSUFFICIENT_EVIDENCE; CONFLICT ⇒ EVIDENCE_CONFLICT) > BEHIND (observed < lower)
-/ AHEAD (observed > upper) / ON_TRACK. No known target ⇒ `targetOutcome: "NO_TARGET"` and no
+**Target comparison** (per animal, one per known target id; REQUIRED: one live target version
+with a finite band, a resolved observed metric, every applicability input it restricts on
+KNOWN, review state PRODUCTION). Precedence: target versions in conflict ⇒ EVIDENCE_CONFLICT >
+a band bound not finite binary64 ⇒ INVALID (`..._VALUE_NOT_REPRESENTABLE`, bounds `null`) >
+observed metric unresolved ⇒ INVALID / EVIDENCE_CONFLICT / INSUFFICIENT_EVIDENCE (ADG: the
+period; WEIGHT_AT: the point at exactly `at` among all in-view observations — none,
+unsupported, excluded or `at` after `effectiveAt` ⇒ INSUFFICIENT_EVIDENCE; CONFLICT ⇒
+EVIDENCE_CONFLICT; required evidence is resolved before any applicability or review outcome,
+CAT-INV-009) > a restricted context field absent ⇒ INSUFFICIENT_EVIDENCE
+(`..._APPLICABILITY_UNKNOWN`; applicability inputs must be KNOWN before "not applicable") >
+`effectiveAt` outside the target validity, animal not in the target's animal set, or a known
+goal / production system / attribute mismatch ⇒ TARGET_NOT_APPLICABLE > review state not
+PRODUCTION ⇒ TARGET_UNVERIFIED > BEHIND (observed < lower) / AHEAD (observed > upper) /
+ON_TRACK. No known target ⇒ `targetOutcome: "NO_TARGET"` and no
 comparison. A comparison never supplies a target; a prediction is never compared.
 
 **Prediction (optional).** Only when `projectionAt` is supplied: `informationClass:
 "PREDICTION"`, method `LINEAR_EXTRAPOLATION_OF_PERIOD_ADG` (last period kg + period ADG ×
 elapsed days to `projectionAt`), fixed assumptions and limitations; `NOT_PROJECTED` (with the
-period state) when the period is not DERIVED. Never an observation, never used for comparison or
+period state) when the period is not DERIVED, or with `INVALID` when the projected weight is not
+finite binary64. Never an observation, never used for comparison or
 aggregation.
 
 **Aggregation.** Over the contract's scope: members (in member order), and the C4 membership
 `unknown` / `conflict` / `invalid` sets reported (no weights exist for them). Period ADG and gain
 distributions: `count/min/max/mean/median` over DERIVED values only (mean = ascending-order sum ÷
-n); unresolved animals listed by state; no known value ⇒ `statistics: null` (never zero).
+n, or Σ v ÷ n when that sum is not finite; even-count median = (a + b) ÷ 2, or a ÷ 2 + b ÷ 2 when
+not finite); unresolved animals listed by state; no known value ⇒ `statistics: null` (never zero).
 `noTargetAnimalIds`; per target id the members by comparison state.
 
 **Fingerprints.** Both are result fingerprints over semantic payloads (every C5 output instant in
 canonical nine-digit spelling, sorted sets, explicit unknown states). The animal result binds
-`effectiveAt`, `knowledgeCutoff`, window, projection instant, the resolved policies and every
-output field (including the C4 series fingerprint, context and target refs/values); the
+`effectiveAt`, `knowledgeCutoff`, window, projection instant, the resolved policies, the exact
+target definitions relied on and every output field (including the C4 series fingerprint,
+context and target refs/values); the
 evaluation binds the same plus the C4 contract fingerprint, the exact target definitions relied
 on and the aggregate. Input order, key order and equivalent instant spellings do not change them;
 any weight, target, policy, source binding, context, window or time does. Change detection only,

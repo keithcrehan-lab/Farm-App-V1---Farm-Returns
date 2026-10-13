@@ -23,6 +23,8 @@
  *   UNSUPPORTED          — either point has no kilogram value;
  *   INSUFFICIENT_EVIDENCE — an explicit MINIMUM_INTERVAL policy is not met
  *                          (elapsed days < minimum days, unrounded);
+ *   INVALID              — gain or ADG not representable as a finite binary64
+ *                          value (`CATTLE_PERFORMANCE_VALUE_NOT_REPRESENTABLE`);
  *   DERIVED              — gain = end − start (kg, negative kept), elapsed days
  *                          by `elapsed-time.ts`, ADG = gain ÷ days (kg/day),
  *                          all unrounded, with a calculation trace.
@@ -133,7 +135,8 @@ export type DerivationReasonCode =
   | "CATTLE_PERFORMANCE_INPUT_IN_CONFLICT"
   | "CATTLE_PERFORMANCE_UNIT_NOT_CONVERTIBLE"
   | "CATTLE_PERFORMANCE_BELOW_MINIMUM_INTERVAL"
-  | "CATTLE_PERFORMANCE_POLICY_CONFLICT";
+  | "CATTLE_PERFORMANCE_POLICY_CONFLICT"
+  | "CATTLE_PERFORMANCE_VALUE_NOT_REPRESENTABLE";
 
 export type PerformanceLimitationCode =
   | "CATTLE_PERFORMANCE_MIXED_COLLECTION_METHODS"
@@ -229,6 +232,8 @@ export function derivePerformanceInterval(start: PerformancePoint, end: Performa
   const minimum = policies.minimumInterval.state === "SUPPLIED" ? policies.minimumInterval : null;
   if (minimum !== null && elapsedDays < minimum.rule.minimumDays) return unresolved("INSUFFICIENT_EVIDENCE", start, end, "CATTLE_PERFORMANCE_BELOW_MINIMUM_INTERVAL", limitations);
   const gainKg = end.kg - start.kg;
+  const adgKgPerDay = gainKg / elapsedDays;
+  if (!Number.isFinite(gainKg) || !Number.isFinite(adgKgPerDay)) return unresolved("INVALID", start, end, "CATTLE_PERFORMANCE_VALUE_NOT_REPRESENTABLE", limitations);
   const s = start.inputs[0];
   const e = end.inputs[0];
   return {
@@ -240,7 +245,7 @@ export function derivePerformanceInterval(start: PerformancePoint, end: Performa
     conventionVersion: PERFORMANCE_DAY_CONVENTION_VERSION,
     gainKg,
     elapsedDays,
-    adgKgPerDay: gainKg / elapsedDays,
+    adgKgPerDay,
     evidenceBasis: evidenceBasisOf([s.basis, e.basis]),
     methods: methods as WeightCollectionMethod[],
     limitations,
@@ -407,7 +412,7 @@ export interface TargetComparison {
   observed: number | null;
   /** The supplied target value (set whenever the target version is resolved). */
   targetValue: number | null;
-  /** The band: [target − below, target + above] (exact target when no tolerance), binary64, no epsilon. */
+  /** The band: [target − below, target + above] (exact target when no tolerance), binary64, no epsilon; `null` when a bound is not finite. */
   lowerBound: number | null;
   upperBound: number | null;
   /** C4 record ids behind the observed value. */
@@ -436,14 +441,13 @@ function applicabilityOf(target: PerformanceTarget, animalId: string, context: A
   return reasons.length > 0 ? { state: "NOT_APPLICABLE", reasons: sortedUnique(reasons) as TargetComparisonReasonCode[] } : { state: "APPLICABLE" };
 }
 
-/** The supplied target value and band (target facts, echoed whatever the outcome). */
-function bandOf(target: PerformanceTarget): { targetValue: number; lowerBound: number; upperBound: number } {
+/** The supplied target value and band (target facts, echoed whatever the outcome; a bound that is not finite binary64 is `null`). */
+function bandOf(target: PerformanceTarget): { targetValue: number; lowerBound: number | null; upperBound: number | null } {
   const targetValue = target.metric.kind === "ADG" ? target.metric.valueKgPerDay : target.metric.valueKg;
-  return {
-    targetValue,
-    lowerBound: target.tolerance === null ? targetValue : targetValue - target.tolerance.below,
-    upperBound: target.tolerance === null ? targetValue : targetValue + target.tolerance.above,
-  };
+  const lowerBound = target.tolerance === null ? targetValue : targetValue - target.tolerance.below;
+  const upperBound = target.tolerance === null ? targetValue : targetValue + target.tolerance.above;
+  const representable = Number.isFinite(lowerBound) && Number.isFinite(upperBound);
+  return { targetValue, lowerBound: representable ? lowerBound : null, upperBound: representable ? upperBound : null };
 }
 
 function blank(targetId: string, target: PerformanceTarget | null): Omit<TargetComparison, "state" | "reasonCodes"> {
@@ -464,12 +468,14 @@ function derivationToComparison(state: DerivationState): TargetComparisonState {
 
 /**
  * Compares one animal with one supplied target. Precedence (first match
- * wins): target versions in conflict ⇒ EVIDENCE_CONFLICT; an applicability
- * input UNKNOWN ⇒ INSUFFICIENT_EVIDENCE; outside validity / known mismatch ⇒
+ * wins): target versions in conflict ⇒ EVIDENCE_CONFLICT; band bound not
+ * finite ⇒ INVALID; observed metric unresolved ⇒ INVALID / EVIDENCE_CONFLICT /
+ * INSUFFICIENT_EVIDENCE (required evidence is resolved before any
+ * applicability or review outcome, CAT-INV-009); an applicability input
+ * UNKNOWN ⇒ INSUFFICIENT_EVIDENCE; outside validity / known mismatch ⇒
  * TARGET_NOT_APPLICABLE; review state not PRODUCTION ⇒ TARGET_UNVERIFIED;
- * observed metric unresolved ⇒ INVALID / EVIDENCE_CONFLICT /
- * INSUFFICIENT_EVIDENCE; otherwise BEHIND (observed < target − below), AHEAD
- * (observed > target + above) or ON_TRACK — unrounded, no epsilon.
+ * otherwise BEHIND (observed < target − below), AHEAD (observed > target +
+ * above) or ON_TRACK — unrounded, no epsilon.
  */
 export function compareWithTarget(
   targetId: string,
@@ -486,10 +492,7 @@ export function compareWithTarget(
   }
   const target = resolution.record;
   const base = blank(targetId, target);
-  const applicability = applicabilityOf(target, animalId, context, effectiveAt);
-  if (applicability.state === "UNKNOWN") return { ...base, state: "INSUFFICIENT_EVIDENCE", reasonCodes: ["CATTLE_PERFORMANCE_APPLICABILITY_UNKNOWN"] };
-  if (applicability.state === "NOT_APPLICABLE") return { ...base, state: "TARGET_NOT_APPLICABLE", reasonCodes: applicability.reasons };
-  if (target.reviewState !== "PRODUCTION") return { ...base, state: "TARGET_UNVERIFIED", reasonCodes: ["CATTLE_PERFORMANCE_TARGET_NOT_IN_PRODUCTION"] };
+  if (base.lowerBound === null || base.upperBound === null) return { ...base, state: "INVALID", reasonCodes: ["CATTLE_PERFORMANCE_VALUE_NOT_REPRESENTABLE"] };
 
   let observed: number;
   let evidenceRecordIds: string[];
@@ -512,7 +515,11 @@ export function compareWithTarget(
     observed = point.kg;
     evidenceRecordIds = ids;
   }
-  const { lowerBound, upperBound } = bandOf(target);
+  const applicability = applicabilityOf(target, animalId, context, effectiveAt);
+  if (applicability.state === "UNKNOWN") return { ...base, state: "INSUFFICIENT_EVIDENCE", reasonCodes: ["CATTLE_PERFORMANCE_APPLICABILITY_UNKNOWN"] };
+  if (applicability.state === "NOT_APPLICABLE") return { ...base, state: "TARGET_NOT_APPLICABLE", reasonCodes: applicability.reasons };
+  if (target.reviewState !== "PRODUCTION") return { ...base, state: "TARGET_UNVERIFIED", reasonCodes: ["CATTLE_PERFORMANCE_TARGET_NOT_IN_PRODUCTION"] };
+  const { lowerBound, upperBound } = base;
   const state: TargetComparisonState = observed < lowerBound ? "BEHIND" : observed > upperBound ? "AHEAD" : "ON_TRACK";
   return { ...base, observed, evidenceRecordIds, state, reasonCodes: [] };
 }
@@ -538,7 +545,7 @@ export interface WeightPrediction {
   elapsedDays: number | null;
   assumptions: string[];
   limitations: string[];
-  /** The period state when NOT_PROJECTED. */
+  /** The period state when NOT_PROJECTED (INVALID when the projected weight is not finite binary64). */
   reasonState: DerivationState | null;
 }
 
@@ -555,10 +562,14 @@ export function predictWeight(period: IntervalDerivation, at: string): WeightPre
     return { ...base, state: "NOT_PROJECTED", projectedKg: null, basedOnRecordIds: period.sourceRecordIds, fromObservedAt: null, adgKgPerDay: null, elapsedDays: null, reasonState: period.state };
   }
   const elapsedDays = elapsedDaysOf(exactElapsed(period.to, at) as ExactElapsed);
+  const projectedKg = end.kg + period.adgKgPerDay * elapsedDays;
+  if (!Number.isFinite(projectedKg)) {
+    return { ...base, state: "NOT_PROJECTED", projectedKg: null, basedOnRecordIds: period.sourceRecordIds, fromObservedAt: null, adgKgPerDay: null, elapsedDays: null, reasonState: "INVALID" };
+  }
   return {
     ...base,
     state: "PROJECTED",
-    projectedKg: end.kg + period.adgKgPerDay * elapsedDays,
+    projectedKg,
     basedOnRecordIds: period.sourceRecordIds,
     fromObservedAt: period.to,
     adgKgPerDay: period.adgKgPerDay,

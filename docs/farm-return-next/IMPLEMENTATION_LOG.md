@@ -5,6 +5,18 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Cattle Engine v1, C5 close-out — Performance Engine — frozen at a1619cd (2026-10-13)
+
+C5 (task `cattle-c5-performance-engine-20261013`, base `41ee7a1`) is **frozen at `a1619cd523362b280f26e27b58a9494bd6c76d58`** by `scripts/agent-campaign-run`. This is the
+functional freeze SHA; the documentation commit recording it is not.
+
+- Strict full-phase audit `audit-20261013T043053Z-2985169734.md` over `41ee7a1..a1619cd`: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0.
+- Automatic remediation: 2 Medium round(s), 2 High round(s): F002 (HIGH, audit-20261013T022452Z-2936039979.md): Aggregate overflow remains unresolved — sig 5fd471e69f55ae87; F001 (HIGH, audit-20261013T012745Z-942558197.md): Applicability masks conflicting required evidence — sig 8791dd926785c986; F002 (HIGH, audit-20261013T012745Z-942558197.md): Finite inputs overflow into unhandled fingerprint exceptions — sig 9b000aa5a461146b; F005 (HIGH, audit-20261013T022452Z-2936039979.md): Policy resolution loses provenance and fingerprint bindings — sig c1da073e2fa20e23; F006 (MEDIUM, audit-20261013T033536Z-2013683531.md): Policy fingerprint regression assertions compare object identity — sig d10c5a85903bbe60; F003 (MEDIUM, audit-20261013T012745Z-942558197.md): Display references collide for distinct definition identities — sig dbd18beddac2bc81; F004 (MEDIUM, audit-20261013T012745Z-942558197.md): Animal fingerprint omits material target content — sig e333d09a2932a62c.
+- Outstanding Low (recorded, not fixed): none.
+- Verification at `a1619cd`: phase verify and full suite (`scripts/quality-gate.sh`) passed.
+- Receipt `.agent/campaigns/cattle-engine-v1/receipts/C5.json` (fingerprint `55cbaccb15255033`). Migrations: none. Frozen contracts: ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md. Nothing pushed or deployed.
+- C6 **not started**.
+
 ## Cattle Engine v1, C4 close-out — Weight Observations & Groups — frozen at 9ac75b8 (2026-10-13)
 
 C4 (task `cattle-c4-weight-observations-and-groups-20261012`, base `e5b1b2a`) is **frozen at `9ac75b88d3be9c6724456c314473b4a14b01db84`** by `scripts/agent-campaign-run`. This is the

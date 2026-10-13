@@ -311,8 +311,8 @@
       "next_phase": "C3 NOT_STARTED"
     },
     "campaign_progress": {
-      "last_frozen_phase": "C4",
-      "next_phase": "C5",
+      "last_frozen_phase": "C5",
+      "next_phase": "C6",
       "next_phase_status": "NOT_STARTED",
       "updated_by": "scripts/agent-campaign-run"
     },
@@ -355,6 +355,29 @@
       "receipt_fingerprint": "a125b14f63f66cd13115a2f9b7c63ab9e1abd9ad71c1321f80483398bae5028a",
       "closed_by": "scripts/agent-campaign-run",
       "next_phase": "C5 NOT_STARTED"
+    },
+    "c5_performance_engine": {
+      "status": "FROZEN_COMPLETE_IN_CODE",
+      "task": "cattle-c5-performance-engine-20261013",
+      "base_sha": "41ee7a1670985749c6ee21f12dcbdb6b64ebffb6",
+      "final_audited_sha": "a1619cd523362b280f26e27b58a9494bd6c76d58",
+      "final_audit": ".agent/campaigns/cattle-engine-v1/audits/audit-20261013T043053Z-2985169734.md",
+      "final_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0",
+      "remediated_findings": [
+        "F002 (HIGH, audit-20261013T022452Z-2936039979.md): Aggregate overflow remains unresolved — sig 5fd471e69f55ae87",
+        "F001 (HIGH, audit-20261013T012745Z-942558197.md): Applicability masks conflicting required evidence — sig 8791dd926785c986",
+        "F002 (HIGH, audit-20261013T012745Z-942558197.md): Finite inputs overflow into unhandled fingerprint exceptions — sig 9b000aa5a461146b",
+        "F005 (HIGH, audit-20261013T022452Z-2936039979.md): Policy resolution loses provenance and fingerprint bindings — sig c1da073e2fa20e23",
+        "F006 (MEDIUM, audit-20261013T033536Z-2013683531.md): Policy fingerprint regression assertions compare object identity — sig d10c5a85903bbe60",
+        "F003 (MEDIUM, audit-20261013T012745Z-942558197.md): Display references collide for distinct definition identities — sig dbd18beddac2bc81",
+        "F004 (MEDIUM, audit-20261013T012745Z-942558197.md): Animal fingerprint omits material target content — sig e333d09a2932a62c"
+      ],
+      "outstanding_low_findings": [],
+      "verification": "at a1619cd523362b280f26e27b58a9494bd6c76d58: phase verify `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint` PASS; full suite scripts/quality-gate.sh PASS",
+      "receipt": ".agent/campaigns/cattle-engine-v1/receipts/C5.json",
+      "receipt_fingerprint": "55cbaccb15255033a995dff6b6553535ce04a07f89130ba7b20f8bbcf0052a2a",
+      "closed_by": "scripts/agent-campaign-run",
+      "next_phase": "C6 NOT_STARTED"
     }
   }
 }

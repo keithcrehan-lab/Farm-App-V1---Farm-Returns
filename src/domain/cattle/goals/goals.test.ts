@@ -28,6 +28,7 @@ import { computeSourceContentFingerprint } from "../source";
 import { hash } from "../test-fixtures";
 import { buildWeightReadContract } from "../weights";
 import { evaluatePerformance, type PerformanceEvaluation } from "../performance";
+import { computePerformanceFingerprint } from "../performance/performance-integrity";
 import {
   EMPTY_GOAL_ROUTING_REGISTRY,
   goalTypeRef,
@@ -108,6 +109,21 @@ describe("C6 declarations: declare, correct, supersede, end, withdraw", () => {
     expect(p.activeGoals[0].declaration.targetWeight).toEqual({ value: 1300, unit: "POUND", canonical: { state: "UNSUPPORTED" } });
     for (const bad of [{ value: 0, unit: "KILOGRAM" }, { value: 600, unit: "STONE" }, { value: 600 }, { value: "600", unit: "KILOGRAM" }]) {
       expect(issueCodes(ok(project([goal("SYNTH-GOAL-1", { targetWeight: bad })]))), JSON.stringify(bad)).toEqual(["CATTLE_GOAL_RECORD_INVALID_TARGET_OUTCOME"]);
+    }
+  });
+
+  it("a projected declaration replays to the same projection; a mismatched canonical weight fails closed", () => {
+    for (const targetWeight of [{ value: 600, unit: "KILOGRAM" }, { value: 1300, unit: "POUND" }]) {
+      const first = ok(project([goal("SYNTH-GOAL-1", { targetWeight })]));
+      const replayed = ok(project([JSON.parse(JSON.stringify(first.activeGoals[0].declaration))]));
+      expect(replayed.status, targetWeight.unit).toBe("ACTIVE");
+      expect(replayed.snapshot, targetWeight.unit).toEqual(first.snapshot);
+      // Supplied and materialised forms of one record are the same content.
+      expect(ok(project([goal("SYNTH-GOAL-1", { targetWeight }), first.activeGoals[0].declaration])).status).toBe("ACTIVE");
+    }
+    for (const canonical of [{ state: "KNOWN", kg: 601 }, { state: "UNSUPPORTED" }, { state: "KNOWN" }, null]) {
+      const p = ok(project([goal("SYNTH-GOAL-1", { targetWeight: { value: 600, unit: "KILOGRAM", canonical } })]));
+      expect(issueCodes(p), JSON.stringify(canonical)).toEqual(["CATTLE_GOAL_RECORD_INVALID_TARGET_OUTCOME"]);
     }
   });
 
@@ -476,6 +492,27 @@ describe("C6 ↔ C5 target applicability (explicit goal ref only)", () => {
     expect(resolve([goal("SYNTH-GOAL-1")], { ...PERF, fingerprint: { ...PERF.fingerprint, digest: "0".repeat(64) } }).ok).toBe(false);
     expect(resolve([goal("SYNTH-GOAL-1")], performanceOf(TARGETS, TO))).toEqual({ ok: false, issues: [{ code: "CATTLE_GOAL_TARGET_PERFORMANCE_TIME_MISMATCH", ref: null }] });
     expect(resolve([goal("SYNTH-GOAL-1")], PERF, { subject: { kind: "SCOPE", scopeRef: "SYNTH-SCOPE-1" } })).toEqual({ ok: false, issues: [{ code: "CATTLE_GOAL_TARGET_SUBJECT_NOT_ANIMAL", ref: null }] });
+  });
+
+  it("malformed target evidence under a recomputed fingerprint fails closed", () => {
+    const refingerprinted = (mutate: (version: Rec) => void) => {
+      const copy = JSON.parse(JSON.stringify(PERF));
+      const definition = copy.targetDefinitions.find((d: Rec) => d.targetId === "SYNTH-T-ID");
+      mutate(definition.versions[0]);
+      delete copy.fingerprint;
+      return { ...copy, fingerprint: computePerformanceFingerprint("CATTLE_PERFORMANCE_RESULT", copy, hash) };
+    };
+    const invalid = { ok: false, issues: [{ code: "CATTLE_GOAL_TARGET_PERFORMANCE_INVALID", ref: null }] };
+    const cases: [string, (v: Rec) => void][] = [
+      ["missing goalRef", (v) => delete (v.applicability as Rec).goalRef],
+      ["malformed receivedAt", (v) => ((v.provenance as Rec).receivedAt = "not-an-instant")],
+      ["receivedAt after the cutoff", (v) => ((v.provenance as Rec).receivedAt = "2026-07-01T00:00:00.000000000Z")],
+      ["missing provenance source", (v) => delete (v.provenance as Rec).sourceRef],
+      ["missing validFrom", (v) => delete v.validFrom],
+      ["unsupported field", (v) => (v.extra = "SYNTH-X")],
+    ];
+    for (const [label, mutate] of cases) expect(resolve([goal("SYNTH-GOAL-1")], refingerprinted(mutate)), label).toEqual(invalid);
+    expect(resolve([goal("SYNTH-GOAL-1")], refingerprinted(() => undefined)).ok).toBe(true);
   });
 });
 

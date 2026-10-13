@@ -5,9 +5,10 @@
  * Input is the canonical C5 output (`PerformanceEvaluation`), never raw C5 /
  * C4 records (CAT-INV-014/023): it is re-verified with C5
  * `verifyPerformanceFingerprint` and must be evaluated at exactly the query's
- * `effectiveAt` / `knowledgeCutoff` (one viewpoint). Only each target's id,
- * versions and `applicability.goalRef` are read from its
- * `targetDefinitions`.
+ * `effectiveAt` / `knowledgeCutoff` (one viewpoint). Each target version's
+ * canonical shape and provenance are validated (malformed or missing
+ * required evidence fails closed); only its id, version and
+ * `applicability.goalRef` are used for matching.
  *
  * A target's `goalRef` matches an active goal when it equals, exactly, the
  * goal's `goalId` (`matchedBy: "GOAL_ID"`) or `goalTypeRef(goalType)`
@@ -33,7 +34,7 @@ import type { AssessmentFingerprint } from "../../assessment-integrity";
 import { compareInstants, deepFreezeAnimalValue, isOpaqueRef, isValidAnimalInstant } from "../animal-ledger";
 import { compareStrings, type CattleHash } from "../integrity";
 import { toCanonicalPlainData } from "../regulatory/canonical-input";
-import { fingerprintOf, isRecord } from "../health/health-input";
+import { fingerprintOf, hasOnlyFields, isRecord, sourceVersionRefOf, type Raw } from "../health/health-input";
 import { CATTLE_PERFORMANCE_PAYLOAD_VERSION, verifyPerformanceFingerprint, type PerformanceEvaluation } from "../performance";
 import { compareGoalVersionRefs, goalTypeRef, goalVersionRef, type GoalVersionRef } from "./goal-declaration";
 import { CATTLE_GOAL_PAYLOAD_VERSION, computeGoalFingerprint } from "./goal-integrity";
@@ -106,6 +107,28 @@ interface TargetDefinitionView {
   versions: { version: string; goalRef: string | null }[];
 }
 
+const TARGET_FIELDS = ["targetId", "version", "supersedesVersions", "metric", "tolerance", "applicability", "validFrom", "validTo", "reviewState", "provenance"];
+const APPLICABILITY_FIELDS = ["goalRef", "productionSystemRef", "animalIds", "attributes"];
+const PROVENANCE_FIELDS = ["sourceRef", "ruleRef", "receivedAt", "actor"];
+
+/** Exactly these fields, every one present (C5's materialised form; `null` is explicit, never absent). */
+const hasExactFields = (raw: Raw, fields: readonly string[]) => hasOnlyFields(raw, fields) && fields.every((f) => f in raw);
+
+/**
+ * Reads one materialised C5 target version: its canonical shape, the
+ * `applicability.goalRef` matched here and its provenance (a source version
+ * and a knowledge time no later than the evaluation's cutoff). A fingerprint
+ * is change detection, not validation, so malformed evidence fails closed.
+ */
+function targetVersionOf(raw: unknown, targetId: string, knowledgeCutoff: string): { version: string; goalRef: string | null } | null {
+  if (!isRecord(raw) || !hasExactFields(raw, TARGET_FIELDS) || raw.targetId !== targetId || !isOpaqueRef(raw.version) || !isValidAnimalInstant(raw.validFrom)) return null;
+  const { applicability, provenance } = raw;
+  if (!isRecord(applicability) || !hasExactFields(applicability, APPLICABILITY_FIELDS) || (applicability.goalRef !== null && !isOpaqueRef(applicability.goalRef))) return null;
+  if (!isRecord(provenance) || !hasExactFields(provenance, PROVENANCE_FIELDS) || sourceVersionRefOf(provenance.sourceRef) === null) return null;
+  if (!isValidAnimalInstant(provenance.receivedAt) || compareInstants(provenance.receivedAt, knowledgeCutoff) > 0) return null;
+  return { version: raw.version, goalRef: applicability.goalRef };
+}
+
 /** Verifies the C5 evaluation and reads only what goal matching needs (`null` = fail closed). */
 function readPerformance(raw: unknown, hash: CattleHash): { effectiveAt: string; knowledgeCutoff: string; fingerprint: AssessmentFingerprint; targets: TargetDefinitionView[] } | null {
   if (!isRecord(raw) || raw.performancePayloadVersion !== CATTLE_PERFORMANCE_PAYLOAD_VERSION) return null;
@@ -123,11 +146,11 @@ function readPerformance(raw: unknown, hash: CattleHash): { effectiveAt: string;
     if (!isRecord(d) || !isOpaqueRef(d.targetId) || (d.state !== "RESOLVED" && d.state !== "EVIDENCE_CONFLICT") || !Array.isArray(d.versions) || d.versions.length === 0) return null;
     const versions: TargetDefinitionView["versions"] = [];
     for (const v of d.versions) {
-      if (!isRecord(v) || v.targetId !== d.targetId || !isOpaqueRef(v.version) || !isRecord(v.applicability)) return null;
-      const goalRef = v.applicability.goalRef ?? null;
-      if (goalRef !== null && !isOpaqueRef(goalRef)) return null;
-      versions.push({ version: v.version, goalRef });
+      const read = targetVersionOf(v, d.targetId, raw.knowledgeCutoff);
+      if (read === null) return null;
+      versions.push(read);
     }
+    if (new Set(versions.map((v) => v.version)).size !== versions.length) return null;
     if (d.state === "RESOLVED" && versions.length !== 1) return null;
     targets.push({ targetId: d.targetId, state: d.state, versions: versions.sort((a, b) => compareStrings(a.version, b.version)) });
   }

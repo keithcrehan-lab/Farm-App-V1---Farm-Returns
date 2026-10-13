@@ -250,12 +250,18 @@ function versionsOf(raw: unknown): string[] | null {
   return [...(list as string[])].sort(compareStrings);
 }
 
+/**
+ * A supplied `canonical` (a materialised record replayed from history) is
+ * accepted only when it equals, exactly, the value derived here; it is never
+ * trusted or repaired.
+ */
 function targetWeightOf(raw: unknown): { ok: boolean; value: GoalTargetWeight | null } {
   if (raw === undefined || raw === null) return { ok: true, value: null };
-  if (!isRecord(raw) || !hasOnlyFields(raw, ["value", "unit"]) || typeof raw.value !== "number" || !Number.isFinite(raw.value) || raw.value <= 0 || !oneOf(WEIGHT_UNITS, raw.unit)) {
+  if (!isRecord(raw) || !hasOnlyFields(raw, ["value", "unit", "canonical"]) || typeof raw.value !== "number" || !Number.isFinite(raw.value) || raw.value <= 0 || !oneOf(WEIGHT_UNITS, raw.unit)) {
     return { ok: false, value: null };
   }
   const canonical: GoalCanonicalWeight = WEIGHT_UNIT_CONVERSIONS[raw.unit] === "IDENTITY" ? { state: "KNOWN", kg: raw.value } : { state: "UNSUPPORTED" };
+  if ("canonical" in raw && canonicalizeValue(raw.canonical) !== canonicalizeValue(canonical)) return { ok: false, value: null };
   return { ok: true, value: { value: raw.value, unit: raw.unit, canonical } };
 }
 

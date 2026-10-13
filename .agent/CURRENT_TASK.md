@@ -1,32 +1,32 @@
-# Task: Cattle C5 - Performance Engine
+# Task: Cattle C6 - Production Goal Engine
 
-Task ID: cattle-c5-performance-engine-20261013
-Starting HEAD: 41ee7a1670985749c6ee21f12dcbdb6b64ebffb6
+Task ID: cattle-c6-production-goal-engine-20261013
+Starting HEAD: ffb6ad12e1b90eda7637da9e5fff6d90c050788b
 Verify command: `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint`
 
-# Cattle C5 — Performance Engine
+# Cattle C6 — Production Goal Engine
 
-Predecessor: C4 (frozen by the campaign receipt `receipts/C4.json`)
-Phase directory (new): `src/domain/cattle/performance/`
+Predecessor: C5 (frozen by the campaign receipt `receipts/C5.json`)
+Phase directory (new): `src/domain/cattle/goals/`
 
 ## Phase contract (Shared Cattle Architecture & Conformance v1)
 
 Read `docs/farm-return-next/cattle/index.md` first, then only the shared documents it routes you to. CAT-INV ids are defined in `docs/farm-return-next/cattle/INVARIANTS.md`; this phase's interface contract is its section of `docs/farm-return-next/cattle/PHASE_INTERFACES.md`. The canonical input boundary (CAMPAIGN.md, "Canonical input contract", 2026-10-12) applies: entry points check the complete input with `toCanonicalPlainData` and reject non-canonical input; engines reason only over detached canonical plain data; malformed canonical data fails closed. This contract does not expand the scope below.
 
-- **Outcome:** deterministic performance derivation (gain, ADG, coverage, explicit target comparison) over C4 outputs, reproducible historically.
-- **Owner:** derived performance values and target comparisons.
-- **Inputs:** C4 series/latest-known/quality and group scopes ONLY (never raw weight records — CAT-INV-023); supplied provenance-bound `PerformanceTarget` records; explicit supplied policies (trend, thresholds, tolerances).
-- **Outputs:** `DERIVED_VALUE`s with calculation traces (gain kg, ADG kg/day), series metrics, target comparison states, optional labelled `PREDICTION`, scope aggregates over KNOWN results with unknown counts; fingerprint (new kind).
-- **Invariants:** CAT-INV-009, 010, 012, 014, 018–023, 025, 027 (and 001–006 for targets/policies as supplied records).
-- **Temporal model:** passes `effectiveAt`/`knowledgeCutoff` through to C4; targets and policies admitted by their own knowledge time; a later target revision never changes a historical comparison.
-- **Identity model:** derived value = source observation ids + convention version; target = id + version.
-- **Semantic equality:** numeric meaning in canonical units; comparisons on unrounded values.
+- **Outcome:** explicit, versioned production intent with goal snapshots that keep historical evaluations reproducible.
+- **Owner:** production goals / farmer intent; goal snapshots; goal→rule routing (registry as data, empty by default).
+- **Inputs:** canonical append-only goal declaration records (actor/role, effective period, `receivedAt`, provenance, version); C1 identity; supplied routing registry; C5 targets by explicit ref/type only.
+- **Outputs:** active-goal projection (active / NONE / intent conflict / invalid) with full history; `GoalSnapshotRef` (new fingerprint kind); routing result; target-applicability helper.
+- **Invariants:** CAT-INV-001–014, 021–023, 025–027.
+- **Temporal model:** `effectiveAt` within declaration periods `[validFrom, validTo)`; `knowledgeCutoff` admits by `receivedAt`; a later goal change never rewrites an earlier evaluation or recommendation.
+- **Identity model:** goal record id + version; ending/withdrawal is a new record; identity before validity.
+- **Semantic equality:** instants by key; goal types exact enumeration; target ids exact.
 - **Status / evidence precedence:** `docs/farm-return-next/cattle/ARCHITECTURE.md` §Status and evidence precedence: declare the REQUIRED inputs of every authoritative outcome and document/test this phase's own precedence list; unresolved required evidence never surfaces as a resolved-looking state (CAT-INV-009).
-- **Units / precision:** ADG kg/day; elapsed-days convention defined, documented and tested here; tolerance only as supplied with the target; no decision rounding (CAT-INV-019).
-- **Provenance:** target without provenance rejected; unreviewed target ⇒ TARGET_UNVERIFIED; trace names every input observation.
-- **Forbidden dependencies:** raw C4 inputs; universal targets; legacy `livestock.ts` constants as per-animal targets; undocumented epsilon; presentation rounding in logic. See also `PHASE_INTERFACES.md` common contract.
-- **Human gates:** scientific decision gate (any target, threshold or trend boundary needing a value); external evidence gate; frozen-contract gate. Use the stop conditions and gate-token discipline below.
-- **FAIL_TO_PASS test matrix:** <2 usable observations ⇒ insufficient; zero/negative elapsed ⇒ invalid; conflict propagated; mixed methods reported; no target ⇒ NO_TARGET never ON_TRACK (`checkUnresolvedEvidenceNotMasked`); exact boundary comparisons unrounded; later target revision invisible at earlier cutoff; input order; fingerprint variants; aggregates never average unknown into zero. Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
+- **Units / precision:** target weight carries explicit unit (C4/NUMERIC_SEMANTICS rules); no conversion without an exact rule.
+- **Provenance:** declared-by actor and role required; SYSTEM records are suggestions only, never active goals.
+- **Forbidden dependencies:** inferring intent; non-structural compatibility matrix; built-in science; reading raw C4/C5 inputs. See also `PHASE_INTERFACES.md` common contract.
+- **Human gates:** product decision gate (goal compatibility semantics beyond structural); frozen-contract gate. Use the stop conditions and gate-token discipline below.
+- **FAIL_TO_PASS test matrix:** NONE never a default goal; intent conflict without a winner; later goal change invisible at earlier cutoff; malformed `receivedAt`; duplicate ids; snapshot fingerprint equivalent/material variants; input order; non-canonical input rejected. Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
 - **PASS_TO_PASS regression surface:** frozen C0/C1/C2 suites and every earlier frozen phase suite under `src/domain/cattle`; conformance kit self-tests (`src/tooling/cattle-conformance`); directly affected predecessor integrity tests.
 - **Freeze definition:** `docs/farm-return-next/cattle/VERIFICATION.md` §Freeze definition (targeted + required conformance checks + PASS_TO_PASS + full quality gate + strict whole-phase audit CRITICAL=HIGH=MEDIUM=0).
 
@@ -66,52 +66,47 @@ Therefore:
 
 ## Objective
 
-Build deterministic animal (and explicit-scope) performance derivation over C4 weight series: interval gain, average daily gain, trend, observation coverage, evidence completeness, comparison with an EXPLICIT provenance-bound target, uncertainty and unknown states — reproducible historically. No universal cattle target exists in this engine.
+Build explicit, versioned production intent for animals and explicit scopes. Goals are INTENT, never FACT. Changing a goal today must never rewrite the basis of an earlier evaluation or recommendation.
 
 ## Scope
 
-1. Interval gain and ADG between two live observations: gain = later − earlier (kg), days = exact elapsed instant difference expressed in days with a documented, tested convention (no rounding inside the calculation; any presentation rounding is a separate explicit step), ADG = gain / days. Every derived value is a `DERIVED_VALUE` carrying a calculation trace (formula, substituted inputs with observation ids, units, convention) and inherits the weakest evidence quality of its inputs.
-2. Validity rules (documented, tested): fewer than two usable observations ⇒ INSUFFICIENT_EVIDENCE; zero/negative elapsed time ⇒ INVALID; any input in conflict ⇒ EVIDENCE_CONFLICT; mixed collection methods (for example an estimate and a scale reading) are reported as a quality limitation — the engine never silently excludes or upgrades them; a minimum interval or quality threshold is applied ONLY when supplied as an explicit, provenance-bound parameter (otherwise no threshold, and the limitation is reported).
-3. Series metrics over a window: lifetime/period ADG from first and last usable observations, per-interval ADG list, observation count, coverage (span, largest gap, intervals) — descriptive only. A trend classification (for example rising/falling/flat) is produced only from an explicit supplied trend policy (thresholds with provenance); absent a policy ⇒ no classification (`NO_POLICY`), never a default.
-4. Target comparison: `PerformanceTarget` input contract — target metric (ADG or weight-at-date), value + unit, applicability (animal intent/goal ref, production system ref, animal constraints as supplied), validity period, provenance/source binding (C0 `SourceVersionRef` / rule version) and review state. Comparison yields `ON_TRACK` / `BEHIND` / `AHEAD` (exact, documented tolerance supplied with the target, or none) / `NO_TARGET` / `TARGET_NOT_APPLICABLE` / `TARGET_UNVERIFIED` (non-production/unreviewed target) / `INSUFFICIENT_EVIDENCE`. A target without provenance is rejected. A comparison never supplies a target itself.
-5. Prediction boundary: if a projected weight at a date is produced, it is labelled `PREDICTION`, carries method and assumptions (simple linear extrapolation from observed ADG only, with explicit limitation), and is never presented as an observation; the projection is optional and must not be required by acceptance.
-6. Scope aggregation: per-animal results for an explicit animal set or a C4 group scope at an instant, with distribution statistics only over animals with KNOWN results and counts of unknown/insufficient animals reported alongside (never averaged into zero).
-7. Historical reconstruction at explicit `effectiveAt`/`knowledgeCutoff`; deterministic fingerprint (new kind e.g. `CATTLE_PERFORMANCE_RESULT`).
-8. Barrel exports; DOMAIN_CONTRACTS.md section "Cattle C5 — Performance engine".
-
-Reuse note: `src/domain/livestock.ts` holds legacy group-level finishing constants (for example `targetADGForAnimalType`). Do NOT import them as universal per-animal targets and do not duplicate them. A future target catalogue may wrap a sourced value as a `PerformanceTarget` only through an explicitly authorised content task.
+1. `ProductionGoal` declaration records (append-only, bitemporal): target (animal `FarmReturnAnimalId` or explicit scope ref), goal type (closed enumeration covering at least `REPLACEMENT`, `BREEDING`, `FINISHING`, `SALE`, `RETAIN`, plus optional target outcome fields: target weight (value + unit), target date, target production outcome as opaque, source-coded value), effective period (`[validFrom, validTo)`), declared-by actor and role (`FARMER`, `ADVISER`, `VETERINARIAN`, `SYSTEM` — a SYSTEM record may only be a suggestion, never an active declared goal), `receivedAt`, provenance, version, correction/supersession, withdrawal/ending of a goal as a new record.
+2. Validation: compatible/incompatible goal-type combinations are a product decision; this phase supports several concurrent goals only as declared and reports CONFLICTING intent (for example finish and retain for breeding at the same instant) as `INTENT_CONFLICT` without choosing. Any built-in compatibility matrix must be explicitly minimal and documented as structural (identical target, overlapping period, mutually exclusive by definition such as SALE vs RETAIN); anything beyond that is out of scope.
+3. Goal projection at `effectiveAt`/`knowledgeCutoff`: active goals, `NONE` (no declared goal — never a default goal), `INTENT_CONFLICT`, `INVALID`, with full history including superseded and ended goals.
+4. Goal reference/snapshot contract: a deterministic `GoalSnapshotRef` (goal record ids + versions + fingerprint, new kind e.g. `CATTLE_GOAL_SNAPSHOT`) that C5 targets, C7 and C8 evidence packs bind to, so an old recommendation stays reproducible after a goal changes.
+5. Goal-specific routing contract: a pure function mapping an active goal to the set of explicitly REGISTERED rule/target ids applicable to it (registry supplied as data; empty by default) — no built-in science; unregistered ⇒ `NO_ROUTED_RULES`.
+6. Integration with C5: helper resolving which supplied `PerformanceTarget`s are applicable to the animal's active goal(s) at an instant by explicit goal ref/type matching only.
+7. Barrel exports; DOMAIN_CONTRACTS.md section "Cattle C6 — Production goal engine".
 
 ## Out of scope
 
-- Any built-in biological target, growth curve, breed/sex standard, ADG constant, tolerance or trend threshold.
-- Goals/intent management (C6), recommendations or economics (C8), feed/concentrate modelling, UI, persistence, migrations, AI.
-- Modifying `src/domain/livestock.ts`, legacy types or earlier cattle phases (except additive barrel exports).
+- Inferring goals from facts (sex, age, category) — any such suggestion is out of scope in this phase.
+- Biological/economic targets or the recommendation engine (C8); veterinary programmes (C7); UI; persistence; migrations; AI.
+- Earlier-phase module changes beyond additive barrel exports.
 
 ## Required tests
 
 Synthetic data only. At least:
-1. exact ADG for known pairs (including sub-day and multi-month intervals) with the documented day convention; trace contents;
-2. fewer than two observations ⇒ INSUFFICIENT_EVIDENCE; same-instant ⇒ INVALID or conflict per contract; conflicting input ⇒ EVIDENCE_CONFLICT;
-3. weight loss yields negative gain (not clamped to zero);
-4. mixed methods reported as limitation; explicit threshold parameter honoured; absent threshold ⇒ none applied;
-5. trend: no policy ⇒ NO_POLICY; supplied policy boundaries exact;
-6. target comparison: each outcome state; target lacking provenance rejected; unreviewed target ⇒ TARGET_UNVERIFIED; inapplicable intent/system ⇒ TARGET_NOT_APPLICABLE;
-7. aggregation excludes unknowns from statistics and reports their counts;
-8. late correction to a weight changes current result but not a result at an earlier knowledge cutoff (fingerprint reproduced);
-9. prediction (if implemented) labelled PREDICTION with assumptions;
-10. input-order independence, alias safety, deep-frozen outputs, deterministic fingerprints, no clock read, no AI dependency.
+1. declare, correct, supersede and end goals; idempotent duplicate; same-id-different-content rejected;
+2. no declaration ⇒ NONE; SYSTEM-sourced record never becomes an active declared goal;
+3. structural conflicts (for example SALE vs RETAIN overlapping) ⇒ INTENT_CONFLICT with no winner;
+4. effective-period boundaries (inclusive start, exclusive end);
+5. changing a goal later does not change the goal projection or GoalSnapshotRef at an earlier knowledge cutoff (old basis reproducible);
+6. routing returns only registered ids; empty registry ⇒ NO_ROUTED_RULES;
+7. C5 target applicability resolves by explicit goal ref/type only;
+8. intent never presented as fact (information class INTENT preserved);
+9. input-order independence, alias safety, frozen outputs, deterministic fingerprints, no clock read, no AI dependency.
 
 ## Acceptance criteria
 
-- Performance derivation, quality/coverage reporting and explicit target comparison implemented as above; tests pass.
-- No universal target or invented constant; legacy livestock constants not imported as targets.
-- Unknown never zero; derived values traceable; historical reproducibility proven.
-- Earlier phases unchanged except additive barrel exports; DOMAIN_CONTRACTS.md "Cattle C5" section appended; verify passes; strict full-phase audit CRITICAL=0 HIGH=0 MEDIUM=0.
+- Versioned, bitemporal goal intent with history, conflict reporting, snapshot refs and routing implemented as above; tests pass.
+- No inferred or default goal; no invented targets; earlier phases unchanged except additive barrel exports.
+- DOMAIN_CONTRACTS.md "Cattle C6" section appended; verify passes; strict full-phase audit CRITICAL=0 HIGH=0 MEDIUM=0.
 
 ## Stop conditions
 
 Stop with a `STOP: <TOKEN> — reason` line instead of improvising when:
-- a biological target, threshold, trend rule or acceptance rule for estimates is needed — scientific decision gate;
-- scientific evidence or expert validation would be needed to make a claim — external evidence or expert validation gate;
-- an earlier phase's module or legacy livestock code must change — frozen-contract gate;
-- scope would leak into C6–C10 — scope-expansion gate.
+- goal compatibility rules beyond structural ones, or default goals, would need a product decision — product decision gate;
+- a scientific target would be needed — scientific decision gate;
+- an earlier phase's module must change — frozen-contract gate;
+- scope would leak into C7–C10 — scope-expansion gate.

@@ -19,3 +19,4 @@ export * from "./regulatory";
 export * from "./health";
 export * from "./weights";
 export * from "./performance";
+export * from "./goals";

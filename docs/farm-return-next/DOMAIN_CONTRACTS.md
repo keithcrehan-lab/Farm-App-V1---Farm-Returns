@@ -4028,3 +4028,122 @@ evaluate C0 review records. A target's validity is checked at `effectiveAt`.
 trend threshold; no goals/intent management (C6), programmes (C7), recommendations or economics
 (C8), Plan (C9), UI (C10), feed modelling, persistence, schema, migration, AI, network or clock;
 no change to `livestock.ts`, legacy types, C4 or any earlier phase.
+
+## Cattle C6 — Production goal engine (2026-10-13)
+
+C0 (`61c1124`), C1 (`c5b25f2`), C2, C3, C4 and C5 (frozen by their campaign receipts) are
+**frozen**; C6 changes no earlier file except one additive `export * from "./goals";` line in
+`src/domain/cattle/index.ts`. New, **non-frozen** pure modules under `src/domain/cattle/goals/`
+(barrel `goals/index.ts`); tests `goals/goals.test.ts` (synthetic `SYNTH-*` animals, scopes,
+goals, actors, registries, rules and targets only). Explicit, versioned, bitemporal production
+intent — information class **INTENT, never FACT** — with history, structural intent-conflict
+reporting, a reproducible `GoalSnapshotRef`, data-only goal → rule / target routing and
+explicit-ref C5 target applicability. **No inferred goal, no default goal, no built-in route,
+target or science** (CAT-INV-022/027). No persistence, schema, migration, UI, AI, network or
+clock. Shared contract: `docs/farm-return-next/cattle/` (CAT-INV-001–014, 021–023, 025–027).
+
+**Reuse decisions.** Canonical boundary: C2 `toCanonicalPlainData`/`canonicalField` on every
+whole request. Instants: C1 `isValidAnimalInstant`/`animalInstantKey`/`compareInstants`/
+`intervalCovers`; canonical spellings via C2 `canonicalObligationInstant`. Append-only collection
+and as-of-cutoff supersession through C2 `collectBitemporalRecords`/`resolveBitemporalRecords`
+unchanged. Provenance source categories are C1 `ANIMAL_DATA_SOURCE_CATEGORIES`; calendar dates C0
+`isValidCalendarDate`; rule routes name a C0 `RuleVersionRef`. Target weight units and the only
+conversion come from the C4 barrel (`WEIGHT_UNITS`, `WEIGHT_UNIT_CONVERSIONS`): kilograms are the
+identity, any other unit stays as recorded with canonical value UNSUPPORTED — no factor invented.
+C5 is consumed only as its canonical output (`PerformanceEvaluation`, re-verified with C5
+`verifyPerformanceFingerprint`) through the C5 barrel; no raw C4/C5 record or internal module is
+read (CAT-INV-014/023). Generic readers (`isRecord`, `hasOnlyFields`, `oneOf`, `nullableRef`,
+`rawIdentityKey`, `fingerprintOf`) from C3 `health/health-input.ts`. Fingerprints reuse
+`assessment-integrity.ts` canonicalisation and SHA-256 unchanged through the phase-local wrapper
+`{kind, goalPayloadVersion: 1, payload}` (template: C2 `obligation-integrity.ts`) with new kinds
+`CATTLE_GOAL_SNAPSHOT`, `CATTLE_GOAL_PROJECTION`, `CATTLE_GOAL_ROUTING` and
+`CATTLE_GOAL_TARGET_APPLICABILITY` — no existing kind, payload version or canonicalisation changes.
+
+| Module | Contract |
+|---|---|
+| `goal-declaration.ts` | `ProductionGoalDeclaration` (`goalId`, `version`, `supersedesVersions`, `action` `DECLARE` \| `END` \| `WITHDRAW`, `subject` `{kind: "ANIMAL", animalId}` \| `{kind: "SCOPE", scopeRef}`, `goalType` ∈ `PRODUCTION_GOAL_TYPES` = `BREEDING`/`FINISHING`/`REPLACEMENT`/`RETAIN`/`SALE`, `targetWeight {value, unit, canonical}` \| `null`, `targetDate` (`YYYY-MM-DD`) \| `null`, `targetOutcome {scheme, code}` (opaque, source-coded) \| `null`, `validFrom`/`validTo` (inclusive/exclusive, `null` = open), `declaredBy {actor, role ∈ GOAL_DECLARER_ROLES}`, `provenance {sourceCategory, sourceSystem, sourceRecordRef, receivedAt}`); `GoalVersionRef`; `GOAL_TYPE_REF_PREFIX` / `goalTypeRef`. Admission and materialisation helpers are module-internal |
+| `goal-projection.ts` | `projectProductionGoals(request, hash)` → `GoalProjection` (status, `inForce`, `activeGoals`, `conflicts`, `suggestions`, `history`, `issues`, `snapshot: GoalSnapshotRef`, fingerprint); `verifyGoalSnapshotRef({snapshot, declarations}, hash)`; `MUTUALLY_EXCLUSIVE_GOAL_TYPE_PAIRS` |
+| `goal-routing.ts` | `routeProductionGoals({declarations, query, registry}, hash)` → `GoalRouting`; `GoalRoutingRegistry` / `GoalRoutingEntry` / `GoalRoute`; `EMPTY_GOAL_ROUTING_REGISTRY` |
+| `goal-target-applicability.ts` | `resolveGoalTargetApplicability({declarations, query, performance}, hash)` → `GoalTargetApplicability` |
+| `goal-integrity.ts` | `computeGoalFingerprint`/`verifyGoalFingerprint`, `CATTLE_GOAL_PAYLOAD_VERSION` |
+
+**Records, identity and time.** Identity is `goalId` + `version` (exact strings); a `goalId` may
+not start with `CATTLE_GOAL_TYPE:` (reserved for goal-type refs). Same identity + identical
+content (instants by instant) is idempotent; same identity + different content — an invalid copy
+included — fails closed (CAT-INV-008). A correction, an ending and a withdrawal are new versions
+naming earlier versions of the same goal in `supersedesVersions`; `END` and `WITHDRAW` must
+supersede at least one version, and `END` must carry a `validTo`. Every known version of a goal
+must share its subject and standing (`IDENTITY_SCOPE_MISMATCH` otherwise), so a SYSTEM record can
+never supersede, end, withdraw or become a declared goal. Valid time is the declaration period
+`[validFrom, validTo)`; knowledge time is `provenance.receivedAt`. Admission order: a readable
+`receivedAt` after the cutoff sets the record aside before any other read (CAT-INV-003/004); an
+unreadable one fails closed (CAT-INV-005); identity before validity; content, declarer and
+provenance validation; supersession at the cutoff (unknown target, out-of-scope link or cycle ⇒
+fail closed); more than one live version, or competing corrections, of one goal ⇒ version conflict
+with no winner (CAT-INV-026). A later goal change is therefore invisible at an earlier cutoff, and
+the history (every known version for the subject, live or superseded, with its superseding
+versions) is reportable.
+
+**Projection** (query `{subject, effectiveAt, knowledgeCutoff}`; a malformed request or query ⇒
+`ok: false`, `CATTLE_GOAL_*` request codes). A goal is in force when its single live version is not
+a withdrawal and its period covers `effectiveAt`. REQUIRED: a fully admissible ledger and a single
+resolved live version for each goal of the subject that could be in force. Status precedence:
+**INVALID** (any admitted record malformed, an identity collision, an identity-scope mismatch or an
+invalid link anywhere in the supplied ledger; no goal reported) > **INTENT_CONFLICT** (a declared
+goal's competing versions could be in force — `COMPETING_VERSIONS` — or a structural conflict) >
+**ACTIVE** (≥ 1 declared goal in force) > **NONE** (no declared goal in force; never a default).
+`activeGoals` is non-empty only when ACTIVE. SYSTEM records are listed under `suggestions` (standing
+`SUGGESTED`) and are never in force, never ACTIVE and never in the snapshot.
+
+**Structural compatibility matrix (complete).** Two declared goals in force for the identical
+subject at the same instant conflict only when (a) their types are mutually exclusive by
+definition — exactly `SALE` vs `RETAIN` (`MUTUALLY_EXCLUSIVE_GOAL_TYPES`) — or (b) they share a
+type but declare different outcome fields (`SAME_TYPE_DIFFERENT_OUTCOME`). Every other combination
+(for example `FINISHING` with `BREEDING`) is reported as declared; judging it is a product
+decision outside C6.
+
+**`GoalSnapshotRef`** = `{goalPayloadVersion, subject, effectiveAt, knowledgeCutoff, status, goals
+(in-force goal version refs), conflicts (kind + refs), fingerprint}`. `CATTLE_GOAL_SNAPSHOT` is a
+result fingerprint over the subject, both canonical times, the status, the complete materialised
+content of every goal version in force or in conflict, and any ledger issues. Input order, key
+order, equivalent instant spellings, records for other subjects and goals not in force at
+`effectiveAt` do not change it; any goal type, outcome, unit, version, declarer, knowledge time,
+period, either query time or status does. `verifyGoalSnapshotRef` re-projects at the snapshot's
+own subject and times and requires an identical snapshot, so a recommendation bound to an old
+snapshot stays reproducible after later goal changes. `CATTLE_GOAL_PROJECTION` binds the whole
+projection, history and suggestions included.
+
+**Routing.** The registry is data (`{registryId, version, entries}`; entry `{entryId, receivedAt,
+match: {kind: "GOAL_TYPE", goalType} | {kind: "GOAL_ID", goalId}, routes: ({kind: "RULE", ruleId,
+version} | {kind: "TARGET", targetId})[]}`), never executable, and ships empty
+(`EMPTY_GOAL_ROUTING_REGISTRY`). Entries are admitted at the cutoff by `receivedAt` (later
+invisible, unreadable fails closed), identity before validity; a malformed registry or entry ⇒
+`ok: false`. Each ACTIVE goal gets the sorted union of routes of the entries matching its exact
+type or exact id (`ROUTED`) or `NO_ROUTED_RULES`. Overall state: `GOAL_INVALID` >
+`GOAL_INTENT_CONFLICT` > `NO_ACTIVE_GOAL` > `ROUTED` > `NO_ROUTED_RULES`; unresolved goals are never
+routed. Routing names rules / targets and evaluates neither. `CATTLE_GOAL_ROUTING` binds the
+snapshot, registry id / version and every admitted entry.
+
+**C5 target applicability.** Animal subjects only. The C5 evaluation must verify and be evaluated
+at exactly the query's times (`..._PERFORMANCE_INVALID` / `..._PERFORMANCE_TIME_MISMATCH`); only
+each target's id, versions and `applicability.goalRef` are read. A `goalRef` matches an ACTIVE goal
+when it equals exactly its `goalId` (`GOAL_ID`) or `goalTypeRef(goalType)` (`GOAL_TYPE`) — no fuzzy,
+case-folded or bare-type match. Per-target precedence: `TARGET_EVIDENCE_CONFLICT` (C5 versions in
+conflict) > `NOT_GOAL_SPECIFIC` (`goalRef: null`) > `GOAL_INVALID` > `GOAL_INTENT_CONFLICT` >
+`APPLICABLE` / `NOT_APPLICABLE` (ACTIVE without a match, or NONE). Target validity, animal set,
+other applicability fields and review state remain C5's comparison.
+`CATTLE_GOAL_TARGET_APPLICABILITY` binds the snapshot, the C5 evaluation fingerprint and every
+per-target result.
+
+**Known limitations.** A malformed record anywhere in the supplied ledger makes every subject's
+projection INVALID (whole-ledger fail closed); adapters should supply the relevant ledger. Scope
+goals are projected only for that scope ref — scope membership is not resolved, and an animal does
+not inherit a scope's goals. Routing entries cannot be retired by data (a changed registry is a new
+registry version); reproducing a routing or applicability result requires resupplying the same
+registry or C5 evaluation. Target weight in a unit without an exact conversion is UNSUPPORTED
+canonically. C5 still receives its goal context as caller-supplied `goalRef`s; C6 does not change C5.
+
+**Exclusions.** No goal inference from facts (sex, age, category) and no suggestion generation;
+no compatibility semantics beyond the structural matrix; no biological or economic target,
+programme (C7), recommendation (C8), Plan (C9) or UI (C10); no persistence, schema, migration, AI,
+network or clock; no change to any earlier phase.

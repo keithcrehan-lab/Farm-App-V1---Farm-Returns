@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "task_id": "cattle-c5-performance-engine-20261013",
-  "title": "Cattle C5 - Performance Engine",
-  "base_sha": "41ee7a1670985749c6ee21f12dcbdb6b64ebffb6",
+  "task_id": "cattle-c6-production-goal-engine-20261013",
+  "title": "Cattle C6 - Production Goal Engine",
+  "base_sha": "ffb6ad12e1b90eda7637da9e5fff6d90c050788b",
   "domains": [
     "ui",
     "agent-harness",
@@ -23,8 +23,7 @@
     "src/domain",
     "src/lib/farm-data",
     "src/domain/types.ts",
-    "docs/farm-return-next/cattle/FINGERPRINTS.md",
-    "src/domain/livestock.ts"
+    "docs/farm-return-next/cattle/FINGERPRINTS.md"
   ],
   "contracts": [
     "AGENTS.md",

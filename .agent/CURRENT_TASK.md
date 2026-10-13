@@ -1,32 +1,32 @@
-# Task: Cattle C6 - Production Goal Engine
+# Task: Cattle C7 - Veterinary Health-Programme Engine
 
-Task ID: cattle-c6-production-goal-engine-20261013
-Starting HEAD: ffb6ad12e1b90eda7637da9e5fff6d90c050788b
+Task ID: cattle-c7-veterinary-health-programme-engine-20261013
+Starting HEAD: fea84ae8fb7623e3c8abe7df67535c512eca4231
 Verify command: `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint`
 
-# Cattle C6 — Production Goal Engine
+# Cattle C7 — Veterinary Health-Programme Engine
 
-Predecessor: C5 (frozen by the campaign receipt `receipts/C5.json`)
-Phase directory (new): `src/domain/cattle/goals/`
+Predecessor: C6 (frozen by the campaign receipt `receipts/C6.json`)
+Phase directory (new): `src/domain/cattle/programmes/`
 
 ## Phase contract (Shared Cattle Architecture & Conformance v1)
 
 Read `docs/farm-return-next/cattle/index.md` first, then only the shared documents it routes you to. CAT-INV ids are defined in `docs/farm-return-next/cattle/INVARIANTS.md`; this phase's interface contract is its section of `docs/farm-return-next/cattle/PHASE_INTERFACES.md`. The canonical input boundary (CAMPAIGN.md, "Canonical input contract", 2026-10-12) applies: entry points check the complete input with `toCanonicalPlainData` and reject non-canonical input; engines reason only over detached canonical plain data; malformed canonical data fails closed. This contract does not expand the scope below.
 
-- **Outcome:** explicit, versioned production intent with goal snapshots that keep historical evaluations reproducible.
-- **Owner:** production goals / farmer intent; goal snapshots; goal→rule routing (registry as data, empty by default).
-- **Inputs:** canonical append-only goal declaration records (actor/role, effective period, `receivedAt`, provenance, version); C1 identity; supplied routing registry; C5 targets by explicit ref/type only.
-- **Outputs:** active-goal projection (active / NONE / intent conflict / invalid) with full history; `GoalSnapshotRef` (new fingerprint kind); routing result; target-applicability helper.
-- **Invariants:** CAT-INV-001–014, 021–023, 025–027.
-- **Temporal model:** `effectiveAt` within declaration periods `[validFrom, validTo)`; `knowledgeCutoff` admits by `receivedAt`; a later goal change never rewrites an earlier evaluation or recommendation.
-- **Identity model:** goal record id + version; ending/withdrawal is a new record; identity before validity.
-- **Semantic equality:** instants by key; goal types exact enumeration; target ids exact.
+- **Outcome:** declared veterinary/risk-based programme framework deriving per-occurrence state at an explicit instant — not a vaccination or prescribing engine.
+- **Owner:** programme definitions and per-occurrence programme state.
+- **Inputs:** versioned programme definitions with provenance and review state; C4 group scopes / explicit sets; C3 administrations and vet events as completion evidence; C3 withdrawal and C2 hard-gate projections as gate inputs.
+- **Outputs:** per-occurrence state, programme status per animal/group, fingerprint (new kind), C0 pack / C2 hard-gate compatible gate entries.
+- **Invariants:** CAT-INV-001–014, 016, 017, 021–027.
+- **Temporal model:** programme definitions AND programme evidence obey the same cutoff model (definitions admitted by their knowledge time before relevance); a programme revision received later cannot contaminate historical programme state.
+- **Identity model:** programme id + version; deterministic occurrence id (C2 `obligationOccurrenceId` pattern); completion matched only by explicit references or declared criteria.
+- **Semantic equality:** instants by key; product refs exact; windows from declared data with documented boundary conventions.
 - **Status / evidence precedence:** `docs/farm-return-next/cattle/ARCHITECTURE.md` §Status and evidence precedence: declare the REQUIRED inputs of every authoritative outcome and document/test this phase's own precedence list; unresolved required evidence never surfaces as a resolved-looking state (CAT-INV-009).
-- **Units / precision:** target weight carries explicit unit (C4/NUMERIC_SEMANTICS rules); no conversion without an exact rule.
-- **Provenance:** declared-by actor and role required; SYSTEM records are suggestions only, never active goals.
-- **Forbidden dependencies:** inferring intent; non-structural compatibility matrix; built-in science; reading raw C4/C5 inputs. See also `PHASE_INTERFACES.md` common contract.
-- **Human gates:** product decision gate (goal compatibility semantics beyond structural); frozen-contract gate. Use the stop conditions and gate-token discipline below.
-- **FAIL_TO_PASS test matrix:** NONE never a default goal; intent conflict without a winner; later goal change invisible at earlier cutoff; malformed `receivedAt`; duplicate ids; snapshot fingerprint equivalent/material variants; input order; non-canonical input rejected. Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
+- **Units / precision:** schedule offsets exactly as declared; exact UTC arithmetic (C2 `obligation-time.ts`).
+- **Provenance:** declared-by veterinarian/farmer role; veterinary review dimension for veterinarian programmes; unapproved ⇒ REVIEW_REQUIRED.
+- **Forbidden dependencies:** universal vaccination schedules; prescribing; fuzzy completion matching; re-deriving C3 withdrawal or C2 obligation state. See also `PHASE_INTERFACES.md` common contract.
+- **Human gates:** veterinary decision gate whenever veterinary judgement is required (raise its token exactly as the gate-token discipline below specifies); external evidence gate; frozen-contract gate. Use the stop conditions and gate-token discipline below.
+- **FAIL_TO_PASS test matrix:** later programme revision invisible at earlier cutoff (`checkFutureKnowledgeInvisible` over definitions and evidence); malformed definition/evidence knowledge time; unknown anchor/membership ⇒ UNKNOWN never COMPLETED/NOT_APPLICABLE; gate FAIL/UNKNOWN ⇒ BLOCKED; duplicate ids; input order; fingerprint variants; non-canonical input rejected. Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
 - **PASS_TO_PASS regression surface:** frozen C0/C1/C2 suites and every earlier frozen phase suite under `src/domain/cattle`; conformance kit self-tests (`src/tooling/cattle-conformance`); directly affected predecessor integrity tests.
 - **Freeze definition:** `docs/farm-return-next/cattle/VERIFICATION.md` §Freeze definition (targeted + required conformance checks + PASS_TO_PASS + full quality gate + strict whole-phase audit CRITICAL=HIGH=MEDIUM=0).
 
@@ -66,47 +66,49 @@ Therefore:
 
 ## Objective
 
-Build explicit, versioned production intent for animals and explicit scopes. Goals are INTENT, never FACT. Changing a goal today must never rewrite the basis of an earlier evaluation or recommendation.
+Build the framework for risk-based / veterinary health programmes: a programme is explicitly declared data (by a veterinarian or farmer, with provenance), never inferred and never a universal schedule. The engine derives, per animal or group member, which programme actions are due, done, unknown or blocked at an explicit instant. It is NOT an autonomous vaccination or prescribing engine.
 
 ## Scope
 
-1. `ProductionGoal` declaration records (append-only, bitemporal): target (animal `FarmReturnAnimalId` or explicit scope ref), goal type (closed enumeration covering at least `REPLACEMENT`, `BREEDING`, `FINISHING`, `SALE`, `RETAIN`, plus optional target outcome fields: target weight (value + unit), target date, target production outcome as opaque, source-coded value), effective period (`[validFrom, validTo)`), declared-by actor and role (`FARMER`, `ADVISER`, `VETERINARIAN`, `SYSTEM` — a SYSTEM record may only be a suggestion, never an active declared goal), `receivedAt`, provenance, version, correction/supersession, withdrawal/ending of a goal as a new record.
-2. Validation: compatible/incompatible goal-type combinations are a product decision; this phase supports several concurrent goals only as declared and reports CONFLICTING intent (for example finish and retain for breeding at the same instant) as `INTENT_CONFLICT` without choosing. Any built-in compatibility matrix must be explicitly minimal and documented as structural (identical target, overlapping period, mutually exclusive by definition such as SALE vs RETAIN); anything beyond that is out of scope.
-3. Goal projection at `effectiveAt`/`knowledgeCutoff`: active goals, `NONE` (no declared goal — never a default goal), `INTENT_CONFLICT`, `INVALID`, with full history including superseded and ended goals.
-4. Goal reference/snapshot contract: a deterministic `GoalSnapshotRef` (goal record ids + versions + fingerprint, new kind e.g. `CATTLE_GOAL_SNAPSHOT`) that C5 targets, C7 and C8 evidence packs bind to, so an old recommendation stays reproducible after a goal changes.
-5. Goal-specific routing contract: a pure function mapping an active goal to the set of explicitly REGISTERED rule/target ids applicable to it (registry supplied as data; empty by default) — no built-in science; unregistered ⇒ `NO_ROUTED_RULES`.
-6. Integration with C5: helper resolving which supplied `PerformanceTarget`s are applicable to the animal's active goal(s) at an instant by explicit goal ref/type matching only.
-7. Barrel exports; DOMAIN_CONTRACTS.md section "Cattle C6 — Production goal engine".
+1. `HealthProgrammeDefinition` (versioned, effective-period bound, C0 rule classification `VETERINARY_PROGRAMME` for veterinarian-declared programmes or `FARMER_INTENT` for farmer-declared ones — never `LEGAL_*` unless bound to a legal rule from C2): programme id/version, declared-by (veterinarian/farmer role + opaque ref), declaration provenance, applicability (explicit animal set, C4 group scope, or rule-declared criteria over KNOWN C1 facts), actions (opaque action kind, optional product ref bound to a C3 `AuthorisedProductRecord` as supplied data, schedule/window expressed as data — anchor + offsets, repeat interval, occurrence count — exactly as declared), approval/review state (veterinary review dimension from C0 for veterinarian programmes).
+2. Membership resolution over time: animal/group membership at `effectiveAt`/`knowledgeCutoff` (C4 group scope / explicit sets); unknown membership reported, never assumed.
+3. Action occurrence derivation from declared schedule data (deterministic, documented boundary conventions); unknown anchor ⇒ UNKNOWN.
+4. Completion evidence: links to C3 `MEDICINE_ADMINISTRATION` / `VETERINARY_EVENT` records or explicit completion declarations (veterinarian/farmer), with provenance and bitemporal semantics; matching is by explicit references or explicitly declared matching criteria (programme action ↔ product ref and window) — never by fuzzy inference.
+5. Per-occurrence state: `NOT_APPLICABLE`, `UPCOMING`, `DUE`, `COMPLETED`, `OVERDUE`, `BLOCKED` (for example a C3 withdrawal/contra-indication gate is supplied as data and fails, or a hard-gate obligation from C2 blocks), `UNKNOWN`, `INSUFFICIENT_EVIDENCE`, `EVIDENCE_CONFLICT`, `REVIEW_REQUIRED` (programme not approved/current). Precedence documented and tested.
+6. Programme status projection per animal/group with historical reconstruction and deterministic fingerprint (new kind e.g. `CATTLE_PROGRAMME_STATUS`); outputs compatible with C0 evidence-pack inputs and with the C2 hard-gate projection shape where a programme action is a gate.
+7. Barrel exports; DOMAIN_CONTRACTS.md section "Cattle C7 — Veterinary health-programme engine".
 
 ## Out of scope
 
-- Inferring goals from facts (sex, age, category) — any such suggestion is out of scope in this phase.
-- Biological/economic targets or the recommendation engine (C8); veterinary programmes (C7); UI; persistence; migrations; AI.
+- Any universal or default vaccine/health schedule; any real product, dose, interval or disease programme content.
+- Choosing products, doses or timings; prescribing; diagnosing; converting a risk signal into a programme.
+- NVPS/HPRA/veterinary-practice connectors; UI; persistence; migrations; AI.
 - Earlier-phase module changes beyond additive barrel exports.
 
 ## Required tests
 
 Synthetic data only. At least:
-1. declare, correct, supersede and end goals; idempotent duplicate; same-id-different-content rejected;
-2. no declaration ⇒ NONE; SYSTEM-sourced record never becomes an active declared goal;
-3. structural conflicts (for example SALE vs RETAIN overlapping) ⇒ INTENT_CONFLICT with no winner;
-4. effective-period boundaries (inclusive start, exclusive end);
-5. changing a goal later does not change the goal projection or GoalSnapshotRef at an earlier knowledge cutoff (old basis reproducible);
-6. routing returns only registered ids; empty registry ⇒ NO_ROUTED_RULES;
-7. C5 target applicability resolves by explicit goal ref/type only;
-8. intent never presented as fact (information class INTENT preserved);
+1. no declared programme ⇒ nothing due (and explicitly reported as no programme, not "compliant");
+2. declared programme applicability via explicit set, group scope and rule criteria; unknown membership ⇒ UNKNOWN;
+3. schedule occurrence derivation at exact window boundaries; repeat intervals; unknown anchor ⇒ UNKNOWN;
+4. completion by explicit C3 administration ref and by declaration; mismatched product ⇒ not completed; competing completion records ⇒ conflict;
+5. unapproved/non-current programme ⇒ REVIEW_REQUIRED; veterinarian programme requires veterinary review dimension;
+6. supplied blocking gate ⇒ BLOCKED;
+7. programme version supersession at effective boundary; old status reproducible at earlier knowledge cutoff;
+8. farmer-declared programme keeps FARMER_INTENT classification, never presented as veterinary or legal;
 9. input-order independence, alias safety, frozen outputs, deterministic fingerprints, no clock read, no AI dependency.
 
 ## Acceptance criteria
 
-- Versioned, bitemporal goal intent with history, conflict reporting, snapshot refs and routing implemented as above; tests pass.
-- No inferred or default goal; no invented targets; earlier phases unchanged except additive barrel exports.
-- DOMAIN_CONTRACTS.md "Cattle C6" section appended; verify passes; strict full-phase audit CRITICAL=0 HIGH=0 MEDIUM=0.
+- Programme framework implemented as above; tests pass.
+- No universal schedule, prescribing, diagnosing or real content; classifications preserved.
+- Earlier phases unchanged except additive barrel exports; DOMAIN_CONTRACTS.md "Cattle C7" section appended; verify passes; strict full-phase audit CRITICAL=0 HIGH=0 MEDIUM=0.
 
 ## Stop conditions
 
 Stop with a `STOP: <TOKEN> — reason` line instead of improvising when:
-- goal compatibility rules beyond structural ones, or default goals, would need a product decision — product decision gate;
-- a scientific target would be needed — scientific decision gate;
+- veterinary judgement is required (programme content, product/timing choice, completion equivalence) — veterinary decision gate;
+- a real programme/product fact is needed — external evidence gate;
+- a connector shape would be assumed — unsupported external API gate;
 - an earlier phase's module must change — frozen-contract gate;
-- scope would leak into C7–C10 — scope-expansion gate.
+- scope would leak into C8–C10 — scope-expansion gate.

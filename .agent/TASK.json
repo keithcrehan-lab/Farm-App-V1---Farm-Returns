@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "task_id": "cattle-c6-production-goal-engine-20261013",
-  "title": "Cattle C6 - Production Goal Engine",
-  "base_sha": "ffb6ad12e1b90eda7637da9e5fff6d90c050788b",
+  "task_id": "cattle-c7-veterinary-health-programme-engine-20261013",
+  "title": "Cattle C7 - Veterinary Health-Programme Engine",
+  "base_sha": "fea84ae8fb7623e3c8abe7df67535c512eca4231",
   "domains": [
     "ui",
     "agent-harness",

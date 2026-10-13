@@ -252,11 +252,14 @@ class HarnessTests(unittest.TestCase):
     def test_timeout_cleanup_needs_no_process_enumeration(self):
         import time
         shutil.copy(SOURCE / 'scripts/agent-lib.sh', self.root / 'scripts/agent-lib.sh')
+        # Ceilings are far below the commands' natural durations, so a broken
+        # timeout or a lingering watchdog still fails, while process start-up
+        # under a loaded full-suite run (seconds) cannot (no retries).
         started = time.monotonic()
-        run = subprocess.run(['bash', '-c', 'source scripts/agent-lib.sh; run_with_timeout 20 /dev/null .agent/history/out sleep 0.1'], cwd=self.root, timeout=5)
+        run = subprocess.run(['bash', '-c', 'source scripts/agent-lib.sh; run_with_timeout 120 /dev/null .agent/history/out sleep 0.1'], cwd=self.root, timeout=30)
         self.assertEqual(run.returncode, 0)
-        self.assertLess(time.monotonic() - started, 5)
-        run = subprocess.run(['bash', '-c', 'source scripts/agent-lib.sh; run_with_timeout 1 /dev/null .agent/history/out sleep 20'], cwd=self.root, timeout=5)
+        self.assertLess(time.monotonic() - started, 30)
+        run = subprocess.run(['bash', '-c', 'source scripts/agent-lib.sh; run_with_timeout 1 /dev/null .agent/history/out sleep 120'], cwd=self.root, timeout=30)
         self.assertEqual(run.returncode, 124)
 
     def test_quality_gate_quiet_success_and_failure_logs(self):

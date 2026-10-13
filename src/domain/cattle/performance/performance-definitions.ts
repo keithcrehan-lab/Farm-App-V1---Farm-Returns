@@ -467,27 +467,35 @@ export function policyVersionRef(p: PerformancePolicy): DefinitionVersionRef {
  * The policy in force for one kind: none supplied/known ⇒ `NONE` (no
  * threshold, never a default); exactly one live policy ⇒ `SUPPLIED`; more
  * than one live policy of the kind, or a policy whose versions compete ⇒
- * `EVIDENCE_CONFLICT` (no winner).
+ * `EVIDENCE_CONFLICT` (no winner). Both carry the complete materialised
+ * definitions involved (provenance included), so the policy evidence is
+ * reconstructable from, and bound by, every fingerprint over the resolution.
  */
 export type PolicyResolution<K extends PerformancePolicyKind> =
   | { state: "NONE" }
-  | { state: "SUPPLIED"; policy: DefinitionVersionRef; rule: Extract<PerformancePolicyRule, { kind: K }> }
-  | { state: "EVIDENCE_CONFLICT"; policyIds: string[] };
+  | { state: "SUPPLIED"; policy: DefinitionVersionRef; rule: Extract<PerformancePolicyRule, { kind: K }>; definition: PerformancePolicy }
+  | { state: "EVIDENCE_CONFLICT"; policyIds: string[]; definitions: PerformancePolicy[] };
 
 export function resolvePolicyKind<K extends PerformancePolicyKind>(byId: ReadonlyMap<string, DefinitionResolution<PerformancePolicy>>, kind: K): PolicyResolution<K> {
   const resolved: PerformancePolicy[] = [];
   const involvedIds: string[] = [];
+  const involved: PerformancePolicy[] = [];
   for (const [id, r] of byId) {
     if (r.state === "RESOLVED") {
       if (r.record.rule.kind !== kind) continue;
       resolved.push(r.record);
       involvedIds.push(id);
+      involved.push(r.record);
     } else if (r.records.some((p) => p.rule.kind === kind)) {
       involvedIds.push(id);
+      involved.push(...r.records);
     }
   }
   if (involvedIds.length === 0) return { state: "NONE" };
-  if (involvedIds.length > 1 || resolved.length !== 1) return { state: "EVIDENCE_CONFLICT", policyIds: involvedIds.sort(compareStrings) };
+  if (involvedIds.length > 1 || resolved.length !== 1) {
+    const definitions = involved.sort((a, b) => compareStrings(a.policyId, b.policyId) || compareStrings(a.version, b.version));
+    return { state: "EVIDENCE_CONFLICT", policyIds: involvedIds.sort(compareStrings), definitions };
+  }
   const only = resolved[0];
-  return { state: "SUPPLIED", policy: policyVersionRef(only), rule: only.rule as Extract<PerformancePolicyRule, { kind: K }> };
+  return { state: "SUPPLIED", policy: policyVersionRef(only), rule: only.rule as Extract<PerformancePolicyRule, { kind: K }>, definition: only };
 }

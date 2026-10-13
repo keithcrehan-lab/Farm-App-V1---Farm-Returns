@@ -314,12 +314,17 @@ function distribution(animals: readonly AnimalPerformance[], valueOf: (d: Interv
     const n = values.length;
     let sum = 0;
     for (const v of values) sum += v;
-    // Overflow-safe fallback (|Σ v/n| ≤ max |v|): used only when the plain sum is not finite.
+    // Overflow-safe fallback, used only when the plain sum is not finite: every
+    // value is scaled by an exact power of two s ≤ 1/n, so |Σ v·s| ≤ max |v|
+    // and the scaled sum cannot overflow; the mean is (Σ v·s / n) / s.
     let mean = sum / n;
     if (!Number.isFinite(mean)) {
-      mean = 0;
-      for (const v of values) mean += v / n;
+      const scale = 2 ** -Math.ceil(Math.log2(n));
+      let scaled = 0;
+      for (const v of values) scaled += v * scale;
+      mean = scaled / n / scale;
     }
+    if (!Number.isFinite(mean)) throw new Error("CATTLE_PERFORMANCE_AGGREGATE_MEAN_NOT_REPRESENTABLE");
     const mid = Math.floor(n / 2);
     const midpoint = (values[mid - 1] + values[mid]) / 2;
     const median = n % 2 === 1 ? values[mid] : Number.isFinite(midpoint) ? midpoint : values[mid - 1] / 2 + values[mid] / 2;

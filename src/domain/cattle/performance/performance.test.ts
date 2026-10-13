@@ -290,9 +290,48 @@ describe("C5 quality: mixed methods and explicit thresholds", () => {
   it("two live policies of one kind are a conflict, never a winner", () => {
     const policies = [policy("SYNTH-POLICY-MIN-1", { kind: "MINIMUM_INTERVAL", minimumDays: 1 }), policy("SYNTH-POLICY-MIN-2", { kind: "MINIMUM_INTERVAL", minimumDays: 2 })];
     const r = ok(evaluate({ observations: PAIR, policies }));
-    expect(r.policies.minimumInterval).toEqual({ state: "EVIDENCE_CONFLICT", policyIds: ["SYNTH-POLICY-MIN-1", "SYNTH-POLICY-MIN-2"] });
+    expect(r.policies.minimumInterval).toMatchObject({ state: "EVIDENCE_CONFLICT", policyIds: ["SYNTH-POLICY-MIN-1", "SYNTH-POLICY-MIN-2"] });
     expect(r.animals[0].period.state).toBe("EVIDENCE_CONFLICT");
     expect(r.animals[0].period.reasonCodes).toEqual(["CATTLE_PERFORMANCE_POLICY_CONFLICT"]);
+  });
+
+  it("resolved and conflicting policy definitions are retained and bound by both fingerprints (CAT-INV-021)", () => {
+    const fingerprints = (policies: unknown[]) => {
+      const r = ok(evaluate({ observations: PAIR, policies }));
+      return [r.fingerprint, r.animals[0].fingerprint];
+    };
+    const conflict = (v2: string, days2: number) => [
+      policy("SYNTH-POLICY-MIN-1", { kind: "MINIMUM_INTERVAL", minimumDays: 1 }),
+      policy("SYNTH-POLICY-MIN-2", { kind: "MINIMUM_INTERVAL", minimumDays: days2 }, { version: v2 }),
+    ];
+    const base = conflict("v1", 2);
+    const r = ok(evaluate({ observations: PAIR, policies: base }));
+    expect(r.policies.minimumInterval).toMatchObject({
+      state: "EVIDENCE_CONFLICT",
+      definitions: [
+        { policyId: "SYNTH-POLICY-MIN-1", version: "v1", rule: { minimumDays: 1 } },
+        { policyId: "SYNTH-POLICY-MIN-2", version: "v1", rule: { minimumDays: 2 } },
+      ],
+    });
+    const baseFp = fingerprints(base);
+    for (const changed of [conflict("v2", 2), conflict("v1", 3)]) {
+      const fp = fingerprints(changed);
+      expect(fp[0]).not.toBe(baseFp[0]);
+      expect(fp[1]).not.toBe(baseFp[1]);
+    }
+
+    const resolved = (receivedAt: string, actor?: string) => [policy("SYNTH-POLICY-MIN", { kind: "MINIMUM_INTERVAL", minimumDays: 1 }, { provenance: provenance(receivedAt, actor ? { actor } : {}) })];
+    const resolvedBase = resolved("2026-01-01T00:00:00Z");
+    expect(ok(evaluate({ observations: PAIR, policies: resolvedBase })).policies.minimumInterval).toMatchObject({
+      state: "SUPPLIED",
+      definition: { policyId: "SYNTH-POLICY-MIN", version: "v1", provenance: { receivedAt: "2026-01-01T00:00:00.000000000Z", actor: null } },
+    });
+    const resolvedFp = fingerprints(resolvedBase);
+    for (const changed of [resolved("2026-01-02T00:00:00Z"), resolved("2026-01-01T00:00:00Z", "SYNTH-ACTOR")]) {
+      const fp = fingerprints(changed);
+      expect(fp[0]).not.toBe(resolvedFp[0]);
+      expect(fp[1]).not.toBe(resolvedFp[1]);
+    }
   });
 
   it("a policy revision supersedes its earlier version", () => {
@@ -523,6 +562,13 @@ describe("C5 unrepresentable arithmetic fails closed (no non-finite value hashed
     const observations = [obs("w-0", D0, 1), obs("w-90", D90, 1e308), obs("b-0", D0, 1, { animalId: B }), obs("b-90", D90, 1e308, { animalId: B })];
     const r = ok(evaluate({ observations, scope: { kind: "EXPLICIT_SET", animalIds: [A, B] } }));
     expect(r.aggregate.periodGainKg.statistics).toEqual({ count: 2, min: 1e308, max: 1e308, mean: 1e308, median: 1e308 });
+  });
+
+  it("aggregate mean of three maximum-finite gains stays finite (no overflow through accumulated rounding)", () => {
+    const ids = [A, B, C];
+    const observations = ids.flatMap((id) => [obs(`${id}-0`, D0, 1, { animalId: id }), obs(`${id}-90`, D90, Number.MAX_VALUE, { animalId: id })]);
+    const r = ok(evaluate({ observations, scope: { kind: "EXPLICIT_SET", animalIds: ids } }));
+    expect(r.aggregate.periodGainKg.statistics).toEqual({ count: 3, min: Number.MAX_VALUE, max: Number.MAX_VALUE, mean: Number.MAX_VALUE, median: Number.MAX_VALUE });
   });
 });
 

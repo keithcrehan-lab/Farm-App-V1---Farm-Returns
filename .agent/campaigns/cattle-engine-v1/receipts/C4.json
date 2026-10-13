@@ -1,0 +1,183 @@
+{
+  "receipt_schema_version": 1,
+  "origin": "campaign",
+  "campaign_id": "cattle-engine-v1",
+  "phase_id": "C4",
+  "phase_title": "Weight Observations & Groups",
+  "phase_order": 4,
+  "task_id": "cattle-c4-weight-observations-and-groups-20261012",
+  "phase_base_sha": "e5b1b2aead176c94b6f28b4ff83d77ea6c783c1b",
+  "functional_freeze_sha": "9ac75b88d3be9c6724456c314473b4a14b01db84",
+  "frozen_at": "2026-10-13T00:21:06Z",
+  "brief": ".agent/campaigns/cattle-engine-v1/C4_BRIEF.md",
+  "brief_sha256": "6c772fc96d8a54b7063e89fa5e0a8dbebfa27ad44dec98631e93449ffd81611a",
+  "contracts": [
+    {
+      "path": "AGENTS.md",
+      "blob_at_freeze": "c608fb74479ed5ef58544105aee90d6fa07ce918"
+    },
+    {
+      "path": ".agent/AUDIT_RULES.md",
+      "blob_at_freeze": "6113ce9869627f7102a6420242036c8fb2e07358"
+    },
+    {
+      "path": ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
+      "blob_at_freeze": "4f8b6c99e9397e2fd9da1e12f4bde1ad29ca0e1f"
+    },
+    {
+      "path": ".agent/skills/cattle-evidence-rules.md",
+      "blob_at_freeze": "34103147824c01008e92dba49531ff406294fce7"
+    },
+    {
+      "path": "docs/farm-return-next/cattle/index.md",
+      "blob_at_freeze": "ed787671c170f51492d718821dfe439bfdfc1108"
+    },
+    {
+      "path": "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+      "blob_at_freeze": "1d4ddfc9abc8c1d39484f05068ab376967453fc0"
+    }
+  ],
+  "verify_command": "npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint",
+  "verification": [
+    {
+      "name": "phase_verify",
+      "cmd": "npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint",
+      "head": "9ac75b88d3be9c6724456c314473b4a14b01db84",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C4-freeze-phase_verify-20261012T233229818421Z.log"
+    },
+    {
+      "name": "full_suite",
+      "cmd": "bash scripts/quality-gate.sh",
+      "head": "9ac75b88d3be9c6724456c314473b4a14b01db84",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C4-freeze-full_suite-20261012T233328421009Z.log"
+    }
+  ],
+  "strict_audit": {
+    "artifact": ".agent/campaigns/cattle-engine-v1/audits/audit-20261012T232954Z-2162659402.md",
+    "original": ".agent/history/audit-20261012T232954Z-2162659402.md",
+    "sha256": "21b8e7e7fa48059151bca4437fd0c1b16be313f192899b580849e9b1fd4622fb",
+    "range": "e5b1b2aead176c94b6f28b4ff83d77ea6c783c1b..9ac75b88d3be9c6724456c314473b4a14b01db84",
+    "counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "tier": "strict"
+  },
+  "audits": [
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T203308Z-3588656109.md",
+      "head": "d01299584fdb89bab5dc1eccfdb016a572f2dc49",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261012T223332Z-2776576206.md",
+      "head": "2d0a0d53f26b6a0d59364168da901463fd815606",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261012T223607Z-59771749.md",
+      "head": "2d0a0d53f26b6a0d59364168da901463fd815606",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261012T232954Z-2162659402.md",
+      "head": "9ac75b88d3be9c6724456c314473b4a14b01db84",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    }
+  ],
+  "remediation": {
+    "medium_rounds": 2,
+    "high_rounds": 0,
+    "rounds": [
+      {
+        "n": 1,
+        "tier": "standard",
+        "audit": "audit-20261012T203308Z-3588656109.md",
+        "ids": [
+          "F001"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "2d0a0d53f26b6a0d59364168da901463fd815606"
+      },
+      {
+        "n": 2,
+        "tier": "strict",
+        "audit": "audit-20261012T223607Z-59771749.md",
+        "ids": [
+          "F001"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "9ac75b88d3be9c6724456c314473b4a14b01db84"
+      }
+    ]
+  },
+  "finding_signatures": {
+    "45c7c1bdf24a8428": {
+      "severity": "MEDIUM",
+      "title": "Public helpers bypass the canonical input boundary",
+      "file": "src/domain/cattle/weights/index.ts",
+      "attempts": 1,
+      "ids": [
+        "F001@audit-20261012T203308Z-3588656109.md"
+      ]
+    },
+    "b36712d9a8c04350": {
+      "severity": "MEDIUM",
+      "title": "Public weight helper still bypasses validation",
+      "file": "src/domain/cattle/weights/weight-observation.ts",
+      "attempts": 1,
+      "ids": [
+        "F001@audit-20261012T223607Z-59771749.md"
+      ]
+    }
+  },
+  "outstanding_low_findings": [],
+  "migration_status": "NONE",
+  "frozen_contract_status": "ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md",
+  "human_gate_status": "NONE",
+  "pushed_or_deployed": false,
+  "predecessor": "C3",
+  "predecessor_receipt_fingerprint": "6a072bd8d210c9501113948aca35c77ea11d0168da8b35ea5da43c28050d33f4",
+  "policy": {
+    "medium_rounds": 4,
+    "high_rounds": 2,
+    "attempts_per_signature": 2
+  },
+  "receipt_fingerprint": "a125b14f63f66cd13115a2f9b7c63ab9e1abd9ad71c1321f80483398bae5028a"
+}

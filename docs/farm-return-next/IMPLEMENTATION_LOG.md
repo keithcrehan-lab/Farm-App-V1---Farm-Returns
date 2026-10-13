@@ -5,6 +5,18 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Cattle Engine v1, C4 close-out — Weight Observations & Groups — frozen at 9ac75b8 (2026-10-13)
+
+C4 (task `cattle-c4-weight-observations-and-groups-20261012`, base `e5b1b2a`) is **frozen at `9ac75b88d3be9c6724456c314473b4a14b01db84`** by `scripts/agent-campaign-run`. This is the
+functional freeze SHA; the documentation commit recording it is not.
+
+- Strict full-phase audit `audit-20261012T232954Z-2162659402.md` over `e5b1b2a..9ac75b8`: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0.
+- Automatic remediation: 2 Medium round(s), 0 High round(s): F001 (MEDIUM, audit-20261012T203308Z-3588656109.md): Public helpers bypass the canonical input boundary — sig 45c7c1bdf24a8428; F001 (MEDIUM, audit-20261012T223607Z-59771749.md): Public weight helper still bypasses validation — sig b36712d9a8c04350.
+- Outstanding Low (recorded, not fixed): none.
+- Verification at `9ac75b8`: phase verify and full suite (`scripts/quality-gate.sh`) passed.
+- Receipt `.agent/campaigns/cattle-engine-v1/receipts/C4.json` (fingerprint `a125b14f63f66cd1`). Migrations: none. Frozen contracts: ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md. Nothing pushed or deployed.
+- C5 **not started**.
+
 ## Cattle Engine v1, C3 close-out — Health & Medicines Engine — frozen at c35748f (2026-10-12)
 
 C3 (task `cattle-c3-health-and-medicines-engine-20261012`, base `4a23504`) is **frozen at `c35748f128d9eb305e0370a923f59221d8f27a52`** by `scripts/agent-campaign-run`. This is the

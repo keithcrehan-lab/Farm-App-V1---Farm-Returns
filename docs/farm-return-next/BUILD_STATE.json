@@ -311,8 +311,8 @@
       "next_phase": "C3 NOT_STARTED"
     },
     "campaign_progress": {
-      "last_frozen_phase": "C3",
-      "next_phase": "C4",
+      "last_frozen_phase": "C4",
+      "next_phase": "C5",
       "next_phase_status": "NOT_STARTED",
       "updated_by": "scripts/agent-campaign-run"
     },
@@ -337,6 +337,24 @@
       "receipt_fingerprint": "6a072bd8d210c9501113948aca35c77ea11d0168da8b35ea5da43c28050d33f4",
       "closed_by": "scripts/agent-campaign-run",
       "next_phase": "C4 NOT_STARTED"
+    },
+    "c4_weight_observations_groups": {
+      "status": "FROZEN_COMPLETE_IN_CODE",
+      "task": "cattle-c4-weight-observations-and-groups-20261012",
+      "base_sha": "e5b1b2aead176c94b6f28b4ff83d77ea6c783c1b",
+      "final_audited_sha": "9ac75b88d3be9c6724456c314473b4a14b01db84",
+      "final_audit": ".agent/campaigns/cattle-engine-v1/audits/audit-20261012T232954Z-2162659402.md",
+      "final_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0",
+      "remediated_findings": [
+        "F001 (MEDIUM, audit-20261012T203308Z-3588656109.md): Public helpers bypass the canonical input boundary — sig 45c7c1bdf24a8428",
+        "F001 (MEDIUM, audit-20261012T223607Z-59771749.md): Public weight helper still bypasses validation — sig b36712d9a8c04350"
+      ],
+      "outstanding_low_findings": [],
+      "verification": "at 9ac75b88d3be9c6724456c314473b4a14b01db84: phase verify `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint` PASS; full suite scripts/quality-gate.sh PASS",
+      "receipt": ".agent/campaigns/cattle-engine-v1/receipts/C4.json",
+      "receipt_fingerprint": "a125b14f63f66cd13115a2f9b7c63ab9e1abd9ad71c1321f80483398bae5028a",
+      "closed_by": "scripts/agent-campaign-run",
+      "next_phase": "C5 NOT_STARTED"
     }
   }
 }

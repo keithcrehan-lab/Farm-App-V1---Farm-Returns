@@ -4278,7 +4278,8 @@ window, state, reason codes, completion summary and gate checks, unmatched decla
 known completion declaration for the animal and programme (declarer, provenance, supersession), input
 fingerprints: C1 snapshot, C3 timeline / ledger / gate, C2 record fingerprints). Sorted, detached and
 deep-frozen. **Fingerprints:** `CATTLE_PROGRAMME_ANIMAL_STATUS` binds both canonical times and every
-animal-status field (incl. the input fingerprints); `CATTLE_PROGRAMME_STATUS` binds the whole
+animal-status field (incl. the input fingerprints) and the programme provenance (governing /
+conflicting definition fingerprints, review state and review records); `CATTLE_PROGRAMME_STATUS` binds the whole
 evaluation. Input order, key order and equivalent instant spellings do not change them; any
 definition, review, declaration, C3 / C2 input, time or state does. Change detection only, not
 signatures. **Hard-gate projection:** only `HARD_GATE` actions of veterinarian programmes (governing,

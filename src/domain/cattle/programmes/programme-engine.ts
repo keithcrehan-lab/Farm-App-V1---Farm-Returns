@@ -775,7 +775,7 @@ function compareRecords(a: ProgrammeOccurrenceRecord, b: ProgrammeOccurrenceReco
 }
 
 function animalStatus(
-  base: { programmeId: string; classification: ProgrammeClassification; version: string | null; effectiveAt: string; knowledgeCutoff: string },
+  base: { programmeId: string; classification: ProgrammeClassification; version: string | null; effectiveAt: string; knowledgeCutoff: string; provenance: ProgrammeProvenanceBinding },
   ctx: AnimalContext,
   membership: ProgrammeMembership | null,
   records: ProgrammeOccurrenceRecord[],
@@ -797,12 +797,29 @@ function animalStatus(
     declarations: [...declarations].sort((a, b) => compareStrings(a.recordId, b.recordId)),
     inputs: ctx.inputs,
   };
-  return { ...content, fingerprint: computeProgrammeFingerprint("CATTLE_PROGRAMME_ANIMAL_STATUS", animalStatusPayload(content, base.effectiveAt, base.knowledgeCutoff), hash) };
+  return { ...content, fingerprint: computeProgrammeFingerprint("CATTLE_PROGRAMME_ANIMAL_STATUS", animalStatusPayload(content, base.effectiveAt, base.knowledgeCutoff, base.provenance), hash) };
 }
 
-/** The `CATTLE_PROGRAMME_ANIMAL_STATUS` payload: every field plus both query times. */
-function animalStatusPayload(content: Omit<ProgrammeAnimalStatus, "fingerprint">, effectiveAt: string, knowledgeCutoff: string): unknown {
-  return { effectiveAt, knowledgeCutoff, status: content };
+/** Programme content and approval provenance the animal status was derived under (CAT-INV-021). */
+interface ProgrammeProvenanceBinding {
+  governingDefinitionFingerprint: AssessmentFingerprint | null;
+  conflictingDefinitionFingerprints: AssessmentFingerprint[];
+  review: ProgrammeReviewState | null;
+  reviewRecords: ProgrammeReviewRecord[];
+}
+
+function provenanceBinding(governing: ProgrammeStatus["governing"], conflictingVersions: readonly ProgrammeVersionEntry[]): ProgrammeProvenanceBinding {
+  return {
+    governingDefinitionFingerprint: governing === null ? null : governing.version.definitionFingerprint,
+    conflictingDefinitionFingerprints: conflictingVersions.map((v) => v.definitionFingerprint),
+    review: governing === null ? null : governing.review,
+    reviewRecords: governing === null ? [] : governing.reviewRecords,
+  };
+}
+
+/** The `CATTLE_PROGRAMME_ANIMAL_STATUS` payload: every field, both query times and the programme provenance binding. */
+function animalStatusPayload(content: Omit<ProgrammeAnimalStatus, "fingerprint">, effectiveAt: string, knowledgeCutoff: string, provenance: ProgrammeProvenanceBinding): unknown {
+  return { effectiveAt, knowledgeCutoff, programme: provenance, status: content };
 }
 
 interface EvaluationInputs {
@@ -831,7 +848,7 @@ function evaluateProgramme(programmeId: string, versions: readonly ProgrammeVers
   if (resolution.state === "VERSION_CONFLICT") {
     const conflicting = resolution.versions.map(entryOf);
     const list = animalList.map((ctx) =>
-      animalStatus({ ...base, version: null }, ctx, null, [programmeLevel(programmeId, null, ctx.animalId, "EVIDENCE_CONFLICT", ["CATTLE_PROGRAMME_VERSIONS_IN_CONFLICT"])], [], declarationsOf(ctx.animalId), hash),
+      animalStatus({ ...base, version: null, provenance: provenanceBinding(null, conflicting) }, ctx, null, [programmeLevel(programmeId, null, ctx.animalId, "EVIDENCE_CONFLICT", ["CATTLE_PROGRAMME_VERSIONS_IN_CONFLICT"])], [], declarationsOf(ctx.animalId), hash),
     );
     return { ...head, versionState: "VERSION_CONFLICT", governing: null, conflictingVersions: conflicting, scope: null, status: list.length === 0 ? "EVIDENCE_CONFLICT" : statusOf(list), animals: list };
   }
@@ -842,7 +859,7 @@ function evaluateProgramme(programmeId: string, versions: readonly ProgrammeVers
     .filter((r) => review.dimensions.some((d) => d.reviewIds.includes(r.reviewId)))
     .sort((a, b) => compareStrings(a.reviewId, b.reviewId));
   const version = definition.version;
-  const vBase = { ...base, version };
+  const vBase = { ...base, version, provenance: provenanceBinding({ version: governing, review, reviewRecords }, []) };
   if (!review.approved) {
     const reasons = [
       ...(definition.productionState === "PRODUCTION" ? [] : [`CATTLE_PROGRAMME_NOT_CURRENT:${definition.productionState}`]),
@@ -992,7 +1009,7 @@ export function verifyProgrammeStatusEvaluation(evaluation: ProgrammeStatusEvalu
     for (const p of e.programmes) {
       for (const a of p.animals) {
         const { fingerprint, ...content } = a;
-        const v = verifyProgrammeFingerprint("CATTLE_PROGRAMME_ANIMAL_STATUS", animalStatusPayload(content, e.effectiveAt, e.knowledgeCutoff), fingerprint, hash);
+        const v = verifyProgrammeFingerprint("CATTLE_PROGRAMME_ANIMAL_STATUS", animalStatusPayload(content, e.effectiveAt, e.knowledgeCutoff, provenanceBinding(p.governing, p.conflictingVersions)), fingerprint, hash);
         if (!v.valid) return v;
       }
     }

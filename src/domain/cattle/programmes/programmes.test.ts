@@ -33,6 +33,7 @@ import { createObligationImplementationRegistry, evaluateAnimalObligations, obli
 import {
   PRODUCTION_HEALTH_PROGRAMME_DEFINITIONS,
   computeProgrammeDefinitionFingerprint,
+  computeProgrammeFingerprint,
   evaluateHealthProgrammes,
   programmeGateRuleId,
   projectProgrammeHardGates,
@@ -918,6 +919,38 @@ describe("C7 test 9 — determinism, aliasing, fingerprints, boundary", () => {
     expect(animalOf(changed).fingerprint).not.toEqual(animalOf(run(base)).fingerprint);
     expect(animalOf(run(base)).declarations).toEqual([expect.objectContaining({ recordId: "d-1", declaredBy: { role: "FARMER", actor: "SYNTH-FARMER-1" } })]);
     expect(verifyProgrammeStatusEvaluation(ok(changed), hash).valid).toBe(true);
+  });
+
+  it("animal-status fingerprints and exported hard gates bind programme definition and review provenance", () => {
+    const productDef = programme({ actions: [action({ productRef: { productId: "SYNTH-PRODUCT-2", productVersion: null } })] });
+    const v2 = programme({ version: "v2" });
+    const variants: { label: string; payload: Run }[] = [
+      { label: "reviewer", payload: { reviews: [review(DEF, { reviewer: { role: "VETERINARIAN", actor: "SYNTH-REVIEWER-9" } })] } },
+      { label: "reviewedAt", payload: { reviews: [review(DEF, { reviewedAt: "2026-01-03T00:00:00Z" })] } },
+      { label: "declared product with matching approval", payload: { definitions: [productDef], reviews: [review(productDef)] } },
+      { label: "unapproved definition content", payload: { definitions: [productDef], reviews: [] } },
+      { label: "conflicting version content", payload: { definitions: [DEF, v2], reviews: [] } },
+    ];
+    const baseFor = (label: string): Run => (label === "unapproved definition content" ? { reviews: [] } : label === "conflicting version content" ? { definitions: [DEF, programme({ version: "v2", actions: [action({ actionKind: "SYNTH-ACTION-KIND-2" })] })], reviews: [] } : {});
+    for (const { label, payload } of variants) {
+      const before = ok(run(baseFor(label)));
+      const after = ok(run(payload));
+      expect(after.programmes[0].animals[0].status, label).toBe(before.programmes[0].animals[0].status);
+      expect(animalOf(run(payload)).fingerprint, label).not.toEqual(animalOf(run(baseFor(label))).fingerprint);
+      const g0 = projectProgrammeHardGates(before, A, hash);
+      const g1 = projectProgrammeHardGates(after, A, hash);
+      expect(g0.ok && g1.ok, label).toBe(true);
+      expect(g1, label).not.toEqual(g0);
+      expect(verifyProgrammeStatusEvaluation(after, hash).valid, label).toBe(true);
+    }
+    // Tampering programme provenance alone (evaluation fingerprint recomputed) is caught by the animal-status check.
+    const e = structuredClone(ok(run())) as ProgrammeStatusEvaluation;
+    (e.programmes[0].governing!.reviewRecords[0] as { reviewedAt: string }).reviewedAt = "2026-01-05T00:00:00Z";
+    const content: Partial<ProgrammeStatusEvaluation> = { ...e };
+    delete content.fingerprint;
+    const resealed = { ...e, fingerprint: computeProgrammeFingerprint("CATTLE_PROGRAMME_STATUS", content, hash) };
+    expect(verifyProgrammeStatusEvaluation(resealed, hash).valid).toBe(false);
+    expect(projectProgrammeHardGates(resealed, A, hash).ok).toBe(false);
   });
 
   it("non-canonical input is rejected before evaluation", () => {

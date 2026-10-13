@@ -29,7 +29,7 @@ import * as cattle from "../index";
 import { computeSourceContentFingerprint, sourceVersionRef } from "../source";
 import { CATALOGUE, LEGAL_SOURCE, approve as approveRule, bindTo, hash, impl, synthRule } from "../test-fixtures";
 import { projectAnimalHealth, type AnimalHealthProjection } from "../health";
-import { createObligationImplementationRegistry, evaluateAnimalObligations, obligationTermsMarker, type AnimalObligationEvaluation, type ObligationDefinition } from "../regulatory";
+import { computeObligationFingerprint, createObligationImplementationRegistry, evaluateAnimalObligations, obligationTermsMarker, type AnimalObligationEvaluation, type ObligationDefinition } from "../regulatory";
 import {
   PRODUCTION_HEALTH_PROGRAMME_DEFINITIONS,
   computeProgrammeDefinitionFingerprint,
@@ -622,12 +622,49 @@ describe("C7 test 6 — supplied blocking gates", () => {
     expect(codes(run({ ledgers: [otherLedger], health: [health] }))).toEqual(["CATTLE_PROGRAMME_HEALTH_PROJECTION_LEDGER_MISMATCH"]);
     expect(codes(run({ ledgers: [otherLedger], health: [], obligations: [obligationEvaluation()] }))).toEqual(["CATTLE_PROGRAMME_OBLIGATIONS_LEDGER_MISMATCH"]);
   });
+
+  // CAT-INV-014/021/023: every consumed C2 record — not only its envelope —
+  // must belong to this animal, this C1 snapshot and the query's times.
+  it("every C2 record must be bound to this animal's snapshot and the query's times (matching envelope, foreign records)", () => {
+    const genuine = obligationEvaluation();
+    const accepted = run({ ...gated([OBL_RULE]), obligations: [genuine] });
+    expect(accepted.ok).toBe(true);
+    // Records genuinely derived from another C1 ledger of the same animal (valid C2 fingerprints of their own).
+    const foreign = obligationEvaluation(EFFECTIVE, ledgerOf(A, [dobOf(A), sexOf(A, "MALE")]));
+    expect(foreign.snapshotFingerprint).not.toEqual(genuine.snapshotFingerprint);
+    const envelopeWith = (results: AnimalObligationEvaluation["results"]) => ({ ...genuine, results });
+    const reseal = (r: AnimalObligationEvaluation["results"][number], change: Rec) => {
+      const { fingerprint: _drop, ...content } = { ...r, ...change };
+      void _drop;
+      return { ...content, fingerprint: computeObligationFingerprint("CATTLE_OBLIGATION_STATE", content, hash) } as typeof r;
+    };
+    const [record] = genuine.results;
+    const cases: [string, AnimalObligationEvaluation["results"]][] = [
+      ["foreign snapshotFingerprint (genuine foreign record)", foreign.results],
+      ["foreign snapshotFingerprint (resealed)", [reseal(record, { snapshotFingerprint: foreign.snapshotFingerprint })]],
+      ["wrong animalId", [reseal(record, { animalId: B })]],
+      ["wrong effectiveAt", [reseal(record, { effectiveAt: "2026-04-16T00:00:00.000000000Z" })]],
+      ["wrong knowledgeCutoff", [reseal(record, { knowledgeCutoff: "2026-12-30T00:00:00.000000000Z" })]],
+      ["valid and foreign mixed", [record, ...foreign.results]],
+      ["foreign and valid mixed (other order)", [...foreign.results, record]],
+    ];
+    const mismatch = ["CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD", "CATTLE_PROGRAMME_OBLIGATIONS_INVALID"];
+    for (const [label, results] of cases) {
+      const r = run({ ...gated([OBL_RULE]), obligations: [envelopeWith(results)] });
+      expect(r.ok, label).toBe(false);
+      expect(codes(r).length, label).toBeGreaterThan(0);
+      for (const code of codes(r)) expect(mismatch, label).toContain(code);
+    }
+    // The audit's exact shape (valid foreign records under a matching envelope) is C7's own rejection.
+    expect(codes(run({ ...gated([OBL_RULE]), obligations: [envelopeWith(foreign.results)] }))).toEqual(["CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD"]);
+    expect(codes(run({ ...gated([OBL_RULE]), obligations: [envelopeWith([...foreign.results, record])] }))).toEqual(codes(run({ ...gated([OBL_RULE]), obligations: [envelopeWith([record, ...foreign.results])] })));
+  });
 });
 
 // Synthetic C2 hard-gate obligation (no legal meaning): DOB anchor, window opens +1 DAY, due +10 DAY.
 const OBL = "SYNTH-OBLIGATION-1";
 const OBL_RULE = "SYNTH-RULE-OBLIGATION";
-function obligationEvaluation(effectiveAt = EFFECTIVE): AnimalObligationEvaluation {
+function obligationEvaluation(effectiveAt = EFFECTIVE, ledger: AnimalLedger = LEDGER_A): AnimalObligationEvaluation {
   const passImpl = impl(() => "PASS", "SYNTH-IMPL-OBLIGATION");
   const def: ObligationDefinition = {
     obligationId: OBL,
@@ -645,7 +682,7 @@ function obligationEvaluation(effectiveAt = EFFECTIVE): AnimalObligationEvaluati
   const rule = synthRule({ ruleId: OBL_RULE, version: 1, requiredInputs: [], implementation: bindTo(passImpl), assumptions: ["synthetic assumption", obligationTermsMarker(def, hash)] });
   const result = evaluateAnimalObligations(
     {
-      ledger: LEDGER_A,
+      ledger,
       evidence: [],
       catalogue: { definitions: [def], ruleVersions: [rule], sources: CATALOGUE, reviews: approveRule(rule) },
       implementations: createObligationImplementationRegistry([passImpl]),
@@ -946,6 +983,77 @@ describe("C7 test 9 — determinism, aliasing, fingerprints, boundary", () => {
     // Tampering programme provenance alone (evaluation fingerprint recomputed) is caught by the animal-status check.
     const e = structuredClone(ok(run())) as ProgrammeStatusEvaluation;
     (e.programmes[0].governing!.reviewRecords[0] as { reviewedAt: string }).reviewedAt = "2026-01-05T00:00:00Z";
+    const content: Partial<ProgrammeStatusEvaluation> = { ...e };
+    delete content.fingerprint;
+    const resealed = { ...e, fingerprint: computeProgrammeFingerprint("CATTLE_PROGRAMME_STATUS", content, hash) };
+    expect(verifyProgrammeStatusEvaluation(resealed, hash).valid).toBe(false);
+    expect(projectProgrammeHardGates(resealed, A, hash).ok).toBe(false);
+  });
+
+  // CAT-INV-021, FINGERPRINTS.md rule 4: the animal-status RESULT fingerprint
+  // binds the complete canonical governing / conflicting version records; the
+  // CATTLE_PROGRAMME_DEFINITION review fingerprint keeps its narrower meaning.
+  it("result binding matrix: every canonical definition and review field changes the animal fingerprint and exported gates", () => {
+    const P2 = "SYNTH-PROGRAMME-2";
+    const withDef = (overrides: Rec, reviewOverrides: Rec = {}): Run => {
+      const def = programme(overrides);
+      return { definitions: [def], reviews: [review(def, reviewOverrides)] };
+    };
+    const provWith = (fields: Rec) => ({ provenance: { ...(DEF.provenance as Rec), ...fields } });
+    const v2 = (fields: Rec = {}) => programme({ version: "v2", ...fields });
+    const conflictBase: Run = { definitions: [DEF, v2()], reviews: [] };
+    const governingVariants: [string, Run][] = [
+      ["programme identity", withDef({ programmeId: P2 })],
+      ["definition version", withDef({ version: "v1b" })],
+      ["validFrom", withDef({ validFrom: "2026-01-02T00:00:00Z" })],
+      ["validTo", withDef({ validTo: "2027-01-01T00:00:00Z" })],
+      ["declarer actor", withDef({ declaredBy: { role: "VETERINARIAN", actor: "SYNTH-VET-2" } })],
+      ["action content", withDef({ actions: [action({ actionKind: "SYNTH-ACTION-KIND-2" })] })],
+      ["production state", withDef({ productionState: "APPROVED" })],
+      ["provenance.sourceRecordRef", withDef(provWith({ sourceRecordRef: "SYNTH-RECORD-1" }))],
+      ["provenance.sourceSystem", withDef(provWith({ sourceSystem: "SYNTH-SYSTEM-1" }))],
+      ["provenance.receivedAt", withDef(provWith({ receivedAt: "2026-01-01T12:00:00Z" }))],
+      ["provenance.sourceDocument", withDef(provWith({ sourceDocument: { ...VET_DOC, version: "v2" } }))],
+      ["review id", withDef({}, { reviewId: "SYNTH-REVIEW-OTHER" })],
+      ["reviewer", withDef({}, { reviewer: { role: "VETERINARIAN", actor: "SYNTH-REVIEWER-9" } })],
+      ["reviewedAt", withDef({}, { reviewedAt: "2026-01-03T00:00:00Z" })],
+    ];
+    const conflictVariants: [string, Run][] = [
+      ["conflicting provenance.sourceRecordRef", { definitions: [DEF, v2(provWith({ sourceRecordRef: "SYNTH-RECORD-2" }))], reviews: [] }],
+      ["conflicting provenance.sourceSystem", { definitions: [DEF, v2(provWith({ sourceSystem: "SYNTH-SYSTEM-2" }))], reviews: [] }],
+      ["conflicting provenance.receivedAt", { definitions: [DEF, v2(provWith({ receivedAt: "2026-01-01T06:00:00Z" }))], reviews: [] }],
+      ["conflicting validTo", { definitions: [DEF, v2({ validTo: "2027-01-01T00:00:00Z" })], reviews: [] }],
+    ];
+    const animal = (e: ProgrammeStatusEvaluation) => e.programmes[0].animals.find((a) => a.animalId === A)!;
+    const gatesOf = (e: ProgrammeStatusEvaluation) => {
+      const g = projectProgrammeHardGates(e, A, hash);
+      if (!g.ok) throw new Error(JSON.stringify(g.issues));
+      return g.gates;
+    };
+    for (const [baseRun, variants] of [[{}, governingVariants], [conflictBase, conflictVariants]] as [Run, [string, Run][]][]) {
+      const before = ok(run(baseRun));
+      for (const [label, variant] of variants) {
+        const after = ok(run(variant));
+        expect(verifyProgrammeStatusEvaluation(after, hash).valid, label).toBe(true);
+        expect(animal(after).fingerprint, label).not.toEqual(animal(before).fingerprint);
+        expect(gatesOf(after).ruleEvaluations, label).not.toEqual(gatesOf(before).ruleEvaluations);
+      }
+    }
+
+    // Equivalent canonical input (instant spelling, input order) is not a material change.
+    const spelled = ok(run(withDef(provWith({ receivedAt: "2026-01-01T00:00:00.000Z" }))));
+    expect(animal(spelled).fingerprint).toEqual(animal(ok(run())).fingerprint);
+    const conflictReordered = ok(run({ definitions: [v2(), DEF], reviews: [] }));
+    expect(animal(conflictReordered).fingerprint).toEqual(animal(ok(run(conflictBase))).fingerprint);
+
+    // The review fingerprint keeps its meaning: knowledge-time provenance is not reviewed content.
+    const reReceived = programme(provWith({ sourceRecordRef: "SYNTH-RECORD-1", sourceSystem: "SYNTH-SYSTEM-1", receivedAt: "2026-01-01T12:00:00Z" }));
+    expect(computeProgrammeDefinitionFingerprint(reReceived, hash)).toEqual(computeProgrammeDefinitionFingerprint(DEF, hash));
+    expect(ok(run()).programmes[0].governing!.version.definitionFingerprint).toEqual(computeProgrammeDefinitionFingerprint(DEF, hash));
+
+    // Tampering definition provenance in a resealed evaluation is caught by the animal-status check.
+    const e = structuredClone(ok(run())) as ProgrammeStatusEvaluation;
+    (e.programmes[0].governing!.version.definition.provenance as { sourceRecordRef: string | null }).sourceRecordRef = "SYNTH-RECORD-TAMPERED";
     const content: Partial<ProgrammeStatusEvaluation> = { ...e };
     delete content.fingerprint;
     const resealed = { ...e, fingerprint: computeProgrammeFingerprint("CATTLE_PROGRAMME_STATUS", content, hash) };

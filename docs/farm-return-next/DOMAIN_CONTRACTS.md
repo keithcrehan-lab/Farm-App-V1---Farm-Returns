@@ -4209,8 +4209,9 @@ copy included ⇒ `..._DUPLICATE_...`; identical content with equivalent instant
 idempotent), content and provenance validation (fingerprint and source-ref shape, CAT-INV-024),
 supersession at the cutoff (unknown target, out-of-scope link or cycle ⇒ fail closed) → C1 ledgers →
 C3 / C2 outputs re-verified and bound to the same animal, the same times by instant and the same C1
-ledger content (their snapshot fingerprint equals the one projected here); a filtered C3 timeline is
-rejected. Any malformed admitted record or predecessor output ⇒ `ok: false` (whole-request fail
+ledger content (their snapshot fingerprint equals the one projected here); for C2 this holds for every
+consumed record, not only the envelope (`..._OBLIGATIONS_FOREIGN_RECORD`; CAT-INV-014/021/023); a
+filtered C3 timeline is rejected. Any malformed admitted record or predecessor output ⇒ `ok: false` (whole-request fail
 closed). Every version of one programme must share its classification. Output instants use the
 canonical nine-digit spelling. No clock read.
 
@@ -4278,8 +4279,12 @@ window, state, reason codes, completion summary and gate checks, unmatched decla
 known completion declaration for the animal and programme (declarer, provenance, supersession), input
 fingerprints: C1 snapshot, C3 timeline / ledger / gate, C2 record fingerprints). Sorted, detached and
 deep-frozen. **Fingerprints:** `CATTLE_PROGRAMME_ANIMAL_STATUS` binds both canonical times and every
-animal-status field (incl. the input fingerprints) and the programme provenance (governing /
-conflicting definition fingerprints, review state and review records); `CATTLE_PROGRAMME_STATUS` binds the whole
+animal-status field (incl. the input fingerprints) and the programme RESULT binding: the complete
+canonical governing / conflicting version records (every definition field, effective period, full
+provenance incl. `sourceSystem`, `sourceRecordRef`, `receivedAt`, `sourceDocument`, lifecycle and
+supersession, and their review fingerprint), review state and review records. The
+`CATTLE_PROGRAMME_DEFINITION` review fingerprint keeps its narrower meaning (reviewed content, without
+knowledge-time provenance) and is never the result binding on its own; `CATTLE_PROGRAMME_STATUS` binds the whole
 evaluation. Input order, key order and equivalent instant spellings do not change them; any
 definition, review, declaration, C3 / C2 input, time or state does. Change detection only, not
 signatures. **Hard-gate projection:** only `HARD_GATE` actions of veterinarian programmes (governing,

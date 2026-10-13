@@ -24,7 +24,9 @@
  *    `AnimalHealthProjection`
  *    (`verifyAnimalHealthProjection`; an unfiltered timeline; its withdrawal
  *    gates through C3 `projectWithdrawalHardGates`) and C2
- *    `AnimalObligationEvaluation` (through C2 `projectObligationHardGates`).
+ *    `AnimalObligationEvaluation` (through C2 `projectObligationHardGates`;
+ *    every record, not only the envelope, must carry this animal, this C1
+ *    snapshot fingerprint and the query's times).
  *    C7 never re-derives C3 withdrawal or C2 obligation state.
  * 5. Per programme: the governing version at `effectiveAt`
  *    (`programme-definition.ts`), its review state, membership, anchors,
@@ -325,6 +327,7 @@ export type ProgrammeRequestIssueCode =
   | "CATTLE_PROGRAMME_OBLIGATIONS_UNKNOWN_ANIMAL"
   | "CATTLE_PROGRAMME_OBLIGATIONS_DUPLICATE"
   | "CATTLE_PROGRAMME_OBLIGATIONS_LEDGER_MISMATCH"
+  | "CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD"
   | ProgrammeRecordIssueCode
   | CompletionIssueCode;
 
@@ -401,6 +404,24 @@ function failClosed<T>(run: () => T): T | null {
 
 const sameInstant = (a: unknown, b: string) => isValidAnimalInstant(a) && animalInstantKey(a) === animalInstantKey(b);
 
+/**
+ * Every consumed C2 record — not only its envelope — must belong to this
+ * evaluation: this animal, this C1 snapshot and the query's own times
+ * (CAT-INV-014/021/023). C2 binds each record to its own snapshot; a matching
+ * envelope never vouches for the records it carries. A mismatch is never
+ * repaired or skipped: the whole request fails closed.
+ */
+function obligationRecordBelongs(record: unknown, ctx: AnimalContext, read: ReadRequest): boolean {
+  return (
+    isRecord(record) &&
+    record.animalId === ctx.animalId &&
+    isRecord(record.snapshotFingerprint) &&
+    sameFingerprint(record.snapshotFingerprint as unknown as AssessmentFingerprint, ctx.inputs.snapshotFingerprint) &&
+    sameInstant(record.effectiveAt, read.effectiveAt) &&
+    sameInstant(record.knowledgeCutoff, read.knowledgeCutoff)
+  );
+}
+
 const UNFILTERED = (f: unknown) => isRecord(f) && f.kinds === null && f.occurredFrom === null && f.occurredTo === null;
 
 function readAnimals(read: ReadRequest, hash: CattleHash): { ok: true; animals: Map<string, AnimalContext> } | { ok: false; issues: ProgrammeIssue[] } {
@@ -474,6 +495,7 @@ function readAnimals(read: ReadRequest, hash: CattleHash): { ok: true; animals: 
     else if (seenObligations.has(e.animalId)) issues.push({ code: "CATTLE_PROGRAMME_OBLIGATIONS_DUPLICATE", ref: e.animalId });
     else if (!sameInstant(e.effectiveAt, read.effectiveAt) || !sameInstant(e.knowledgeCutoff, read.knowledgeCutoff)) issues.push({ code: "CATTLE_PROGRAMME_OBLIGATIONS_TIME_MISMATCH", ref: e.animalId });
     else if (!sameFingerprint(e.snapshotFingerprint, ctx.inputs.snapshotFingerprint)) issues.push({ code: "CATTLE_PROGRAMME_OBLIGATIONS_LEDGER_MISMATCH", ref: e.animalId });
+    else if (!e.results.every((r) => obligationRecordBelongs(r, ctx, read))) issues.push({ code: "CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD", ref: e.animalId });
     else {
       seenObligations.add(e.animalId);
       ctx.inputs.obligationRecords = e.results.map((r) => r.fingerprint).sort((a, b) => compareStrings(a.digest, b.digest));
@@ -800,18 +822,30 @@ function animalStatus(
   return { ...content, fingerprint: computeProgrammeFingerprint("CATTLE_PROGRAMME_ANIMAL_STATUS", animalStatusPayload(content, base.effectiveAt, base.knowledgeCutoff, base.provenance), hash) };
 }
 
-/** Programme content and approval provenance the animal status was derived under (CAT-INV-021). */
+/**
+ * RESULT binding of the programme evidence an animal status was derived under
+ * (CAT-INV-021; FINGERPRINTS.md rule 4). It carries the COMPLETE canonical
+ * governing / conflicting version records — identity, version, effective
+ * period, every definition field, the full provenance (`sourceCategory`,
+ * `sourceSystem`, `sourceRecordRef`, `receivedAt`, `sourceDocument`),
+ * lifecycle state and supersession — together with their review fingerprint,
+ * the review state and the bound review records. The
+ * `CATTLE_PROGRAMME_DEFINITION` review fingerprint keeps its own, narrower
+ * meaning (the content a reviewer approved) and is never used as the result
+ * binding on its own.
+ */
 interface ProgrammeProvenanceBinding {
-  governingDefinitionFingerprint: AssessmentFingerprint | null;
-  conflictingDefinitionFingerprints: AssessmentFingerprint[];
+  governing: ProgrammeVersionEntry | null;
+  /** Sorted by version. */
+  conflicting: ProgrammeVersionEntry[];
   review: ProgrammeReviewState | null;
   reviewRecords: ProgrammeReviewRecord[];
 }
 
 function provenanceBinding(governing: ProgrammeStatus["governing"], conflictingVersions: readonly ProgrammeVersionEntry[]): ProgrammeProvenanceBinding {
   return {
-    governingDefinitionFingerprint: governing === null ? null : governing.version.definitionFingerprint,
-    conflictingDefinitionFingerprints: conflictingVersions.map((v) => v.definitionFingerprint),
+    governing: governing === null ? null : governing.version,
+    conflicting: [...conflictingVersions].sort((a, b) => compareStrings(a.definition.version, b.definition.version)),
     review: governing === null ? null : governing.review,
     reviewRecords: governing === null ? [] : governing.reviewRecords,
   };

@@ -5,10 +5,11 @@
  * Input is the canonical C5 output (`PerformanceEvaluation`), never raw C5 /
  * C4 records (CAT-INV-014/023): it is re-verified with C5
  * `verifyPerformanceFingerprint` and must be evaluated at exactly the query's
- * `effectiveAt` / `knowledgeCutoff` (one viewpoint). Each target version's
- * canonical shape and provenance are validated (malformed or missing
- * required evidence fails closed); only its id, version and
- * `applicability.goalRef` are used for matching.
+ * `effectiveAt` / `knowledgeCutoff` (one viewpoint). Each target version is
+ * validated by C5's own `materialisePerformanceTarget` (C5 owns the target
+ * schema and provenance rules; C6 keeps no copy of them) and fails closed
+ * when C5 rejects it; only its id, version and `applicability.goalRef` are
+ * used for matching.
  *
  * A target's `goalRef` matches an active goal when it equals, exactly, the
  * goal's `goalId` (`matchedBy: "GOAL_ID"`) or `goalTypeRef(goalType)`
@@ -30,12 +31,13 @@
  * NOT_APPLICABLE (CAT-INV-009).
  */
 
-import type { AssessmentFingerprint } from "../../assessment-integrity";
+import { canonicalizeValue, type AssessmentFingerprint } from "../../assessment-integrity";
 import { compareInstants, deepFreezeAnimalValue, isOpaqueRef, isValidAnimalInstant } from "../animal-ledger";
 import { compareStrings, type CattleHash } from "../integrity";
 import { toCanonicalPlainData } from "../regulatory/canonical-input";
-import { fingerprintOf, hasOnlyFields, isRecord, sourceVersionRefOf, type Raw } from "../health/health-input";
+import { fingerprintOf, isRecord } from "../health/health-input";
 import { CATTLE_PERFORMANCE_PAYLOAD_VERSION, verifyPerformanceFingerprint, type PerformanceEvaluation } from "../performance";
+import { materialisePerformanceTarget } from "../performance/performance-definitions";
 import { compareGoalVersionRefs, goalTypeRef, goalVersionRef, type GoalVersionRef } from "./goal-declaration";
 import { CATTLE_GOAL_PAYLOAD_VERSION, computeGoalFingerprint } from "./goal-integrity";
 import { projectCanonicalGoals, readGoalRequest, type GoalProjectionStatus, type GoalQuery, type GoalRequestIssue, type GoalSnapshotRef } from "./goal-projection";
@@ -107,26 +109,23 @@ interface TargetDefinitionView {
   versions: { version: string; goalRef: string | null }[];
 }
 
-const TARGET_FIELDS = ["targetId", "version", "supersedesVersions", "metric", "tolerance", "applicability", "validFrom", "validTo", "reviewState", "provenance"];
-const APPLICABILITY_FIELDS = ["goalRef", "productionSystemRef", "animalIds", "attributes"];
-const PROVENANCE_FIELDS = ["sourceRef", "ruleRef", "receivedAt", "actor"];
-
-/** Exactly these fields, every one present (C5's materialised form; `null` is explicit, never absent). */
-const hasExactFields = (raw: Raw, fields: readonly string[]) => hasOnlyFields(raw, fields) && fields.every((f) => f in raw);
-
 /**
- * Reads one materialised C5 target version: its canonical shape, the
- * `applicability.goalRef` matched here and its provenance (a source version
- * and a knowledge time no later than the evaluation's cutoff). A fingerprint
- * is change detection, not validation, so malformed evidence fails closed.
+ * Reads one C5 target version. C5 owns target validation (CAT-INV-014/023/024):
+ * the version must pass C5 `materialisePerformanceTarget` unchanged — every
+ * schema, provenance (`sourceRef`, `ruleRef`, `receivedAt`, `actor`) and
+ * content rule is C5's, never a C6 copy — and must already be in C5's
+ * materialised form (a fixed point of that materialisation). C6 then applies
+ * only what it owns: the version belongs to `targetId`, and its knowledge time
+ * is no later than the evaluation's cutoff. A fingerprint is change
+ * detection, not validation, so anything C5 rejects fails closed here.
  */
 function targetVersionOf(raw: unknown, targetId: string, knowledgeCutoff: string): { version: string; goalRef: string | null } | null {
-  if (!isRecord(raw) || !hasExactFields(raw, TARGET_FIELDS) || raw.targetId !== targetId || !isOpaqueRef(raw.version) || !isValidAnimalInstant(raw.validFrom)) return null;
-  const { applicability, provenance } = raw;
-  if (!isRecord(applicability) || !hasExactFields(applicability, APPLICABILITY_FIELDS) || (applicability.goalRef !== null && !isOpaqueRef(applicability.goalRef))) return null;
-  if (!isRecord(provenance) || !hasExactFields(provenance, PROVENANCE_FIELDS) || sourceVersionRefOf(provenance.sourceRef) === null) return null;
-  if (!isValidAnimalInstant(provenance.receivedAt) || compareInstants(provenance.receivedAt, knowledgeCutoff) > 0) return null;
-  return { version: raw.version, goalRef: applicability.goalRef };
+  const materialised = materialisePerformanceTarget(raw);
+  if (!materialised.ok) return null;
+  const { record } = materialised;
+  if (canonicalizeValue(record) !== canonicalizeValue(raw)) return null;
+  if (record.targetId !== targetId || compareInstants(record.provenance.receivedAt, knowledgeCutoff) > 0) return null;
+  return { version: record.version, goalRef: record.applicability.goalRef };
 }
 
 /** Verifies the C5 evaluation and reads only what goal matching needs (`null` = fail closed). */

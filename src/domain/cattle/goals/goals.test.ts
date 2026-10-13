@@ -28,6 +28,7 @@ import { computeSourceContentFingerprint } from "../source";
 import { hash } from "../test-fixtures";
 import { buildWeightReadContract } from "../weights";
 import { evaluatePerformance, type PerformanceEvaluation } from "../performance";
+import { materialisePerformanceTarget } from "../performance/performance-definitions";
 import { computePerformanceFingerprint } from "../performance/performance-integrity";
 import {
   EMPTY_GOAL_ROUTING_REGISTRY,
@@ -521,6 +522,71 @@ describe("C6 ↔ C5 target applicability (explicit goal ref only)", () => {
     for (const [label, mutate] of cases) expect(resolve([goal("SYNTH-GOAL-1")], refingerprinted(mutate)), label).toEqual(invalid);
     expect(resolve([goal("SYNTH-GOAL-1")], refingerprinted(() => undefined)).ok).toBe(true);
   });
+
+  // CAT-INV-014/023/024: C5 owns target validation; C6 consumes it and keeps no
+  // copy. Whole-class matrix: whatever C5 `materialisePerformanceTarget`
+  // rejects, C6 must never turn into an applicability result.
+  it("C6 agrees with C5 target validation (ownership boundary matrix)", () => {
+    const withValidProvenance = { provenance: { sourceRef: SOURCE_REF, ruleRef: { ruleId: "SYNTH-RULE", version: 1 }, receivedAt: RECEIVED, actor: "SYNTH-ACTOR" } };
+    const perf = performanceOf([target("SYNTH-T-ID", "SYNTH-GOAL-1", withValidProvenance)]);
+    const refingerprinted = (mutate: (version: Rec) => void) => {
+      const copy = JSON.parse(JSON.stringify(perf));
+      mutate(copy.targetDefinitions[0].versions[0]);
+      delete copy.fingerprint;
+      return { evidence: copy.targetDefinitions[0].versions[0] as Rec, performance: { ...copy, fingerprint: computePerformanceFingerprint("CATTLE_PERFORMANCE_RESULT", copy, hash) } };
+    };
+    const prov = (v: Rec) => v.provenance as Rec;
+    const rejectedByC5: [string, (v: Rec) => void][] = [
+      ["ruleRef.version 0", (v) => (prov(v).ruleRef = { ruleId: "SYNTH-R", version: 0 })],
+      ["ruleRef.version fractional", (v) => (prov(v).ruleRef = { ruleId: "SYNTH-R", version: 1.5 })],
+      ["ruleRef.version string", (v) => (prov(v).ruleRef = { ruleId: "SYNTH-R", version: "1" })],
+      ["ruleRef.ruleId empty", (v) => (prov(v).ruleRef = { ruleId: "", version: 1 })],
+      ["ruleRef.ruleId number", (v) => (prov(v).ruleRef = { ruleId: 7, version: 1 })],
+      ["ruleRef extra field", (v) => (prov(v).ruleRef = { ruleId: "SYNTH-R", version: 1, extra: "SYNTH-X" })],
+      ["ruleRef not an object", (v) => (prov(v).ruleRef = "SYNTH-R@1")],
+      ["actor number", (v) => (prov(v).actor = 42)],
+      ["actor empty", (v) => (prov(v).actor = "")],
+      ["actor object", (v) => (prov(v).actor = { id: "SYNTH-ACTOR" })],
+      ["sourceRef missing", (v) => delete prov(v).sourceRef],
+      ["sourceRef null", (v) => (prov(v).sourceRef = null)],
+      ["sourceRef.version empty", (v) => (prov(v).sourceRef = { ...SOURCE_REF, version: "" })],
+      ["sourceRef.contentFingerprint digest", (v) => (prov(v).sourceRef = { ...SOURCE_REF, contentFingerprint: { ...SOURCE_REF.contentFingerprint, digest: "XYZ" } })],
+      ["sourceRef.contentFingerprint algorithm", (v) => (prov(v).sourceRef = { ...SOURCE_REF, contentFingerprint: { ...SOURCE_REF.contentFingerprint, algorithm: "MD5" } })],
+      ["sourceRef extra field", (v) => (prov(v).sourceRef = { ...SOURCE_REF, extra: "SYNTH-X" })],
+      ["receivedAt malformed", (v) => (prov(v).receivedAt = "not-an-instant")],
+      ["receivedAt number", (v) => (prov(v).receivedAt = 0)],
+      ["provenance extra field", (v) => (prov(v).extra = "SYNTH-X")],
+      ["provenance null", (v) => (v.provenance = null)],
+      ["provenance array", (v) => (v.provenance = [])],
+      ["reviewState unknown", (v) => (v.reviewState = "SYNTH-STATE")],
+      ["metric malformed", (v) => (v.metric = { kind: "ADG", valueKgPerDay: "1" })],
+    ];
+    const invalid = { ok: false, issues: [{ code: "CATTLE_GOAL_TARGET_PERFORMANCE_INVALID", ref: null }] };
+    for (const [label, mutate] of rejectedByC5) {
+      const { evidence, performance } = refingerprinted(mutate);
+      expect(materialisePerformanceTarget(evidence).ok, `C5 rejects: ${label}`).toBe(false);
+      expect(resolve([goal("SYNTH-GOAL-1")], performance), `C6 fails closed: ${label}`).toEqual(invalid);
+    }
+
+    // C6-owned rules still apply to evidence C5 accepts.
+    const c6Owned: [string, (v: Rec) => void][] = [
+      ["version of another target", (v) => (v.targetId = "SYNTH-T-OTHER")],
+      ["received after the cutoff", (v) => (prov(v).receivedAt = "2026-07-01T00:00:00.000000000Z")],
+      ["not C5's materialised form (instant spelling)", (v) => (prov(v).receivedAt = (prov(v).receivedAt as string).replace(".000000000Z", "Z"))],
+    ];
+    for (const [label, mutate] of c6Owned) {
+      const { evidence, performance } = refingerprinted(mutate);
+      expect(materialisePerformanceTarget(evidence).ok, `C5 accepts: ${label}`).toBe(true);
+      expect(resolve([goal("SYNTH-GOAL-1")], performance), `C6 fails closed: ${label}`).toEqual(invalid);
+    }
+
+    // A valid C5 target (with ruleRef and actor) stays consumable, deterministically.
+    const first = resolve([goal("SYNTH-GOAL-1")], perf);
+    if (!first.ok) throw new Error(JSON.stringify(first.issues));
+    expect(first.applicability.targets.map((t) => [t.targetId, t.state])).toEqual([["SYNTH-T-ID", "APPLICABLE"]]);
+    expect(resolve([goal("SYNTH-GOAL-1")], perf)).toEqual(first);
+    expect(resolve([goal("SYNTH-GOAL-1")], refingerprinted(() => undefined).performance)).toEqual(first);
+  });
 });
 
 describe("C6 conformance: intent class, order, detachment, fingerprints, boundary", () => {
@@ -649,9 +715,15 @@ describe("C6 boundaries", () => {
       const text = readFileSync(join(dir, f), "utf8");
       expect(text, f).not.toMatch(/Date\.now|new Date\(|performance\.now|Math\.random|fetch\(|XMLHttpRequest|openai|anthropic|@\/tooling|src\/tooling/);
       expect(text, f).not.toMatch(/from "[^"]*livestock"|from "\.\.\/(programmes|recommendations|plan-interface|presentation)|from "\.\.\/\.\.\/types"/);
-      // Predecessor outputs only through the C4 / C5 barrels.
-      expect(text, f).not.toMatch(/weights\/(weight-observation|weight-series|group-scope|weight-read-contract)|performance\/performance-/);
+      // Predecessor outputs only through the C4 / C5 barrels — except C5's own
+      // target validator, which C6 consumes rather than copies (CAT-INV-014/024).
+      const OWNED_VALIDATOR = 'import { materialisePerformanceTarget } from "../performance/performance-definitions";';
+      expect(text.replace(OWNED_VALIDATOR, ""), f).not.toMatch(/weights\/(weight-observation|weight-series|group-scope|weight-read-contract)|performance\/performance-/);
     }
+    const applicability = readFileSync(join(dir, "goal-target-applicability.ts"), "utf8");
+    expect(applicability).toContain('import { materialisePerformanceTarget } from "../performance/performance-definitions";');
+    // No shadow copy of C5's target / provenance schema.
+    expect(applicability).not.toMatch(/PROVENANCE_FIELDS|TARGET_FIELDS|sourceVersionRefOf|ruleRefOf|\.ruleRef\b|\.actor\b/);
   });
 
   it("the public entry points are reachable through the cattle barrel; trusting helpers are not", () => {

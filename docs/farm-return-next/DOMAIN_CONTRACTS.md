@@ -4125,8 +4125,12 @@ routed. Routing names rules / targets and evaluates neither. `CATTLE_GOAL_ROUTIN
 snapshot, registry id / version and every admitted entry.
 
 **C5 target applicability.** Animal subjects only. The C5 evaluation must verify and be evaluated
-at exactly the query's times (`..._PERFORMANCE_INVALID` / `..._PERFORMANCE_TIME_MISMATCH`); only
-each target's id, versions and `applicability.goalRef` are read. A `goalRef` matches an ACTIVE goal
+at exactly the query's times (`..._PERFORMANCE_INVALID` / `..._PERFORMANCE_TIME_MISMATCH`). Each
+target version is validated by C5's own `materialisePerformanceTarget` and must already be in its
+materialised form; anything C5 rejects fails closed as `..._PERFORMANCE_INVALID`. C6 keeps no copy of
+C5's target or provenance schema (CAT-INV-014/023/024) and adds only its own checks: the version
+belongs to its target id and was received no later than the cutoff. Only each target's id, versions
+and `applicability.goalRef` are read. A `goalRef` matches an ACTIVE goal
 when it equals exactly its `goalId` (`GOAL_ID`) or `goalTypeRef(goalType)` (`GOAL_TYPE`) — no fuzzy,
 case-folded or bare-type match. Per-target precedence: `TARGET_EVIDENCE_CONFLICT` (C5 versions in
 conflict) > `NOT_GOAL_SPECIFIC` (`goalRef: null`) > `GOAL_INVALID` > `GOAL_INTENT_CONFLICT` >

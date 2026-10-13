@@ -1,32 +1,32 @@
-# Task: Cattle C4 - Weight Observations and Groups
+# Task: Cattle C5 - Performance Engine
 
-Task ID: cattle-c4-weight-observations-and-groups-20261012
-Starting HEAD: e5b1b2aead176c94b6f28b4ff83d77ea6c783c1b
+Task ID: cattle-c5-performance-engine-20261013
+Starting HEAD: 41ee7a1670985749c6ee21f12dcbdb6b64ebffb6
 Verify command: `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint`
 
-# Cattle C4 — Weight Observations & Groups
+# Cattle C5 — Performance Engine
 
-Predecessor: C3 (frozen by the campaign receipt `receipts/C3.json`)
-Phase directory (new): `src/domain/cattle/weights/`
+Predecessor: C4 (frozen by the campaign receipt `receipts/C4.json`)
+Phase directory (new): `src/domain/cattle/performance/`
 
 ## Phase contract (Shared Cattle Architecture & Conformance v1)
 
 Read `docs/farm-return-next/cattle/index.md` first, then only the shared documents it routes you to. CAT-INV ids are defined in `docs/farm-return-next/cattle/INVARIANTS.md`; this phase's interface contract is its section of `docs/farm-return-next/cattle/PHASE_INTERFACES.md`. The canonical input boundary (CAMPAIGN.md, "Canonical input contract", 2026-10-12) applies: entry points check the complete input with `toCanonicalPlainData` and reject non-canonical input; engines reason only over detached canonical plain data; malformed canonical data fails closed. This contract does not expand the scope below.
 
-- **Outcome:** canonical weight observations and a group-scope resolver over C1 group history, with the C5 read contract.
-- **Owner:** canonical weight observations; group-scope resolution at an instant (group truth stays in C1).
-- **Inputs:** canonical weight records (cattle-canonical type, not the legacy `src/domain/types.ts` one); C1 ledgers/snapshots for membership; explicit animal sets.
-- **Outputs:** historical series; latest-known weight with NONE / conflict states; per-observation method, provenance and quality; group-scope members + unknown/conflict/invalid sets + history; typed C5 read contract; fingerprint (new kind).
-- **Invariants:** CAT-INV-001–014, 018, 019, 021–024, 026, 027.
-- **Temporal model:** `effectiveAt` = observation instant; `knowledgeCutoff` admits by `receivedAt` (cutoff first); membership projected through C1 at the same instants.
-- **Identity model:** observation record id; distinct live observations for the same animal at the same instant ⇒ conflict, never averaged; identity before validity.
-- **Semantic equality:** instants by `animalInstantKey`; weights by canonical kg value, not formatting; recorded value/unit preserved (CAT-INV-011).
+- **Outcome:** deterministic performance derivation (gain, ADG, coverage, explicit target comparison) over C4 outputs, reproducible historically.
+- **Owner:** derived performance values and target comparisons.
+- **Inputs:** C4 series/latest-known/quality and group scopes ONLY (never raw weight records — CAT-INV-023); supplied provenance-bound `PerformanceTarget` records; explicit supplied policies (trend, thresholds, tolerances).
+- **Outputs:** `DERIVED_VALUE`s with calculation traces (gain kg, ADG kg/day), series metrics, target comparison states, optional labelled `PREDICTION`, scope aggregates over KNOWN results with unknown counts; fingerprint (new kind).
+- **Invariants:** CAT-INV-009, 010, 012, 014, 018–023, 025, 027 (and 001–006 for targets/policies as supplied records).
+- **Temporal model:** passes `effectiveAt`/`knowledgeCutoff` through to C4; targets and policies admitted by their own knowledge time; a later target revision never changes a historical comparison.
+- **Identity model:** derived value = source observation ids + convention version; target = id + version.
+- **Semantic equality:** numeric meaning in canonical units; comparisons on unrounded values.
 - **Status / evidence precedence:** `docs/farm-return-next/cattle/ARCHITECTURE.md` §Status and evidence precedence: declare the REQUIRED inputs of every authoritative outcome and document/test this phase's own precedence list; unresolved required evidence never surfaces as a resolved-looking state (CAT-INV-009).
-- **Units / precision:** canonical kg; closed unit enumeration; conversion only exact/explicit/tested, else UNSUPPORTED; number representation decided and documented here (`NUMERIC_SEMANTICS.md`); no rounding.
-- **Provenance:** C1 `AnimalDataProvenance` categories; collection method never relabelled (estimate ≠ scale); supplied quality kept exactly, never invented.
-- **Forbidden dependencies:** ADG/trend/target logic; creating group truth; reading C3/C5+ outputs. See also `PHASE_INTERFACES.md` common contract.
-- **Human gates:** external evidence gate (a real conversion factor or quality rule); frozen-contract gate; scope-expansion gate. Use the stop conditions and gate-token discipline below.
-- **FAIL_TO_PASS test matrix:** cutoff before/at/after incl. malformed late records; malformed `receivedAt`; duplicate observation ids; same-instant conflict; correction keeps history; input-order permutations for series and scope; non-positive/non-finite/unknown-unit rejection; equivalent instant spellings ⇒ equal series fingerprint; group UNKNOWN/conflict never silently in/out; non-canonical input rejected. Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
+- **Units / precision:** ADG kg/day; elapsed-days convention defined, documented and tested here; tolerance only as supplied with the target; no decision rounding (CAT-INV-019).
+- **Provenance:** target without provenance rejected; unreviewed target ⇒ TARGET_UNVERIFIED; trace names every input observation.
+- **Forbidden dependencies:** raw C4 inputs; universal targets; legacy `livestock.ts` constants as per-animal targets; undocumented epsilon; presentation rounding in logic. See also `PHASE_INTERFACES.md` common contract.
+- **Human gates:** scientific decision gate (any target, threshold or trend boundary needing a value); external evidence gate; frozen-contract gate. Use the stop conditions and gate-token discipline below.
+- **FAIL_TO_PASS test matrix:** <2 usable observations ⇒ insufficient; zero/negative elapsed ⇒ invalid; conflict propagated; mixed methods reported; no target ⇒ NO_TARGET never ON_TRACK (`checkUnresolvedEvidenceNotMasked`); exact boundary comparisons unrounded; later target revision invisible at earlier cutoff; input order; fingerprint variants; aggregates never average unknown into zero. Use the shared kit (`src/tooling/cattle-conformance`) where a check fits; table-driven, no Cartesian suites.
 - **PASS_TO_PASS regression surface:** frozen C0/C1/C2 suites and every earlier frozen phase suite under `src/domain/cattle`; conformance kit self-tests (`src/tooling/cattle-conformance`); directly affected predecessor integrity tests.
 - **Freeze definition:** `docs/farm-return-next/cattle/VERIFICATION.md` §Freeze definition (targeted + required conformance checks + PASS_TO_PASS + full quality gate + strict whole-phase audit CRITICAL=HIGH=MEDIUM=0).
 
@@ -66,50 +66,52 @@ Therefore:
 
 ## Objective
 
-Build canonical, provenance-aware bovine weight observations and a dynamic group-scope resolver. Weight is an OBSERVATION over time — never a mutable animal property. Provide the clean interface C5 (performance) consumes, without performance interpretation here.
+Build deterministic animal (and explicit-scope) performance derivation over C4 weight series: interval gain, average daily gain, trend, observation coverage, evidence completeness, comparison with an EXPLICIT provenance-bound target, uncertainty and unknown states — reproducible historically. No universal cattle target exists in this engine.
 
 ## Scope
 
-1. `WeightObservation` record (cattle-canonical; distinct from the legacy `src/domain/types.ts` `WeightObservation`, which must not be modified or re-used as the canonical type): animal `FarmReturnAnimalId`, value + explicit unit (closed unit enumeration; kilograms required for C5 consumption; no silent conversion — any conversion is explicit, exact and tested, or the record is rejected/UNSUPPORTED), observation instant (effective time), `receivedAt` (knowledge time), source/provenance (C1 `AnimalDataProvenance` categories), collection method (closed enumeration such as `SCALE`, `WEIGHBRIDGE`, `ESTIMATE_VISUAL`, `ESTIMATE_TAPE`, `DERIVED_EXTERNAL`, `UNKNOWN` — an estimate is never relabelled as a scale reading), device/source identifier where supplied, optional evidence quality/confidence exactly as supplied (no invented confidence), optional fasted/conditions note as supplied.
-2. Append-only ledger semantics: correction/supersession, idempotent duplicates, same-id-different-content rejected, competing corrections ⇒ conflict (no winner), malformed/non-positive/non-finite weights rejected (fail closed), reuse of the generic ledger machinery from an earlier phase where available.
-3. Projections at explicit `effectiveAt`/`knowledgeCutoff`: (a) historical series — all live observations with effective time ≤ `effectiveAt` known by the cutoff, deterministically ordered, superseded history retained; (b) current/latest-known observation per animal with explicit `NONE`/`EVIDENCE_CONFLICT` states (several distinct live observations at the same instant ⇒ conflict, never averaged); (c) per-observation provenance and method preserved for C5's evidence-quality reasoning.
-4. Deterministic fingerprint (new kind e.g. `CATTLE_WEIGHT_SERIES`); reproducible at earlier knowledge cutoffs.
-5. Group scope resolver: given C1 ledgers and a group ref (C1 `MANAGEMENT_GROUP` assertions), resolve members at `effectiveAt`/`knowledgeCutoff` using C1 snapshot projection only (no new group truth), reporting members, animals whose group is UNKNOWN/conflicting/invalid (never silently excluded or included) and membership history between two instants for audit. Herd scope = explicit supplied animal set. Deterministic and input-order independent.
-6. C5 interface: a typed, documented read contract (series + quality metadata + scope) C5 will consume. No ADG, trend or target here.
-7. Barrel exports; DOMAIN_CONTRACTS.md section "Cattle C4 — Weight observations & groups".
+1. Interval gain and ADG between two live observations: gain = later − earlier (kg), days = exact elapsed instant difference expressed in days with a documented, tested convention (no rounding inside the calculation; any presentation rounding is a separate explicit step), ADG = gain / days. Every derived value is a `DERIVED_VALUE` carrying a calculation trace (formula, substituted inputs with observation ids, units, convention) and inherits the weakest evidence quality of its inputs.
+2. Validity rules (documented, tested): fewer than two usable observations ⇒ INSUFFICIENT_EVIDENCE; zero/negative elapsed time ⇒ INVALID; any input in conflict ⇒ EVIDENCE_CONFLICT; mixed collection methods (for example an estimate and a scale reading) are reported as a quality limitation — the engine never silently excludes or upgrades them; a minimum interval or quality threshold is applied ONLY when supplied as an explicit, provenance-bound parameter (otherwise no threshold, and the limitation is reported).
+3. Series metrics over a window: lifetime/period ADG from first and last usable observations, per-interval ADG list, observation count, coverage (span, largest gap, intervals) — descriptive only. A trend classification (for example rising/falling/flat) is produced only from an explicit supplied trend policy (thresholds with provenance); absent a policy ⇒ no classification (`NO_POLICY`), never a default.
+4. Target comparison: `PerformanceTarget` input contract — target metric (ADG or weight-at-date), value + unit, applicability (animal intent/goal ref, production system ref, animal constraints as supplied), validity period, provenance/source binding (C0 `SourceVersionRef` / rule version) and review state. Comparison yields `ON_TRACK` / `BEHIND` / `AHEAD` (exact, documented tolerance supplied with the target, or none) / `NO_TARGET` / `TARGET_NOT_APPLICABLE` / `TARGET_UNVERIFIED` (non-production/unreviewed target) / `INSUFFICIENT_EVIDENCE`. A target without provenance is rejected. A comparison never supplies a target itself.
+5. Prediction boundary: if a projected weight at a date is produced, it is labelled `PREDICTION`, carries method and assumptions (simple linear extrapolation from observed ADG only, with explicit limitation), and is never presented as an observation; the projection is optional and must not be required by acceptance.
+6. Scope aggregation: per-animal results for an explicit animal set or a C4 group scope at an instant, with distribution statistics only over animals with KNOWN results and counts of unknown/insufficient animals reported alongside (never averaged into zero).
+7. Historical reconstruction at explicit `effectiveAt`/`knowledgeCutoff`; deterministic fingerprint (new kind e.g. `CATTLE_PERFORMANCE_RESULT`).
+8. Barrel exports; DOMAIN_CONTRACTS.md section "Cattle C5 — Performance engine".
+
+Reuse note: `src/domain/livestock.ts` holds legacy group-level finishing constants (for example `targetADGForAnimalType`). Do NOT import them as universal per-animal targets and do not duplicate them. A future target catalogue may wrap a sourced value as a `PerformanceTarget` only through an explicitly authorised content task.
 
 ## Out of scope
 
-- ADG, gain, trend, targets, coverage scoring or any performance interpretation (C5).
-- Changing legacy `src/domain/types.ts`, `src/domain/livestock.ts` or `src/lib/farm-data/` weight/animal code; any legacy-to-canonical adapter (C10 decides presentation data flow).
-- Device/scale connectors or API assumptions; persistence; migrations; UI; AI.
-- Earlier-phase module changes beyond additive barrel exports.
+- Any built-in biological target, growth curve, breed/sex standard, ADG constant, tolerance or trend threshold.
+- Goals/intent management (C6), recommendations or economics (C8), feed/concentrate modelling, UI, persistence, migrations, AI.
+- Modifying `src/domain/livestock.ts`, legacy types or earlier cattle phases (except additive barrel exports).
 
 ## Required tests
 
-Synthetic `SYNTH-*` data only. At least:
-1. valid observation round-trips with provenance/method/device preserved;
-2. non-finite, zero, negative, unit-less, unknown-unit weights rejected; no silent unit conversion;
-3. estimate methods never relabelled as measured;
-4. correction/supersession; idempotent duplicate; same-id-different-content rejected; competing corrections ⇒ conflict;
-5. two distinct live weights at the same instant ⇒ conflict for latest-known, never averaged;
-6. historical series excludes observations after `effectiveAt` and those received after the cutoff; earlier cutoff reproduces earlier series and fingerprint after later corrections;
-7. latest-known with no observations ⇒ NONE (never zero);
-8. group scope: members at instant; unknown/conflicting group membership reported separately; membership change between instants reported; input-order independence;
-9. caller-alias safety, deep-frozen outputs, deterministic fingerprints; material change changes fingerprint;
-10. no clock read; no AI dependency.
+Synthetic data only. At least:
+1. exact ADG for known pairs (including sub-day and multi-month intervals) with the documented day convention; trace contents;
+2. fewer than two observations ⇒ INSUFFICIENT_EVIDENCE; same-instant ⇒ INVALID or conflict per contract; conflicting input ⇒ EVIDENCE_CONFLICT;
+3. weight loss yields negative gain (not clamped to zero);
+4. mixed methods reported as limitation; explicit threshold parameter honoured; absent threshold ⇒ none applied;
+5. trend: no policy ⇒ NO_POLICY; supplied policy boundaries exact;
+6. target comparison: each outcome state; target lacking provenance rejected; unreviewed target ⇒ TARGET_UNVERIFIED; inapplicable intent/system ⇒ TARGET_NOT_APPLICABLE;
+7. aggregation excludes unknowns from statistics and reports their counts;
+8. late correction to a weight changes current result but not a result at an earlier knowledge cutoff (fingerprint reproduced);
+9. prediction (if implemented) labelled PREDICTION with assumptions;
+10. input-order independence, alias safety, deep-frozen outputs, deterministic fingerprints, no clock read, no AI dependency.
 
 ## Acceptance criteria
 
-- Canonical weight observations and group scope implemented as above; weight never stored as an animal property; tests pass.
-- No performance interpretation; legacy code untouched; earlier phases unchanged except additive barrel exports.
-- DOMAIN_CONTRACTS.md "Cattle C4" section appended; verify passes; strict full-phase audit CRITICAL=0 HIGH=0 MEDIUM=0.
+- Performance derivation, quality/coverage reporting and explicit target comparison implemented as above; tests pass.
+- No universal target or invented constant; legacy livestock constants not imported as targets.
+- Unknown never zero; derived values traceable; historical reproducibility proven.
+- Earlier phases unchanged except additive barrel exports; DOMAIN_CONTRACTS.md "Cattle C5" section appended; verify passes; strict full-phase audit CRITICAL=0 HIGH=0 MEDIUM=0.
 
 ## Stop conditions
 
 Stop with a `STOP: <TOKEN> — reason` line instead of improvising when:
-- a scientific judgement is required (for example whether an estimate method is acceptable for a purpose) — scientific decision gate;
-- an earlier phase's module must change — frozen-contract gate;
-- precedence between conflicting weight sources would have to be chosen — source-precedence gate;
-- persistence/migration is needed — migration gate;
-- scope would leak into C5–C10 — scope-expansion gate.
+- a biological target, threshold, trend rule or acceptance rule for estimates is needed — scientific decision gate;
+- scientific evidence or expert validation would be needed to make a claim — external evidence or expert validation gate;
+- an earlier phase's module or legacy livestock code must change — frozen-contract gate;
+- scope would leak into C6–C10 — scope-expansion gate.

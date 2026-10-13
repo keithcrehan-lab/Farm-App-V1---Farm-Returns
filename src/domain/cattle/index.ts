@@ -18,3 +18,4 @@ export * from "./version";
 export * from "./regulatory";
 export * from "./health";
 export * from "./weights";
+export * from "./performance";

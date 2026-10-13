@@ -3884,3 +3884,141 @@ responsibility. Any malformed admitted observation, for any animal, fails the pr
 (C5); no goals (C6), programmes (C7), recommendations (C8), Plan (C9) or UI (C10); no legacy
 weight/animal code change or legacy-to-canonical adapter; no persistence, schema, migration, AI,
 network, device or scale connector.
+
+## Cattle C5 — Performance engine (2026-10-13)
+
+C0 (`61c1124`), C1 (`c5b25f2`), C2, C3 and C4 (frozen by their campaign receipts) are **frozen**;
+C5 changes no earlier file except one additive `export * from "./performance";` line in
+`src/domain/cattle/index.ts`. New, **non-frozen** pure modules under
+`src/domain/cattle/performance/` (barrel `performance/index.ts`); tests
+`performance/performance.test.ts` (synthetic `SYNTH-*` animals, groups, sources, targets,
+policies, thresholds and weights only). Deterministic gain / ADG, coverage, explicit trend and
+target comparison, an optional labelled prediction and scope aggregation over the C4 read
+contract: **no built-in target, growth curve, ADG constant, tolerance, minimum interval, quality
+threshold or trend boundary** (CAT-INV-027); legacy `livestock.ts` constants (e.g.
+`targetADGForAnimalType`) are neither imported nor duplicated. No persistence, schema,
+migration, UI, AI, network or clock. Shared contract: `docs/farm-return-next/cattle/`
+(CAT-INV-001–006, 009, 010, 012, 014, 018–023, 025, 027).
+
+**Reuse decisions.** Inputs only through C4: `verifyWeightReadContract` re-verifies the supplied
+`WeightReadContract` (every fingerprint and binding) and the C4 series entries (canonical kg,
+measurement basis, method, supplied quality, competition state) are the only weight evidence —
+no raw weight record is read and no C4 internal module is imported (CAT-INV-014/023). Canonical
+boundary: C2 `toCanonicalPlainData`/`canonicalField` on the whole request. Instants: C1
+`isValidAnimalInstant`/`animalInstantKey`/`compareInstants`/`intervalCovers`; canonical
+spellings via C2 `canonicalObligationInstant`. Definitions: append-only collection and
+as-of-cutoff supersession through C2 `collectBitemporalRecords`/`resolveBitemporalRecords`
+unchanged; source binding is a C0 `SourceVersionRef` validated by C3 `sourceVersionRefOf`
+(assessment-integrity fingerprint shape, CAT-INV-024); review state is C0
+`CattleRuleProductionState`; optional C0 `RuleVersionRef`. Generic readers (`isRecord`,
+`hasOnlyFields`, `oneOf`, `rawIdentityKey`) from C3 `health/health-input.ts`. Fingerprints reuse
+`assessment-integrity.ts` canonicalisation and SHA-256 unchanged through the phase-local
+wrapper `{kind, performancePayloadVersion: 1, payload}` (template: C2 `obligation-integrity.ts`)
+with new kinds `CATTLE_PERFORMANCE_ANIMAL_RESULT` and `CATTLE_PERFORMANCE_RESULT` — no existing
+kind, payload version or canonicalisation changes.
+
+| Module | Contract |
+|---|---|
+| `elapsed-time.ts` | Day convention `UTC_EXACT_ELAPSED_SECONDS_PER_86400` v1 (`PERFORMANCE_DAY_CONVENTION`, `PERFORMANCE_DAY_CONVENTION_VERSION`); `exactElapsed`, `elapsedDaysOf`, `isPositiveElapsed` are module-internal (not in the barrel) |
+| `performance-definitions.ts` | `PerformanceTarget` (`targetId`, `version`, `supersedesVersions`, `metric` `{kind: "ADG", valueKgPerDay}` \| `{kind: "WEIGHT_AT", at, valueKg}`, `tolerance {below, above} \| null`, `applicability {goalRef, productionSystemRef, animalIds, attributes}`, `validFrom`/`validTo` (inclusive/exclusive), `reviewState`, `provenance {sourceRef (required), ruleRef \| null, receivedAt, actor}`); `PerformancePolicy` (`policyId`, `version`, `supersedesVersions`, `rule` `MINIMUM_INTERVAL {minimumDays}` \| `ACCEPTED_BASES {acceptedBases}` \| `TREND {fallingBelowKgPerDay, risingAboveKgPerDay}`, `provenance`); `DefinitionVersionRef`; `PolicyResolution` (`NONE` / `SUPPLIED` / `EVIDENCE_CONFLICT`). Admission/materialisation helpers are module-internal |
+| `performance-derivation.ts` | points, interval / period derivation, coverage, trend, target comparison and prediction (functions module-internal; types exported): `IntervalDerivation` (`DERIVED_VALUE` with `CalculationTrace`), `PerformanceCoverage`, `TrendClassification`, `TargetComparison`, `WeightPrediction` |
+| `performance-engine.ts` | `evaluatePerformance(request, hash)` → `PerformanceEvaluation` (per-animal `AnimalPerformance` + `PerformanceAggregate`) |
+| `performance-integrity.ts` | `computePerformanceFingerprint`/`verifyPerformanceFingerprint`, `CATTLE_PERFORMANCE_PAYLOAD_VERSION` |
+
+**Request and admission.** `PerformanceRequest` = `{weights: WeightReadContract, query:
+{effectiveAt, knowledgeCutoff, windowFrom?, projectionAt?}, targets, policies, contexts}`. Order:
+whole-request canonical check (`CATTLE_PERFORMANCE_NON_CANONICAL_INPUT`) → query (window start
+strictly before `effectiveAt`, projection strictly after) → contexts → C4 contract verification
+(`CATTLE_PERFORMANCE_WEIGHT_CONTRACT_INVALID`) and time binding: the contract must be projected
+at exactly the query's `effectiveAt`/`knowledgeCutoff` by instant
+(`CATTLE_PERFORMANCE_WEIGHT_CONTRACT_TIME_MISMATCH`) — the caller passes the same times to C4 →
+targets and policies admitted at the cutoff: a readable `provenance.receivedAt` after the cutoff
+sets the record aside before any other read; an unreadable one fails closed; identity
+(`id@version`) before validity (an invalid copy still collides); malformed content or provenance
+(no `sourceRef`, malformed fingerprint) ⇒ `ok: false`; supersession at the cutoff (unknown
+version, cycle, policy of another kind ⇒ `ok: false`); more than one live version of an id, or
+competing revisions ⇒ that id is EVIDENCE_CONFLICT (no winner). A later target / policy revision
+is therefore invisible at an earlier cutoff. Contexts (`{animalId, goalRef?,
+productionSystemRef?, attributes?}`) are query context, not records: an absent field is UNKNOWN;
+a duplicate animal with different content fails closed (identical repeats idempotent); a context
+for an animal that is not a scope member is unused.
+
+**Day convention and number representation.** Values are IEEE-754 binary64. Elapsed time is the
+exact signed integer pair (seconds, nanoseconds) between the two C1 instant keys (whole seconds
+via ECMAScript `Date.parse` of the already strictly validated `YYYY-MM-DDTHH:MM:SSZ` prefix —
+pure parsing, no clock or local time); elapsed days = (seconds + nanoseconds / 10^9) / 86 400 in
+that order (one correctly rounded division for whole-second instants). Gain = end kg − start kg
+(negative kept, never clamped); ADG = gain ÷ elapsed days (kg/day). Nothing is rounded; tolerance
+bands are `target − below` / `target + above` in binary64; every comparison uses the unrounded
+values with no epsilon (CAT-INV-019).
+
+**Points and derivations** (precedence lists also in the module headers). Live C4 observations in
+view are grouped by instant: CONFLICT (more than one at the instant, or in a competing-correction
+branch) > EXCLUDED (single observation whose basis a supplied ACCEPTED_BASES policy rejects;
+reported in `quality.excludedRecordIds`; a CONFLICT point is never excluded) > UNSUPPORTED (no
+exact kg) > USABLE. Interval (two points): INVALID (elapsed ≤ 0) > EVIDENCE_CONFLICT (a
+MINIMUM_INTERVAL / ACCEPTED_BASES policy in conflict, or a CONFLICT point) > UNSUPPORTED >
+INSUFFICIENT_EVIDENCE (supplied minimum interval not met: elapsed days < minimum days) >
+DERIVED. Period = first → last non-excluded window point: policy conflict ⇒ EVIDENCE_CONFLICT;
+fewer than two points ⇒ INSUFFICIENT_EVIDENCE (or the single point's CONFLICT / UNSUPPORTED);
+else the interval rule. Per-interval list over consecutive non-excluded points. Every derivation
+is a `DERIVED_VALUE` identified by its source record ids + convention version; a DERIVED value
+carries the trace (formula, convention + version, START/END inputs with record id, canonical
+instant, kg, recorded value/unit, method, basis, information class and supplied quality, exact
+elapsed, units, bounding policy). Evidence basis: UNKNOWN if any input basis is UNKNOWN, else the
+common basis, else MIXED (no ESTIMATED/DERIVED ranking asserted). Mixed collection methods ⇒
+`CATTLE_PERFORMANCE_MIXED_COLLECTION_METHODS`; no supplied minimum interval / quality policy ⇒ no
+threshold applied and `..._NO_MINIMUM_INTERVAL_POLICY` / `..._NO_QUALITY_POLICY` limitations.
+Coverage (descriptive): observation and point counts by state, first/last instant, span days,
+largest gap days, interval count (`null` spans with fewer than two points).
+
+**Trend.** No live TREND policy ⇒ `NO_POLICY` (never a default); conflicting TREND policies ⇒
+EVIDENCE_CONFLICT; period not DERIVED ⇒ its state; else FALLING (ADG < fallingBelow), RISING
+(ADG > risingAbove), FLAT (both bounds inclusive).
+
+**Target comparison** (per animal, one per known target id; REQUIRED: one live target version,
+every applicability input it restricts on KNOWN, review state PRODUCTION, a resolved observed
+metric). Precedence: target versions in conflict ⇒ EVIDENCE_CONFLICT > a restricted context
+field absent ⇒ INSUFFICIENT_EVIDENCE (`..._APPLICABILITY_UNKNOWN`; applicability inputs must be
+KNOWN before "not applicable") > `effectiveAt` outside the target validity, animal not in the
+target's animal set, or a known goal / production system / attribute mismatch ⇒
+TARGET_NOT_APPLICABLE > review state not PRODUCTION ⇒ TARGET_UNVERIFIED > observed metric
+unresolved ⇒ INVALID / EVIDENCE_CONFLICT / INSUFFICIENT_EVIDENCE (ADG: the period; WEIGHT_AT: the
+point at exactly `at` among all in-view observations — none, unsupported, excluded or `at` after
+`effectiveAt` ⇒ INSUFFICIENT_EVIDENCE; CONFLICT ⇒ EVIDENCE_CONFLICT) > BEHIND (observed < lower)
+/ AHEAD (observed > upper) / ON_TRACK. No known target ⇒ `targetOutcome: "NO_TARGET"` and no
+comparison. A comparison never supplies a target; a prediction is never compared.
+
+**Prediction (optional).** Only when `projectionAt` is supplied: `informationClass:
+"PREDICTION"`, method `LINEAR_EXTRAPOLATION_OF_PERIOD_ADG` (last period kg + period ADG ×
+elapsed days to `projectionAt`), fixed assumptions and limitations; `NOT_PROJECTED` (with the
+period state) when the period is not DERIVED. Never an observation, never used for comparison or
+aggregation.
+
+**Aggregation.** Over the contract's scope: members (in member order), and the C4 membership
+`unknown` / `conflict` / `invalid` sets reported (no weights exist for them). Period ADG and gain
+distributions: `count/min/max/mean/median` over DERIVED values only (mean = ascending-order sum ÷
+n); unresolved animals listed by state; no known value ⇒ `statistics: null` (never zero).
+`noTargetAnimalIds`; per target id the members by comparison state.
+
+**Fingerprints.** Both are result fingerprints over semantic payloads (every C5 output instant in
+canonical nine-digit spelling, sorted sets, explicit unknown states). The animal result binds
+`effectiveAt`, `knowledgeCutoff`, window, projection instant, the resolved policies and every
+output field (including the C4 series fingerprint, context and target refs/values); the
+evaluation binds the same plus the C4 contract fingerprint, the exact target definitions relied
+on and the aggregate. Input order, key order and equivalent instant spellings do not change them;
+any weight, target, policy, source binding, context, window or time does. Change detection only,
+not signatures.
+
+**Known limitations.** Weight-at-date targets need an observation at exactly the target instant
+(no interpolation). Policies have no validity period (admission by knowledge time and version
+supersession only). Applicability contexts are caller-supplied query context (goal matching
+arrives through C6); reproducing a historical result requires resupplying the same context.
+Interior conflicted / unsupported points do not change the period value (they are reported in
+the interval list and quality). Review state is as supplied with the target version; C5 does not
+evaluate C0 review records. A target's validity is checked at `effectiveAt`.
+
+**Exclusions.** No built-in target, growth curve, breed/sex standard, ADG constant, tolerance or
+trend threshold; no goals/intent management (C6), programmes (C7), recommendations or economics
+(C8), Plan (C9), UI (C10), feed modelling, persistence, schema, migration, AI, network or clock;
+no change to `livestock.ts`, legacy types, C4 or any earlier phase.

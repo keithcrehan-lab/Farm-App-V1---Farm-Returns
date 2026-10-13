@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "task_id": "cattle-c4-weight-observations-and-groups-20261012",
-  "title": "Cattle C4 - Weight Observations and Groups",
-  "base_sha": "e5b1b2aead176c94b6f28b4ff83d77ea6c783c1b",
+  "task_id": "cattle-c5-performance-engine-20261013",
+  "title": "Cattle C5 - Performance Engine",
+  "base_sha": "41ee7a1670985749c6ee21f12dcbdb6b64ebffb6",
   "domains": [
     "ui",
     "agent-harness",
@@ -12,7 +12,6 @@
     "docs/farm-return-next/cattle/index.md",
     "docs/farm-return-next/cattle/INVARIANTS.md",
     "docs/farm-return-next/cattle/PHASE_INTERFACES.md",
-    "src/domain/types.ts",
     "docs/farm-return-next/cattle/ARCHITECTURE.md",
     "src/tooling/cattle-conformance",
     "src/domain/cattle",
@@ -23,6 +22,7 @@
     "src/domain/cattle/index.ts",
     "src/domain",
     "src/lib/farm-data",
+    "src/domain/types.ts",
     "docs/farm-return-next/cattle/FINGERPRINTS.md",
     "src/domain/livestock.ts"
   ],

@@ -45,6 +45,7 @@ import {
   computeProgrammeDefinitionFingerprint,
   computeProgrammeFingerprint,
   evaluateHealthProgrammes,
+  foldProgrammeStates,
   programmeGateRuleId,
   programmeOccurrenceId,
   projectProgrammeHardGates,
@@ -183,7 +184,12 @@ function declaration(recordId: string, overrides: Rec = {}): Rec {
 }
 
 /** A veterinarian's declaration (a farmer's alone never completes a veterinary hard-gate action — decision B2). */
-const vetDeclaration = (recordId: string, overrides: Rec = {}) => declaration(recordId, { declaredBy: { role: "VETERINARIAN", actor: "SYNTH-VET-1" }, ...overrides });
+const vetDeclaration = (recordId: string, overrides: Rec = {}) =>
+  declaration(recordId, {
+    declaredBy: { role: "VETERINARIAN", actor: "SYNTH-VET-1" },
+    provenance: { sourceCategory: "VETERINARY_SOURCE", sourceSystem: null, sourceRecordRef: null, receivedAt: "2026-03-16T00:00:00Z" },
+    ...overrides,
+  });
 
 // C3 health records and synthetic product data (no real product, period or dose).
 const SOURCE_REF = { sourceId: "SYNTH-SRC-PRODUCT", version: "v1", contentFingerprint: computeSourceContentFingerprint({ text: "synthetic product sheet" }, hash) };
@@ -212,6 +218,9 @@ function adm(recordId: string, occurredAt: string | null, fields: Rec = {}, anim
     ...fields,
   };
 }
+/** An administration recorded by a veterinary source (VETERINARY_SOURCE provenance, actor VETERINARIAN). */
+const vetAdm = (recordId: string, occurredAt: string | null, fields: Rec = {}, animalId = A): Rec =>
+  adm(recordId, occurredAt, { provenance: { sourceCategory: "VETERINARY_SOURCE", actorRole: "VETERINARIAN", actor: "SYNTH-VET-1", receivedAt: "2026-03-01T00:00:00Z" }, ...fields }, animalId);
 function vetEvent(recordId: string, occurredAt: string, eventType = "EXAMINATION"): Rec {
   return {
     recordId,
@@ -420,11 +429,11 @@ describe("C7 test 3 — occurrence derivation and window boundaries", () => {
 
 describe("C7 test 4 — completion evidence", () => {
   it("declared criteria: an in-window administration of the declared product completes the occurrence", () => {
-    const health = healthFor([adm("h-1", "2026-03-15T00:00:00Z")]);
+    const health = healthFor([vetAdm("h-1", "2026-03-15T00:00:00Z")]);
     const r = run({ health: [health] });
     expect(states(r)).toEqual(["COMPLETED", "DUE", "UPCOMING"]);
     expect(animalOf(r).records[0].completion?.counted).toEqual([
-      { basis: "DECLARED_CRITERIA", declaredBy: null, declarationId: null, healthRecordId: "h-1", completedAt: "2026-03-15T00:00:00.000000000Z", timing: "IN_WINDOW" },
+      { basis: "DECLARED_CRITERIA", authority: "VETERINARY", declaredBy: null, recordProvenance: { sourceCategory: "VETERINARY_SOURCE", actorRole: "VETERINARIAN" }, declarationId: null, healthRecordId: "h-1", completedAt: "2026-03-15T00:00:00.000000000Z", timing: "IN_WINDOW" },
     ]);
     expect(animalOf(r).inputs.health?.timeline).toEqual(health.timeline.fingerprint);
   });
@@ -437,7 +446,7 @@ describe("C7 test 4 — completion evidence", () => {
       completions: [declaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-1" } })],
     });
     expect(occurrenceState(linked, 0)).toBe("OVERDUE");
-    expect(animalOf(linked).records[0].completion?.mismatched).toEqual([{ ref: "d-1", reason: "CATTLE_PROGRAMME_PRODUCT_MISMATCH" }]);
+    expect(animalOf(linked).records[0].completion?.mismatched).toEqual([{ refKind: "DECLARATION", ref: "d-1", reason: "CATTLE_PROGRAMME_PRODUCT_MISMATCH" }]);
   });
 
   it("a declared product version must be the exact C3-bound version", () => {
@@ -465,11 +474,11 @@ describe("C7 test 4 — completion evidence", () => {
     ];
     const r = run({ definitions: [def], reviews: [review(def)], health: [health], completions });
     expect(states(r)).toEqual(["COMPLETED", "DUE", "UPCOMING"]);
-    expect(animalOf(r).records[1].completion?.mismatched).toEqual([{ ref: "d-2", reason: "CATTLE_PROGRAMME_EVENT_TYPE_MISMATCH" }]);
+    expect(animalOf(r).records[1].completion?.mismatched).toEqual([{ refKind: "DECLARATION", ref: "d-2", reason: "CATTLE_PROGRAMME_EVENT_TYPE_MISMATCH" }]);
   });
 
   it("completion by declaration (veterinarian or farmer), version-bound", () => {
-    const r = run({ completions: [declaration("d-1", { declaredBy: { role: "VETERINARIAN", actor: "SYNTH-VET-1" } })] });
+    const r = run({ completions: [vetDeclaration("d-1")] });
     expect(occurrenceState(r, 0)).toBe("COMPLETED");
     const other = run({ completions: [declaration("d-1", { programmeVersion: "v0" })] });
     expect(occurrenceState(other, 0)).toBe("REVIEW_REQUIRED");
@@ -483,7 +492,7 @@ describe("C7 test 4 — completion evidence", () => {
     const fix2 = declaration("d-3", { supersedes: ["d-1"], evidence: { kind: "DECLARED", completedAt: "2026-03-13T00:00:00Z" }, provenance: { ...(declaration("x").provenance as Rec), receivedAt: "2026-03-20T00:00:00Z" } });
     const r = run({ completions: [declaration("d-1"), fix1, fix2] });
     expect(occurrenceState(r, 0)).toBe("EVIDENCE_CONFLICT");
-    expect(animalOf(r).records[0].completion?.conflicting).toEqual(["d-2", "d-3"]);
+    expect(animalOf(r).records[0].completion?.conflictingDeclarationIds).toEqual(["d-2", "d-3"]);
     // A completion in the window and one late disagree on timing.
     const timing = run({ completions: [declaration("d-1"), declaration("d-4", { evidence: { kind: "DECLARED", completedAt: "2026-03-30T00:00:00Z" } })] });
     expect(occurrenceState(timing, 0)).toBe("EVIDENCE_CONFLICT");
@@ -514,7 +523,7 @@ describe("C7 test 4 — completion evidence", () => {
     const mixed = run({ completions: [declaration("d-1"), declaration("d-2", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "SYNTH-MISSING-RECORD" } })] });
     const record = animalOf(mixed).records.find((x) => x.occurrence?.index === 0)!;
     expect(record.completion?.counted.length).toBe(1);
-    expect(record.completion?.unresolved).toEqual([{ ref: "d-2", reason: "CATTLE_PROGRAMME_LINKED_RECORD_NOT_KNOWN" }]);
+    expect(record.completion?.unresolved).toEqual([{ refKind: "DECLARATION", ref: "d-2", reason: "CATTLE_PROGRAMME_LINKED_RECORD_NOT_KNOWN", outcome: "INSUFFICIENT_EVIDENCE" }]);
     expect(record.state).toBe("INSUFFICIENT_EVIDENCE");
     const g = projectProgrammeHardGates(ok(mixed), A, hash);
     if (!g.ok) throw new Error(JSON.stringify(g.issues));
@@ -883,7 +892,7 @@ describe("C7 hard-gate projection — C0 evidence pack", () => {
   });
 
   it("completed occurrences with an upcoming one pass; unapproved programmes need review", () => {
-    const health = healthFor([adm("h-1", "2026-03-15T00:00:00Z"), adm("h-2", "2026-04-11T00:00:00Z")]);
+    const health = healthFor([vetAdm("h-1", "2026-03-15T00:00:00Z"), vetAdm("h-2", "2026-04-11T00:00:00Z")]);
     const done = packFor(ok(run({ health: [health] })));
     expect(done.gates.ruleEvaluations[0].state).toBe("PASS");
     expect(packFor(ok(run({ reviews: [] }))).pack.outcome).toBe("REVIEW_REQUIRED");
@@ -1231,6 +1240,26 @@ function withoutAt<T>(root: T, path: Path): T {
   return copy;
 }
 
+/** Re-seals a C3 projection exactly as C3 fingerprints it (adversary model: internally consistent, foreign content). */
+function resealHealth(p: AnimalHealthProjection): AnimalHealthProjection {
+  const context = { animalId: p.animalId, effectiveAt: p.effectiveAt, knowledgeCutoff: p.knowledgeCutoff, snapshotFingerprint: p.snapshotFingerprint };
+  const key = (t: string | null) => (t === null ? null : animalInstantKey(t));
+  const entry = <E extends { occurredAt: string | null; record: Parameters<typeof semanticHealthRecord>[0] }>(e: E) => ({ ...e, occurredAt: key(e.occurredAt), record: semanticHealthRecord(e.record) });
+  const { fingerprint: _t, ...timeline } = p.timeline;
+  const { fingerprint: _l, ...ledger } = p.medicineLedger;
+  const { fingerprint: _g, ...gate } = p.withdrawalGate;
+  void [_t, _l, _g];
+  const timelineFp = computeHealthFingerprint("CATTLE_HEALTH_TIMELINE", { ...context, knownRecordIds: p.knownRecordIds, ...timeline, entries: timeline.entries.map(entry) }, hash);
+  const ledgerFp = computeHealthFingerprint("CATTLE_MEDICINE_LEDGER", { ...context, foodProducts: p.foodProducts, entries: ledger.entries.map(entry), productVersionsUsed: ledger.productVersionsUsed }, hash);
+  const gateFp = computeHealthFingerprint("CATTLE_WITHDRAWAL_GATE", { ...context, foodProducts: p.foodProducts, medicineLedgerFingerprint: ledgerFp, entries: gate.entries }, hash);
+  return {
+    ...p,
+    timeline: { ...timeline, fingerprint: timelineFp },
+    medicineLedger: { ...ledger, fingerprint: ledgerFp },
+    withdrawalGate: { ...gate, medicineLedgerFingerprint: ledgerFp, fingerprint: gateFp },
+  };
+}
+
 describe("C7 closure A — one field-presence policy for every C7-owned record", () => {
   const OPEN_COMPLETION = { recordKind: "MEDICINE_ADMINISTRATION", eventTypes: null, matchCriteria: false };
   const looseAction = action({ completion: OPEN_COMPLETION });
@@ -1339,26 +1368,6 @@ describe("C7 closure A — one field-presence policy for every C7-owned record",
 });
 
 describe("C7 closure B — every consumed predecessor record proves it belongs to this evaluation", () => {
-  /** Re-seals a C3 projection exactly as C3 fingerprints it (adversary model: internally consistent, foreign content). */
-  function resealHealth(p: AnimalHealthProjection): AnimalHealthProjection {
-    const context = { animalId: p.animalId, effectiveAt: p.effectiveAt, knowledgeCutoff: p.knowledgeCutoff, snapshotFingerprint: p.snapshotFingerprint };
-    const key = (t: string | null) => (t === null ? null : animalInstantKey(t));
-    const entry = <E extends { occurredAt: string | null; record: Parameters<typeof semanticHealthRecord>[0] }>(e: E) => ({ ...e, occurredAt: key(e.occurredAt), record: semanticHealthRecord(e.record) });
-    const { fingerprint: _t, ...timeline } = p.timeline;
-    const { fingerprint: _l, ...ledger } = p.medicineLedger;
-    const { fingerprint: _g, ...gate } = p.withdrawalGate;
-    void [_t, _l, _g];
-    const timelineFp = computeHealthFingerprint("CATTLE_HEALTH_TIMELINE", { ...context, knownRecordIds: p.knownRecordIds, ...timeline, entries: timeline.entries.map(entry) }, hash);
-    const ledgerFp = computeHealthFingerprint("CATTLE_MEDICINE_LEDGER", { ...context, foodProducts: p.foodProducts, entries: ledger.entries.map(entry), productVersionsUsed: ledger.productVersionsUsed }, hash);
-    const gateFp = computeHealthFingerprint("CATTLE_WITHDRAWAL_GATE", { ...context, foodProducts: p.foodProducts, medicineLedgerFingerprint: ledgerFp, entries: gate.entries }, hash);
-    return {
-      ...p,
-      timeline: { ...timeline, fingerprint: timelineFp },
-      medicineLedger: { ...ledger, fingerprint: ledgerFp },
-      withdrawalGate: { ...gate, medicineLedgerFingerprint: ledgerFp, fingerprint: gateFp },
-    };
-  }
-
   it("C3: an outer projection for this animal never vouches for inner records of another animal, time or record (matrix)", () => {
     const genuine = healthFor([adm("h-1", "2026-03-15T00:00:00Z")]);
     // Control: the re-seal is faithful (an unmodified re-sealed projection is accepted).
@@ -1384,6 +1393,8 @@ describe("C7 closure B — every consumed predecessor record proves it belongs t
       ["duplicate timeline entry", variant((p) => p.timeline.entries.push(structuredClone(p.timeline.entries[0])))],
       ["duplicate ledger entry", variant((p) => p.medicineLedger.entries.push(structuredClone(p.medicineLedger.entries[0])))],
       ["not-yet-occurred id unknown", variant((p) => p.timeline.notYetOccurredRecordIds.push("h-unknown"))],
+      ["ledger entry disagrees with its timeline entry (record content)", variant((p) => (p.medicineLedger.entries[0].record = { ...record(p.medicineLedger.entries[0]), route: "SYNTH-ROUTE-OTHER" }))],
+      ["ledger entry disagrees with its timeline entry (status)", variant((p) => (p.medicineLedger.entries[0].status = "SUPERSEDED"))],
     ];
     for (const [label, projection] of cases) {
       const r = run({ health: [projection] });
@@ -1407,17 +1418,20 @@ describe("C7 closure B — every consumed predecessor record proves it belongs t
       ["knowledgeCutoff", [reseal(record, { knowledgeCutoff: "2026-12-30T00:00:00.000000000Z" })]],
       ["payload version", [reseal(record, { obligationPayloadVersion: genuine.obligationPayloadVersion + 1 })]],
       ["duplicate record identity", [record, record]],
+      ["unsupported payload version (envelope and records re-sealed)", [reseal(record, { obligationPayloadVersion: 99 })]],
     ];
     const mismatch = ["CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD", "CATTLE_PROGRAMME_OBLIGATIONS_INVALID"];
     for (const [label, results] of cases) {
-      const r = run({ obligations: [{ ...genuine, results }] });
+      const envelope = label.startsWith("unsupported payload version") ? { ...genuine, obligationPayloadVersion: 99 } : genuine;
+      const r = run({ obligations: [{ ...envelope, results }] });
       expect(r.ok, label).toBe(false);
       for (const code of codes(r)) expect(mismatch, label).toContain(code);
     }
     // C7's own check (not only C2's) rejects the snapshot, payload-version and identity cases.
-    for (const label of ["snapshot", "payload version", "duplicate record identity"]) {
+    for (const label of ["snapshot", "payload version", "duplicate record identity", "unsupported payload version (envelope and records re-sealed)"]) {
       const results = cases.find(([l]) => l === label)![1];
-      expect(codes(run({ obligations: [{ ...genuine, results }] })), label).toEqual(["CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD"]);
+      const envelope = label.startsWith("unsupported payload version") ? { ...genuine, obligationPayloadVersion: 99 } : genuine;
+      expect(codes(run({ obligations: [{ ...envelope, results }] })), label).toEqual(["CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD"]);
     }
   });
 });
@@ -1602,6 +1616,18 @@ describe("C7 closure E — identifier collision matrix", () => {
     expect(uniqueProgrammeIssues([{ code: "X", ref: "a\u0000b" }, { code: "b\u0000X", ref: "a" }])).toHaveLength(2);
   });
 
+  it("evidence-note identities are namespaced: a declaration id equal to a C3 record id never collapses", () => {
+    const def = programme({ actions: [action({ completion: { recordKind: "MEDICINE_ADMINISTRATION", eventTypes: null, matchCriteria: true } })] });
+    // C3 record h-2 corrected twice (competing), plus a declaration whose own id is "h-2" in a competing correction.
+    const competing = [adm("h-1", "2026-03-15T00:00:00Z"), { ...adm("h-2", "2026-03-15T00:00:00Z"), supersedes: ["h-1"] }, { ...adm("h-3", "2026-03-16T00:00:00Z"), supersedes: ["h-1"] }];
+    const d = (id: string, completedAt: string) => vetDeclaration(id, { supersedes: ["d-0"], evidence: { kind: "DECLARED", completedAt }, provenance: { ...(declaration("x").provenance as Rec), receivedAt: "2026-03-20T00:00:00Z" } });
+    const r = run({ definitions: [def], reviews: [review(def)], health: [healthFor(competing)], completions: [vetDeclaration("d-0"), d("h-2", "2026-03-12T00:00:00Z"), d("d-9", "2026-03-13T00:00:00Z")] });
+    const completion = animalOf(r).records[0].completion!;
+    expect(completion.conflictingDeclarationIds).toEqual(["d-9", "h-2"]);
+    expect(completion.conflictingRecordIds).toEqual(["h-2", "h-3"]);
+    expect(occurrenceState(r, 0)).toBe("EVIDENCE_CONFLICT");
+  });
+
   it("programmes whose ids collide under joined text keep separate occurrences, declarations and gates through the C0 pack", () => {
     const defs = adversarial.slice(0, 2).map(([p, a]) => programme({ programmeId: p, actions: [action({ actionId: a })] }));
     const completions = adversarial.slice(0, 2).map(([p, a], i) => vetDeclaration(`d-${i}`, { programmeId: p, actionId: a, occurrenceId: programmeOccurrenceId(p, a, A, "DATE_OF_BIRTH", ANCHOR, 0) }));
@@ -1627,21 +1653,305 @@ describe("C7 closure F — veterinary completion safety (decision B2)", () => {
   it("a FARMER declaration alone never makes a VETERINARY_PROGRAMME HARD_GATE pass; it is retained as evidence", () => {
     const farmerOnly = run({ completions: [declaration("d-1")] });
     expect(occurrenceState(farmerOnly, 0)).toBe("REVIEW_REQUIRED");
-    expect(animalOf(farmerOnly).records[0].reasonCodes).toEqual(["CATTLE_PROGRAMME_FARMER_DECLARATION_NEEDS_VETERINARY_CONFIRMATION"]);
+    expect(animalOf(farmerOnly).records[0].reasonCodes).toEqual(["CATTLE_PROGRAMME_COMPLETION_NEEDS_VETERINARY_AUTHORITY"]);
     expect(animalOf(farmerOnly).records[0].completion?.counted).toEqual([expect.objectContaining({ basis: "DECLARATION", declaredBy: "FARMER", declarationId: "d-1" })]);
     expect(gateState(farmerOnly)).not.toBe("PASS");
     const farmerLink = run({ health: [healthFor([adm("h-1", "2026-03-15T00:00:00Z")])], definitions: [programme({ actions: [action({ completion: { recordKind: "MEDICINE_ADMINISTRATION", eventTypes: null, matchCriteria: false } })] })], reviews: [review(programme({ actions: [action({ completion: { recordKind: "MEDICINE_ADMINISTRATION", eventTypes: null, matchCriteria: false } })] }))], completions: [declaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-1" } })] });
     expect(occurrenceState(farmerLink, 0)).toBe("REVIEW_REQUIRED");
     expect(gateState(farmerLink)).not.toBe("PASS");
   });
+  it("a VETERINARIAN role counts only with veterinary-source provenance; a veterinary programme needs veterinary-source provenance (decision M1)", () => {
+    const selfAsserted = declaration("d-1", { declaredBy: { role: "VETERINARIAN", actor: "SYNTH-VET-1" } }); // provenance FARMER
+    const r = run({ completions: [selfAsserted] });
+    expect(occurrenceState(r, 0)).toBe("REVIEW_REQUIRED");
+    expect(animalOf(r).records[0].completion?.counted).toEqual([expect.objectContaining({ declaredBy: "FARMER", declarationId: "d-1" })]);
+    expect(occurrenceState(run({ completions: [vetDeclaration("d-1")] }), 0)).toBe("COMPLETED");
+    for (const sourceCategory of ANIMAL_DATA_SOURCE_CATEGORIES.filter((c) => c !== "VETERINARY_SOURCE")) {
+      const def = programme({ provenance: { ...(DEF.provenance as Rec), sourceCategory } });
+      expect(codes(run({ definitions: [def], reviews: [] })), sourceCategory).toEqual(["CATTLE_PROGRAMME_DEFINITION_INVALID_CLASSIFICATION"]);
+    }
+  });
+
   it("veterinarian declarations, C3 records matching declared criteria, advisory actions and farmer programmes are unaffected", () => {
     expect(occurrenceState(run({ completions: [vetDeclaration("d-1")] }), 0)).toBe("COMPLETED");
     expect(occurrenceState(run({ completions: [declaration("d-1"), vetDeclaration("d-2")] }), 0)).toBe("COMPLETED");
-    expect(occurrenceState(run({ completions: [declaration("d-1")], health: [healthFor([adm("h-1", "2026-03-15T00:00:00Z")])] }), 0)).toBe("COMPLETED");
+    expect(occurrenceState(run({ completions: [declaration("d-1")], health: [healthFor([vetAdm("h-1", "2026-03-15T00:00:00Z")])] }), 0)).toBe("COMPLETED");
     const advisory = programme({ actions: [action({ gateRole: "ADVISORY" })] });
     expect(occurrenceState(run({ definitions: [advisory], reviews: [review(advisory)], completions: [declaration("d-1")] }), 0)).toBe("COMPLETED");
     const farmer = farmerProgramme();
     const r = run({ definitions: [farmer], reviews: [], completions: [declaration("d-1", { programmeId: "SYNTH-PROGRAMME-FARMER", occurrenceId: occId(0, A, ACT, "SYNTH-PROGRAMME-FARMER") })] });
     expect(states(r, A, "SYNTH-PROGRAMME-FARMER")[0]).toBe("COMPLETED");
+  });
+});
+
+describe("C7 closure G — predecessor evidence resolution before matching (F006 class)", () => {
+  type BindingCase = "BOUND" | "UNKNOWN" | "INVALID" | "EVIDENCE_CONFLICT" | "REVIEW_REQUIRED" | "UNSUPPORTED" | "NO_LEDGER_ENTRY" | "NOT_SUPPLIED";
+  const RECORD = vetAdm("h-1", "2026-03-15T00:00:00Z"); // inside occurrence 0's window [Mar 11, Mar 21); effectiveAt Apr 15
+  // Real C3 product inputs producing each frozen C3 binding state.
+  const PRODUCTS: Record<Exclude<BindingCase, "NO_LEDGER_ENTRY" | "NOT_SUPPLIED">, Rec[]> = {
+    BOUND: [product()],
+    UNKNOWN: [],
+    INVALID: [product(PRODUCT, { supersedesVersions: ["SYNTH-NO-SUCH-VERSION"] })],
+    EVIDENCE_CONFLICT: [product(), product(PRODUCT, { version: "v2" })],
+    REVIEW_REQUIRED: [product(PRODUCT, { lifecycle: "REVIEW_REQUIRED" })],
+    UNSUPPORTED: [product(PRODUCT, { speciesAuthorisations: [{ species: "SYNTH-OTHER-SPECIES", withdrawalPeriods: [] }] })],
+  };
+  function healthOf(c: BindingCase): unknown[] {
+    if (c === "NOT_SUPPLIED") return [];
+    if (c === "NO_LEDGER_ENTRY") {
+      const p = structuredClone(healthFor([RECORD], { products: PRODUCTS.BOUND })) as unknown as { medicineLedger: { entries: unknown[] } };
+      p.medicineLedger.entries = [];
+      return [resealHealth(p as unknown as AnimalHealthProjection)];
+    }
+    const p = healthFor([RECORD], { products: PRODUCTS[c] });
+    expect(p.medicineLedger.entries[0].binding.state, c).toBe(c);
+    return [p];
+  }
+  const BINDINGS: BindingCase[] = ["BOUND", "UNKNOWN", "INVALID", "EVIDENCE_CONFLICT", "REVIEW_REQUIRED", "UNSUPPORTED", "NO_LEDGER_ENTRY", "NOT_SUPPLIED"];
+  const UNRESOLVED_STATE: Record<Exclude<BindingCase, "BOUND">, string> = {
+    UNKNOWN: "INSUFFICIENT_EVIDENCE",
+    UNSUPPORTED: "INSUFFICIENT_EVIDENCE",
+    NO_LEDGER_ENTRY: "INSUFFICIENT_EVIDENCE",
+    NOT_SUPPLIED: "INSUFFICIENT_EVIDENCE",
+    INVALID: "INVALID_EVIDENCE",
+    EVIDENCE_CONFLICT: "EVIDENCE_CONFLICT",
+    REVIEW_REQUIRED: "REVIEW_REQUIRED",
+  };
+  type Constraint = "PRODUCT_AND_VERSION" | "PRODUCT_ANY_VERSION" | "NO_PRODUCT_CONSTRAINT" | "WRONG_PRODUCT" | "WRONG_VERSION";
+  const PRODUCT_REF: Record<Constraint, Rec | null> = {
+    PRODUCT_AND_VERSION: { productId: PRODUCT, productVersion: "v1" },
+    PRODUCT_ANY_VERSION: { productId: PRODUCT, productVersion: null },
+    NO_PRODUCT_CONSTRAINT: null,
+    WRONG_PRODUCT: { productId: "SYNTH-PRODUCT-2", productVersion: null },
+    WRONG_VERSION: { productId: PRODUCT, productVersion: "v9" },
+  };
+  type Path = "CRITERIA" | "VET_LINK" | "VET_DECLARED";
+  const definitionFor = (constraint: Constraint, path: Path) =>
+    programme({
+      actions: [
+        action({
+          productRef: PRODUCT_REF[constraint],
+          // One occurrence, so the action's hard gate reflects exactly the occurrence under test.
+          schedule: { ...(action().schedule as Rec), repeat: null },
+          completion: { recordKind: "MEDICINE_ADMINISTRATION", eventTypes: null, matchCriteria: path === "CRITERIA" },
+        }),
+      ],
+    });
+  const completionsFor = (path: Path) =>
+    path === "VET_LINK" ? [vetDeclaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-1" } })] : path === "VET_DECLARED" ? [vetDeclaration("d-1")] : [];
+
+  /** The contract's expected occurrence-0 state (DOMAIN_CONTRACTS "Cattle C7", predecessor evidence resolution). */
+  function expected(binding: BindingCase, constraint: Constraint, path: Path): string {
+    if (path === "VET_DECLARED") return "COMPLETED"; // no C3 dimension is required
+    if (binding === "NOT_SUPPLIED") return "INSUFFICIENT_EVIDENCE";
+    if (constraint === "NO_PRODUCT_CONSTRAINT") return "COMPLETED"; // the product dimension is waived, not the record's own authority
+    if (constraint === "WRONG_PRODUCT") return "OVERDUE"; // the recorded product id is resolved and differs
+    if (binding !== "BOUND") return UNRESOLVED_STATE[binding]; // authority before any version comparison
+    return constraint === "WRONG_VERSION" ? "OVERDUE" : "COMPLETED";
+  }
+
+  it("binding state × product constraint × completion path: unresolved C3 binding never yields COMPLETED or a PASS gate", () => {
+    const failures: string[] = [];
+    for (const binding of BINDINGS) {
+      for (const constraint of Object.keys(PRODUCT_REF) as Constraint[]) {
+        for (const path of ["CRITERIA", "VET_LINK", "VET_DECLARED"] as Path[]) {
+          if (path === "CRITERIA" && constraint === "NO_PRODUCT_CONSTRAINT") continue; // invalid definition (criteria need a product)
+          const def = definitionFor(constraint, path);
+          const r = run({ definitions: [def], reviews: [review(def)], health: healthOf(binding), completions: completionsFor(path) });
+          const label = `${binding} × ${constraint} × ${path}`;
+          if (!r.ok) {
+            failures.push(`${label}: rejected ${JSON.stringify(codes(r))}`);
+            continue;
+          }
+          const state = occurrenceState(r, 0);
+          const want = expected(binding, constraint, path);
+          if (state !== want) failures.push(`${label}: ${state}, expected ${want}`);
+          const g = projectProgrammeHardGates(ok(r), A, hash);
+          if (!g.ok) throw new Error(JSON.stringify(g.issues));
+          const gate = g.gates.ruleEvaluations[0].state;
+          const resolvedPass = want === "COMPLETED";
+          if (resolvedPass !== (gate === "PASS")) failures.push(`${label}: gate ${gate}`);
+          if (!resolvedPass && gate === "NOT_APPLICABLE") failures.push(`${label}: gate NOT_APPLICABLE`);
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("one C3 record evidences at most one occurrence of an action: claims by links and/or windows for several occurrences conflict (decision H1)", () => {
+    // Two occurrences: windows [Mar 11, Mar 21) and [Apr 10, Apr 20); effectiveAt Apr 15; one administration on Apr 12 (window 1).
+    const twoDoses = (matchCriteria: boolean) =>
+      programme({ actions: [action({ schedule: { ...(action().schedule as Rec), repeat: { interval: { amount: 30, unit: "DAY" }, count: 2 } }, completion: { recordKind: "MEDICINE_ADMINISTRATION", eventTypes: null, matchCriteria } })] });
+    const health = [healthFor([vetAdm("h-1", "2026-04-12T00:00:00Z")])];
+    const link = (id: string, index: number) => vetDeclaration(id, { occurrenceId: occId(index), evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-1" } });
+    const gate = (r: ProgrammeEvaluationResult) => {
+      const g = projectProgrammeHardGates(ok(r), A, hash);
+      if (!g.ok) throw new Error(JSON.stringify(g.issues));
+      return g.gates.ruleEvaluations[0].state;
+    };
+    const cases: [string, ProgrammeEvaluationResult][] = [
+      ["link to dose 0 + criteria window of dose 1", run({ definitions: [twoDoses(true)], reviews: [review(twoDoses(true))], health, completions: [link("d-0", 0)] })],
+      ["links to dose 0 and dose 1", run({ definitions: [twoDoses(false)], reviews: [review(twoDoses(false))], health, completions: [link("d-0", 0), link("d-1", 1)] })],
+    ];
+    for (const [label, r] of cases) {
+      expect(states(r), label).toEqual(["EVIDENCE_CONFLICT", "EVIDENCE_CONFLICT"]);
+      expect(gate(r), label).not.toBe("PASS");
+    }
+    // A single claim is not contested: the record completes exactly its own occurrence.
+    const single = run({ definitions: [twoDoses(true)], reviews: [review(twoDoses(true))], health });
+    expect(states(single)).toEqual(["OVERDUE", "COMPLETED"]);
+    const sameOccurrence = run({ definitions: [twoDoses(true)], reviews: [review(twoDoses(true))], health, completions: [link("d-1", 1)] });
+    expect(states(sameOccurrence)).toEqual(["OVERDUE", "COMPLETED"]);
+    // The same record may evidence a different action.
+    const twoActions = programme({ actions: [action({ actionId: "SYNTH-ACTION-A", schedule: { ...(action().schedule as Rec), repeat: null } }), action({ actionId: "SYNTH-ACTION-B", schedule: { ...(action().schedule as Rec), repeat: null } })] });
+    const both = run({ definitions: [twoActions], reviews: [review(twoActions)], health: [healthFor([vetAdm("h-1", "2026-03-15T00:00:00Z")])] });
+    expect(states(both)).toEqual(["COMPLETED", "COMPLETED"]);
+  });
+
+  it("every unresolved candidate carries the outcome it forces; resolved outcomes depend only on resolved evidence", () => {
+    const def = definitionFor("PRODUCT_ANY_VERSION", "VET_LINK");
+    for (const binding of ["UNKNOWN", "INVALID", "EVIDENCE_CONFLICT", "REVIEW_REQUIRED", "UNSUPPORTED", "NO_LEDGER_ENTRY"] as const) {
+      const r = run({ definitions: [def], reviews: [review(def)], health: healthOf(binding), completions: completionsFor("VET_LINK") });
+      const completion = animalOf(r).records[0].completion!;
+      expect(completion.counted, binding).toEqual([]);
+      expect(completion.unresolved, binding).toEqual([expect.objectContaining({ ref: "d-1", outcome: UNRESOLVED_STATE[binding] })]);
+    }
+    // A farmer link to a BOUND, veterinary-recorded record: the record itself is veterinary evidence (ruling M2).
+    const farmer = run({ definitions: [def], reviews: [review(def)], health: healthOf("BOUND"), completions: [declaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-1" } })] });
+    expect(occurrenceState(farmer, 0)).toBe("COMPLETED");
+    // Other resolution-before-match paths: unknown record time, unidentified product, superseded or competing linked record.
+    const unknownTime = run({ definitions: [def], reviews: [review(def)], health: [healthFor([adm("h-1", null)])], completions: completionsFor("VET_LINK") });
+    expect(occurrenceState(unknownTime, 0)).toBe("INSUFFICIENT_EVIDENCE");
+    const unidentified = run({ definitions: [def], reviews: [review(def)], health: [healthFor([adm("h-1", "2026-03-15T00:00:00Z", { productId: null })])], completions: completionsFor("VET_LINK") });
+    expect(occurrenceState(unidentified, 0)).toBe("INSUFFICIENT_EVIDENCE");
+  });
+});
+
+/**
+ * Every defect class found in the first C7 attempt, as a semantic index of
+ * the regression tests that close it in the rebuild (finding ids were
+ * reused by auditors, so classes — not numbers — are listed).
+ */
+describe("C7 rebuild — historical defect classes are closed (semantic index)", () => {
+  const CLASSES: [string, string][] = [
+    ["unresolved anchor / membership / candidate evidence surfacing as a resolved state", "a counted completion never masks unresolved candidate evidence (state and hard gate)"],
+    ["partial result / evidence binding (completion, review, definition provenance)", "result binding matrix: every canonical definition and review field changes the animal fingerprint and exported gates"],
+    ["review fingerprint used as result binding", "result binding matrix: every canonical definition and review field changes the animal fingerprint and exported gates"],
+    ["dependency set ≠ binding set (any leaf)", "every material change to a dependency leaf changes the evaluation, animal-status and hard-gate results (or fails closed)"],
+    ["foreign C2 records under a matching envelope", "C2: an envelope for this animal never vouches for records of another animal, snapshot, time, version or identity (matrix)"],
+    ["foreign C3 records under a matching envelope", "C3: an outer projection for this animal never vouches for inner records of another animal, time or record (matrix)"],
+    ["group / historical membership evidence unbound", "membership binding matrix: every C4 group resolution C7 consults (current and each window opening) binds the result"],
+    ["hard-gate identifier collisions", "delimiter-containing programme/action ids keep distinct gate rule ids through the C0 pack"],
+    ["ambiguous occurrence / issue / missing-input identities", "occurrence ids, gate rule ids, issue refs and gate missing-input refs never collapse distinct identities"],
+    ["required collections missing or null read as []", "explicit null / [] keep their contract meaning; the same meaning is never inferred from a missing property"],
+    ["missing fields acquiring semantic meaning", "missing / undefined / null / [] / valid / malformed / unknown-field behave exactly as each field's policy declares"],
+    ["resolved-state fallbacks", "an empty state set fails closed and a version conflict never reports an empty review set"],
+    ["farmer-only completion of a veterinary hard gate", "a FARMER declaration alone never makes a VETERINARY_PROGRAMME HARD_GATE pass; it is retained as evidence"],
+    ["unversioned product reference bypassing C3 binding (null waives authority)", "binding state × product constraint × completion path: unresolved C3 binding never yields COMPLETED or a PASS gate"],
+    ["one C3 record completing several occurrences of an action (independent review H1)", "one C3 record evidences at most one occurrence of an action: claims by links and/or windows for several occurrences conflict (decision H1)"],
+    ["farmer-recorded C3 evidence alone passing a veterinary hard gate; non-monotonic farmer link (ruling M2)", "record authority × completion path × veterinary corroboration → COMPLETED / PASS only with veterinary authority; farmer evidence always retained"],
+    ["self-asserted veterinarian role (independent review M1)", "a VETERINARIAN role counts only with veterinary-source provenance; a veterinary programme needs veterinary-source provenance (decision M1)"],
+    ["C2 payload version not checked against the supported version (independent review M3)", "C2: an envelope for this animal never vouches for records of another animal, snapshot, time, version or identity (matrix)"],
+    ["evidence-note identities collapsing across namespaces (independent review M4)", "evidence-note identities are namespaced: a declaration id equal to a C3 record id never collapses"],
+  ];
+  it("every class names an existing regression test in this file", () => {
+    const text = readFileSync(join(__dirname, "programmes.test.ts"), "utf8");
+    for (const [cls, test] of CLASSES) expect(text, cls).toContain(`it("${test}"`);
+  });
+
+  it("an empty state set fails closed and a version conflict never reports an empty review set", () => {
+    expect(foldProgrammeStates([])).toBeNull();
+    const v2 = programme({ version: "v2" });
+    const e = ok(run({ definitions: [DEF, v2], reviews: [] }));
+    expect(e.programmes[0].versionState).toBe("VERSION_CONFLICT");
+    const g = projectProgrammeHardGates(e, A, hash);
+    if (!g.ok) throw new Error(JSON.stringify(g.issues));
+    expect(g.gates.ruleEvaluations[0].reviews).toEqual([{ dimension: "VETERINARY", state: "PENDING" }]);
+    expect(g.gates.ruleEvaluations[0].state).not.toBe("PASS");
+  });
+});
+
+describe("C7 ruling M2 — evidential authority for veterinary hard gates (farmer-recorded C3 evidence)", () => {
+  // C3 record provenance → authority. C3 provenance fields are always resolved; non-veterinary or contradictory provenance is not veterinary authority.
+  type RecordAuthority = "VETERINARY" | "FARMER" | "OTHER_SOURCE" | "CONTRADICTORY";
+  const PROVENANCE: Record<RecordAuthority, Rec> = {
+    VETERINARY: { sourceCategory: "VETERINARY_SOURCE", actorRole: "VETERINARIAN", actor: "SYNTH-VET-1", receivedAt: "2026-03-01T00:00:00Z" },
+    FARMER: { sourceCategory: "FARMER", actorRole: "FARMER", receivedAt: "2026-03-01T00:00:00Z" },
+    OTHER_SOURCE: { sourceCategory: "EXTERNAL_FARM_SOFTWARE", actorRole: "SYSTEM", receivedAt: "2026-03-01T00:00:00Z" },
+    CONTRADICTORY: { sourceCategory: "VETERINARY_SOURCE", actorRole: "FARMER", receivedAt: "2026-03-01T00:00:00Z" },
+  };
+  type Path = "CRITERIA" | "LINK" | "CRITERIA_AND_LINK" | "DECLARATION";
+  type Corroboration = "ABSENT" | "PRESENT"; // the declarer of the link / declaration: farmer vs veterinarian
+  const singleDose = (matchCriteria: boolean, gateRole = "HARD_GATE") =>
+    programme({ actions: [action({ gateRole, schedule: { ...(action().schedule as Rec), repeat: null }, completion: { recordKind: "MEDICINE_ADMINISTRATION", eventTypes: null, matchCriteria } })] });
+  const linkBy = (c: Corroboration) => (c === "PRESENT" ? vetDeclaration : declaration)("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-1" } });
+  const declaredBy = (c: Corroboration) => (c === "PRESENT" ? vetDeclaration : declaration)("d-1");
+  function scenario(authority: RecordAuthority, path: Path, corroboration: Corroboration, gateRole = "HARD_GATE") {
+    const def = singleDose(path === "CRITERIA" || path === "CRITERIA_AND_LINK", gateRole);
+    const health = [healthFor([adm("h-1", "2026-03-15T00:00:00Z", { provenance: PROVENANCE[authority] })])];
+    const completions = path === "CRITERIA" ? [] : path === "DECLARATION" ? [declaredBy(corroboration)] : [linkBy(corroboration)];
+    return run({ definitions: [def], reviews: [review(def)], health, completions });
+  }
+  const gateOf = (r: ProgrammeEvaluationResult) => {
+    const g = projectProgrammeHardGates(ok(r), A, hash);
+    if (!g.ok) throw new Error(JSON.stringify(g.issues));
+    return g.gates.ruleEvaluations[0]?.state ?? "NO_GATE";
+  };
+  /** Veterinary authority = a veterinary-recorded C3 record on a C3 path, or a veterinarian-authored link / declaration. */
+  const veterinary = (authority: RecordAuthority, path: Path, c: Corroboration) => (path !== "DECLARATION" && authority === "VETERINARY") || (path !== "CRITERIA" && c === "PRESENT");
+
+  it("record authority × completion path × veterinary corroboration → COMPLETED / PASS only with veterinary authority; farmer evidence always retained", () => {
+    const failures: string[] = [];
+    for (const authority of Object.keys(PROVENANCE) as RecordAuthority[]) {
+      for (const path of ["CRITERIA", "LINK", "CRITERIA_AND_LINK", "DECLARATION"] as Path[]) {
+        for (const c of ["ABSENT", "PRESENT"] as Corroboration[]) {
+          if (path === "CRITERIA" && c === "PRESENT") continue; // no declarer on the criteria-only path
+          const r = scenario(authority, path, c);
+          const label = `${authority} × ${path} × corroboration ${c}`;
+          const want = veterinary(authority, path, c) ? "COMPLETED" : "REVIEW_REQUIRED";
+          const state = occurrenceState(r, 0);
+          if (state !== want) failures.push(`${label}: ${state}, expected ${want}`);
+          const gate = gateOf(r);
+          if ((gate === "PASS") !== (want === "COMPLETED")) failures.push(`${label}: gate ${gate}`);
+          // Retained, never discarded: every independent path's evidence is counted with its authority.
+          const counted = animalOf(r).records[0].completion?.counted ?? [];
+          const expectedBases = { CRITERIA: ["DECLARED_CRITERIA"], LINK: ["HEALTH_RECORD_LINK"], CRITERIA_AND_LINK: ["DECLARED_CRITERIA", "HEALTH_RECORD_LINK"], DECLARATION: ["DECLARATION"] }[path];
+          if (canonicalizeValue(counted.map((x) => x.basis)) !== canonicalizeValue(expectedBases)) failures.push(`${label}: counted ${JSON.stringify(counted.map((x) => x.basis))}`);
+          if (want === "REVIEW_REQUIRED" && !counted.every((x) => x.authority === "NON_VETERINARY")) failures.push(`${label}: authority`);
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("monotonicity: a farmer link to a record that independently completes via veterinary criteria evidence never weakens it", () => {
+    const criteriaOnly = scenario("VETERINARY", "CRITERIA", "ABSENT");
+    const plusFarmerLink = scenario("VETERINARY", "CRITERIA_AND_LINK", "ABSENT");
+    expect(occurrenceState(criteriaOnly, 0)).toBe("COMPLETED");
+    expect(occurrenceState(plusFarmerLink, 0)).toBe("COMPLETED");
+    expect(gateOf(plusFarmerLink)).toBe("PASS");
+    // ...and a veterinarian link corroborates farmer-recorded criteria evidence.
+    expect(occurrenceState(scenario("FARMER", "CRITERIA", "ABSENT"), 0)).toBe("REVIEW_REQUIRED");
+    expect(occurrenceState(scenario("FARMER", "CRITERIA_AND_LINK", "PRESENT"), 0)).toBe("COMPLETED");
+  });
+
+  it("genuine conflicts and unresolved authority are never resolved by a stronger path", () => {
+    // Competing corrections of the veterinary record: conflict, whatever the declarer.
+    const def = singleDose(true);
+    const competing = [vetAdm("h-0", "2026-03-15T00:00:00Z"), { ...vetAdm("h-1", "2026-03-15T00:00:00Z"), supersedes: ["h-0"] }, { ...vetAdm("h-2", "2026-03-16T00:00:00Z"), supersedes: ["h-0"] }];
+    const conflict = run({ definitions: [def], reviews: [review(def)], health: [healthFor(competing)], completions: [vetDeclaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-1" } })] });
+    expect(occurrenceState(conflict, 0)).toBe("EVIDENCE_CONFLICT");
+    expect(gateOf(conflict)).not.toBe("PASS");
+    // Unresolved C3 binding under a veterinarian link to a veterinary record: never PASS.
+    const unbound = run({ definitions: [def], reviews: [review(def)], health: [healthFor([vetAdm("h-1", "2026-03-15T00:00:00Z")], { products: [] })], completions: [vetDeclaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-1" } })] });
+    expect(occurrenceState(unbound, 0)).toBe("INSUFFICIENT_EVIDENCE");
+    expect(gateOf(unbound)).not.toBe("PASS");
+  });
+
+  it("the authority rule applies only to veterinary hard gates: advisory actions and farmer programmes complete on farmer evidence", () => {
+    expect(occurrenceState(scenario("FARMER", "CRITERIA", "ABSENT", "ADVISORY"), 0)).toBe("COMPLETED");
+    const farmer = farmerProgramme({ actions: [action({ gateRole: "ADVISORY", schedule: { ...(action().schedule as Rec), repeat: null } })] });
+    const r = run({ definitions: [farmer], reviews: [], health: [healthFor([adm("h-1", "2026-03-15T00:00:00Z")])] });
+    expect(states(r, A, "SYNTH-PROGRAMME-FARMER")).toEqual(["COMPLETED"]);
   });
 });

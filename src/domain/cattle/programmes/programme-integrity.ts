@@ -19,9 +19,13 @@
  *   content-bound (CAT-INV-025).
  * - `CATTLE_PROGRAMME_ANIMAL_STATUS` / `CATTLE_PROGRAMME_STATUS` — RESULT
  *   (purpose 3): the programme state of one animal / the whole evaluation,
- *   bound to `effectiveAt`, `knowledgeCutoff`, the governing definition
- *   fingerprints and the input fingerprints (C1 snapshot, C3 projection, C2
- *   obligation records).
+ *   bound to `effectiveAt`, `knowledgeCutoff`, the COMPLETE governing /
+ *   conflicting version records with their review state and bound review
+ *   records, every membership evidence fingerprint and the input
+ *   fingerprints (C1 snapshot, C3 projection views, C2 obligation records):
+ *   result dependency set = result binding set (CAT-INV-021). The
+ *   `CATTLE_PROGRAMME_DEFINITION` review fingerprint is never the result
+ *   binding on its own.
  * Every instant in a C7 output is in the one canonical nine-digit spelling.
  * Change detection only — not a digital signature.
  */

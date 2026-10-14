@@ -56,6 +56,9 @@ export type {
   ProgrammeCompletionRecord,
 } from "./programme-completion";
 export { programmeOccurrenceId, type ProgrammeOccurrence, type WindowPosition } from "./programme-schedule";
+export { PROGRAMME_OCCURRENCE_STATES, PROGRAMME_STATUS_PRECEDENCE, foldProgrammeStates, type ProgrammeOccurrenceState } from "./programme-state";
+export type { UnresolvedOutcome } from "./programme-evidence";
+export type * from "./programme-types";
 export * from "./programme-engine";
 export * from "./programme-hard-gates";
 export * from "./programme-integrity";

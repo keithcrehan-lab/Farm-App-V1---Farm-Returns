@@ -3,45 +3,46 @@
  * form (the C2 `projectObligationHardGates` shape).
  *
  * Only an action a VETERINARIAN programme declares with gate role
- * `HARD_GATE` is a gate (a farmer-intent action is never one — C0). For one
- * animal of a verified `ProgrammeStatusEvaluation`, each such action of every
- * programme governing `effectiveAt` — or of any version in a version
- * conflict — becomes one pack-compatible `RuleEvaluationRecord` with
- * requested rule id `CATTLE_PROGRAMME_ACTION:["<programmeId>","<actionId>"]` (JSON), gate
- * role HARD_GATE, classification `VETERINARY_PROGRAMME`, and every id is
- * listed in `requiredHardGateRuleIds`, ready for C0
- * `buildRecommendationEvidencePack`. The record is an engine projection, not
- * a C0 rule evaluation (`rule`, `ruleFingerprint`, `implementation` are
- * `null`); its reason codes bind the animal-status fingerprint and its
- * reviews carry the programme's review dimensions.
- *
- * The action's own records and the programme-level record for the animal
- * (version conflict, review, membership) are folded to the most restrictive
- * pack state (FAIL > REVIEW_REQUIRED > UNSUPPORTED > conflicting evidence >
- * INSUFFICIENT_EVIDENCE > PASS > NOT_APPLICABLE — the order C2 folds in).
- * Mapping (engine convention, not veterinary content): COMPLETED → PASS;
- * NOT_APPLICABLE and UPCOMING (window not yet open, evidence resolved) →
- * NOT_APPLICABLE; OVERDUE and BLOCKED → FAIL; REVIEW_REQUIRED →
- * REVIEW_REQUIRED; EVIDENCE_CONFLICT → C0 conflicting evidence; DUE, UNKNOWN,
- * INSUFFICIENT_EVIDENCE and INVALID_EVIDENCE → INSUFFICIENT_EVIDENCE — never
- * an assumed pass. The evaluation is re-verified first; a mismatch fails
- * closed.
+ * `HARD_GATE` is a gate (a farmer-intent action never is — C0). For one
+ * animal of a re-verified `ProgrammeStatusEvaluation`, each such action of
+ * the programme governing `effectiveAt` — or of any version in a version
+ * conflict — becomes one `RuleEvaluationRecord`:
+ * - requested rule id `CATTLE_PROGRAMME_ACTION:["<programmeId>","<actionId>"]`
+ *   (JSON — injective whatever the opaque ids contain);
+ * - classification `VETERINARY_PROGRAMME`, gate role HARD_GATE; `rule`,
+ *   `ruleFingerprint`, `implementation` are `null` (an engine projection);
+ * - reviews: the governing review's dimensions; in a version conflict the
+ *   classification's C0 minimum dimensions as PENDING — never an empty set
+ *   implying that no review is required;
+ * - reason codes: one structured `CATTLE_PROGRAMME_STATE_<state>:["<actionId>","<occurrenceId>"]`
+ *   per folded record plus the animal-status fingerprint (so the gate
+ *   changes whenever the bound animal result does);
+ * - `missingInputs`: the gate rule id itself when insufficient.
+ * The action's records and the animal's programme-level record fold to the
+ * most restrictive pack state in C2's order (FAIL > REVIEW_REQUIRED >
+ * UNSUPPORTED > conflicting > INSUFFICIENT_EVIDENCE > PASS >
+ * NOT_APPLICABLE); a fold over nothing is INSUFFICIENT_EVIDENCE, never a
+ * pass. Mapping (engine convention, not veterinary content): COMPLETED →
+ * PASS; NOT_APPLICABLE / UPCOMING → NOT_APPLICABLE; OVERDUE / BLOCKED → FAIL;
+ * REVIEW_REQUIRED → REVIEW_REQUIRED; EVIDENCE_CONFLICT → conflicting; DUE /
+ * UNKNOWN / INSUFFICIENT_EVIDENCE / INVALID_EVIDENCE → INSUFFICIENT_EVIDENCE.
  */
 
 import { deepFreezeAnimalValue } from "../animal-ledger";
 import type { CattleEvaluationState, RuleEvaluationRecord } from "../evaluation";
 import { compareStrings, sortedUnique, type CattleHash } from "../integrity";
 import { MINIMUM_REVIEW_DIMENSIONS } from "../rule";
-import type { SourceVersionRef } from "../source";
-import { compareSourceVersionRefs } from "../source";
+import { compareSourceVersionRefs, type SourceVersionRef } from "../source";
 import { CATTLE_EVIDENCE_ARCHITECTURE_VERSION } from "../version";
 import { toCanonicalPlainData } from "../regulatory/canonical-input";
 import { utcCalendarDateOf } from "../regulatory/obligation-time";
-import { verifyProgrammeStatusEvaluation, type ProgrammeOccurrenceState, type ProgrammeStatusEvaluation } from "./programme-engine";
+import { verifyProgrammeStatusEvaluation } from "./programme-engine";
+import type { ProgrammeOccurrenceState } from "./programme-state";
+import type { ProgrammeStatus, ProgrammeStatusEvaluation } from "./programme-types";
 
 export const PROGRAMME_GATE_RULE_PREFIX = "CATTLE_PROGRAMME_ACTION:";
 
-/** Opaque ids may contain any delimiter, so the pair is JSON-encoded to stay injective. */
+/** Structured, injective gate rule identity. */
 export function programmeGateRuleId(programmeId: string, actionId: string): string {
   return `${PROGRAMME_GATE_RULE_PREFIX}${JSON.stringify([programmeId, actionId])}`;
 }
@@ -84,12 +85,8 @@ export interface ProgrammeHardGates {
 
 export type ProgrammeHardGatesResult = { ok: true; gates: ProgrammeHardGates } | { ok: false; issues: string[] };
 
-/**
- * The governing version's review dimensions; with no governing version (a
- * version conflict) the classification's C0 minimum dimensions are reported
- * PENDING — never an empty set implying no review is required (R3).
- */
-function reviewsOf(p: ProgrammeStatusEvaluation["programmes"][number]): RuleEvaluationRecord["reviews"] {
+/** The governing review's dimensions, or (version conflict) the C0 minimum dimensions as PENDING. */
+function reviewsOf(p: ProgrammeStatus): RuleEvaluationRecord["reviews"] {
   if (p.governing !== null) return p.governing.review.dimensions.map((d) => ({ dimension: d.dimension, state: d.state }));
   return [...MINIMUM_REVIEW_DIMENSIONS[p.classification]].sort(compareStrings).map((dimension) => ({ dimension, state: "PENDING" }));
 }
@@ -105,12 +102,13 @@ export function projectProgrammeHardGates(evaluation: ProgrammeStatusEvaluation,
   const ruleEvaluations: RuleEvaluationRecord[] = [];
   const sourceRefs: SourceVersionRef[] = [];
   for (const p of e.programmes) {
+    if (p.classification !== "VETERINARY_PROGRAMME") continue;
     const versions = p.versionState === "GOVERNING" && p.governing !== null ? [p.governing.version] : p.conflictingVersions;
     const gateActions = sortedUnique(versions.flatMap((v) => v.definition.actions.filter((a) => a.gateRole === "HARD_GATE").map((a) => a.actionId)));
     if (gateActions.length === 0) continue;
     for (const v of versions) if (v.definition.provenance.sourceDocument !== null) sourceRefs.push(v.definition.provenance.sourceDocument);
     const status = p.animals.find((a) => a.animalId === id);
-    if (!status) return deepFreezeAnimalValue({ ok: false, issues: [`CATTLE_PROGRAMME_HARD_GATE_ANIMAL_STATUS_MISSING:${p.programmeId}`] });
+    if (!status) return deepFreezeAnimalValue({ ok: false, issues: [`CATTLE_PROGRAMME_HARD_GATE_ANIMAL_STATUS_MISSING:${JSON.stringify(p.programmeId)}`] });
     for (const actionId of gateActions) {
       const records = status.records.filter((r) => r.actionId === null || r.actionId === actionId);
       const states = records.map((r) => programmeStateToPackState(r.state));
@@ -127,8 +125,8 @@ export function projectProgrammeHardGates(evaluation: ProgrammeStatusEvaluation,
         evaluationDate,
         state,
         reasonCodes: sortedUnique([
-          // Structured [actionId, occurrenceId] (programme level: [null, null]) — never joined text (R4).
-          ...records.map((r) => `CATTLE_PROGRAMME_STATE_${r.state}:${JSON.stringify([r.actionId, r.occurrence?.occurrenceId ?? null])}`),
+          // Structured record identity; records without an occurrence carry their reason codes (e.g. the unrepresentable window index).
+          ...records.map((r) => `CATTLE_PROGRAMME_STATE_${r.state}:${JSON.stringify([r.actionId, r.occurrence?.occurrenceId ?? null, r.occurrence === null ? r.reasonCodes : []])}`),
           `CATTLE_PROGRAMME_ANIMAL_STATUS_FINGERPRINT:${status.fingerprint.digest}`,
         ]),
         usedInputs: [],

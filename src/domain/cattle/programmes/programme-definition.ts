@@ -460,7 +460,15 @@ export function materialiseProgrammeDefinition(raw: unknown): DefinitionMaterial
   const declaredBy = declarerOf(raw.declaredBy);
   if (declaredBy === null) codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_DECLARER");
   const classification = oneOf(PROGRAMME_CLASSIFICATIONS, raw.classification) ? raw.classification : null;
-  if (classification === null || (declaredBy !== null && PROGRAMME_CLASSIFICATION_DECLARER[classification] !== declaredBy.role)) codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_CLASSIFICATION");
+  // A veterinary programme needs a veterinarian declarer AND veterinary-source provenance (human decision on M1).
+  const veterinarySource = provenance !== null && provenance.sourceCategory === "VETERINARY_SOURCE";
+  if (
+    classification === null ||
+    (declaredBy !== null && PROGRAMME_CLASSIFICATION_DECLARER[classification] !== declaredBy.role) ||
+    (classification === "VETERINARY_PROGRAMME" && provenance !== null && !veterinarySource)
+  ) {
+    codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_CLASSIFICATION");
+  }
   const supersedes = explicitRefList(raw.supersedesVersions);
   if (supersedes === null) codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_CONTENT");
   else if (supersedes.includes(raw.version as string)) codes.push("CATTLE_PROGRAMME_DEFINITION_SELF_SUPERSESSION");
@@ -663,7 +671,7 @@ export function admitProgrammeDefinitions(raws: readonly unknown[], knowledgeCut
   // Every known version of one programme shares its classification.
   const classes = new Map<string, Set<string>>();
   for (const e of collected.records) classes.set(e.def.programmeId, (classes.get(e.def.programmeId) ?? new Set<string>()).add(e.def.classification));
-  for (const [programmeId, s] of classes) if (s.size > 1) issues.push({ code: "CATTLE_PROGRAMME_DEFINITION_IDENTITY_SCOPE_MISMATCH", ref: programmeId });
+  for (const [programmeId, s] of classes) if (s.size > 1) issues.push({ code: "CATTLE_PROGRAMME_DEFINITION_IDENTITY_SCOPE_MISMATCH", ref: JSON.stringify([programmeId]) });
   if (issues.length > 0) return { ok: false, issues: uniqueProgrammeIssues(issues) };
 
   const resolution = resolveBitemporalRecords(collected.records, knowledgeCutoff, {

@@ -4295,7 +4295,7 @@ evaluation. Input order, key order and equivalent instant spellings do not chang
 definition, review, declaration, C3 / C2 input, time or state does. Change detection only, not
 signatures. **Hard-gate projection:** only `HARD_GATE` actions of veterinarian programmes (governing,
 or any version in conflict) → one `RuleEvaluationRecord` per action, `requestedRuleId
-CATTLE_PROGRAMME_ACTION:<programmeId>|<actionId>`, classification `VETERINARY_PROGRAMME`, rule /
+CATTLE_PROGRAMME_ACTION:` + JSON `[programmeId, actionId]` (injective for any opaque id), classification `VETERINARY_PROGRAMME`, rule /
 fingerprint / implementation `null`, reviews from the programme review, reason codes binding the
 animal-status fingerprint, plus `requiredHardGateRuleIds` and programme `sourceRefs`; the evaluation
 is re-verified first (mismatch ⇒ `ok: false`). Mapping (engine convention): COMPLETED → PASS;

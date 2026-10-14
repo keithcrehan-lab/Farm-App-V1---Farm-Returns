@@ -7,7 +7,7 @@
  * animal of a verified `ProgrammeStatusEvaluation`, each such action of every
  * programme governing `effectiveAt` — or of any version in a version
  * conflict — becomes one pack-compatible `RuleEvaluationRecord` with
- * requested rule id `CATTLE_PROGRAMME_ACTION:<programmeId>|<actionId>`, gate
+ * requested rule id `CATTLE_PROGRAMME_ACTION:["<programmeId>","<actionId>"]` (JSON), gate
  * role HARD_GATE, classification `VETERINARY_PROGRAMME`, and every id is
  * listed in `requiredHardGateRuleIds`, ready for C0
  * `buildRecommendationEvidencePack`. The record is an engine projection, not
@@ -40,8 +40,9 @@ import { verifyProgrammeStatusEvaluation, type ProgrammeOccurrenceState, type Pr
 
 export const PROGRAMME_GATE_RULE_PREFIX = "CATTLE_PROGRAMME_ACTION:";
 
+/** Opaque ids may contain any delimiter, so the pair is JSON-encoded to stay injective. */
 export function programmeGateRuleId(programmeId: string, actionId: string): string {
-  return `${PROGRAMME_GATE_RULE_PREFIX}${programmeId}|${actionId}`;
+  return `${PROGRAMME_GATE_RULE_PREFIX}${JSON.stringify([programmeId, actionId])}`;
 }
 
 export function programmeStateToPackState(state: ProgrammeOccurrenceState): CattleEvaluationState {

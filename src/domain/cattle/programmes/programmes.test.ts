@@ -858,6 +858,16 @@ describe("C7 hard-gate projection — C0 evidence pack", () => {
     expect(pack.outcome).toBe("BLOCKED");
   });
 
+  it("delimiter-containing programme/action ids keep distinct gate rule ids through the C0 pack", () => {
+    const first = programme({ programmeId: "SYNTH-P|SYNTH-Q", actions: [action({ actionId: "SYNTH-R" })] });
+    const second = programme({ programmeId: "SYNTH-P", actions: [action({ actionId: "SYNTH-Q|SYNTH-R" })] });
+    const { gates, pack } = packFor(ok(run({ definitions: [first, second], reviews: [review(first), review(second)] })));
+    expect(programmeGateRuleId("SYNTH-P|SYNTH-Q", "SYNTH-R")).not.toBe(programmeGateRuleId("SYNTH-P", "SYNTH-Q|SYNTH-R"));
+    expect(new Set(gates.requiredHardGateRuleIds).size).toBe(2);
+    expect(gates.requiredHardGateRuleIds).toEqual([programmeGateRuleId("SYNTH-P", "SYNTH-Q|SYNTH-R"), programmeGateRuleId("SYNTH-P|SYNTH-Q", "SYNTH-R")].sort());
+    expect(pack.outcome).toBe("BLOCKED");
+  });
+
   it("completed occurrences with an upcoming one pass; unapproved programmes need review", () => {
     const health = healthFor([adm("h-1", "2026-03-15T00:00:00Z"), adm("h-2", "2026-04-11T00:00:00Z")]);
     const done = packFor(ok(run({ health: [health] })));

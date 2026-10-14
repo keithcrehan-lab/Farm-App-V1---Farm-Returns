@@ -311,8 +311,8 @@
       "next_phase": "C3 NOT_STARTED"
     },
     "campaign_progress": {
-      "last_frozen_phase": "C6",
-      "next_phase": "C7",
+      "last_frozen_phase": "C7",
+      "next_phase": "C8",
       "next_phase_status": "NOT_STARTED",
       "updated_by": "scripts/agent-campaign-run"
     },
@@ -399,6 +399,26 @@
       "receipt_fingerprint": "63b7113053f0f81098f4ae4c18873318bdeba8860eece37057f199dd1e73e69b",
       "closed_by": "scripts/agent-campaign-run",
       "next_phase": "C7 NOT_STARTED"
+    },
+    "c7_veterinary_health_programme_engine": {
+      "status": "FROZEN_COMPLETE_IN_CODE",
+      "task": "cattle-c7-veterinary-health-programme-engine-20261013",
+      "base_sha": "fea84ae8fb7623e3c8abe7df67535c512eca4231",
+      "final_audited_sha": "a5726a2f7600d9a2b0f18b932e5786ad39cee3ec",
+      "final_audit": ".agent/campaigns/cattle-engine-v1/audits/audit-20261014T181412Z-70601634.md",
+      "final_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0",
+      "remediated_findings": [
+        "F005 (MEDIUM, audit-20261014T065818Z-4175390974.md): Distinct programme actions collide in hard-gate identity — sig 435db88182ade210",
+        "F001 (HIGH, audit-20261013T154917Z-2981225942.md): Counted completion masks unresolved evidence — sig b3b57ada9f862309",
+        "F002 (HIGH, audit-20261013T154917Z-2981225942.md): Result fingerprints omit completion and review provenance — sig bf877ddcfa9e0a63",
+        "F002 (HIGH, audit-20261013T164453Z-554782138.md): Animal-status and hard-gate fingerprints still omit programme provenance — sig c96dd64515e7b36c"
+      ],
+      "outstanding_low_findings": [],
+      "verification": "at a5726a2f7600d9a2b0f18b932e5786ad39cee3ec: phase verify `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint` PASS; full suite scripts/quality-gate.sh PASS",
+      "receipt": ".agent/campaigns/cattle-engine-v1/receipts/C7.json",
+      "receipt_fingerprint": "412e3eaa5eb64bd23a65648cfd5cba175bc5e95b779202ab74b09bbbdb6ec976",
+      "closed_by": "scripts/agent-campaign-run",
+      "next_phase": "C8 NOT_STARTED"
     }
   }
 }

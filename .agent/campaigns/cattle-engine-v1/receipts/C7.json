@@ -1,0 +1,298 @@
+{
+  "receipt_schema_version": 1,
+  "origin": "campaign",
+  "campaign_id": "cattle-engine-v1",
+  "phase_id": "C7",
+  "phase_title": "Veterinary Health-Programme Engine",
+  "phase_order": 7,
+  "task_id": "cattle-c7-veterinary-health-programme-engine-20261013",
+  "phase_base_sha": "fea84ae8fb7623e3c8abe7df67535c512eca4231",
+  "functional_freeze_sha": "a5726a2f7600d9a2b0f18b932e5786ad39cee3ec",
+  "frozen_at": "2026-10-14T19:07:44Z",
+  "brief": ".agent/campaigns/cattle-engine-v1/C7_BRIEF.md",
+  "brief_sha256": "dc45b7768c77799da6d0a9032330df68c1fd9067142edc73d94a6d6b260039bb",
+  "contracts": [
+    {
+      "path": "AGENTS.md",
+      "blob_at_freeze": "c608fb74479ed5ef58544105aee90d6fa07ce918"
+    },
+    {
+      "path": ".agent/AUDIT_RULES.md",
+      "blob_at_freeze": "6113ce9869627f7102a6420242036c8fb2e07358"
+    },
+    {
+      "path": ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
+      "blob_at_freeze": "4f8b6c99e9397e2fd9da1e12f4bde1ad29ca0e1f"
+    },
+    {
+      "path": ".agent/skills/cattle-evidence-rules.md",
+      "blob_at_freeze": "34103147824c01008e92dba49531ff406294fce7"
+    },
+    {
+      "path": "docs/farm-return-next/cattle/index.md",
+      "blob_at_freeze": "ed787671c170f51492d718821dfe439bfdfc1108"
+    },
+    {
+      "path": "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+      "blob_at_freeze": "dd8c8b662bbaaa5a957154389472d22b6db38c39"
+    }
+  ],
+  "verify_command": "npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint",
+  "verification": [
+    {
+      "name": "phase_verify",
+      "cmd": "npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint",
+      "head": "a5726a2f7600d9a2b0f18b932e5786ad39cee3ec",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C7-freeze-phase_verify-20261014T181849587683Z.log"
+    },
+    {
+      "name": "full_suite",
+      "cmd": "bash scripts/quality-gate.sh",
+      "head": "a5726a2f7600d9a2b0f18b932e5786ad39cee3ec",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C7-freeze-full_suite-20261014T181957214473Z.log"
+    }
+  ],
+  "strict_audit": {
+    "artifact": ".agent/campaigns/cattle-engine-v1/audits/audit-20261014T181412Z-70601634.md",
+    "original": ".agent/history/audit-20261014T181412Z-70601634.md",
+    "sha256": "413bd9f76bd0e9f466276356d2db1ee5e103bebc135cf98a38e9b84a90db3c79",
+    "range": "fea84ae8fb7623e3c8abe7df67535c512eca4231..a5726a2f7600d9a2b0f18b932e5786ad39cee3ec",
+    "counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "tier": "strict"
+  },
+  "audits": [
+    {
+      "tier": "standard",
+      "artifact": "audit-20261013T154917Z-2981225942.md",
+      "head": "b0dfc449ceb63853a8557a87459f371f2f7ca665",
+      "counts": {
+        "critical": 0,
+        "high": 2,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261013T164453Z-554782138.md",
+      "head": "0bd651a7f317469227dbb59b3015f9682928925f",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261013T195206Z-3764728638.md",
+      "head": "0f33e34c7ba7521a52483625615d43d96e90c32d",
+      "counts": {
+        "critical": 0,
+        "high": 2,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261013T220337Z-1050119702.md",
+      "head": "9c50d8ef1285cf0faf304eb84716dd04bd497e26",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261014T065818Z-4175390974.md",
+      "head": "3b3bbb236e1c8d8c7cf8e406ec0de4b7ab341a6a",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261014T075719Z-197248164.md",
+      "head": "9e589a50bede98f41c6e7cfc7869d04f87b222aa",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261014T095157Z-191307541.md",
+      "head": "3028badc23ccddcfb4814229dde8b3ca1689c364",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261014T115838Z-3229166911.md",
+      "head": "7455b30171182ec081d858a2d4771c67aa8c9bbb",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261014T134506Z-1593750300.md",
+      "head": "f28eac0af0e0fe3ee9600135ec08c24ba38826ec",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261014T165236Z-3639288613.md",
+      "head": "d848bd86b76c1ba582da7f873d309feb7b98b21c",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261014T180902Z-2111649794.md",
+      "head": "a5726a2f7600d9a2b0f18b932e5786ad39cee3ec",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261014T181412Z-70601634.md",
+      "head": "a5726a2f7600d9a2b0f18b932e5786ad39cee3ec",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    }
+  ],
+  "remediation": {
+    "medium_rounds": 1,
+    "high_rounds": 2,
+    "rounds": [
+      {
+        "n": 1,
+        "tier": "standard",
+        "audit": "audit-20261013T154917Z-2981225942.md",
+        "ids": [
+          "F001",
+          "F002"
+        ],
+        "severities": [
+          "HIGH"
+        ],
+        "fix_commit": "0bd651a7f317469227dbb59b3015f9682928925f"
+      },
+      {
+        "n": 2,
+        "tier": "standard",
+        "audit": "audit-20261014T065818Z-4175390974.md",
+        "ids": [
+          "F005"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "9e589a50bede98f41c6e7cfc7869d04f87b222aa"
+      }
+    ]
+  },
+  "finding_signatures": {
+    "435db88182ade210": {
+      "severity": "MEDIUM",
+      "title": "Distinct programme actions collide in hard-gate identity",
+      "file": "src/domain/cattle/programmes/programme-hard-gates.ts",
+      "attempts": 1,
+      "ids": [
+        "F005@audit-20261014T065818Z-4175390974.md"
+      ]
+    },
+    "b3b57ada9f862309": {
+      "severity": "HIGH",
+      "title": "Counted completion masks unresolved evidence",
+      "file": "src/domain/cattle/programmes/programme-engine.ts",
+      "attempts": 1,
+      "ids": [
+        "F001@audit-20261013T154917Z-2981225942.md"
+      ]
+    },
+    "bf877ddcfa9e0a63": {
+      "severity": "HIGH",
+      "title": "Result fingerprints omit completion and review provenance",
+      "file": "src/domain/cattle/programmes/programme-engine.ts",
+      "attempts": 1,
+      "ids": [
+        "F002@audit-20261013T154917Z-2981225942.md"
+      ]
+    },
+    "c96dd64515e7b36c": {
+      "severity": "HIGH",
+      "title": "Animal-status and hard-gate fingerprints still omit programme provenance",
+      "file": "src/domain/cattle/programmes/programme-engine.ts",
+      "attempts": 1,
+      "ids": [
+        "F002@audit-20261013T164453Z-554782138.md"
+      ]
+    }
+  },
+  "outstanding_low_findings": [],
+  "migration_status": "NONE",
+  "frozen_contract_status": "ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md",
+  "human_gate_status": "NONE",
+  "pushed_or_deployed": false,
+  "predecessor": "C6",
+  "predecessor_receipt_fingerprint": "63b7113053f0f81098f4ae4c18873318bdeba8860eece37057f199dd1e73e69b",
+  "policy": {
+    "medium_rounds": 4,
+    "high_rounds": 2,
+    "attempts_per_signature": 2
+  },
+  "receipt_fingerprint": "412e3eaa5eb64bd23a65648cfd5cba175bc5e95b779202ab74b09bbbdb6ec976"
+}

@@ -5,6 +5,18 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Cattle Engine v1, C7 close-out — Veterinary Health-Programme Engine — frozen at a5726a2 (2026-10-14)
+
+C7 (task `cattle-c7-veterinary-health-programme-engine-20261013`, base `fea84ae`) is **frozen at `a5726a2f7600d9a2b0f18b932e5786ad39cee3ec`** by `scripts/agent-campaign-run`. This is the
+functional freeze SHA; the documentation commit recording it is not.
+
+- Strict full-phase audit `audit-20261014T181412Z-70601634.md` over `fea84ae..a5726a2`: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0.
+- Automatic remediation: 1 Medium round(s), 2 High round(s): F005 (MEDIUM, audit-20261014T065818Z-4175390974.md): Distinct programme actions collide in hard-gate identity — sig 435db88182ade210; F001 (HIGH, audit-20261013T154917Z-2981225942.md): Counted completion masks unresolved evidence — sig b3b57ada9f862309; F002 (HIGH, audit-20261013T154917Z-2981225942.md): Result fingerprints omit completion and review provenance — sig bf877ddcfa9e0a63; F002 (HIGH, audit-20261013T164453Z-554782138.md): Animal-status and hard-gate fingerprints still omit programme provenance — sig c96dd64515e7b36c.
+- Outstanding Low (recorded, not fixed): none.
+- Verification at `a5726a2`: phase verify and full suite (`scripts/quality-gate.sh`) passed.
+- Receipt `.agent/campaigns/cattle-engine-v1/receipts/C7.json` (fingerprint `412e3eaa5eb64bd2`). Migrations: none. Frozen contracts: ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md. Nothing pushed or deployed.
+- C8 **not started**.
+
 ## Cattle Engine v1, C6 close-out — Production Goal Engine — frozen at 594755a (2026-10-13)
 
 C6 (task `cattle-c6-production-goal-engine-20261013`, base `ffb6ad1`) is **frozen at `594755a639cab090640fa678b577ef02511ae47e`** by `scripts/agent-campaign-run`. This is the

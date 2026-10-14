@@ -4292,6 +4292,17 @@ incl. C2 herd and catalogue issues, `..._OBLIGATION_IMPLEMENTATIONS_MISSING`). C
 evidence supplied is the adapter's responsibility, as for C2 / C3 themselves. `productVersion: null` means
 any C3-BOUND version. Hostile JavaScript stays outside the canonical contract.
 
+**What C7 binds per predecessor (downstream binding rule, CAT-INV-021 / 023).** C7 binds each owner's
+canonical admitted output, never the raw input the owner derived it from: C1 — the snapshot fingerprint
+(C1's documented representation-sensitive result fingerprint) for the facts and anchor it reads; C4 — the
+`CATTLE_GROUP_SCOPE` fingerprint of every membership resolution consulted; C3 — the timeline, medicine-ledger
+and withdrawal-gate fingerprints; C2 — the `CATTLE_OBLIGATION_STATE` record fingerprints. The raw C1
+ledger, C3 health / product records and food products, and C2 catalogue / evidence / obligation ids are
+passed to their owners and never bound by C7: knowledge-cutoff admission, normalisation, ordering,
+canonical equality, equivalence and exclusion of future knowledge belong to the owner, and a raw input that
+leaves the owner's output unchanged leaves C7's result byte-identical. C7's own inputs (definitions,
+reviews, declarations, query) are bound as C7 materialises and admits them.
+
 **Request and admission.** `HealthProgrammeRequest` = `{definitions, reviews, completions, ledgers (C1;
 the animals evaluated, one each), health (canonical C3 evidence | null), obligations (canonical C2 evidence
 | null), query {effectiveAt, knowledgeCutoff}}`. Whole-request canonical check
@@ -4348,9 +4359,7 @@ state, reason codes, completion summary — counted completions with authority, 
 provenance, unresolved
 candidates with their outcome —, gate checks, `membershipAtOpen` for GROUP windows opened), unmatched
 declaration ids, every known declaration for the animal and programme, and input fingerprints (C1
-snapshot; C3 timeline / medicine ledger / withdrawal gate; C2 record fingerprints and the
-`CATTLE_PROGRAMME_OBLIGATION_INPUTS` evidence fingerprint of the canonical C2 catalogue and obligation ids
-composed). Sorted, detached,
+snapshot; C3 timeline / medicine ledger / withdrawal gate; C2 record fingerprints). Sorted, detached,
 deep-frozen. **Result dependency set = result binding set**: `CATTLE_PROGRAMME_ANIMAL_STATUS` binds
 both canonical times, every animal-status field and the complete governing / conflicting version
 records with review state and bound review records; `CATTLE_PROGRAMME_DEFINITION` (review fingerprint:

@@ -37,6 +37,12 @@ Binding for C8 design (`.agent/campaigns/cattle-engine-v1/C7_ARCHITECTURE_REVIEW
   authenticity; runtime enum / state validation; fail-closed exhaustive translations; generated
   malformed-output matrices from the schema; trusted non-canonical inputs (e.g. C2's implementation
   registry) only as explicit trusted parameters.
+- Downstream binding rule (CAT-INV-021 / 023, after C7 finding F009): bind each owner's canonical admitted
+  output (C1–C7 result fingerprints), never raw predecessor inputs; never re-perform predecessor
+  admission, normalisation, ordering or equivalence; treat each owner's equality semantics as given (C1's
+  snapshot fingerprint is representation-sensitive by design). C8's binding guard classifies every input
+  leaf by owner (A own / B upstream: compare the owner's recomputed canonical output; C explicit
+  `{path, owningPhase, reason}` non-dependency proven unchanged).
 - Avoid recursive recomputation where practical (C7 composes C2 / C3 itself; duplicate deterministic
   computation is acceptable, inconsistency is not).
 

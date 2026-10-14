@@ -26,10 +26,6 @@
  *   result dependency set = result binding set (CAT-INV-021). The
  *   `CATTLE_PROGRAMME_DEFINITION` review fingerprint is never the result
  *   binding on its own.
- * - `CATTLE_PROGRAMME_OBLIGATION_INPUTS` — EVIDENCE (purpose 1): the exact
- *   canonical C2 inputs C7 composed (catalogue, obligation ids), so the C7
- *   result binds the C2 evidence it relied on even where C2's own record
- *   fingerprints do not cover a field (e.g. a definition's knowledge time).
  * Every instant in a C7 output is in the one canonical nine-digit spelling.
  * Change detection only — not a digital signature.
  */
@@ -45,7 +41,7 @@ import type { CattleHash } from "../integrity";
 /** Increment when a C7 fingerprinted payload's fields or normalisation change. */
 export const CATTLE_PROGRAMME_PAYLOAD_VERSION = 1;
 
-export type CattleProgrammeFingerprintKind = "CATTLE_PROGRAMME_DEFINITION" | "CATTLE_PROGRAMME_ANIMAL_STATUS" | "CATTLE_PROGRAMME_STATUS" | "CATTLE_PROGRAMME_OBLIGATION_INPUTS";
+export type CattleProgrammeFingerprintKind = "CATTLE_PROGRAMME_DEFINITION" | "CATTLE_PROGRAMME_ANIMAL_STATUS" | "CATTLE_PROGRAMME_STATUS";
 
 function wrap(kind: CattleProgrammeFingerprintKind, payload: unknown): unknown {
   return { kind, programmePayloadVersion: CATTLE_PROGRAMME_PAYLOAD_VERSION, payload };

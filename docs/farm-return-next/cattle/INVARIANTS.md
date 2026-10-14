@@ -247,6 +247,27 @@ Every authoritative output can be reconstructed from:
 
 Reconstruction is proven by a deterministic fingerprint.
 
+- **Downstream binding rule (C7/C8 interface review, 2026-10-14; finding
+  F009).** A downstream phase binds the canonical admitted output of the
+  phase that owns a dependency, never the raw input that phase used to
+  derive it. Raw predecessor inputs are downstream semantic dependencies
+  only when the downstream phase itself reasons over them. The owning
+  phase alone is responsible for knowledge-cutoff admission, normalisation,
+  ordering, canonical instant / equality semantics, equivalence and the
+  exclusion of future knowledge. A downstream phase must never bind raw
+  predecessor input merely to make a binding or mutation guard change. This
+  is the binding-side counterpart of "compose, never re-derive"
+  (CAT-INV-023).
+- **Binding guards classify by owner.** A dependency/binding mutation guard
+  classifies every input leaf as (A) owned by the phase — an accepted
+  material change must change its result fingerprints; (B) owned upstream —
+  mutate the raw input, recompute the owner's canonical output with the
+  owner's frozen engine, and require the downstream result to change if and
+  only if the consumed owner output changed (unchanged owner output ⇒
+  byte-identical downstream result); or (C) an explicit non-dependency
+  `{path, owningPhase, reason}` whose mutation is proven to leave the result
+  unchanged. Equivalence tests follow the same ownership.
+
 ### CAT-INV-022 — Explicit unknown
 
 Missing information is never converted to zero, false, empty, a default or
@@ -263,6 +284,9 @@ predecessor output exists. Examples:
 
 - C5 reads C4 series, not raw weights;
 - C8 reads the C2 evaluation, not obligation catalogues.
+- **Bind what the owner publishes (downstream binding rule, CAT-INV-021).**
+  The consumer binds the owner's canonical admitted output, never the raw
+  inputs it passed to the owner's engine.
 - **Delegation is not reinterpretation (C7 architecture review,
   2026-10-14).** Invoking a frozen predecessor engine over that
   predecessor's canonical inputs is delegation to the authoritative

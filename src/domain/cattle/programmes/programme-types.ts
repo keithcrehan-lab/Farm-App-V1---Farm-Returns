@@ -174,8 +174,6 @@ export interface ProgrammeAnimalInputs {
   health: { timeline: AssessmentFingerprint; medicineLedger: AssessmentFingerprint; withdrawalGate: AssessmentFingerprint } | null;
   /** C2 obligation state record fingerprints (sorted by digest), or `null` when no evaluation was supplied. */
   obligationRecords: AssessmentFingerprint[] | null;
-  /** `CATTLE_PROGRAMME_OBLIGATION_INPUTS` of the canonical C2 catalogue and obligation ids composed, or `null` when none were supplied. */
-  obligationInputs: AssessmentFingerprint | null;
 }
 
 export interface ProgrammeAnimalStatus {

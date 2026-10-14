@@ -22,8 +22,13 @@
  * derivation: no C2/C3 rule is restated here, and no caller-supplied derived
  * predecessor output is accepted, so there is nothing to authenticate by
  * reconstruction. Completeness of the canonical evidence supplied remains
- * the adapter's responsibility (the C2 / C3 precedent). The engines'
- * fingerprints remain the result binding of the evidence C7 used.
+ * the adapter's responsibility (the C2 / C3 precedent).
+ *
+ * BINDING (downstream binding rule, CAT-INV-021/023): C7 binds each owner's
+ * canonical admitted output — C1 snapshot fingerprint, C4 scope
+ * fingerprints, C3 view fingerprints, C2 record fingerprints — never the raw
+ * inputs those owners derived them from. Admission, cutoff, normalisation,
+ * ordering and equivalence of those inputs belong to their owners.
  */
 
 import type { AssessmentFingerprint } from "../../assessment-integrity";
@@ -48,7 +53,6 @@ import {
   type ConsumedSnapshot,
 } from "./programme-consumed";
 import { canonicalInstant } from "./programme-definition";
-import { computeProgrammeFingerprint } from "./programme-integrity";
 import { conformsToPolicy } from "./programme-fields";
 import type { ProgrammeAnimalInputs, ProgrammeIssue } from "./programme-types";
 
@@ -239,7 +243,7 @@ export function readAnimals(read: ReadRequest, trusted: ProgrammeTrustedInputs, 
       facts,
       health: null,
       gates: new Map(),
-      inputs: { snapshotFingerprint: computeAnimalSnapshotFingerprint(projected.snapshot, hash), health: null, obligationRecords: null, obligationInputs: null },
+      inputs: { snapshotFingerprint: computeAnimalSnapshotFingerprint(projected.snapshot, hash), health: null, obligationRecords: null },
     };
     LEDGERS.set(ctx, ledger.ledger);
     ledgers.push(ledger.ledger);
@@ -296,8 +300,6 @@ export function readAnimals(read: ReadRequest, trusted: ProgrammeTrustedInputs, 
       if (herd === null || !herd.ok || herd.herd.issues.length > 0 || herd.herd.catalogueIssues.length > 0) {
         issues.push({ code: "CATTLE_PROGRAMME_OBLIGATION_EVIDENCE_INVALID", ref: null });
       } else {
-        // The exact canonical C2 inputs composed (evidence fingerprint): binds what C2's own records may not cover.
-        const obligationInputs = computeProgrammeFingerprint("CATTLE_PROGRAMME_OBLIGATION_INPUTS", { catalogue: obligations.catalogue, obligationIds: obligations.obligationIds }, hash);
         for (const raw of herd.herd.animals) {
           const e = consume(C2_EVALUATION, raw);
           const ctx = e === null ? undefined : animals.get(e.animalId);
@@ -307,7 +309,6 @@ export function readAnimals(read: ReadRequest, trusted: ProgrammeTrustedInputs, 
             continue;
           }
           ctx.inputs.obligationRecords = e.results.map((r): AssessmentFingerprint => r.fingerprint).sort((a, b) => compareStrings(a.digest, b.digest));
-          ctx.inputs.obligationInputs = obligationInputs;
         }
       }
     }

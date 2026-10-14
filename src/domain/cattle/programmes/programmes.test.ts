@@ -37,8 +37,8 @@ import { uniqueProgrammeIssues } from "./programme-definition";
 import { PROGRAMME_FIELD_POLICY, conformsToPolicy, type ProgrammeFieldRule, type ProgrammeRecordType } from "./programme-fields";
 import { C1_SNAPSHOT, C2_EVALUATION, C3_PROJECTION, C4_SCOPE, GATE_PROJECTION, valid, type ConsumedHealthProjection, type ConsumedMedicineEntry, type ConsumedObligationEvaluation, type FieldSpec } from "./programme-consumed";
 import { fromC1Resolution, fromC3Binding, fromC4Membership } from "./programme-evidence";
-import { projectAnimalSnapshot } from "../animal-snapshot";
-import { projectObligationHardGates } from "../regulatory";
+import { computeAnimalSnapshotFingerprint, projectAnimalSnapshot } from "../animal-snapshot";
+import { evaluateHerdObligations, projectObligationHardGates } from "../regulatory";
 import {
   PROGRAMME_ANCHOR_KINDS,
   PROGRAMME_CLASSIFICATIONS,
@@ -1460,9 +1460,10 @@ describe("C7 closure C — result dependency set equals result binding set", () 
   const baseLedger = [dobOf(A), sexOf(A), groupOf(A)];
   const baseHealth = [adm("h-1", "2026-04-11T00:00:00Z")];
   const baseCompletions = [vetDeclaration("d-1"), declaration("d-2", { occurrenceId: occId(1), evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-1" } })];
-  // Canonical C2 input: the obligation definition (its rule version binds its terms).
-  type Parts = { definition: Rec; review: Rec | null; completions: Rec[]; ledger: Rec[]; health: Rec[]; obligationDefinition: Rec };
-  const base: Parts = { definition: def, review: null, completions: baseCompletions, ledger: baseLedger, health: baseHealth, obligationDefinition: OBL_DEFINITION as unknown as Rec };
+  // Parts and their OWNING phase: C7 owns definition / review / completions; C1 the ledger; C3 the health records; C2 the catalogue.
+  type Parts = { definition: Rec; review: Rec | null; completions: Rec[]; ledger: Rec[]; health: Rec[]; catalogue: Rec };
+  const OWNER: Record<keyof Parts, "C7" | "C1" | "C2" | "C3"> = { definition: "C7", review: "C7", completions: "C7", ledger: "C1", health: "C3", catalogue: "C2" };
+  const base: Parts = { definition: def, review: null, completions: baseCompletions, ledger: baseLedger, health: baseHealth, catalogue: OBL_CATALOGUE as unknown as Rec };
 
   /** Builds the request from canonical parts; C7 composes C1 / C3 / C2 from them. `null` = rejected upstream. */
   function evaluate(parts: Parts): ProgrammeEvaluationResult | null {
@@ -1472,9 +1473,32 @@ describe("C7 closure C — result dependency set equals result binding set", () 
       const bound = parts.review ?? (computeProgrammeDefinitionFingerprint(parts.definition, hash) === null ? REVIEWS[0] : review(parts.definition));
       const request = {
         ...requestOf({ definitions: [parts.definition], reviews: [bound], completions: parts.completions, ledgers: [ledger.ledger], health: [healthFor(parts.health, { ledger: ledger.ledger })] }),
-        obligations: { catalogue: { ...OBL_CATALOGUE, definitions: [parts.obligationDefinition] }, obligationIds: [OBL], evidence: [] },
+        obligations: { catalogue: parts.catalogue, obligationIds: [OBL], evidence: [] },
       };
       return evaluateHealthProgrammes(request as never, hash, { obligationImplementations: OBL_IMPLEMENTATIONS });
+    } catch {
+      return null;
+    }
+  }
+  /**
+   * The canonical outputs the UPSTREAM OWNERS publish for these parts, computed by the owners' own frozen
+   * engines (never by C7): C1 snapshot fingerprint, C3 view fingerprints, C2 record fingerprints.
+   * `null` = an owner rejects the input (C7 then fails closed too).
+   */
+  function ownerOutputs(parts: Parts): string | null {
+    try {
+      const ledger = createAnimalLedger(A, parts.ledger);
+      if (!ledger.ok) return null;
+      const snapshot = projectAnimalSnapshot(ledger.ledger, { effectiveAt: EFFECTIVE, knowledgeCutoff: CUTOFF });
+      const c3 = projectAnimalHealth({ ledger: ledger.ledger, healthRecords: parts.health, productRecords: DEFAULT_PRODUCTS, query: { effectiveAt: EFFECTIVE, knowledgeCutoff: CUTOFF, foodProducts: [MEAT] } } as never, hash);
+      const c2 = evaluateHerdObligations({ ledgers: [ledger.ledger], evidence: [], catalogue: parts.catalogue as never, implementations: OBL_IMPLEMENTATIONS, query: { effectiveAt: EFFECTIVE, knowledgeCutoff: CUTOFF, obligationIds: [OBL] } }, hash);
+      if (!snapshot.ok || !c3.ok || !c2.ok || c2.herd.issues.length > 0 || c2.herd.catalogueIssues.length > 0) return null;
+      const p = c3.projection;
+      return canonicalizeValue({
+        c1: computeAnimalSnapshotFingerprint(snapshot.snapshot, hash),
+        c3: [p.timeline.fingerprint, p.medicineLedger.fingerprint, p.withdrawalGate.fingerprint],
+        c2: c2.herd.animals.flatMap((a) => a.results.map((r) => r.fingerprint)),
+      });
     } catch {
       return null;
     }
@@ -1526,47 +1550,71 @@ describe("C7 closure C — result dependency set equals result binding set", () 
     return [`${s}-MUT`];
   }
   /**
-   * Documented NON-DEPENDENCIES: canonical input leaves that do not affect
-   * the C7 results, each with its reason. Any other leaf whose material
-   * change is accepted must change every C7 result fingerprint.
+   * (C) Explicit NON-DEPENDENCIES — structured, never a bare path: each names the owning phase and the
+   * reason, and the guard proves its mutation leaves every C7 result unchanged.
    */
-  const NON_DEPENDENCIES: { part: keyof Parts; path: RegExp; reason: string }[] = [];
+  const NON_DEPENDENCIES: { part: keyof Parts; path: RegExp; owningPhase: string; reason: string }[] = [];
 
-  it("every material change to a dependency leaf changes the evaluation, animal-status and hard-gate results (or fails closed)", () => {
+  /**
+   * The A/B/C oracle (CAT-INV-021 downstream binding rule):
+   * (A) C7-owned leaf — an accepted material change changes every C7 result fingerprint;
+   * (B) upstream-owned leaf — recompute the owner's canonical output with the owner's engine: changed ⇒
+   *     every C7 result changes (C7 consumes all of it); unchanged ⇒ every C7 result is byte-identical;
+   * (C) explicit non-dependency — every C7 result is unchanged.
+   */
+  it("binding guard (A / B / C by owner): C7 results change exactly when a C7-owned input or a consumed owner output changes", () => {
     const before = resultOf(evaluate(base)!);
-    const unbound: string[] = [];
-    const counts = { changed: 0, rejected: 0, excluded: 0 };
+    const baseOwners = ownerOutputs(base);
+    expect(baseOwners).not.toBeNull();
+    const violations: string[] = [];
+    const counts = { ownChanged: 0, upstreamChanged: 0, upstreamUnchanged: 0, rejected: 0, excluded: 0 };
     const roots: [keyof Parts, unknown][] = [
       ["definition", base.definition],
       ["review", review(def)],
       ["completions", base.completions],
       ["ledger", base.ledger],
       ["health", base.health],
-      ["obligationDefinition", base.obligationDefinition],
+      ["catalogue", base.catalogue],
     ];
     for (const [part, root] of roots) {
       for (const leaf of leavesOf(root)) {
         const excluded = NON_DEPENDENCIES.find((n) => n.part === part && n.path.test(leaf.path.join(".")));
-        let accepted = 0;
         for (const candidate of candidates(leaf.value)) {
           const parts = { ...base, [part]: setAt(root, leaf.path, candidate) };
           const r = evaluate(parts);
-          if (r === null || !r.ok) continue;
-          accepted++;
-          const after = resultOf(r);
           const label = `${part}.${leaf.path.join(".")} → ${JSON.stringify(candidate)}`;
+          if (r === null || !r.ok) {
+            counts.rejected++;
+            continue;
+          }
+          const after = resultOf(r);
           const changed = after.evaluation !== before.evaluation && after.animal !== before.animal && after.gates !== before.gates;
-          if (excluded ? after.evaluation !== before.evaluation : !changed) unbound.push(label);
+          const identical = canonicalizeValue(after) === canonicalizeValue(before);
+          if (excluded) {
+            counts.excluded++;
+            if (!identical) violations.push(`(C) ${label}: exempted (${excluded.owningPhase}: ${excluded.reason}) but C7 changed`);
+          } else if (OWNER[part] === "C7") {
+            counts.ownChanged++;
+            if (!changed) violations.push(`(A) ${label}: C7-owned change not bound`);
+          } else {
+            const owners = ownerOutputs(parts);
+            if (owners === baseOwners) {
+              counts.upstreamUnchanged++;
+              if (!identical) violations.push(`(B) ${label}: ${OWNER[part]} output unchanged but C7 changed (raw upstream input bound)`);
+            } else {
+              counts.upstreamChanged++;
+              if (!changed) violations.push(`(B) ${label}: ${OWNER[part]} output changed but C7 did not (consumed output unbound)`);
+            }
+          }
         }
-        if (excluded) counts.excluded++;
-        else if (accepted === 0) counts.rejected++;
-        else counts.changed++;
       }
     }
-    expect(unbound).toEqual([]);
-    // The guard exercises the binding, not only rejection.
-    expect(counts.changed).toBeGreaterThan(80);
-  }, 120_000);
+    expect(violations).toEqual([]);
+    // Every direction of the oracle is exercised, not only rejection.
+    expect(counts.ownChanged).toBeGreaterThan(40);
+    expect(counts.upstreamChanged).toBeGreaterThan(10);
+    expect(counts.upstreamUnchanged).toBeGreaterThan(0);
+  }, 300_000);
 
   it("equivalent instant spellings and input order never change a result fingerprint", () => {
     const before = resultOf(evaluate(base)!);
@@ -1580,7 +1628,20 @@ describe("C7 closure C — result dependency set equals result binding set", () 
     expect(resultOf(evaluate({ ...base, health: respell(base.health) as Rec[] })!)).toEqual(before);
     expect(resultOf(evaluate({ ...base, completions: [...base.completions].reverse() })!)).toEqual(before);
     expect(resultOf(evaluate({ ...base, ledger: [...base.ledger].reverse() })!)).toEqual(before);
-    // Not covered: C1 ledger instant spellings — the frozen C1 snapshot fingerprint is representation-sensitive (FINGERPRINTS.md).
+    // Upstream-owned equivalents follow their OWNER: where the owner's canonical output is unchanged, C7 is unchanged.
+    const baseOwners = ownerOutputs(base);
+    const upstream: [string, Parts][] = [
+      ["C2 catalogue instant respelled", { ...base, catalogue: respell(base.catalogue) as Rec }],
+      ["C2 catalogue arrays reordered", { ...base, catalogue: Object.fromEntries(Object.entries(base.catalogue).map(([k, v]) => [k, Array.isArray(v) ? [...v].reverse() : v])) }],
+      ["C3 records respelled", { ...base, health: respell(base.health) as Rec[] }],
+      ["C1 ledger respelled", { ...base, ledger: respell(base.ledger) as Rec[] }],
+    ];
+    for (const [label, parts] of upstream) {
+      const after = resultOf(evaluate(parts)!);
+      // C1's snapshot fingerprint is representation-sensitive by its documented frozen design: there C7 follows C1.
+      if (ownerOutputs(parts) === baseOwners) expect(after, label).toEqual(before);
+      else expect(label).toBe("C1 ledger respelled");
+    }
   });
 });
 
@@ -1844,7 +1905,7 @@ describe("C7 rebuild — historical defect classes are closed (semantic index)",
     ["unresolved anchor / membership / candidate evidence surfacing as a resolved state", "a counted completion never masks unresolved candidate evidence (state and hard gate)"],
     ["partial result / evidence binding (completion, review, definition provenance)", "result binding matrix: every canonical definition and review field changes the animal fingerprint and exported gates"],
     ["review fingerprint used as result binding", "result binding matrix: every canonical definition and review field changes the animal fingerprint and exported gates"],
-    ["dependency set ≠ binding set (any leaf)", "every material change to a dependency leaf changes the evaluation, animal-status and hard-gate results (or fails closed)"],
+    ["dependency set ≠ binding set (any leaf)", "binding guard (A / B / C by owner): C7 results change exactly when a C7-owned input or a consumed owner output changes"],
     ["foreign C2 / C3 records under a matching envelope (now: no derived output is ever input)", "F008 and every forged / stale / re-sealed / inconsistent derived C3 output: no injection position can make C7 see it"],
     ["canonical predecessor evidence interpreted outside its owner", "canonical C2 / C3 evidence is interpreted only by its own frozen engine; evidence that engine rejects fails the request closed"],
     ["group / historical membership evidence unbound", "membership binding matrix: every C4 group resolution C7 consults (current and each window opening) binds the result"],
@@ -1855,6 +1916,7 @@ describe("C7 rebuild — historical defect classes are closed (semantic index)",
     ["resolved-state fallbacks", "an empty state set fails closed and a version conflict never reports an empty review set"],
     ["farmer-only completion of a veterinary hard gate", "a FARMER declaration alone never makes a VETERINARY_PROGRAMME HARD_GATE pass; it is retained as evidence"],
     ["unversioned product reference bypassing C3 binding (null waives authority)", "binding state × product constraint × completion path: unresolved C3 binding never yields COMPLETED or a PASS gate"],
+    ["raw upstream input bound by C7 / future knowledge via a raw catalogue (F009)", "C2 owns its catalogue: future, malformed, reordered or respelled catalogue content that C2 excludes or normalises leaves C7 byte-identical (F009)"],
     ["one C3 record completing several occurrences of an action (independent review H1)", "one C3 record evidences at most one occurrence of an action: claims by links and/or windows for several occurrences conflict (decision H1)"],
     ["farmer-recorded C3 evidence alone passing a veterinary hard gate; non-monotonic farmer link (ruling M2)", "record authority × completion path × veterinary corroboration → COMPLETED / PASS only with veterinary authority; farmer evidence always retained"],
     ["malformed re-sealed predecessor output reaching evaluation (F007)", "every predecessor output C7 consumes passes the consumed-field schema; every malformed form of every declared field is rejected (generated from the schema)"],
@@ -2118,5 +2180,62 @@ describe("C7 CAT-INV-028 — predecessor outputs are untrusted until their consu
       (e: ConsumedObligationEvaluation) => e.results[0].window,
     ];
     expect(typeGuards).toHaveLength(4);
+  });
+});
+
+describe("C7 downstream binding rule — C7 binds C2's canonical output, never C2's raw catalogue (F009)", () => {
+  const def = programme({ actions: [action({ gates: [OBL_RULE] })] });
+  const evaluateWith = (catalogue: unknown) =>
+    evaluateHealthProgrammes({ ...requestOf({ definitions: [def], reviews: [review(def)] }), obligations: { catalogue, obligationIds: [OBL], evidence: [] } } as never, hash, { obligationImplementations: OBL_IMPLEMENTATIONS });
+  const c2Records = (catalogue: unknown) => {
+    const r = evaluateHerdObligations({ ledgers: [LEDGER_A], evidence: [], catalogue: catalogue as never, implementations: OBL_IMPLEMENTATIONS, query: { effectiveAt: EFFECTIVE, knowledgeCutoff: CUTOFF, obligationIds: [OBL] } }, hash);
+    if (!r.ok) throw new Error(JSON.stringify(r.issues));
+    return canonicalizeValue(r.herd.animals.flatMap((a) => a.results.map((x) => x.fingerprint)));
+  };
+  const baseline = evaluateWith(OBL_CATALOGUE);
+  const FUTURE = "2027-06-01T00:00:00Z"; // after the 2026-12-31 cutoff
+
+  it("C2 owns its catalogue: future, malformed, reordered or respelled catalogue content that C2 excludes or normalises leaves C7 byte-identical (F009)", () => {
+    expect(baseline.ok).toBe(true);
+    const futureDefinition = { ...OBL_DEFINITION, obligationId: "SYNTH-OBLIGATION-FUTURE", recordedAt: FUTURE };
+    const futureMalformed = { obligationId: "SYNTH-OBLIGATION-FUTURE-MALFORMED", recordedAt: FUTURE, ruleId: undefined, terms: undefined };
+    const respelled = { ...OBL_DEFINITION, recordedAt: "2026-01-01T00:00:00.000Z" };
+    const variants: [string, unknown][] = [
+      ["definition recorded after the cutoff", { ...OBL_CATALOGUE, definitions: [OBL_DEFINITION, futureDefinition] }],
+      ["future malformed definition (with undefined)", { ...OBL_CATALOGUE, definitions: [OBL_DEFINITION, futureMalformed] }],
+      ["definitions reordered", { ...OBL_CATALOGUE, definitions: [futureDefinition, OBL_DEFINITION] }],
+      ["sources reordered", { ...OBL_CATALOGUE, sources: [...(OBL_CATALOGUE.sources as unknown[])].reverse() }],
+      ["reviews reordered", { ...OBL_CATALOGUE, reviews: [...(OBL_CATALOGUE.reviews as unknown[])].reverse() }],
+      ["equivalent instant spelling", { ...OBL_CATALOGUE, definitions: [respelled] }],
+    ];
+    for (const [label, catalogue] of variants) {
+      // The owner's canonical output is unchanged ...
+      expect(c2Records(catalogue), label).toEqual(c2Records(OBL_CATALOGUE));
+      // ... so C7 neither throws nor changes.
+      let r: ProgrammeEvaluationResult | null = null;
+      expect(() => (r = evaluateWith(catalogue)), label).not.toThrow();
+      expect(r, label).toEqual(baseline);
+    }
+  });
+
+  it("guard self-test and positive control: C7 changes if and only if C2's canonical output changes", () => {
+    // Self-test: a raw catalogue mutation the owner absorbs (knowledge time still before the cutoff) ⇒ unchanged owner output ⇒ unchanged C7.
+    const absorbed = { ...OBL_CATALOGUE, definitions: [{ ...OBL_DEFINITION, recordedAt: "2026-01-01T06:00:00Z" }] };
+    expect(c2Records(absorbed)).toEqual(c2Records(OBL_CATALOGUE));
+    expect(evaluateWith(absorbed)).toEqual(baseline);
+    // Positive control: the rule version loses its approval ⇒ C2's canonical output changes ⇒ C7 changes.
+    const unapproved = { ...OBL_CATALOGUE, reviews: [] };
+    expect(c2Records(unapproved)).not.toEqual(c2Records(OBL_CATALOGUE));
+    const changed = evaluateWith(unapproved);
+    expect(ok(changed).fingerprint).not.toEqual(ok(baseline).fingerprint);
+    expect(animalOf(changed).inputs.obligationRecords).not.toEqual(animalOf(baseline).inputs.obligationRecords);
+  });
+
+  it("C7 binds no raw predecessor input: the animal inputs are exactly the owners' published fingerprints", () => {
+    const inputs = animalOf(baseline).inputs;
+    expect(Object.keys(inputs).sort()).toEqual(["health", "obligationRecords", "snapshotFingerprint"]);
+    const sources = readdirSync(__dirname).filter((f) => f.startsWith("programme-") && f.endsWith(".ts") && !f.endsWith(".test.ts"));
+    const code = sources.map((f) => readFileSync(join(__dirname, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")).join("\n");
+    expect(code).not.toMatch(/OBLIGATION_INPUTS|obligations\.catalogue[^\n]*Fingerprint|computeProgrammeFingerprint\([^)]*catalogue/);
   });
 });

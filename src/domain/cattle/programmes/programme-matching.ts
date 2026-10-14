@@ -52,13 +52,11 @@
  */
 
 import { compareInstants } from "../animal-ledger";
-import type { HealthTimelineEntry } from "../health";
 import { compareStrings, sortedUnique } from "../integrity";
-import { canonicalObligationInstant } from "../regulatory/obligation-time";
 import type { CompletionResolution, ProgrammeCompletionRecord } from "./programme-completion";
 import type { HealthProgrammeDefinition, ProgrammeAction } from "./programme-definition";
 import { fromC3Binding, type UnresolvedOutcome } from "./programme-evidence";
-import type { AnimalContext } from "./programme-predecessors";
+import type { AnimalContext, EvidenceRecord } from "./programme-predecessors";
 import { windowPosition, type ProgrammeOccurrence } from "./programme-schedule";
 import type { CountedCompletion, EvidenceNote, EvidenceRefKind, ProgrammeCompletionSummary, UnresolvedNote } from "./programme-types";
 
@@ -80,11 +78,11 @@ export function effectiveDeclarerRole(d: ProgrammeCompletionRecord): "FARMER" | 
 }
 
 /** A C3 record recorded by a veterinary source: VETERINARY_SOURCE provenance with actor role VETERINARIAN (role ⇔ source, as M1). */
-function veterinaryRecorded(record: HealthTimelineEntry["record"]): boolean {
-  return record.provenance.sourceCategory === "VETERINARY_SOURCE" && record.provenance.actorRole === "VETERINARIAN";
+function veterinaryRecorded(record: EvidenceRecord): boolean {
+  return record.sourceCategory === "VETERINARY_SOURCE" && record.actorRole === "VETERINARIAN";
 }
 
-const recordProvenanceOf = (record: HealthTimelineEntry["record"]) => ({ sourceCategory: record.provenance.sourceCategory, actorRole: record.provenance.actorRole });
+const recordProvenanceOf = (record: EvidenceRecord) => ({ sourceCategory: record.sourceCategory, actorRole: record.actorRole });
 
 /**
  * Every C3 record claimed for two or more of the action's occurrences:
@@ -99,7 +97,7 @@ export function contestedRecords(
 ): Set<string> {
   const { definition, action, ctx, effectiveAt, completions } = o;
   if (ctx.health === null) return new Set();
-  const claimable = new Map(ctx.health.timeline.entries.filter((e) => e.status === "LIVE" && resolvedValueMismatch(action, e.record) === null).map((e) => [e.recordId, e]));
+  const claimable = new Map(ctx.health.records.filter((e) => e.status === "LIVE" && resolvedValueMismatch(action, e) === null).map((e) => [e.recordId, e]));
   const claims = new Map<string, Set<string>>();
   const claim = (recordId: string, occurrenceId: string) => claims.set(recordId, (claims.get(recordId) ?? new Set<string>()).add(occurrenceId));
   const derived = new Set(occurrences.map((occ) => occ.occurrenceId));
@@ -112,7 +110,7 @@ export function contestedRecords(
   if (action.completion.matchCriteria) {
     for (const entry of claimable.values()) {
       if (entry.occurredAt === null) continue;
-      const t = canonicalObligationInstant(entry.occurredAt) as string;
+      const t = entry.occurredAt;
       if (compareInstants(t, effectiveAt) > 0) continue;
       for (const occ of occurrences) if (windowPosition(occ, effectiveAt) !== "BEFORE" && windowPosition(occ, t) === "IN") claim(entry.recordId, occ.occurrenceId);
     }
@@ -123,11 +121,11 @@ export function contestedRecords(
 type RecordEvidence = { kind: "MATCH"; at: string } | { kind: "MISMATCH"; reason: string } | { kind: "UNRESOLVED"; outcome: UnresolvedOutcome; reason: string };
 
 /** Value step on fields every C3 record carries resolved: kind, event type, recorded product id. `null` = could match. */
-function resolvedValueMismatch(action: ProgrammeAction, record: HealthTimelineEntry["record"]): string | null {
+function resolvedValueMismatch(action: ProgrammeAction, record: EvidenceRecord): string | null {
   const { recordKind, eventTypes } = action.completion;
   if (recordKind === null) return "CATTLE_PROGRAMME_EVIDENCE_KIND_NOT_ACCEPTED";
   if (record.kind !== recordKind) return "CATTLE_PROGRAMME_EVIDENCE_KIND_MISMATCH";
-  if (record.kind === "VETERINARY_EVENT") return eventTypes !== null && eventTypes.includes(record.eventType) ? null : "CATTLE_PROGRAMME_EVENT_TYPE_MISMATCH";
+  if (record.kind === "VETERINARY_EVENT") return eventTypes !== null && record.eventType !== null && (eventTypes as readonly string[]).includes(record.eventType) ? null : "CATTLE_PROGRAMME_EVENT_TYPE_MISMATCH";
   if (record.kind === "MEDICINE_ADMINISTRATION" && action.productRef !== null && record.productId !== null && record.productId !== action.productRef.productId) {
     return "CATTLE_PROGRAMME_PRODUCT_MISMATCH";
   }
@@ -139,17 +137,16 @@ function resolvedValueMismatch(action: ProgrammeAction, record: HealthTimelineEn
  * value match. Called only for a LIVE, uncontested record whose resolved
  * kind / event type / recorded product could match.
  */
-function resolveThenMatch(action: ProgrammeAction, entry: HealthTimelineEntry, ctx: AnimalContext): RecordEvidence {
-  const record = entry.record;
+function resolveThenMatch(action: ProgrammeAction, record: EvidenceRecord, ctx: AnimalContext): RecordEvidence {
   if (record.kind === "MEDICINE_ADMINISTRATION" && action.productRef !== null) {
     if (record.productId === null) return { kind: "UNRESOLVED", outcome: "INSUFFICIENT_EVIDENCE", reason: "CATTLE_PROGRAMME_PRODUCT_NOT_IDENTIFIED" };
-    const binding = fromC3Binding(ctx.medicineEntries.get(entry.recordId)?.binding ?? null);
+    const binding = fromC3Binding(ctx.health?.bindings.get(record.recordId) ?? null);
     if (!binding.resolved) return { kind: "UNRESOLVED", outcome: binding.outcome, reason: binding.reasonCodes[0] };
     if (binding.value.productId !== action.productRef.productId) return { kind: "MISMATCH", reason: "CATTLE_PROGRAMME_PRODUCT_MISMATCH" };
     if (action.productRef.productVersion !== null && binding.value.version !== action.productRef.productVersion) return { kind: "MISMATCH", reason: "CATTLE_PROGRAMME_PRODUCT_VERSION_MISMATCH" };
   }
-  if (entry.occurredAt === null) return { kind: "UNRESOLVED", outcome: "INSUFFICIENT_EVIDENCE", reason: "CATTLE_PROGRAMME_RECORD_TIME_UNKNOWN" };
-  return { kind: "MATCH", at: canonicalObligationInstant(entry.occurredAt) as string };
+  if (record.occurredAt === null) return { kind: "UNRESOLVED", outcome: "INSUFFICIENT_EVIDENCE", reason: "CATTLE_PROGRAMME_RECORD_TIME_UNKNOWN" };
+  return { kind: "MATCH", at: record.occurredAt };
 }
 
 export function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrence): ProgrammeCompletionSummary {
@@ -162,7 +159,7 @@ export function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrenc
   const otherVersion: string[] = [];
   const beforeWindow: string[] = [];
   const notYetOccurred: string[] = [];
-  const timeline = ctx.health === null ? [] : ctx.health.timeline.entries;
+  const timeline = ctx.health === null ? [] : ctx.health.records;
   const unresolvedNote = (refKind: EvidenceRefKind, ref: string, outcome: UnresolvedOutcome, reason: string) => unresolved.push({ refKind, ref, reason, outcome });
   const mismatch = (ref: string, reason: string) => mismatched.push({ refKind: "DECLARATION", ref, reason });
 
@@ -210,7 +207,7 @@ export function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrenc
     }
     const entry = timeline.find((e) => e.recordId === healthRecordId);
     if (!entry) {
-      if (ctx.health.timeline.notYetOccurredRecordIds.includes(healthRecordId)) notYetOccurred.push(d.recordId);
+      if (ctx.health.notYetOccurred.has(healthRecordId)) notYetOccurred.push(d.recordId);
       else unresolvedNote("DECLARATION", d.recordId, "INSUFFICIENT_EVIDENCE", "CATTLE_PROGRAMME_LINKED_RECORD_NOT_KNOWN");
       continue;
     }
@@ -226,7 +223,7 @@ export function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrenc
       unresolvedNote("DECLARATION", d.recordId, "EVIDENCE_CONFLICT", "CATTLE_PROGRAMME_RECORD_CLAIMED_BY_SEVERAL_OCCURRENCES");
       continue;
     }
-    const valueMismatch = resolvedValueMismatch(action, entry.record);
+    const valueMismatch = resolvedValueMismatch(action, entry);
     if (valueMismatch !== null) {
       mismatch(d.recordId, valueMismatch);
       continue;
@@ -239,9 +236,9 @@ export function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrenc
       const role = effectiveDeclarerRole(d);
       place(d.recordId, evidence.at, {
         basis: "HEALTH_RECORD_LINK",
-        authority: role === "VETERINARIAN" || veterinaryRecorded(entry.record) ? "VETERINARY" : "NON_VETERINARY",
+        authority: role === "VETERINARIAN" || veterinaryRecorded(entry) ? "VETERINARY" : "NON_VETERINARY",
         declaredBy: role,
-        recordProvenance: recordProvenanceOf(entry.record),
+        recordProvenance: recordProvenanceOf(entry),
         declarationId: d.recordId,
         healthRecordId,
       });
@@ -257,9 +254,9 @@ export function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrenc
         // Superseded history is not evidence. A linked record is ALSO an independent criteria candidate (monotonicity).
         if (entry.status !== "LIVE") continue;
         // Candidates: records whose resolved fields could match.
-        if (resolvedValueMismatch(action, entry.record) !== null) continue;
+        if (resolvedValueMismatch(action, entry) !== null) continue;
         if (entry.occurredAt !== null) {
-          const t = canonicalObligationInstant(entry.occurredAt) as string;
+          const t = entry.occurredAt;
           if (compareInstants(t, effectiveAt) > 0 || windowPosition(occ, t) !== "IN") continue;
         }
         if (entry.inCompetition) {
@@ -275,9 +272,9 @@ export function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrenc
         else if (evidence.kind === "MATCH") {
           counted.push({
             basis: "DECLARED_CRITERIA",
-            authority: veterinaryRecorded(entry.record) ? "VETERINARY" : "NON_VETERINARY",
+            authority: veterinaryRecorded(entry) ? "VETERINARY" : "NON_VETERINARY",
             declaredBy: null,
-            recordProvenance: recordProvenanceOf(entry.record),
+            recordProvenance: recordProvenanceOf(entry),
             declarationId: null,
             healthRecordId: entry.recordId,
             completedAt: evidence.at,

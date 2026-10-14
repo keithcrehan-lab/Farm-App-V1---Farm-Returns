@@ -47,6 +47,14 @@ short:
   engine does not defend against adversarial JavaScript runtime
   behaviour. Audits judge engines against the contract, not against
   arbitrary caller objects outside it.
+- **Predecessor outputs are untrusted until validated (CAT-INV-028).**
+  A downstream phase validates every predecessor field it consumes —
+  version, type, vocabulary, format, structure — at one consumption
+  boundary before any authoritative use. A matching fingerprint proves
+  integrity, never semantic validity. Stated cross-field consistency is checked
+  too; a fully consistent forgery cannot be authenticated by the consumer
+  and is the adapter's / C8 sealed context's responsibility (BLOCKERS
+  CAT-B1).
 - **Malformed canonical data still fails closed.** A canonical value with
   a bad shape, type, instant, unit or identity is rejected, or reported as
   INVALID or UNKNOWN. It is never repaired or coerced.

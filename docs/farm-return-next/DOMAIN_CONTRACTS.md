@@ -4166,7 +4166,7 @@ instant: **not a vaccination or prescribing engine** — no universal or default
 dose / timing choice, no diagnosis, no conversion of a risk signal into a programme, no real
 programme content; `PRODUCTION_HEALTH_PROGRAMME_DEFINITIONS` is **empty** (CAT-INV-027). No
 persistence, schema, migration, UI, AI, network, connector or clock. Shared contract:
-`docs/farm-return-next/cattle/` (CAT-INV-001–014, 016, 017, 021–027).
+`docs/farm-return-next/cattle/` (CAT-INV-001–014, 016, 017, 021–028).
 
 **Reuse decisions.** Canonical boundary: C2 `toCanonicalPlainData`/`canonicalField` on the whole
 request and on every evaluation passed back in. Instants: C1 `isValidAnimalInstant`/
@@ -4195,7 +4195,8 @@ and C2 obligation state are never re-derived (CAT-INV-014/023). Pack compatibili
 | `programme-completion.ts` | `ProgrammeCompletionRecord` (`recordId`, animal, programme id + exact `programmeVersion`, `actionId`, exact `occurrenceId`, `COMPLETION` with `evidence` `{DECLARED, completedAt}` \| `{HEALTH_RECORD, healthRecordId}`, or `RETRACTION` (`evidence: null`, supersedes ≥ 1), `declaredBy` veterinarian / farmer, `provenance`, `supersedes` within one animal / programme / action / occurrence). Types only in the barrel |
 | `programme-schedule.ts` | `ProgrammeOccurrence`; `programmeOccurrenceId` = JSON `["<programmeId>","<actionId>","<animalId>","<anchorKind>","<canonical anchor>",<n>]` (structured, unambiguous, version-independent) |
 | `programme-evidence.ts` | The resolved-evidence model: `EvidenceResolution<T>` (resolved value, or an unresolved outcome `INVALID_EVIDENCE` / `EVIDENCE_CONFLICT` / `REVIEW_REQUIRED` / `UNKNOWN` / `INSUFFICIENT_EVIDENCE` with reason codes) and the only translations of predecessor states into it (C1 resolution, C3 product binding, C4 membership). Module-internal |
-| `programme-predecessors.ts` | Reading and verifying C1 / C3 / C2 inputs, per-record context membership, the per-animal evidence context and its input fingerprints. Module-internal |
+| `programme-consumed.ts` | The ONE consumed-field schema (CAT-INV-028): for every C1 / C2 / C3 / C4 field C7 reads — owner, payload version, presence, null semantics, runtime type, frozen vocabulary, identifier / instant / date format, nested structure; `consume(spec, value)` validates and types the value by the schema alone (`ConsumedOf<S>`), so reading an undeclared predecessor field does not compile. Vocabularies are frozen runtime constants or lists compile-checked to equal the frozen unions. Module-internal |
+| `programme-predecessors.ts` | THE predecessor-consumption boundary: frozen validator where one exists → consumed-field schema → per-record context membership → C7's internal evidence representation (`AnimalContext`: validated C1 facts, `EvidenceRecord`s, `EvidenceBinding`s, gate states, input fingerprints); C4 only through `groupScopeAt`. No other C7 module reads a predecessor output. Module-internal |
 | `programme-membership.ts` | Membership (explicit set / C4 group / C1 criteria) at an instant with its evidence fingerprint; the occurrence anchor. Module-internal |
 | `programme-matching.ts` | Completion evidence per occurrence: declarations, explicit C3 links and declared criteria, every C3 record **resolved before it is matched**. Module-internal |
 | `programme-state.ts` | `PROGRAMME_OCCURRENCE_STATES`, `PROGRAMME_STATUS_PRECEDENCE`, `foldProgrammeStates`; per-occurrence state |
@@ -4269,6 +4270,36 @@ Required dimensions per completion path (a waived dimension is not required):
 | Evidence exclusivity (human decision on review finding H1) | a C3 record evidences at most one occurrence of an action: a record claimed for two or more occurrences of the same action (live governing-version links naming them, and/or — under declared criteria — the opened window holding its known time) is EVIDENCE_CONFLICT in every claiming occurrence and counts in none; the same record may evidence different actions | — |
 | Declarer role (human decision on review finding M1) | a declaration's VETERINARIAN role counts only with provenance `sourceCategory` VETERINARY_SOURCE, otherwise it is a FARMER declaration (B2 applies); a VETERINARY_PROGRAMME definition needs VETERINARY_SOURCE provenance (else `..._INVALID_CLASSIFICATION`) | — |
 | Gates | supplied C2 / C3 hard-gate state for every declared gate (not supplied ⇒ blocking) | PASS / NOT_APPLICABLE do not block |
+
+**Predecessor output trust boundary (CAT-INV-028, human decisions after finding F007).** Predecessor
+outputs are canonical plain data but not trusted domain data until validated: a fingerprint proves
+integrity, never schema validity, vocabulary, presence or authenticity. Order: frozen fingerprint
+verification where it exists (C3 `verifyAnimalHealthProjection`; C2 record fingerprints inside
+`projectObligationHardGates` — fingerprint checks only, not validators) and C1's own materialiser
+(`rematerialiseAnimalLedger`) → the consumed-field schema (`programme-consumed.ts`), covering every field
+C7 reads AND every field a frozen function reads from supplied data on C7's behalf: C3 projection
+(payload version, food products, known ids, filter, timeline entries and competitions, not-yet-occurred
+ids, medicine-ledger entries with product binding — a frozen state and, exactly when BOUND, a complete
+bound product id / version / source —, records' kind / animal / time / provenance category / actor role /
+received time / supersedes / product id / event type, withdrawal-gate entries' food product / state /
+in-withdrawal-until / administration ids / product versions / reason codes, view fingerprints); C2
+evaluation (payload version, ids, times, evaluation date, snapshot, and per record occurrence, state,
+gate role, classification, rule, rule fingerprint, C0 evaluation identity / rule / classification /
+gate role / state / reason codes, counted-evidence ids, fingerprint); C2 / C3 hard-gate outputs' rule ids
+and states; C1 sex / date-of-birth resolutions; C4 scope fingerprint and per-animal states. `consume`
+returns a fresh copy holding only declared fields. → **consistency predicates** for every relationship
+the frozen contracts state (`PREDECESSOR_CONSISTENCY_RULES`: C3 status ⇔ superseders, superseders ⇔
+records' `supersedes`, `inCompetition` ⇔ competitions, known ids = timeline ∪ not-yet-occurred, ledger
+covers every administration in view, one gate entry per food product, `inWithdrawalUntil` exactly when
+IN_WITHDRAWAL, gate administrations are live in view, gate product versions are bound; C2 record ⇔ its C0
+evaluation, requested rule id = rule id, SATISFIED exactly with counted evidence, evaluation date = UTC date
+of `effectiveAt`) → context membership (incl. full-record cross-view identity) → C7's internal
+representation. Malformed, unsupported or self-contradictory output rejects the request
+(`..._HEALTH_PROJECTION_INVALID`, `..._OBLIGATIONS_INVALID`, `..._INVALID_LEDGER`; C4 output ⇒ membership
+INVALID); every translation is exhaustive at runtime. **Trust bound (human decision):** a fully consistent
+forged predecessor output cannot be authenticated by C7 (BLOCKERS CAT-B1); authenticity belongs to the
+adapter / C8 sealed context. Hostile JavaScript stays outside the canonical contract. `productVersion:
+null` means any valid C3-BOUND version — never that C3 may omit or fail to establish one.
 
 **Request and admission.** `HealthProgrammeRequest` = `{definitions, reviews, completions, ledgers (C1;
 the animals evaluated, one each), health (C3 projections, ≤ 1 per animal), obligations (C2 evaluations,
@@ -4364,7 +4395,10 @@ of a veterinary hard gate; unversioned product reference bypassing C3 binding (a
 null-waives-authority path); one C3 record completing several occurrences of an action; a
 self-asserted veterinarian role; an unchecked C2 payload version; evidence-note identity collisions;
 farmer-recorded C3 evidence alone passing a veterinary hard gate, and a farmer link weakening a resolved
-completion.
+completion; malformed, re-sealed predecessor output reaching evaluation (finding F007) — covered by a
+matrix generated from the consumed-field schema for every consumed field (every element and variant),
+a consistency matrix with one re-sealed contradiction per stated rule, and an import allowlist plus
+type-level drift guard.
 
 **Evidential authority for veterinary hard gates (human rulings B2 and M2).** Every counted completion
 carries an `authority`: VETERINARY when a veterinarian-authored completion declaration (role

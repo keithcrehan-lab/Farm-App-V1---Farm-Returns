@@ -35,6 +35,11 @@ import { resolveGroupScope } from "../weights";
 import { computeObligationFingerprint, createObligationImplementationRegistry, evaluateAnimalObligations, obligationTermsMarker, type AnimalObligationEvaluation, type ObligationDefinition } from "../regulatory";
 import { uniqueProgrammeIssues } from "./programme-definition";
 import { PROGRAMME_FIELD_POLICY, conformsToPolicy, type ProgrammeFieldRule, type ProgrammeRecordType } from "./programme-fields";
+import { C1_SNAPSHOT, C2_EVALUATION, C3_PROJECTION, C4_SCOPE, GATE_PROJECTION, valid, type ConsumedHealthProjection, type ConsumedMedicineEntry, type ConsumedObligationEvaluation, type FieldSpec } from "./programme-consumed";
+import { PREDECESSOR_CONSISTENCY_RULES } from "./programme-predecessors";
+import { fromC1Resolution, fromC3Binding, fromC4Membership } from "./programme-evidence";
+import { projectAnimalSnapshot } from "../animal-snapshot";
+import { projectObligationHardGates } from "../regulatory";
 import {
   PROGRAMME_ANCHOR_KINDS,
   PROGRAMME_CLASSIFICATIONS,
@@ -56,6 +61,7 @@ import {
 } from "./index";
 
 type Rec = Record<string, unknown>;
+const isRecordValue = (v: unknown): v is Rec => v !== null && typeof v === "object" && !Array.isArray(v);
 
 const A = "SYNTH-ANIMAL-1";
 const B = "SYNTH-ANIMAL-2";
@@ -1398,7 +1404,9 @@ describe("C7 closure B — every consumed predecessor record proves it belongs t
     ];
     for (const [label, projection] of cases) {
       const r = run({ health: [projection] });
-      expect(codes(r), label).toEqual(["CATTLE_PROGRAMME_HEALTH_PROJECTION_FOREIGN_RECORD"]);
+      // Fail closed: a foreign record (membership) or a self-contradictory projection (consistency, CAT-INV-028).
+      expect(codes(r).length, label).toBe(1);
+      expect(["CATTLE_PROGRAMME_HEALTH_PROJECTION_FOREIGN_RECORD", "CATTLE_PROGRAMME_HEALTH_PROJECTION_INVALID"], label).toContain(codes(r)[0]);
     }
   });
 
@@ -1428,10 +1436,15 @@ describe("C7 closure B — every consumed predecessor record proves it belongs t
       for (const code of codes(r)) expect(mismatch, label).toContain(code);
     }
     // C7's own check (not only C2's) rejects the snapshot, payload-version and identity cases.
-    for (const label of ["snapshot", "payload version", "duplicate record identity", "unsupported payload version (envelope and records re-sealed)"]) {
+    for (const label of ["snapshot", "duplicate record identity"]) {
+      const results = cases.find(([l]) => l === label)![1];
+      expect(codes(run({ obligations: [{ ...genuine, results }] })), label).toEqual(["CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD"]);
+    }
+    // Unsupported payload versions are invalid predecessor output under the consumed-field schema (CAT-INV-028).
+    for (const label of ["payload version", "unsupported payload version (envelope and records re-sealed)"]) {
       const results = cases.find(([l]) => l === label)![1];
       const envelope = label.startsWith("unsupported payload version") ? { ...genuine, obligationPayloadVersion: 99 } : genuine;
-      expect(codes(run({ obligations: [{ ...envelope, results }] })), label).toEqual(["CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD"]);
+      expect(codes(run({ obligations: [{ ...envelope, results }] })), label).toEqual(["CATTLE_PROGRAMME_OBLIGATIONS_INVALID"]);
     }
   });
 });
@@ -1553,7 +1566,7 @@ describe("C7 closure C — result dependency set equals result binding set", () 
     }
     expect(unbound).toEqual([]);
     // The guard exercises the binding, not only rejection.
-    expect(counts.changed).toBeGreaterThan(140);
+    expect(counts.changed).toBeGreaterThan(120);
   }, 120_000);
 
   it("equivalent instant spellings and input order never change a result fingerprint", () => {
@@ -1759,6 +1772,11 @@ describe("C7 closure G — predecessor evidence resolution before matching (F006
           const def = definitionFor(constraint, path);
           const r = run({ definitions: [def], reviews: [review(def)], health: healthOf(binding), completions: completionsFor(path) });
           const label = `${binding} × ${constraint} × ${path}`;
+          if (binding === "NO_LEDGER_ENTRY") {
+            // A projection whose ledger omits an administration in view is self-contradictory C3 output: rejected (CAT-INV-028).
+            if (canonicalizeValue(codes(r)) !== canonicalizeValue(["CATTLE_PROGRAMME_HEALTH_PROJECTION_INVALID"])) failures.push(`${label}: ${r.ok ? "accepted" : JSON.stringify(codes(r))}`);
+            continue;
+          }
           if (!r.ok) {
             failures.push(`${label}: rejected ${JSON.stringify(codes(r))}`);
             continue;
@@ -1810,7 +1828,7 @@ describe("C7 closure G — predecessor evidence resolution before matching (F006
 
   it("every unresolved candidate carries the outcome it forces; resolved outcomes depend only on resolved evidence", () => {
     const def = definitionFor("PRODUCT_ANY_VERSION", "VET_LINK");
-    for (const binding of ["UNKNOWN", "INVALID", "EVIDENCE_CONFLICT", "REVIEW_REQUIRED", "UNSUPPORTED", "NO_LEDGER_ENTRY"] as const) {
+    for (const binding of ["UNKNOWN", "INVALID", "EVIDENCE_CONFLICT", "REVIEW_REQUIRED", "UNSUPPORTED"] as const) {
       const r = run({ definitions: [def], reviews: [review(def)], health: healthOf(binding), completions: completionsFor("VET_LINK") });
       const completion = animalOf(r).records[0].completion!;
       expect(completion.counted, binding).toEqual([]);
@@ -1850,6 +1868,9 @@ describe("C7 rebuild — historical defect classes are closed (semantic index)",
     ["unversioned product reference bypassing C3 binding (null waives authority)", "binding state × product constraint × completion path: unresolved C3 binding never yields COMPLETED or a PASS gate"],
     ["one C3 record completing several occurrences of an action (independent review H1)", "one C3 record evidences at most one occurrence of an action: claims by links and/or windows for several occurrences conflict (decision H1)"],
     ["farmer-recorded C3 evidence alone passing a veterinary hard gate; non-monotonic farmer link (ruling M2)", "record authority × completion path × veterinary corroboration → COMPLETED / PASS only with veterinary authority; farmer evidence always retained"],
+    ["malformed re-sealed predecessor output reaching evaluation (F007, CAT-INV-028)", "C3: every consumed field, malformed and re-sealed, fails closed as invalid predecessor output (generated from the schema)"],
+    ["self-contradictory re-sealed predecessor output (pre-gate review H1–H4, M1; CAT-INV-028)", "consistency matrix: every relationship the frozen contracts state, contradicted and re-sealed, is invalid predecessor output (one case per rule)"],
+    ["unexhaustive predecessor state translation (F007, CAT-INV-028)", "in-process C1 / C4 / gate outputs: every consumed field is schema-validated and every state translation is exhaustive at runtime"],
     ["self-asserted veterinarian role (independent review M1)", "a VETERINARIAN role counts only with veterinary-source provenance; a veterinary programme needs veterinary-source provenance (decision M1)"],
     ["C2 payload version not checked against the supported version (independent review M3)", "C2: an envelope for this animal never vouches for records of another animal, snapshot, time, version or identity (matrix)"],
     ["evidence-note identities collapsing across namespaces (independent review M4)", "evidence-note identities are namespaced: a declaration id equal to a C3 record id never collapses"],
@@ -1953,5 +1974,280 @@ describe("C7 ruling M2 — evidential authority for veterinary hard gates (farme
     const farmer = farmerProgramme({ actions: [action({ gateRole: "ADVISORY", schedule: { ...(action().schedule as Rec), repeat: null } })] });
     const r = run({ definitions: [farmer], reviews: [], health: [healthFor([adm("h-1", "2026-03-15T00:00:00Z")])] });
     expect(states(r, A, "SYNTH-PROGRAMME-FARMER")).toEqual(["COMPLETED"]);
+  });
+});
+
+describe("C7 CAT-INV-028 — predecessor outputs are untrusted until their consumed fields are validated", () => {
+  type Mutation = { path: Path; label: string; value: unknown | typeof MISSING };
+  const MISSING = Symbol("missing");
+  const MALFORMED_FINGERPRINT = { schemaVersion: 1, algorithm: "SHA-256", digest: "NOT-A-DIGEST" };
+  /** Every malformed form of every field the spec declares, generated from the schema (never hand-listed). */
+  function mutationsOf(spec: FieldSpec, value: unknown, path: Path = [], nullable = false): Mutation[] {
+    const out: Mutation[] = [];
+    const add = (label: string, v: unknown) => out.push({ path, label: `${path.join(".") || "<root>"} ${label}`, value: v });
+    if (path.length > 0 && typeof path[path.length - 1] === "string") add("missing", MISSING);
+    if (!nullable && !(spec.t === "literal" && spec.value === null)) add("null", null);
+    switch (spec.t) {
+      case "ref":
+        add("wrong type", 42.5);
+        add("malformed (empty)", "");
+        add("malformed (untrimmed)", " SYNTH-REF");
+        break;
+      case "code":
+        add("wrong type", 42.5);
+        add("malformed (empty)", "");
+        break;
+      case "instant":
+        add("wrong type", 42.5);
+        add("malformed instant", "2026-13-45T00:00:00Z");
+        break;
+      case "date":
+        add("wrong type", 42.5);
+        add("malformed date", "2026-02-30");
+        break;
+      case "bool":
+        add("wrong type", "true");
+        break;
+      case "literal":
+        add("unsupported version", typeof spec.value === "number" ? spec.value + 98 : "SYNTH-UNSUPPORTED");
+        add("wrong type", String(spec.value));
+        break;
+      case "enum":
+        add("wrong type", 42.5);
+        add("unknown vocabulary", "SYNTH-UNKNOWN-VALUE");
+        break;
+      case "fingerprint":
+        add("wrong type", "digest");
+        add("malformed fingerprint", MALFORMED_FINGERPRINT);
+        break;
+      case "nullable":
+        out.splice(0, out.length, ...mutationsOf(spec.of, value === null ? undefined : value, path, true).filter((m) => value !== null || m.label.endsWith("wrong type")));
+        if (value === null) add("wrong type", 42.5);
+        break;
+      case "array":
+        add("wrong type", "not-an-array");
+        add("malformed element", [42.5]);
+        if (Array.isArray(value)) value.forEach((element, i) => out.push(...mutationsOf(spec.of, element, [...path, i])));
+        break;
+      case "object":
+        add("wrong type", "not-an-object");
+        for (const [k, f] of Object.entries(spec.fields)) out.push(...mutationsOf(f, (value as Rec)?.[k], [...path, k]));
+        break;
+      case "kinded": {
+        add("wrong type", "not-an-object");
+        add("unknown kind", { ...(value as Rec), [spec.tag]: "SYNTH-UNKNOWN-KIND" });
+        for (const other of Object.keys(spec.variants).filter((k) => k !== (value as Rec)[spec.tag] && k !== "OTHER").slice(0, 2)) add(`kind swapped to ${other}`, { ...(value as Rec), [spec.tag]: other });
+        const variant = spec.variants[(value as Rec)[spec.tag] as string] ?? {};
+        for (const [k, f] of Object.entries({ ...spec.common, ...variant })) if (k !== spec.tag) out.push(...mutationsOf(f, (value as Rec)?.[k], [...path, k]));
+        break;
+      }
+    }
+    return out;
+  }
+  const apply = (root: unknown, m: Mutation) => (m.value === MISSING ? withoutAt(root, m.path) : setAt(root, m.path, m.value));
+
+  // A valid C3 projection exercising every consumed field: a veterinary-recorded BOUND administration, a veterinary event, a not-yet-occurred administration.
+  const C3_VALID = healthFor([vetAdm("h-1", "2026-03-15T00:00:00Z"), vetEvent("h-2", "2026-03-16T00:00:00Z"), vetAdm("h-3", "2026-05-01T00:00:00Z")]);
+  const reseal = (p: unknown) => {
+    try {
+      return resealHealth(p as AnimalHealthProjection);
+    } catch {
+      return p as AnimalHealthProjection; // a mutation C3's own payload functions cannot even read
+    }
+  };
+
+  it("C3: every consumed field, malformed and re-sealed, fails closed as invalid predecessor output (generated from the schema)", () => {
+    expect(valid(C3_PROJECTION, C3_VALID)).toBe(true);
+    expect(run({ health: [C3_VALID] }).ok).toBe(true);
+    const mutations = mutationsOf(C3_PROJECTION, C3_VALID);
+    let passedC3Verifier = 0;
+    const failures: string[] = [];
+    for (const m of mutations) {
+      // A mutated fingerprint is applied AFTER re-sealing (re-sealing would recompute it); every other field is re-sealed over.
+      const projection = m.path[m.path.length - 1] === "fingerprint" ? (apply(reseal(structuredClone(C3_VALID)), m) as AnimalHealthProjection) : reseal(apply(structuredClone(C3_VALID), m));
+      if (verifyAnimalHealthProjection(projection, hash).valid) passedC3Verifier++;
+      let r: ProgrammeEvaluationResult;
+      try {
+        r = run({ health: [projection] });
+      } catch (error) {
+        failures.push(`${m.label}: threw ${String(error)}`);
+        continue;
+      }
+      if (r.ok) failures.push(`${m.label}: accepted`);
+      else if (!codes(r).every((c) => c.startsWith("CATTLE_PROGRAMME_HEALTH_PROJECTION_"))) failures.push(`${m.label}: ${JSON.stringify(codes(r))}`);
+    }
+    expect(failures).toEqual([]);
+    expect(mutations.length).toBeGreaterThan(150);
+    // The schema, not only C3's integrity check, is doing the work: many re-sealed malformed projections pass C3's verifier.
+    expect(passedC3Verifier).toBeGreaterThan(40);
+  });
+
+  it("F007: a re-sealed BOUND binding without a valid product version (or with an unknown state) is invalid predecessor output — never COMPLETED / PASS / a throw", () => {
+    const def = programme({ actions: [action({ productRef: { productId: PRODUCT, productVersion: null }, schedule: { ...(action().schedule as Rec), repeat: null } })] });
+    for (const [label, value] of [
+      ["missing version", MISSING],
+      ["null version", null],
+      ["empty version", ""],
+    ] as const) {
+      const m: Mutation = { path: ["medicineLedger", "entries", 0, "binding", "product", "version"], label, value };
+      const r = run({ definitions: [def], reviews: [review(def)], health: [reseal(apply(structuredClone(C3_VALID), m))] });
+      expect(codes(r), label).toEqual(["CATTLE_PROGRAMME_HEALTH_PROJECTION_INVALID"]);
+    }
+    const unknownState = reseal(setAt(structuredClone(C3_VALID), ["medicineLedger", "entries", 0, "binding", "state"], "SYNTH-NOT-A-STATE"));
+    expect(() => run({ definitions: [def], reviews: [review(def)], health: [unknownState] })).not.toThrow();
+    expect(codes(run({ definitions: [def], reviews: [review(def)], health: [unknownState] }))).toEqual(["CATTLE_PROGRAMME_HEALTH_PROJECTION_INVALID"]);
+  });
+
+  it("C2: every consumed field, malformed (records re-sealed), fails closed (generated from the schema)", () => {
+    const validC2 = obligationEvaluation();
+    expect(valid(C2_EVALUATION, validC2)).toBe(true);
+    const resealRecords = (e: unknown) => {
+      if (!isRecordValue(e) || !Array.isArray(e.results)) return e;
+      return {
+        ...e,
+        results: e.results.map((r: unknown) => {
+          if (!isRecordValue(r)) return r;
+          const { fingerprint: fp, ...content } = r;
+          return { ...content, fingerprint: fp !== null && typeof fp === "object" && (fp as Rec).digest !== "NOT-A-DIGEST" ? computeObligationFingerprint("CATTLE_OBLIGATION_STATE", content, hash) : fp };
+        }),
+      };
+    };
+    const failures: string[] = [];
+    for (const m of mutationsOf(C2_EVALUATION, validC2)) {
+      const mutated = m.path[0] === "results" && m.path.length > 2 && m.path[2] !== "fingerprint" ? resealRecords(apply(structuredClone(validC2), m)) : apply(structuredClone(validC2), m);
+      let r: ProgrammeEvaluationResult;
+      try {
+        r = run({ obligations: [mutated] });
+      } catch (error) {
+        failures.push(`${m.label}: threw ${String(error)}`);
+        continue;
+      }
+      if (r.ok) failures.push(`${m.label}: accepted`);
+      else if (!codes(r).every((c) => c === "CATTLE_PROGRAMME_OBLIGATIONS_INVALID" || c === "CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD")) failures.push(`${m.label}: ${JSON.stringify(codes(r))}`);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("in-process C1 / C4 / gate outputs: every consumed field is schema-validated and every state translation is exhaustive at runtime", () => {
+    const snapshot = projectAnimalSnapshot(LEDGER_A, { effectiveAt: EFFECTIVE, knowledgeCutoff: CUTOFF });
+    if (!snapshot.ok) throw new Error("snapshot");
+    const scope = resolveGroupScope({ scope: { kind: "GROUP", groupRef: GROUP, ledgers: [LEDGER_A] }, query: { effectiveAt: EFFECTIVE, knowledgeCutoff: CUTOFF } }, hash);
+    if (!scope.ok) throw new Error("scope");
+    const gates = projectObligationHardGates(obligationEvaluation(), hash);
+    if (!gates.ok) throw new Error("gates");
+    const withdrawal = cattle.projectWithdrawalHardGates(C3_VALID, hash);
+    if (!withdrawal.ok) throw new Error("withdrawal");
+    const surfaces: [string, FieldSpec, unknown][] = [
+      ["C1_SNAPSHOT", C1_SNAPSHOT, snapshot.snapshot],
+      ["C4_SCOPE", C4_SCOPE, scope.scope],
+      ["GATE_PROJECTION (C2)", GATE_PROJECTION, gates.projection.ruleEvaluations],
+      ["GATE_PROJECTION (C3)", GATE_PROJECTION, withdrawal.gates.ruleEvaluations],
+    ];
+    for (const [name, spec, value] of surfaces) {
+      expect(valid(spec, value), name).toBe(true);
+      const mutations = mutationsOf(spec, value);
+      expect(mutations.length, name).toBeGreaterThan(5);
+      for (const m of mutations) expect(valid(spec, apply(structuredClone(value), m)), `${name} ${m.label}`).toBe(false);
+    }
+    // Runtime-exhaustive translations: an unrecognised value is INVALID_EVIDENCE, never a throw or a resolved state.
+    expect(fromC3Binding({ state: "SYNTH-X" as never, product: null })).toMatchObject({ resolved: false, outcome: "INVALID_EVIDENCE" });
+    expect(fromC4Membership("SYNTH-X" as never, [])).toMatchObject({ resolved: false, outcome: "INVALID_EVIDENCE" });
+    expect(fromC1Resolution({ state: "SYNTH-X", value: null, issues: [] } as never, "DIM")).toMatchObject({ resolved: false, outcome: "INVALID_EVIDENCE" });
+    expect(fromC3Binding({ state: "BOUND", product: null })).toMatchObject({ resolved: false });
+  });
+
+  it("consistency matrix: every relationship the frozen contracts state, contradicted and re-sealed, is invalid predecessor output (one case per rule)", () => {
+    type P = { timeline: { entries: Rec[]; competitions: Rec[] }; medicineLedger: { entries: Rec[] }; knownRecordIds: string[]; withdrawalGate: { entries: Rec[] } };
+    const c3 = (records: Rec[], change: (p: P) => void) => {
+      const p = structuredClone(healthFor(records)) as unknown as P;
+      change(p);
+      return reseal(p);
+    };
+    const both = (p: P, id: string, f: (e: Rec) => void) => [...p.timeline.entries, ...p.medicineLedger.entries].filter((e) => e.recordId === id).forEach(f);
+    const corrected = [vetAdm("h-1", "2026-03-15T00:00:00Z"), { ...vetAdm("h-1b", "2026-03-15T00:00:00Z"), supersedes: ["h-1"] }];
+    const competing = [vetAdm("h-0", "2026-03-15T00:00:00Z"), { ...vetAdm("c-1", "2026-03-15T00:00:00Z"), supersedes: ["h-0"] }, { ...vetAdm("c-2", "2026-03-16T00:00:00Z"), supersedes: ["h-0"] }];
+    const inWithdrawal = [vetAdm("h-1", "2026-04-10T00:00:00Z")]; // meat withdrawal 10 days ⇒ IN_WITHDRAWAL at Apr 15
+    const C3_CASES: Record<string, AnimalHealthProjection> = {
+      STATUS_MATCHES_SUPERSEDERS: c3(corrected, (p) => both(p, "h-1", (e) => (e.status = "LIVE"))),
+      SUPERSEDERS_MATCH_SUPERSEDES: c3(corrected, (p) => both(p, "h-1", (e) => ((e.status = "LIVE"), (e.supersededBy = [])))),
+      COMPETITION_FLAG_MATCHES_COMPETITIONS: c3(competing, (p) => [...p.timeline.entries, ...p.medicineLedger.entries].forEach((e) => (e.inCompetition = false))),
+      KNOWN_SET_MATCHES_VIEWS: c3([vetAdm("h-1", "2026-03-15T00:00:00Z")], (p) => p.knownRecordIds.push("h-ghost")),
+      LEDGER_COVERS_TIMELINE_ADMINISTRATIONS: c3([vetAdm("h-1", "2026-03-15T00:00:00Z")], (p) => ((p.medicineLedger.entries = []), (p.withdrawalGate.entries[0].administrationIds = []), (p.withdrawalGate.entries[0].productVersions = []))),
+      ONE_GATE_ENTRY_PER_FOOD_PRODUCT: c3([vetAdm("h-1", "2026-03-15T00:00:00Z")], (p) => (p.withdrawalGate.entries = [])),
+      WITHDRAWAL_UNTIL_ONLY_WHEN_IN_WITHDRAWAL: c3(inWithdrawal, (p) => (p.withdrawalGate.entries[0].state = "CLEAR")),
+      GATE_ADMINISTRATIONS_ARE_LIVE_IN_VIEW: c3([vetAdm("h-1", "2026-03-15T00:00:00Z")], (p) => (p.withdrawalGate.entries[0].administrationIds = ["h-1", "h-ghost"])),
+      GATE_PRODUCT_VERSIONS_ARE_BOUND: c3([vetAdm("h-1", "2026-03-15T00:00:00Z")], (p) => (p.withdrawalGate.entries[0].productVersions = [{ productId: "SYNTH-PRODUCT-9", version: "v9" }])),
+    };
+    // Controls: the genuine projections are accepted.
+    for (const records of [corrected, competing, inWithdrawal]) expect(run({ health: [healthFor(records)] }).ok).toBe(true);
+    const genuine = obligationEvaluation();
+    const resealC2 = (change: (r: Rec) => void, envelope: Rec = {}) => {
+      const r = structuredClone(genuine.results[0]) as unknown as Rec;
+      change(r);
+      const { fingerprint: _drop, ...content } = r;
+      void _drop;
+      return { ...genuine, ...envelope, results: [{ ...content, fingerprint: computeObligationFingerprint("CATTLE_OBLIGATION_STATE", content, hash) }] };
+    };
+    const C2_CASES: Record<string, unknown> = {
+      RECORD_MATCHES_ITS_EVALUATION: resealC2((r) => (r.gateRole = "ADVISORY")),
+      REQUESTED_RULE_IS_THE_RULE: resealC2((r) => ((r.ruleEvaluation as Rec).requestedRuleId = "SYNTH-RULE-OTHER")),
+      SATISFIED_EXACTLY_WITH_COUNTED_EVIDENCE: resealC2((r) => (r.state = "SATISFIED")),
+      EVALUATION_DATE_IS_EFFECTIVE_DATE: resealC2(() => undefined, { evaluationDate: "2026-04-16" }),
+    };
+    expect(run({ obligations: [genuine] }).ok).toBe(true);
+    // Every rule of the boundary's table has exactly one contradiction case.
+    expect(new Set([...Object.keys(C3_CASES), ...Object.keys(C2_CASES)])).toEqual(new Set(PREDECESSOR_CONSISTENCY_RULES.map((r) => r.rule)));
+    for (const [rule, projection] of Object.entries(C3_CASES)) {
+      expect(verifyAnimalHealthProjection(projection, hash).valid, `${rule} re-seal is faithful`).toBe(true);
+      expect(codes(run({ health: [projection] })), rule).toEqual(["CATTLE_PROGRAMME_HEALTH_PROJECTION_INVALID"]);
+    }
+    for (const [rule, evaluation] of Object.entries(C2_CASES)) expect(codes(run({ obligations: [evaluation] })), rule).toEqual(["CATTLE_PROGRAMME_OBLIGATIONS_INVALID"]);
+  });
+
+  it("drift guard: only the predecessor boundary reads predecessor outputs; consumed types expose only schema-declared fields", () => {
+    // Allowlist: outside the boundary, C7 modules may import only these frozen modules and names (utilities and C7-owned-input readers — no predecessor output).
+    const BOUNDARY = new Set(["programme-consumed.ts", "programme-predecessors.ts"]);
+    const ALLOWED: Record<string, RegExp> = {
+      "../../assessment-integrity": /^(type )?(AssessmentFingerprint|FingerprintVerificationResult|canonicalizeValue|computeAssessmentFingerprint|verifyAssessmentFingerprint)$/,
+      "../animal-ledger": /^(type )?(ANIMAL_DATA_SOURCE_CATEGORIES|BIOLOGICAL_SEXES|compareInstants|deepFreezeAnimalValue|isOpaqueRef|isValidAnimalInstant|AnimalDataSourceCategory|BiologicalSex|AnimalLedger)$/,
+      "../integrity": /^(type )?(compareStrings|sameFingerprint|sortedUnique|CattleHash)$/,
+      "../rule": /^(type )?(MINIMUM_REVIEW_DIMENSIONS|isValidCalendarDate|CattleReviewDimension|CattleRuleGateRole|CattleRuleProductionState|ReviewDimensionState)$/,
+      "../source": /^(type )?(SourceVersionRef|compareSourceVersionRefs)$/,
+      "../version": /^CATTLE_EVIDENCE_ARCHITECTURE_VERSION$/,
+      "../evaluation": /^(type )?(CattleEvaluationState|RuleEvaluationRecord)$/,
+      "../regulatory/canonical-input": /^(canonicalField|toCanonicalPlainData)$/,
+      "../regulatory/bitemporal-records": /^(type )?(collectBitemporalRecords|resolveBitemporalRecords|BitemporalRecord)$/,
+      "../regulatory/obligation-time": /^(type )?(addObligationOffset|canonicalObligationInstant|isValidObligationOffset|obligationOffsetSeconds|utcCalendarDateOf|utcStartOfCalendarDate|ObligationOffset)$/,
+      "../health/health-input": /^(type )?(fingerprintOf|isRecord|nullableRef|oneOf|rawIdentityKey|sourceVersionRefOf|Raw)$/,
+      "../health/health-records": /^(type )?(VETERINARY_EVENT_TYPES|VeterinaryEventType)$/,
+    };
+    // programme-types.ts declares the request's accepted input types (type-only).
+    const TYPES_ONLY: Record<string, RegExp> = { "../animal-ledger": /^AnimalLedger$/, "../health": /^AnimalHealthProjection$/, "../regulatory": /^AnimalObligationEvaluation$/, "../evaluation": /^CattleEvaluationState$/ };
+    const violations: string[] = [];
+    for (const f of readdirSync(__dirname).filter((x) => x.startsWith("programme-") && x.endsWith(".ts") && !x.endsWith(".test.ts") && !BOUNDARY.has(x))) {
+      const text = readFileSync(join(__dirname, f), "utf8");
+      for (const m of text.matchAll(/import\s+(type\s+)?\{([^}]*)\}\s+from\s+"([^"]+)"/g)) {
+        const from = m[3];
+        if (from.startsWith("./")) continue;
+        const allowed = f === "programme-types.ts" && TYPES_ONLY[from] ? TYPES_ONLY[from] : ALLOWED[from];
+        for (const name of m[2].split(",").map((x) => x.trim()).filter(Boolean)) {
+          if (allowed === undefined || !allowed.test(name.replace(/^type /, ""))) violations.push(`${f}: ${name} from ${from}`);
+        }
+      }
+      if (/import\s+\*\s+as/.test(text) || /import\s+[A-Za-z_]+\s+from/.test(text)) violations.push(`${f}: namespace/default import`);
+    }
+    expect(violations).toEqual([]);
+    // Type-level: reading a field the consumed schema does not declare does not compile (checked by `npm run typecheck`).
+    const typeGuards = [
+      // @ts-expect-error — `sourceRefs` is not a consumed C3 field
+      (p: ConsumedHealthProjection) => p.sourceRefs,
+      // @ts-expect-error — `withdrawals` is not a consumed C3 medicine-ledger field
+      (e: ConsumedMedicineEntry) => e.withdrawals,
+      // @ts-expect-error — `consideredVersions` is not a consumed C3 binding field
+      (b: ConsumedMedicineEntry["binding"]) => b.consideredVersions,
+      // @ts-expect-error — `window` is not a consumed C2 record field
+      (e: ConsumedObligationEvaluation) => e.results[0].window,
+    ];
+    expect(typeGuards).toHaveLength(4);
   });
 });

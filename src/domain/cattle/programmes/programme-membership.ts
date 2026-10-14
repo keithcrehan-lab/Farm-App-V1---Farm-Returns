@@ -14,10 +14,9 @@
 
 import { compareStrings, sortedUnique, type CattleHash } from "../integrity";
 import { utcStartOfCalendarDate } from "../regulatory/obligation-time";
-import { resolveGroupScope } from "../weights";
 import type { ProgrammeAction, ProgrammeApplicability } from "./programme-definition";
 import { fromC1Resolution, fromC4Membership, resolvedEvidence, unresolvedEvidence, type EvidenceResolution, type UnresolvedOutcome } from "./programme-evidence";
-import type { AnimalContext } from "./programme-predecessors";
+import { groupScopeAt, type AnimalContext } from "./programme-predecessors";
 import { foldOrInvalid } from "./programme-state";
 import type { ProgrammeMembership, ProgrammeMembershipState } from "./programme-types";
 
@@ -41,8 +40,9 @@ export function membershipAt(applicability: ProgrammeApplicability, ctx: AnimalC
     case "EXPLICIT_SET":
       return of(applicability.animalIds.includes(ctx.animalId) ? "MEMBER" : "NOT_MEMBER", [], null);
     case "GROUP": {
-      const scope = resolveGroupScope({ scope: { kind: "GROUP", groupRef: applicability.groupRef, ledgers: [ctx.ledger] }, query: { effectiveAt: at, knowledgeCutoff } }, hash);
-      if (!scope.ok) return of("INVALID", ["CATTLE_PROGRAMME_GROUP_SCOPE_UNRESOLVABLE", ...scope.issues.map((i) => i.code)], null);
+      // C4 only through the predecessor boundary (validated output).
+      const scope = groupScopeAt(ctx, applicability.groupRef, at, knowledgeCutoff, hash);
+      if (!scope.ok) return of("INVALID", scope.codes, null);
       const entry = scope.scope.animals.find((a) => a.animalId === ctx.animalId);
       if (!entry) return of("UNKNOWN", ["CATTLE_PROGRAMME_GROUP_SCOPE_ANIMAL_ABSENT"], scope.scope.fingerprint);
       const member = fromC4Membership(entry.state, entry.issues);
@@ -51,8 +51,8 @@ export function membershipAt(applicability: ProgrammeApplicability, ctx: AnimalC
     case "CRITERIA": {
       const snapshot = ctx.inputs.snapshotFingerprint;
       // (1) Resolve every declared dimension.
-      const sex = applicability.sex === null ? null : fromC1Resolution(ctx.snapshot.sex, "CRITERIA_SEX");
-      const born = applicability.bornOnOrAfter === null && applicability.bornBefore === null ? null : fromC1Resolution(ctx.snapshot.dateOfBirth, "CRITERIA_DATE_OF_BIRTH");
+      const sex = applicability.sex === null ? null : fromC1Resolution(ctx.facts.sex, "CRITERIA_SEX");
+      const born = applicability.bornOnOrAfter === null && applicability.bornBefore === null ? null : fromC1Resolution(ctx.facts.dateOfBirth, "CRITERIA_DATE_OF_BIRTH");
       const unresolved = [sex, born].filter((r): r is Extract<EvidenceResolution<unknown>, { resolved: false }> => r !== null && !r.resolved);
       if (unresolved.length > 0) {
         const worst = foldOrInvalid(unresolved.map((u) => u.outcome));
@@ -73,7 +73,7 @@ export function membershipAt(applicability: ProgrammeApplicability, ctx: AnimalC
 export function anchorOf(action: ProgrammeAction, ctx: AnimalContext): EvidenceResolution<string> {
   const anchor = action.schedule.anchor;
   if (anchor.kind === "FIXED_INSTANT") return resolvedEvidence(anchor.at);
-  const dob = fromC1Resolution(ctx.snapshot.dateOfBirth, "ANCHOR_DATE_OF_BIRTH");
+  const dob = fromC1Resolution(ctx.facts.dateOfBirth, "ANCHOR_DATE_OF_BIRTH");
   if (!dob.resolved) return dob;
   const at = utcStartOfCalendarDate(dob.value);
   return at === null ? unresolvedEvidence("INVALID_EVIDENCE", "CATTLE_PROGRAMME_ANCHOR_NOT_REPRESENTABLE") : resolvedEvidence(at);

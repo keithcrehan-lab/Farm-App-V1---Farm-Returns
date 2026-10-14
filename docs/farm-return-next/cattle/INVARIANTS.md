@@ -38,6 +38,7 @@ phase tests the invariant directly.
 | CAT-INV-025 | Version-bound evidence and approval | — |
 | CAT-INV-026 | No implicit precedence | `checkDuplicateIdentity`, plus phase tests |
 | CAT-INV-027 | Empty production content | — |
+| CAT-INV-028 | Downstream consumed-output validation | phase consumed-field schema + generated malformed-predecessor matrix |
 
 ## Definitions
 
@@ -311,6 +312,52 @@ sets.
   UNSUPPORTED or no-content states.
 - **Tests use synthetic data.** Tests use `SYNTH-*` content only.
 - **Origin:** C0–C2 constraint 11.
+
+### CAT-INV-028 — Downstream consumed-output validation
+
+Predecessor outputs are canonical plain data, but they are not trusted
+domain data until the consuming phase validates the fields it consumes
+(human architecture decision, 2026-10-14, after C7 finding F007).
+
+- **Validate what you consume.** Before a phase uses a predecessor output
+  authoritatively, it validates the schema / payload version / runtime type /
+  vocabulary / identifier and instant format / nested structure of every
+  predecessor field it reads, in one consumed-field schema at one
+  predecessor-consumption boundary. No evaluator reads raw predecessor
+  fields.
+- **Fingerprints are not validity.** A fingerprint proves integrity and
+  change binding only: an internally consistent, re-sealed object can still
+  be malformed. Schema validity, allowed vocabulary, required presence and
+  authenticity are never inferred from it.
+- **Fail closed, exhaustively.** Unknown, malformed or unsupported
+  predecessor values reject the input as invalid predecessor output. Every
+  translation from a predecessor state to the phase's own states is
+  exhaustive at runtime (never a throw, a fall-through or a resolved
+  default), not only at compile time.
+- **Prefer the owner's validator.** Where a frozen predecessor exports a
+  runtime validator or materialiser that fully validates a consumed surface,
+  call it; validate only what it does not. This is contract validation,
+  never re-evaluation of the predecessor's business logic.
+- **Test by class.** A generated matrix mutates every consumed field
+  (missing, disallowed null, wrong type, malformed format, unknown
+  vocabulary), re-seals the predecessor fingerprints and proves the input is
+  rejected; a drift guard ties the schema to the fields actually read.
+- **Check stated consistency.** Every relationship the frozen contract
+  states between consumed fields (e.g. a status and the superseders that
+  define it) is checked as a predicate; a self-contradictory output fails
+  closed. This is never a recomputation of predecessor logic.
+- **Every field read on the phase's behalf counts.** Fields a frozen
+  predecessor function reads from supplied data for the phase (e.g. a
+  hard-gate projector) are consumed fields too.
+- **Trust bound (human decision).** Validation detects MALFORMED and
+  SELF-CONTRADICTORY outputs. A fully consistent forged output cannot be
+  authenticated by the consumer — authenticity belongs to the adapter / the
+  C8 sealed context (BLOCKERS CAT-B1).
+- **Scope.** Malformed plain data at an inter-phase boundary. Hostile
+  JavaScript (getters, proxies, functions) stays outside the canonical
+  plain-data contract (ARCHITECTURE.md §Canonical input boundary).
+- **Origin:** C7 findings F003 / F007; binding for C7 and every later phase
+  (C8 preflight).
 
 ## Interactions (no contradictions)
 

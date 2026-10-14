@@ -31,6 +31,7 @@
 import { deepFreezeAnimalValue } from "../animal-ledger";
 import type { CattleEvaluationState, RuleEvaluationRecord } from "../evaluation";
 import { compareStrings, sortedUnique, type CattleHash } from "../integrity";
+import { MINIMUM_REVIEW_DIMENSIONS } from "../rule";
 import type { SourceVersionRef } from "../source";
 import { compareSourceVersionRefs } from "../source";
 import { CATTLE_EVIDENCE_ARCHITECTURE_VERSION } from "../version";
@@ -83,6 +84,16 @@ export interface ProgrammeHardGates {
 
 export type ProgrammeHardGatesResult = { ok: true; gates: ProgrammeHardGates } | { ok: false; issues: string[] };
 
+/**
+ * The governing version's review dimensions; with no governing version (a
+ * version conflict) the classification's C0 minimum dimensions are reported
+ * PENDING — never an empty set implying no review is required (R3).
+ */
+function reviewsOf(p: ProgrammeStatusEvaluation["programmes"][number]): RuleEvaluationRecord["reviews"] {
+  if (p.governing !== null) return p.governing.review.dimensions.map((d) => ({ dimension: d.dimension, state: d.state }));
+  return [...MINIMUM_REVIEW_DIMENSIONS[p.classification]].sort(compareStrings).map((dimension) => ({ dimension, state: "PENDING" }));
+}
+
 export function projectProgrammeHardGates(evaluation: ProgrammeStatusEvaluation, animalId: string, hash: CattleHash): ProgrammeHardGatesResult {
   const canonical = toCanonicalPlainData({ evaluation, animalId });
   if (!canonical.ok) return deepFreezeAnimalValue({ ok: false, issues: ["CATTLE_PROGRAMME_HARD_GATE_INPUT_NON_CANONICAL"] });
@@ -116,15 +127,16 @@ export function projectProgrammeHardGates(evaluation: ProgrammeStatusEvaluation,
         evaluationDate,
         state,
         reasonCodes: sortedUnique([
-          ...records.map((r) => `CATTLE_PROGRAMME_STATE_${r.state}:${r.occurrence?.occurrenceId ?? r.actionId ?? p.programmeId}`),
+          // Structured [actionId, occurrenceId] (programme level: [null, null]) — never joined text (R4).
+          ...records.map((r) => `CATTLE_PROGRAMME_STATE_${r.state}:${JSON.stringify([r.actionId, r.occurrence?.occurrenceId ?? null])}`),
           `CATTLE_PROGRAMME_ANIMAL_STATUS_FINGERPRINT:${status.fingerprint.digest}`,
         ]),
         usedInputs: [],
-        missingInputs: state === "INSUFFICIENT_EVIDENCE" ? [`cattle.programme.${p.programmeId}.${actionId}`] : [],
+        missingInputs: state === "INSUFFICIENT_EVIDENCE" ? [ruleId] : [],
         conflictingInputs: [],
         rejectedInputs: [],
         sourceChecks: [],
-        reviews: (p.governing?.review.dimensions ?? []).map((d) => ({ dimension: d.dimension, state: d.state })),
+        reviews: reviewsOf(p),
       });
     }
   }

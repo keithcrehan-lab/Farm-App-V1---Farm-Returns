@@ -17,11 +17,12 @@
  *   window starts at `opensAt` inclusive; it ends at `dueAt` exclusive unless
  *   the action declares `INCLUSIVE_START_INCLUSIVE_END`. Before `opensAt` is
  *   BEFORE; inside is IN; at or after the end is AFTER.
- * - Occurrence id (C2 `obligationOccurrenceId` pattern):
- *   `<programmeId>|<actionId>|<animalId>|<anchorKind>|<canonical anchor>|<n>`
- *   — deterministic, independent of the programme version, so a completion
- *   declaration names an occurrence exactly and version binding is checked
- *   separately (CAT-INV-025).
+ * - Occurrence id: the canonical structured identity
+ *   `["<programmeId>","<actionId>","<animalId>","<anchorKind>","<canonical anchor>",<n>]`
+ *   (JSON, human decision B3) — deterministic, unambiguous whatever
+ *   characters the opaque components contain, independent of the programme
+ *   version, so a completion declaration names an occurrence exactly and
+ *   version binding is checked separately (CAT-INV-025).
  * - A window outside years 0000–9999 is unrepresentable ⇒ the derivation
  *   fails closed for that occurrence (`null`).
  */
@@ -45,7 +46,7 @@ export interface ProgrammeOccurrence {
 export type WindowPosition = "BEFORE" | "IN" | "AFTER";
 
 export function programmeOccurrenceId(programmeId: string, actionId: string, animalId: string, anchorKind: ProgrammeAnchorKind, anchorAt: string, index: number): string {
-  return `${programmeId}|${actionId}|${animalId}|${anchorKind}|${anchorAt}|${index}`;
+  return JSON.stringify([programmeId, actionId, animalId, anchorKind, anchorAt, index]);
 }
 
 /** Each declared occurrence of `action` for one animal, in index order; `null` entries are unrepresentable windows. */

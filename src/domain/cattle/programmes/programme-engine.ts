@@ -16,7 +16,9 @@
  * 2. Query times; C1 ledgers (`rematerialiseAnimalLedger`; one per animal).
  * 3. Definitions, reviews and completion declarations admitted at the cutoff
  *    (later knowledge invisible, unreadable knowledge time fails closed,
- *    identity before validity, supersession without precedence). Any
+ *    identity before validity, supersession without precedence). Every
+ *    C7-owned record must satisfy the one field-presence policy
+ *    (`programme-fields.ts`): a missing field never acquires a meaning. Any
  *    malformed admitted record fails the whole request closed.
  * 4. Predecessor outputs, each re-verified and bound to the same animal, the
  *    same times by instant and the same C1 ledger content (their C1 snapshot
@@ -24,9 +26,12 @@
  *    `AnimalHealthProjection`
  *    (`verifyAnimalHealthProjection`; an unfiltered timeline; its withdrawal
  *    gates through C3 `projectWithdrawalHardGates`) and C2
- *    `AnimalObligationEvaluation` (through C2 `projectObligationHardGates`;
- *    every record, not only the envelope, must carry this animal, this C1
- *    snapshot fingerprint and the query's times).
+ *    `AnimalObligationEvaluation` (through C2 `projectObligationHardGates`).
+ *    Every consumed record, not only the envelope, must prove it belongs to
+ *    this evaluation (C2: animal, snapshot, times, payload version, distinct
+ *    identity; C3: animal, wrapped record identity / kind / valid time,
+ *    known to the projection, known by the cutoff, occurred by
+ *    `effectiveAt`).
  *    C7 never re-derives C3 withdrawal or C2 obligation state.
  * 5. Per programme: the governing version at `effectiveAt`
  *    (`programme-definition.ts`), its review state, membership, anchors,
@@ -59,6 +64,11 @@
  *   EVIDENCE_CONFLICT  a relevant completion declaration or C3 record is in
  *                      a competing correction, or counted completions
  *                      disagree on timing (in window vs late);
+ *   REVIEW_REQUIRED    a VETERINARY_PROGRAMME HARD_GATE action whose only
+ *                      counted completions are FARMER declarations (human
+ *                      decision B2: retained as evidence, never by
+ *                      themselves a pass, pending an authorised veterinary
+ *                      completion-equivalence rule);
  *   COMPLETED          at least one counted completion (REQUIRED: a live
  *                      declaration for the exact governing version, or a
  *                      live in-window C3 record matching the declared
@@ -90,6 +100,7 @@ import {
   animalInstantKey,
   compareInstants,
   deepFreezeAnimalValue,
+  isOpaqueRef,
   isValidAnimalInstant,
   rematerialiseAnimalLedger,
   type AnimalLedger,
@@ -101,7 +112,7 @@ import { toCanonicalPlainData } from "../regulatory/canonical-input";
 import { canonicalObligationInstant, utcStartOfCalendarDate } from "../regulatory/obligation-time";
 import { projectObligationHardGates, type AnimalObligationEvaluation } from "../regulatory";
 import { projectWithdrawalHardGates, verifyAnimalHealthProjection, type AnimalHealthProjection, type HealthTimelineEntry, type MedicineLedgerEntry } from "../health";
-import { hasOnlyFields, isRecord } from "../health/health-input";
+import { isRecord } from "../health/health-input";
 import { resolveGroupScope } from "../weights";
 import {
   admitProgrammeDefinitions,
@@ -117,11 +128,13 @@ import {
   type ProgrammeAction,
   type ProgrammeApplicability,
   type ProgrammeClassification,
+  type ProgrammeDeclarerRole,
   type ProgrammeRecordIssueCode,
   type ProgrammeReviewRecord,
   type ProgrammeReviewState,
   type ProgrammeVersionHistory,
 } from "./programme-definition";
+import { conformsToPolicy } from "./programme-fields";
 import { admitProgrammeCompletions, type CompletionIssueCode, type CompletionResolution, type ProgrammeCompletionRecord } from "./programme-completion";
 import { deriveProgrammeOccurrences, windowPosition, type ProgrammeOccurrence } from "./programme-schedule";
 import { CATTLE_PROGRAMME_PAYLOAD_VERSION, computeProgrammeFingerprint, verifyProgrammeFingerprint } from "./programme-integrity";
@@ -209,6 +222,8 @@ export interface ProgrammeGateCheck {
 
 export interface CountedCompletion {
   basis: "DECLARATION" | "HEALTH_RECORD_LINK" | "DECLARED_CRITERIA";
+  /** Role of the completion declaration's declarer (`null` for DECLARED_CRITERIA: no declaration). */
+  declaredBy: ProgrammeDeclarerRole | null;
   declarationId: string | null;
   healthRecordId: string | null;
   /** Canonical spelling. */
@@ -334,6 +349,7 @@ export type ProgrammeRequestIssueCode =
   | "CATTLE_PROGRAMME_HEALTH_PROJECTION_UNKNOWN_ANIMAL"
   | "CATTLE_PROGRAMME_HEALTH_PROJECTION_DUPLICATE"
   | "CATTLE_PROGRAMME_HEALTH_PROJECTION_LEDGER_MISMATCH"
+  | "CATTLE_PROGRAMME_HEALTH_PROJECTION_FOREIGN_RECORD"
   | "CATTLE_PROGRAMME_OBLIGATIONS_INVALID"
   | "CATTLE_PROGRAMME_OBLIGATIONS_TIME_MISMATCH"
   | "CATTLE_PROGRAMME_OBLIGATIONS_UNKNOWN_ANIMAL"
@@ -354,8 +370,6 @@ export type ProgrammeEvaluationResult = { ok: true; evaluation: ProgrammeStatusE
 // ---------------------------------------------------------------------------
 // Request reading (already-canonical data)
 // ---------------------------------------------------------------------------
-
-const REQUEST_FIELDS = ["definitions", "reviews", "completions", "ledgers", "health", "obligations", "query"];
 
 interface AnimalContext {
   animalId: string;
@@ -379,8 +393,7 @@ interface ReadRequest {
 }
 
 function readRequest(req: unknown): { ok: true; read: ReadRequest } | { ok: false; issues: ProgrammeIssue[] } {
-  const arrays = ["definitions", "reviews", "completions", "ledgers", "health", "obligations"] as const;
-  if (!isRecord(req) || !hasOnlyFields(req, REQUEST_FIELDS) || !arrays.every((k) => Array.isArray(req[k])) || !isRecord(req.query) || !hasOnlyFields(req.query, ["effectiveAt", "knowledgeCutoff"])) {
+  if (!conformsToPolicy(req, "request") || !conformsToPolicy(req.query, "query")) {
     return { ok: false, issues: [{ code: "CATTLE_PROGRAMME_INVALID_REQUEST", ref: null }] };
   }
   const effectiveAt = canonicalInstant(req.query.effectiveAt);
@@ -389,7 +402,7 @@ function readRequest(req: unknown): { ok: true; read: ReadRequest } | { ok: fals
   if (effectiveAt === null) issues.push({ code: "CATTLE_PROGRAMME_INVALID_EFFECTIVE_AT", ref: null });
   if (knowledgeCutoff === null) issues.push({ code: "CATTLE_PROGRAMME_INVALID_KNOWLEDGE_CUTOFF", ref: null });
   if (effectiveAt === null || knowledgeCutoff === null) return { ok: false, issues };
-  const at = (k: (typeof arrays)[number]) => req[k] as unknown[];
+  const at = (k: keyof Omit<ReadRequest, "effectiveAt" | "knowledgeCutoff">) => req[k] as unknown[];
   return {
     ok: true,
     read: {
@@ -415,22 +428,73 @@ function failClosed<T>(run: () => T): T | null {
 }
 
 const sameInstant = (a: unknown, b: string) => isValidAnimalInstant(a) && animalInstantKey(a) === animalInstantKey(b);
+const sameNullableInstant = (a: unknown, b: unknown) => (a === null ? b === null : isValidAnimalInstant(a) && isValidAnimalInstant(b) && animalInstantKey(a) === animalInstantKey(b));
+const knownBy = (t: unknown, cutoff: string) => isValidAnimalInstant(t) && compareInstants(t, cutoff) <= 0;
+const distinct = (keys: readonly string[]) => new Set(keys).size === keys.length;
+
+// ---------------------------------------------------------------------------
+// Predecessor context membership (R2; CAT-INV-014/021/023)
+//
+// Every predecessor record C7 consumes — not only the envelope carrying it —
+// must individually prove it belongs to this evaluation, using every binding
+// the frozen predecessor contract exports. A matching envelope never vouches
+// for the records it carries; a mismatch is never repaired or skipped: the
+// whole request fails closed.
+// ---------------------------------------------------------------------------
 
 /**
- * Every consumed C2 record — not only its envelope — must belong to this
- * evaluation: this animal, this C1 snapshot and the query's own times
- * (CAT-INV-014/021/023). C2 binds each record to its own snapshot; a matching
- * envelope never vouches for the records it carries. A mismatch is never
- * repaired or skipped: the whole request fails closed.
+ * C2: every state record carries this animal, this C1 snapshot fingerprint,
+ * the query's own times and the envelope's payload version, and record
+ * identities (obligation, occurrence) are distinct.
  */
-function obligationRecordBelongs(record: unknown, ctx: AnimalContext, read: ReadRequest): boolean {
-  return (
+function obligationRecordsBelong(e: AnimalObligationEvaluation, ctx: AnimalContext, read: ReadRequest): boolean {
+  const belongs = (record: unknown) =>
     isRecord(record) &&
+    record.obligationPayloadVersion === e.obligationPayloadVersion &&
     record.animalId === ctx.animalId &&
     isRecord(record.snapshotFingerprint) &&
     sameFingerprint(record.snapshotFingerprint as unknown as AssessmentFingerprint, ctx.inputs.snapshotFingerprint) &&
     sameInstant(record.effectiveAt, read.effectiveAt) &&
-    sameInstant(record.knowledgeCutoff, read.knowledgeCutoff)
+    sameInstant(record.knowledgeCutoff, read.knowledgeCutoff);
+  return e.results.every(belongs) && distinct(e.results.map((r) => JSON.stringify([r.obligationId, r.occurrence?.occurrenceId ?? null])));
+}
+
+/**
+ * C3: C3 records carry no snapshot of their own, so the projection's own
+ * animal / times / snapshot (checked by the caller) bind the view, and every
+ * timeline and medicine-ledger entry must carry this animal, wrap the record
+ * it names (same id, kind, valid time), be among the projection's known
+ * records, be known by the cutoff (`provenance.receivedAt`) and — timeline
+ * only — have occurred by `effectiveAt` (C3 lists later records apart);
+ * entry ids are distinct within each view.
+ */
+function healthRecordsBelong(p: AnimalHealthProjection, ctx: AnimalContext, read: ReadRequest): boolean {
+  const known = new Set(Array.isArray(p.knownRecordIds) ? p.knownRecordIds : []);
+  const wraps = (entry: unknown): entry is { recordId: string; occurredAt: unknown; record: Record<string, unknown> } => {
+    if (!isRecord(entry) || !isRecord(entry.record) || !isRecord(entry.record.provenance)) return false;
+    const r = entry.record;
+    return (
+      isOpaqueRef(entry.recordId) &&
+      r.recordId === entry.recordId &&
+      known.has(entry.recordId) &&
+      r.animalId === ctx.animalId &&
+      sameNullableInstant(entry.occurredAt, r.occurredAt) &&
+      knownBy((r.provenance as Record<string, unknown>).receivedAt, read.knowledgeCutoff)
+    );
+  };
+  const timeline = p.timeline.entries as unknown[];
+  const ledger = p.medicineLedger.entries as unknown[];
+  const timelineOk = timeline.every(
+    (e) => wraps(e) && (e as unknown as HealthTimelineEntry).kind === e.record.kind && (e.occurredAt === null || knownBy(e.occurredAt, read.effectiveAt)),
+  );
+  const ledgerOk = ledger.every((e) => wraps(e) && e.record.kind === "MEDICINE_ADMINISTRATION");
+  const notYet = p.timeline.notYetOccurredRecordIds;
+  return (
+    timelineOk &&
+    ledgerOk &&
+    distinct(timeline.map((e) => (e as HealthTimelineEntry).recordId)) &&
+    distinct(ledger.map((e) => (e as MedicineLedgerEntry).recordId)) &&
+    notYet.every((id) => known.has(id) && !timeline.some((e) => (e as HealthTimelineEntry).recordId === id))
   );
 }
 
@@ -481,6 +545,7 @@ function readAnimals(read: ReadRequest, hash: CattleHash): { ok: true; animals: 
     else if (!sameInstant(p.effectiveAt, read.effectiveAt) || !sameInstant(p.knowledgeCutoff, read.knowledgeCutoff)) issues.push({ code: "CATTLE_PROGRAMME_HEALTH_PROJECTION_TIME_MISMATCH", ref: p.animalId });
     else if (!UNFILTERED(p.timeline.filter)) issues.push({ code: "CATTLE_PROGRAMME_HEALTH_PROJECTION_FILTERED", ref: p.animalId });
     else if (!sameFingerprint(p.snapshotFingerprint, ctx.inputs.snapshotFingerprint)) issues.push({ code: "CATTLE_PROGRAMME_HEALTH_PROJECTION_LEDGER_MISMATCH", ref: p.animalId });
+    else if (!healthRecordsBelong(p, ctx, read)) issues.push({ code: "CATTLE_PROGRAMME_HEALTH_PROJECTION_FOREIGN_RECORD", ref: p.animalId });
     else {
       const gates = failClosed(() => projectWithdrawalHardGates(p, hash));
       if (!gates || !gates.ok) {
@@ -507,7 +572,7 @@ function readAnimals(read: ReadRequest, hash: CattleHash): { ok: true; animals: 
     else if (seenObligations.has(e.animalId)) issues.push({ code: "CATTLE_PROGRAMME_OBLIGATIONS_DUPLICATE", ref: e.animalId });
     else if (!sameInstant(e.effectiveAt, read.effectiveAt) || !sameInstant(e.knowledgeCutoff, read.knowledgeCutoff)) issues.push({ code: "CATTLE_PROGRAMME_OBLIGATIONS_TIME_MISMATCH", ref: e.animalId });
     else if (!sameFingerprint(e.snapshotFingerprint, ctx.inputs.snapshotFingerprint)) issues.push({ code: "CATTLE_PROGRAMME_OBLIGATIONS_LEDGER_MISMATCH", ref: e.animalId });
-    else if (!e.results.every((r) => obligationRecordBelongs(r, ctx, read))) issues.push({ code: "CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD", ref: e.animalId });
+    else if (!obligationRecordsBelong(e, ctx, read)) issues.push({ code: "CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD", ref: e.animalId });
     else {
       seenObligations.add(e.animalId);
       ctx.inputs.obligationRecords = e.results.map((r) => r.fingerprint).sort((a, b) => compareStrings(a.digest, b.digest));
@@ -683,7 +748,7 @@ function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrence): Pro
       continue;
     }
     if (d.evidence.kind === "DECLARED") {
-      place(d.recordId, d.evidence.completedAt, { basis: "DECLARATION", declarationId: d.recordId, healthRecordId: null });
+      place(d.recordId, d.evidence.completedAt, { basis: "DECLARATION", declaredBy: d.declaredBy.role, declarationId: d.recordId, healthRecordId: null });
       continue;
     }
     const healthRecordId = d.evidence.healthRecordId;
@@ -714,7 +779,7 @@ function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrence): Pro
     if (match.kind === "MISMATCH") summary.mismatched.push({ ref: d.recordId, reason: match.reason });
     else if (match.kind === "UNRESOLVED") summary.unresolved.push({ ref: d.recordId, reason: match.reason });
     else if (entry.occurredAt === null) summary.unresolved.push({ ref: d.recordId, reason: "CATTLE_PROGRAMME_LINKED_RECORD_TIME_UNKNOWN" });
-    else place(d.recordId, canonicalObligationInstant(entry.occurredAt) as string, { basis: "HEALTH_RECORD_LINK", declarationId: d.recordId, healthRecordId });
+    else place(d.recordId, canonicalObligationInstant(entry.occurredAt) as string, { basis: "HEALTH_RECORD_LINK", declaredBy: d.declaredBy.role, declarationId: d.recordId, healthRecordId });
   }
   const opened = windowPosition(occ, effectiveAt) !== "BEFORE";
   if (action.completion.matchCriteria) {
@@ -734,7 +799,7 @@ function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrence): Pro
         if (compareInstants(t, effectiveAt) > 0 || windowPosition(occ, t) !== "IN") continue;
         if (entry.inCompetition) summary.conflicting.push(entry.recordId);
         else if (match.kind === "UNRESOLVED") summary.unresolved.push({ ref: entry.recordId, reason: match.reason });
-        else summary.counted.push({ basis: "DECLARED_CRITERIA", declarationId: null, healthRecordId: entry.recordId, completedAt: t, timing: "IN_WINDOW" });
+        else summary.counted.push({ basis: "DECLARED_CRITERIA", declaredBy: null, declarationId: null, healthRecordId: entry.recordId, completedAt: t, timing: "IN_WINDOW" });
       }
     }
   }
@@ -761,6 +826,7 @@ function occurrenceRecord(o: OccurrenceContext, occ: ProgrammeOccurrence, gates:
     return { ...base, state: MEMBERSHIP_TO_STATE[opened], reasonCodes: sortedUnique([`CATTLE_PROGRAMME_MEMBERSHIP_AT_WINDOW_OPEN_${opened}`, ...membershipAtOpen.reasonCodes]), completion: null };
   }
   const completion = evaluateCompletion(o, occ);
+  const veterinaryHardGate = definition.classification === "VETERINARY_PROGRAMME" && action.gateRole === "HARD_GATE";
   const timings = new Set(completion.counted.map((c) => c.timing));
   const blocking = gates.filter((g) => g.blocking);
   let state: ProgrammeOccurrenceState;
@@ -768,6 +834,11 @@ function occurrenceRecord(o: OccurrenceContext, occ: ProgrammeOccurrence, gates:
   if (completion.conflicting.length > 0 || timings.size > 1) {
     state = "EVIDENCE_CONFLICT";
     reasons.push(timings.size > 1 ? "CATTLE_PROGRAMME_COMPLETION_TIMING_DISAGREES" : "CATTLE_PROGRAMME_COMPLETION_COMPETING_EVIDENCE");
+  } else if (completion.counted.length > 0 && completion.unresolved.length === 0 && veterinaryHardGate && completion.counted.every((c) => c.declaredBy === "FARMER")) {
+    // Human decision B2: farmer declarations are retained as evidence but never by themselves
+    // complete a veterinary hard-gate action (no completion-equivalence rule exists yet).
+    state = "REVIEW_REQUIRED";
+    reasons.push("CATTLE_PROGRAMME_FARMER_DECLARATION_NEEDS_VETERINARY_CONFIRMATION");
   } else if (completion.counted.length > 0 && completion.unresolved.length === 0) {
     state = "COMPLETED";
     reasons.push(timings.has("LATE") ? "CATTLE_PROGRAMME_COMPLETED_LATE" : "CATTLE_PROGRAMME_COMPLETED_IN_WINDOW");
@@ -835,7 +906,8 @@ function animalStatus(
     classification: base.classification,
     informationClass: programmeInformationClass(base.classification),
     membership,
-    status: foldProgrammeStates(sorted.map((r) => r.state)) ?? "NOT_APPLICABLE",
+    // An empty record set is never NOT_APPLICABLE (R3): it fails closed.
+    status: foldProgrammeStates(sorted.map((r) => r.state)) ?? "INVALID_EVIDENCE",
     records: sorted,
     unmatchedDeclarationIds: sortedUnique(unmatchedDeclarationIds),
     declarations: [...declarations].sort((a, b) => compareStrings(a.recordId, b.recordId)),
@@ -900,7 +972,7 @@ function evaluateProgramme(programmeId: string, versions: readonly ProgrammeVers
   const base = { programmeId, classification, effectiveAt, knowledgeCutoff };
   const declarationsOf = (animalId: string) => inputs.completions.known.filter((d) => d.animalId === animalId && d.programmeId === programmeId);
   const statusOf = (list: ProgrammeAnimalStatus[], extra: ProgrammeOccurrenceState[] = []): ProgrammeStatusValue =>
-    list.length === 0 && extra.length === 0 ? "NO_ANIMALS_EVALUATED" : (foldProgrammeStates([...list.map((a) => a.status), ...extra]) ?? "NOT_APPLICABLE");
+    list.length === 0 && extra.length === 0 ? "NO_ANIMALS_EVALUATED" : (foldProgrammeStates([...list.map((a) => a.status), ...extra]) ?? "INVALID_EVIDENCE");
   if (resolution.state === "VERSION_CONFLICT") {
     const conflicting = resolution.versions.map(entryOf);
     const list = animalList.map((ctx) =>

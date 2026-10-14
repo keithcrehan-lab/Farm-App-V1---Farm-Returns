@@ -48,6 +48,11 @@
  *   required dimension is APPROVED; otherwise the programme is
  *   REVIEW_REQUIRED.
  *
+ * Field presence: every field of a definition, action, schedule, review and
+ * their nested records must be present (`programme-fields.ts`, human
+ * decision B1); an explicit `null` / `[]` carries the meaning documented on
+ * the field, a missing one is invalid and never read as `null` / `[]`.
+ *
  * Admission order (TEMPORAL_EVIDENCE.md), for definitions (`receivedAt`) and
  * reviews (`reviewedAt`): a readable knowledge time after the cutoff sets the
  * record aside before any other read (CAT-INV-003/004); an unreadable one is
@@ -83,8 +88,9 @@ import type { SourceVersionRef } from "../source";
 import { canonicalField, toCanonicalPlainData } from "../regulatory/canonical-input";
 import { collectBitemporalRecords, resolveBitemporalRecords, type BitemporalRecord } from "../regulatory/bitemporal-records";
 import { canonicalObligationInstant, isValidObligationOffset, obligationOffsetSeconds, type ObligationOffset } from "../regulatory/obligation-time";
-import { fingerprintOf, hasOnlyFields, isRecord, nullableRef, oneOf, rawIdentityKey, sourceVersionRefOf, type Raw } from "../health/health-input";
+import { fingerprintOf, isRecord, oneOf, rawIdentityKey, sourceVersionRefOf, type Raw } from "../health/health-input";
 import { VETERINARY_EVENT_TYPES, type VeterinaryEventType } from "../health/health-records";
+import { conformsToPolicy, explicitNullableRef, explicitRefList } from "./programme-fields";
 import { computeProgrammeFingerprint } from "./programme-integrity";
 
 /**
@@ -289,9 +295,13 @@ export function programmeInformationClass(classification: ProgrammeClassificatio
 }
 
 export function uniqueProgrammeIssues<I extends { code: string; ref: string | null }>(issues: readonly I[]): I[] {
-  const unique = new Map(issues.map((i) => [`${i.ref ?? ""}\u0000${i.code}`, i]));
+  // Structured identity, never joined display text (R4).
+  const unique = new Map(issues.map((i) => [JSON.stringify([i.ref, i.code]), i]));
   return [...unique.entries()].sort(([a], [b]) => compareStrings(a, b)).map(([, i]) => i);
 }
+
+/** Structured version identity `["<programmeId>","<version>"]`. */
+const versionKey = (programmeId: string, version: string): string => JSON.stringify([programmeId, version]);
 
 // ---------------------------------------------------------------------------
 // Readers (canonical plain data; shape only, never repaired)
@@ -299,48 +309,49 @@ export function uniqueProgrammeIssues<I extends { code: string; ref: string | nu
 
 export const canonicalInstant = (value: unknown): string | null => (isValidAnimalInstant(value) ? canonicalObligationInstant(value) : null);
 
-/** A sorted, duplicate-free list of opaque refs (`undefined` = empty); anything else ⇒ `null`. */
-export function refListOf(raw: unknown, allowEmpty = true): string[] | null {
-  const list = raw ?? [];
-  if (!Array.isArray(list) || !list.every(isOpaqueRef) || new Set(list).size !== list.length || (!allowEmpty && list.length === 0)) return null;
-  return [...(list as string[])].sort(compareStrings);
-}
-
 export function receivedAfter(raw: unknown, path: readonly string[], knowledgeCutoff: string): boolean {
   const t = canonicalField(raw, ...path);
   return isValidAnimalInstant(t) && compareInstants(t, knowledgeCutoff) > 0;
 }
 
-function provenanceOf(raw: unknown): ProgrammeProvenance | null {
-  if (!isRecord(raw) || !hasOnlyFields(raw, ["sourceCategory", "sourceSystem", "sourceRecordRef", "receivedAt", "sourceDocument"])) return null;
-  const system = nullableRef(raw.sourceSystem);
-  const recordRef = nullableRef(raw.sourceRecordRef);
-  const receivedAt = canonicalInstant(raw.receivedAt);
-  const doc = raw.sourceDocument ?? null;
-  const sourceDocument = doc === null ? null : sourceVersionRefOf(doc);
-  if (!oneOf(ANIMAL_DATA_SOURCE_CATEGORIES, raw.sourceCategory) || !system.ok || !recordRef.ok || receivedAt === null || (doc !== null && sourceDocument === null)) return null;
-  return { sourceCategory: raw.sourceCategory, sourceSystem: system.value, sourceRecordRef: recordRef.value, receivedAt, sourceDocument };
+/** An explicit `null`, or a C0 source binding whose every field (and fingerprint field) is present. */
+export function sourceDocumentOf(doc: unknown): { ok: boolean; value: SourceVersionRef | null } {
+  if (doc === null) return { ok: true, value: null };
+  if (!conformsToPolicy(doc, "sourceDocument") || !conformsToPolicy(doc.contentFingerprint, "fingerprint")) return { ok: false, value: null };
+  const ref = sourceVersionRefOf(doc);
+  return ref === null ? { ok: false, value: null } : { ok: true, value: ref };
 }
 
-function declarerOf(raw: unknown): ProgrammeDeclarer | null {
-  if (!isRecord(raw) || !hasOnlyFields(raw, ["role", "actor"]) || !oneOf(PROGRAMME_DECLARER_ROLES, raw.role) || !isOpaqueRef(raw.actor)) return null;
+function provenanceOf(raw: unknown): ProgrammeProvenance | null {
+  if (!conformsToPolicy(raw, "definitionProvenance")) return null;
+  const system = explicitNullableRef(raw.sourceSystem);
+  const recordRef = explicitNullableRef(raw.sourceRecordRef);
+  const receivedAt = canonicalInstant(raw.receivedAt);
+  const doc = sourceDocumentOf(raw.sourceDocument);
+  if (!oneOf(ANIMAL_DATA_SOURCE_CATEGORIES, raw.sourceCategory) || !system.ok || !recordRef.ok || receivedAt === null || !doc.ok) return null;
+  return { sourceCategory: raw.sourceCategory, sourceSystem: system.value, sourceRecordRef: recordRef.value, receivedAt, sourceDocument: doc.value };
+}
+
+export function declarerOf(raw: unknown): ProgrammeDeclarer | null {
+  if (!conformsToPolicy(raw, "declarer") || !oneOf(PROGRAMME_DECLARER_ROLES, raw.role) || !isOpaqueRef(raw.actor)) return null;
   return { role: raw.role, actor: raw.actor };
 }
 
+/** An explicit `null` (no criterion) or a calendar date; a missing value is never read as `null`. */
 function nullableDate(raw: unknown): { ok: boolean; value: string | null } {
-  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (raw === null) return { ok: true, value: null };
   return typeof raw === "string" && isValidCalendarDate(raw) ? { ok: true, value: raw } : { ok: false, value: null };
 }
 
 function applicabilityOf(raw: unknown): ProgrammeApplicability | null {
   if (!isRecord(raw)) return null;
-  if (raw.kind === "EXPLICIT_SET" && hasOnlyFields(raw, ["kind", "animalIds"])) {
-    const animalIds = refListOf(raw.animalIds, false);
+  if (raw.kind === "EXPLICIT_SET" && conformsToPolicy(raw, "applicabilityExplicitSet")) {
+    const animalIds = explicitRefList(raw.animalIds, 1);
     return animalIds === null ? null : { kind: "EXPLICIT_SET", animalIds };
   }
-  if (raw.kind === "GROUP" && hasOnlyFields(raw, ["kind", "groupRef"]) && isOpaqueRef(raw.groupRef)) return { kind: "GROUP", groupRef: raw.groupRef };
-  if (raw.kind === "CRITERIA" && hasOnlyFields(raw, ["kind", "sex", "bornOnOrAfter", "bornBefore"])) {
-    const sex = raw.sex ?? null;
+  if (raw.kind === "GROUP" && conformsToPolicy(raw, "applicabilityGroup") && isOpaqueRef(raw.groupRef)) return { kind: "GROUP", groupRef: raw.groupRef };
+  if (raw.kind === "CRITERIA" && conformsToPolicy(raw, "applicabilityCriteria")) {
+    const sex = raw.sex;
     const from = nullableDate(raw.bornOnOrAfter);
     const before = nullableDate(raw.bornBefore);
     if ((sex !== null && !oneOf(BIOLOGICAL_SEXES, sex)) || !from.ok || !before.ok) return null;
@@ -352,24 +363,24 @@ function applicabilityOf(raw: unknown): ProgrammeApplicability | null {
 }
 
 function offsetOf(raw: unknown): ObligationOffset | null {
-  return isRecord(raw) && hasOnlyFields(raw, ["amount", "unit"]) && isValidObligationOffset(raw) ? { amount: raw.amount as number, unit: raw.unit as ObligationOffset["unit"] } : null;
+  return conformsToPolicy(raw, "offset") && isValidObligationOffset(raw) ? { amount: raw.amount as number, unit: raw.unit as ObligationOffset["unit"] } : null;
 }
 
 function scheduleOf(raw: unknown): ProgrammeSchedule | null {
-  if (!isRecord(raw) || !hasOnlyFields(raw, ["anchor", "window", "repeat"]) || !isRecord(raw.anchor) || !isRecord(raw.window)) return null;
+  if (!conformsToPolicy(raw, "schedule") || !isRecord(raw.anchor)) return null;
   let anchor: ProgrammeAnchor;
-  if (raw.anchor.kind === "DATE_OF_BIRTH" && hasOnlyFields(raw.anchor, ["kind"])) anchor = { kind: "DATE_OF_BIRTH" };
-  else if (raw.anchor.kind === "FIXED_INSTANT" && hasOnlyFields(raw.anchor, ["kind", "at"]) && canonicalInstant(raw.anchor.at) !== null) anchor = { kind: "FIXED_INSTANT", at: canonicalInstant(raw.anchor.at) as string };
+  if (raw.anchor.kind === "DATE_OF_BIRTH" && conformsToPolicy(raw.anchor, "anchorDateOfBirth")) anchor = { kind: "DATE_OF_BIRTH" };
+  else if (raw.anchor.kind === "FIXED_INSTANT" && conformsToPolicy(raw.anchor, "anchorFixedInstant") && canonicalInstant(raw.anchor.at) !== null) anchor = { kind: "FIXED_INSTANT", at: canonicalInstant(raw.anchor.at) as string };
   else return null;
   const w = raw.window;
-  if (!hasOnlyFields(w, ["opensAfter", "dueAfter", "boundary"])) return null;
+  if (!conformsToPolicy(w, "window")) return null;
   const opensAfter = offsetOf(w.opensAfter);
   const dueAfter = offsetOf(w.dueAfter);
   if (opensAfter === null || dueAfter === null || !oneOf(PROGRAMME_WINDOW_BOUNDARIES, w.boundary) || obligationOffsetSeconds(dueAfter) <= obligationOffsetSeconds(opensAfter)) return null;
-  const r = raw.repeat ?? null;
+  const r = raw.repeat;
   let repeat: ProgrammeSchedule["repeat"] = null;
   if (r !== null) {
-    if (!isRecord(r) || !hasOnlyFields(r, ["interval", "count"])) return null;
+    if (!conformsToPolicy(r, "repeat")) return null;
     const interval = offsetOf(r.interval);
     const count = r.count;
     if (interval === null || interval.amount === 0 || !Number.isSafeInteger(count) || (count as number) < 1 || (count as number) > PROGRAMME_MAX_OCCURRENCES_PER_ACTION) return null;
@@ -383,18 +394,19 @@ function scheduleOf(raw: unknown): ProgrammeSchedule | null {
   return { anchor, window: { opensAfter, dueAfter, boundary: w.boundary }, repeat };
 }
 
+/** An explicit `null` (no product restriction) or a product ref; a missing value is never read as `null`. */
 function productRefOf(raw: unknown): { ok: boolean; value: ProgrammeProductRef | null } {
-  if (raw === undefined || raw === null) return { ok: true, value: null };
-  if (!isRecord(raw) || !hasOnlyFields(raw, ["productId", "productVersion"]) || !isOpaqueRef(raw.productId)) return { ok: false, value: null };
-  const version = nullableRef(raw.productVersion);
+  if (raw === null) return { ok: true, value: null };
+  if (!conformsToPolicy(raw, "productRef") || !isOpaqueRef(raw.productId)) return { ok: false, value: null };
+  const version = explicitNullableRef(raw.productVersion);
   return version.ok ? { ok: true, value: { productId: raw.productId, productVersion: version.value } } : { ok: false, value: null };
 }
 
 function completionOf(raw: unknown, productRef: ProgrammeProductRef | null): ProgrammeCompletionCriteria | null {
-  if (!isRecord(raw) || !hasOnlyFields(raw, ["recordKind", "eventTypes", "matchCriteria"]) || typeof raw.matchCriteria !== "boolean") return null;
-  const recordKind = raw.recordKind ?? null;
+  if (!conformsToPolicy(raw, "completionCriteria") || typeof raw.matchCriteria !== "boolean") return null;
+  const recordKind = raw.recordKind;
   if (recordKind !== null && !oneOf(PROGRAMME_COMPLETION_RECORD_KINDS, recordKind)) return null;
-  const rawTypes = raw.eventTypes ?? null;
+  const rawTypes = raw.eventTypes;
   let eventTypes: VeterinaryEventType[] | null = null;
   if (recordKind === "VETERINARY_EVENT") {
     if (!Array.isArray(rawTypes) || rawTypes.length === 0 || !rawTypes.every((t) => oneOf(VETERINARY_EVENT_TYPES, t)) || new Set(rawTypes).size !== rawTypes.length) return null;
@@ -407,18 +419,16 @@ function completionOf(raw: unknown, productRef: ProgrammeProductRef | null): Pro
   return { recordKind: recordKind as ProgrammeCompletionRecordKind | null, eventTypes, matchCriteria: raw.matchCriteria };
 }
 
-const ACTION_FIELDS = ["actionId", "actionKind", "productRef", "schedule", "completion", "gates", "gateRole"];
-
 function actionsOf(raw: unknown, classification: unknown): ProgrammeAction[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const out: ProgrammeAction[] = [];
   for (const a of raw) {
-    if (!isRecord(a) || !hasOnlyFields(a, ACTION_FIELDS) || !isOpaqueRef(a.actionId) || !isOpaqueRef(a.actionKind) || !oneOf(GATE_ROLES, a.gateRole)) return null;
+    if (!conformsToPolicy(a, "action") || !isOpaqueRef(a.actionId) || !isOpaqueRef(a.actionKind) || !oneOf(GATE_ROLES, a.gateRole)) return null;
     if (classification === "FARMER_INTENT" && a.gateRole === "HARD_GATE") return null;
     const productRef = productRefOf(a.productRef);
     const schedule = scheduleOf(a.schedule);
     const completion = productRef.ok ? completionOf(a.completion, productRef.value) : null;
-    const gates = refListOf(a.gates);
+    const gates = explicitRefList(a.gates);
     if (!productRef.ok || schedule === null || completion === null || gates === null) return null;
     out.push({ actionId: a.actionId, actionKind: a.actionKind, productRef: productRef.value, schedule, completion, gates, gateRole: a.gateRole });
   }
@@ -426,23 +436,13 @@ function actionsOf(raw: unknown, classification: unknown): ProgrammeAction[] | n
   return out.sort((x, y) => compareStrings(x.actionId, y.actionId));
 }
 
-const DEFINITION_FIELDS = [
-  "programmeId",
-  "version",
-  "supersedesVersions",
-  "classification",
-  "declaredBy",
-  "validFrom",
-  "validTo",
-  "applicability",
-  "actions",
-  "productionState",
-  "provenance",
-];
-
-/** `programmeId@version` when both are readable (diagnostics only). */
+/**
+ * The canonical structured identity `["<programmeId>","<version>"]` (JSON)
+ * when both are readable — never joined display text, so distinct
+ * identities can never collapse into one issue ref (R4).
+ */
 export function programmeDisplayRef(raw: unknown): string | null {
-  return isRecord(raw) && isOpaqueRef(raw.programmeId) && isOpaqueRef(raw.version) ? `${raw.programmeId}@${raw.version}` : null;
+  return isRecord(raw) && isOpaqueRef(raw.programmeId) && isOpaqueRef(raw.version) ? versionKey(raw.programmeId, raw.version) : null;
 }
 
 type DefinitionMaterialised = { ok: true; definition: HealthProgrammeDefinition } | { ok: false; ref: string | null; codes: ProgrammeRecordIssueCode[] };
@@ -452,7 +452,7 @@ export function materialiseProgrammeDefinition(raw: unknown): DefinitionMaterial
   if (!isRecord(raw)) return { ok: false, ref: null, codes: ["CATTLE_PROGRAMME_DEFINITION_NOT_OBJECT"] };
   const ref = programmeDisplayRef(raw);
   const codes: ProgrammeRecordIssueCode[] = [];
-  if (!hasOnlyFields(raw, DEFINITION_FIELDS) || !oneOf(PRODUCTION_STATES, raw.productionState)) codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_CONTENT");
+  if (!conformsToPolicy(raw, "definition") || !oneOf(PRODUCTION_STATES, raw.productionState)) codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_CONTENT");
   if (ref === null) codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_IDENTITY");
   if (!isValidAnimalInstant(canonicalField(raw, "provenance", "receivedAt"))) codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_KNOWLEDGE_TIME");
   const provenance = provenanceOf(raw.provenance);
@@ -461,12 +461,12 @@ export function materialiseProgrammeDefinition(raw: unknown): DefinitionMaterial
   if (declaredBy === null) codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_DECLARER");
   const classification = oneOf(PROGRAMME_CLASSIFICATIONS, raw.classification) ? raw.classification : null;
   if (classification === null || (declaredBy !== null && PROGRAMME_CLASSIFICATION_DECLARER[classification] !== declaredBy.role)) codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_CLASSIFICATION");
-  const supersedes = refListOf(raw.supersedesVersions);
+  const supersedes = explicitRefList(raw.supersedesVersions);
   if (supersedes === null) codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_CONTENT");
   else if (supersedes.includes(raw.version as string)) codes.push("CATTLE_PROGRAMME_DEFINITION_SELF_SUPERSESSION");
   const validFrom = canonicalInstant(raw.validFrom);
-  const rawTo = raw.validTo ?? null;
-  const validTo = rawTo === null ? null : (canonicalInstant(rawTo) ?? undefined);
+  // An explicit `null` is open-ended; a missing `validTo` is invalid (the policy above), never open-ended.
+  const validTo = raw.validTo === null ? null : (canonicalInstant(raw.validTo) ?? undefined);
   if (validFrom === null || validTo === undefined || (validTo !== null && compareInstants(validFrom, validTo) >= 0)) codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_PERIOD");
   const applicability = applicabilityOf(raw.applicability);
   if (applicability === null) codes.push("CATTLE_PROGRAMME_DEFINITION_INVALID_APPLICABILITY");
@@ -539,8 +539,6 @@ export function computeProgrammeDefinitionFingerprint(definition: unknown, hash:
   return m.ok ? deepFreezeAnimalValue(definitionFingerprint(m.definition, hash)) : null;
 }
 
-const REVIEW_FIELDS = ["reviewId", "programmeId", "programmeVersion", "definitionFingerprint", "dimension", "decision", "reviewer", "reviewedAt", "supersedes"];
-
 type ReviewMaterialised = { ok: true; review: ProgrammeReviewRecord } | { ok: false; ref: string | null; codes: ProgrammeRecordIssueCode[] };
 
 function materialiseReview(raw: unknown): ReviewMaterialised {
@@ -550,12 +548,12 @@ function materialiseReview(raw: unknown): ReviewMaterialised {
   if (ref === null) codes.push("CATTLE_PROGRAMME_REVIEW_INVALID_IDENTITY");
   const reviewedAt = canonicalInstant(raw.reviewedAt);
   if (reviewedAt === null) codes.push("CATTLE_PROGRAMME_REVIEW_INVALID_KNOWLEDGE_TIME");
-  const fp = fingerprintOf(raw.definitionFingerprint);
+  const fp = conformsToPolicy(raw.definitionFingerprint, "fingerprint") ? fingerprintOf(raw.definitionFingerprint) : null;
   const reviewer = raw.reviewer;
-  const reviewerOk = isRecord(reviewer) && hasOnlyFields(reviewer, ["role", "actor"]) && reviewer.role === "VETERINARIAN" && isOpaqueRef(reviewer.actor);
-  const supersedes = refListOf(raw.supersedes);
+  const reviewerOk = conformsToPolicy(reviewer, "reviewer") && reviewer.role === "VETERINARIAN" && isOpaqueRef(reviewer.actor);
+  const supersedes = explicitRefList(raw.supersedes);
   if (
-    !hasOnlyFields(raw, REVIEW_FIELDS) ||
+    !conformsToPolicy(raw, "review") ||
     !isOpaqueRef(raw.programmeId) ||
     !isOpaqueRef(raw.programmeVersion) ||
     fp === null ||
@@ -611,8 +609,6 @@ export interface ProgrammeAdmission {
 
 export type ProgrammeAdmissionResult = { ok: true; admission: ProgrammeAdmission } | { ok: false; issues: ProgrammeRecordIssue[] };
 
-const versionKey = (programmeId: string, version: string): string => JSON.stringify([programmeId, version]);
-
 const LINK_CODE = {
   CATTLE_RECORD_SUPERSESSION_TARGET_NOT_KNOWN: "SUPERSESSION_TARGET_NOT_KNOWN",
   CATTLE_RECORD_SUPERSESSION_OUT_OF_SCOPE: "SUPERSESSION_OUT_OF_SCOPE",
@@ -651,10 +647,8 @@ export function admitProgrammeDefinitions(raws: readonly unknown[], knowledgeCut
       receivedAt: d.provenance.receivedAt,
     });
   }
-  const display = (recordId: string) => {
-    const [id, version] = JSON.parse(recordId) as [string, string];
-    return `${id}@${version}`;
-  };
+  // The bitemporal record id is already the structured identity.
+  const display = (recordId: string) => recordId;
   const collected = collectBitemporalRecords(envelopes, (e) => canonicalizeValue(e.def));
   if (!collected.ok) {
     for (const i of collected.issues) {

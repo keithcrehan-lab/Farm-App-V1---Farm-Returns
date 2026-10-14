@@ -23,20 +23,30 @@ import {
   equivalentInstantSpellings,
   isDeepFrozen,
 } from "@/tooling/cattle-conformance/cattle-conformance";
-import { createAnimalLedger, type AnimalLedger } from "../animal-ledger";
+import { canonicalizeValue } from "../../assessment-integrity";
+import { ANIMAL_DATA_SOURCE_CATEGORIES, animalInstantKey, createAnimalLedger, isValidAnimalInstant, type AnimalLedger } from "../animal-ledger";
 import { buildRecommendationEvidencePack, type RecommendationEvidencePackInput } from "../evidence-pack";
 import * as cattle from "../index";
 import { computeSourceContentFingerprint, sourceVersionRef } from "../source";
 import { CATALOGUE, LEGAL_SOURCE, approve as approveRule, bindTo, hash, impl, synthRule } from "../test-fixtures";
-import { projectAnimalHealth, type AnimalHealthProjection } from "../health";
+import { computeHealthFingerprint, projectAnimalHealth, semanticHealthRecord, verifyAnimalHealthProjection, type AnimalHealthProjection } from "../health";
+import { addObligationOffset } from "../regulatory/obligation-time";
 import { resolveGroupScope } from "../weights";
 import { computeObligationFingerprint, createObligationImplementationRegistry, evaluateAnimalObligations, obligationTermsMarker, type AnimalObligationEvaluation, type ObligationDefinition } from "../regulatory";
+import { uniqueProgrammeIssues } from "./programme-definition";
+import { PROGRAMME_FIELD_POLICY, conformsToPolicy, type ProgrammeFieldRule, type ProgrammeRecordType } from "./programme-fields";
 import {
+  PROGRAMME_ANCHOR_KINDS,
+  PROGRAMME_CLASSIFICATIONS,
+  PROGRAMME_COMPLETION_RECORD_KINDS,
+  PROGRAMME_DECLARER_ROLES,
+  PROGRAMME_WINDOW_BOUNDARIES,
   PRODUCTION_HEALTH_PROGRAMME_DEFINITIONS,
   computeProgrammeDefinitionFingerprint,
   computeProgrammeFingerprint,
   evaluateHealthProgrammes,
   programmeGateRuleId,
+  programmeOccurrenceId,
   projectProgrammeHardGates,
   verifyProgrammeStatusEvaluation,
   type ProgrammeAnimalStatus,
@@ -64,7 +74,7 @@ const OPEN2 = "2026-05-10T00:00:00.000000000Z";
 const EFFECTIVE = "2026-04-15T00:00:00Z";
 const RECEIVED = "2026-01-01T00:00:00Z";
 const CUTOFF = "2026-12-31T00:00:00Z";
-const occId = (index: number, animal = A, action = ACT, programme = P) => `${programme}|${action}|${animal}|DATE_OF_BIRTH|${ANCHOR}|${index}`;
+const occId = (index: number, animal = A, action = ACT, programme = P) => JSON.stringify([programme, action, animal, "DATE_OF_BIRTH", ANCHOR, index]);
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -172,6 +182,9 @@ function declaration(recordId: string, overrides: Rec = {}): Rec {
   };
 }
 
+/** A veterinarian's declaration (a farmer's alone never completes a veterinary hard-gate action — decision B2). */
+const vetDeclaration = (recordId: string, overrides: Rec = {}) => declaration(recordId, { declaredBy: { role: "VETERINARIAN", actor: "SYNTH-VET-1" }, ...overrides });
+
 // C3 health records and synthetic product data (no real product, period or dose).
 const SOURCE_REF = { sourceId: "SYNTH-SRC-PRODUCT", version: "v1", contentFingerprint: computeSourceContentFingerprint({ text: "synthetic product sheet" }, hash) };
 function product(productId = PRODUCT, overrides: Rec = {}): Rec {
@@ -241,19 +254,20 @@ interface Run {
 const DEF = programme();
 const REVIEWS = [review(DEF)];
 
+/** The raw canonical request a `Run` describes. */
+function requestOf(o: Run = {}): Rec {
+  return {
+    definitions: o.definitions ?? [DEF],
+    reviews: o.reviews ?? REVIEWS,
+    completions: o.completions ?? [],
+    ledgers: o.ledgers ?? [LEDGER_A],
+    health: o.health ?? [healthFor(o.healthRecords ?? [], { effectiveAt: o.effectiveAt ?? EFFECTIVE, knowledgeCutoff: o.knowledgeCutoff ?? CUTOFF, ledger: (o.ledgers ?? [LEDGER_A]).find((l) => l.animalId === A) })],
+    obligations: o.obligations ?? [],
+    query: { effectiveAt: o.effectiveAt ?? EFFECTIVE, knowledgeCutoff: o.knowledgeCutoff ?? CUTOFF },
+  };
+}
 function run(o: Run = {}): ProgrammeEvaluationResult {
-  return evaluateHealthProgrammes(
-    {
-      definitions: o.definitions ?? [DEF],
-      reviews: o.reviews ?? REVIEWS,
-      completions: o.completions ?? [],
-      ledgers: o.ledgers ?? [LEDGER_A],
-      health: o.health ?? [healthFor(o.healthRecords ?? [], { effectiveAt: o.effectiveAt ?? EFFECTIVE, knowledgeCutoff: o.knowledgeCutoff ?? CUTOFF, ledger: (o.ledgers ?? [LEDGER_A]).find((l) => l.animalId === A) })],
-      obligations: o.obligations ?? [],
-      query: { effectiveAt: o.effectiveAt ?? EFFECTIVE, knowledgeCutoff: o.knowledgeCutoff ?? CUTOFF },
-    } as never,
-    hash,
-  );
+  return evaluateHealthProgrammes(requestOf(o) as never, hash);
 }
 function ok(r: ProgrammeEvaluationResult): ProgrammeStatusEvaluation {
   if (!r.ok) throw new Error(JSON.stringify(r.issues));
@@ -410,7 +424,7 @@ describe("C7 test 4 — completion evidence", () => {
     const r = run({ health: [health] });
     expect(states(r)).toEqual(["COMPLETED", "DUE", "UPCOMING"]);
     expect(animalOf(r).records[0].completion?.counted).toEqual([
-      { basis: "DECLARED_CRITERIA", declarationId: null, healthRecordId: "h-1", completedAt: "2026-03-15T00:00:00.000000000Z", timing: "IN_WINDOW" },
+      { basis: "DECLARED_CRITERIA", declaredBy: null, declarationId: null, healthRecordId: "h-1", completedAt: "2026-03-15T00:00:00.000000000Z", timing: "IN_WINDOW" },
     ]);
     expect(animalOf(r).inputs.health?.timeline).toEqual(health.timeline.fingerprint);
   });
@@ -434,10 +448,10 @@ describe("C7 test 4 — completion evidence", () => {
 
   it("explicit C3 administration link completes, including a late completion; before the window it does not", () => {
     const health = healthFor([adm("h-late", "2026-03-25T00:00:00Z"), adm("h-early", "2026-03-05T00:00:00Z")]);
-    const late = run({ health: [health], completions: [declaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-late" } })] });
+    const late = run({ health: [health], completions: [vetDeclaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-late" } })] });
     expect(occurrenceState(late, 0)).toBe("COMPLETED");
     expect(animalOf(late).records[0].completion?.counted[0]).toMatchObject({ basis: "HEALTH_RECORD_LINK", timing: "LATE", healthRecordId: "h-late" });
-    const early = run({ health: [health], completions: [declaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-early" } })] });
+    const early = run({ health: [health], completions: [vetDeclaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-early" } })] });
     expect(occurrenceState(early, 0)).toBe("OVERDUE");
     expect(animalOf(early).records[0].completion?.beforeWindow).toEqual(["d-1"]);
   });
@@ -446,8 +460,8 @@ describe("C7 test 4 — completion evidence", () => {
     const def = programme({ actions: [action({ productRef: null, completion: { recordKind: "VETERINARY_EVENT", eventTypes: ["EXAMINATION"], matchCriteria: false } })] });
     const health = healthFor([vetEvent("h-vet", "2026-03-12T00:00:00Z"), vetEvent("h-visit", "2026-04-12T00:00:00Z", "VISIT")]);
     const completions = [
-      declaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-vet" } }),
-      declaration("d-2", { occurrenceId: occId(1), evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-visit" } }),
+      vetDeclaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-vet" } }),
+      vetDeclaration("d-2", { occurrenceId: occId(1), evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-visit" } }),
     ];
     const r = run({ definitions: [def], reviews: [review(def)], health: [health], completions });
     expect(states(r)).toEqual(["COMPLETED", "DUE", "UPCOMING"]);
@@ -599,7 +613,7 @@ describe("C7 test 6 — supplied blocking gates", () => {
     expect(states(r)).toEqual(["BLOCKED", "BLOCKED", "UPCOMING"]);
     expect(animalOf(r).records[0].gates).toEqual([{ ruleId: OBL_RULE, state: "FAIL", source: "C2_OBLIGATION", blocking: true }]);
     expect(animalOf(r).inputs.obligationRecords).toHaveLength(1);
-    const done = run({ ...gated([OBL_RULE]), obligations: [evaluation], completions: [declaration("d-1")] });
+    const done = run({ ...gated([OBL_RULE]), obligations: [evaluation], completions: [vetDeclaration("d-1")] });
     expect(states(done)).toEqual(["COMPLETED", "BLOCKED", "UPCOMING"]);
   });
 
@@ -665,7 +679,7 @@ describe("C7 test 6 — supplied blocking gates", () => {
 // Synthetic C2 hard-gate obligation (no legal meaning): DOB anchor, window opens +1 DAY, due +10 DAY.
 const OBL = "SYNTH-OBLIGATION-1";
 const OBL_RULE = "SYNTH-RULE-OBLIGATION";
-function obligationEvaluation(effectiveAt = EFFECTIVE, ledger: AnimalLedger = LEDGER_A): AnimalObligationEvaluation {
+function obligationEvaluation(effectiveAt = EFFECTIVE, ledger: AnimalLedger = LEDGER_A, expectOverdue = true): AnimalObligationEvaluation {
   const passImpl = impl(() => "PASS", "SYNTH-IMPL-OBLIGATION");
   const def: ObligationDefinition = {
     obligationId: OBL,
@@ -692,7 +706,7 @@ function obligationEvaluation(effectiveAt = EFFECTIVE, ledger: AnimalLedger = LE
     hash,
   );
   if (!result.ok) throw new Error(JSON.stringify(result));
-  expect(result.evaluation.results[0].state).toBe("OVERDUE");
+  if (expectOverdue) expect(result.evaluation.results[0].state).toBe("OVERDUE");
   return result.evaluation;
 }
 
@@ -1193,5 +1207,441 @@ describe("C7 test 9 — determinism, aliasing, fingerprints, boundary", () => {
       // C3 withdrawal and C2 obligation state are consumed, never re-derived.
       expect(text, f).not.toMatch(/computeAdministrationWithdrawal|foldWithdrawalGate|bindAdministrationProduct|evaluateAnimalObligations|deriveObligationOccurrences/);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C7 closure matrices (human-authorised whole-C7 boundary-policy repair).
+// Class-level and table-driven: each matrix is driven by one policy, one
+// binding rule or one membership rule, never by a named example.
+// ---------------------------------------------------------------------------
+
+type Path = (string | number)[];
+const getAt = (root: unknown, path: Path): unknown => path.reduce<unknown>((v, k) => (v as Record<string | number, unknown>)[k], root);
+function setAt<T>(root: T, path: Path, value: unknown): T {
+  const copy = structuredClone(root);
+  if (path.length === 0) return value as T;
+  const parent = getAt(copy, path.slice(0, -1)) as Record<string | number, unknown>;
+  parent[path[path.length - 1]] = value;
+  return copy;
+}
+function withoutAt<T>(root: T, path: Path): T {
+  const copy = structuredClone(root);
+  delete (getAt(copy, path.slice(0, -1)) as Record<string | number, unknown>)[path[path.length - 1]];
+  return copy;
+}
+
+describe("C7 closure A — one field-presence policy for every C7-owned record", () => {
+  const OPEN_COMPLETION = { recordKind: "MEDICINE_ADMINISTRATION", eventTypes: null, matchCriteria: false };
+  const looseAction = action({ completion: OPEN_COMPLETION });
+  const criteriaDef = programme({ applicability: { kind: "CRITERIA", sex: "FEMALE", bornOnOrAfter: "2026-01-01", bornBefore: "2027-01-01" } });
+  const fixedDef = programme({ actions: [action({ schedule: { ...(action().schedule as Rec), anchor: { kind: "FIXED_INSTANT", at: "2026-03-01T00:00:00Z" } } })] });
+  const groupDef = programme({ applicability: { kind: "GROUP", groupRef: GROUP } });
+  const looseDef = programme({ actions: [looseAction] });
+  const linkDeclaration = declaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-1" } });
+
+  // One entry per C7-owned record type: a valid root, where the record sits in it, and how the root is evaluated.
+  type Entry = { type: ProgrammeRecordType; root: unknown; at: Path; evaluate: (root: unknown) => ProgrammeEvaluationResult };
+  const asDefinition = (root: unknown) => run({ definitions: [root], reviews: [] });
+  const asReview = (root: unknown) => run({ reviews: [root] });
+  const asCompletion = (root: unknown) => run({ completions: [root] });
+  const asRequest = (root: unknown) => evaluateHealthProgrammes(root as never, hash);
+  const entries: Entry[] = [
+    { type: "request", root: requestOf({ health: [] }), at: [], evaluate: asRequest },
+    { type: "query", root: requestOf({ health: [] }), at: ["query"], evaluate: asRequest },
+    { type: "definition", root: DEF, at: [], evaluate: asDefinition },
+    { type: "declarer", root: DEF, at: ["declaredBy"], evaluate: asDefinition },
+    { type: "definitionProvenance", root: DEF, at: ["provenance"], evaluate: asDefinition },
+    { type: "sourceDocument", root: DEF, at: ["provenance", "sourceDocument"], evaluate: asDefinition },
+    { type: "fingerprint", root: DEF, at: ["provenance", "sourceDocument", "contentFingerprint"], evaluate: asDefinition },
+    { type: "applicabilityExplicitSet", root: DEF, at: ["applicability"], evaluate: asDefinition },
+    { type: "applicabilityGroup", root: groupDef, at: ["applicability"], evaluate: asDefinition },
+    { type: "applicabilityCriteria", root: criteriaDef, at: ["applicability"], evaluate: asDefinition },
+    { type: "action", root: looseDef, at: ["actions", 0], evaluate: asDefinition },
+    { type: "productRef", root: looseDef, at: ["actions", 0, "productRef"], evaluate: asDefinition },
+    { type: "schedule", root: DEF, at: ["actions", 0, "schedule"], evaluate: asDefinition },
+    { type: "anchorDateOfBirth", root: DEF, at: ["actions", 0, "schedule", "anchor"], evaluate: asDefinition },
+    { type: "anchorFixedInstant", root: fixedDef, at: ["actions", 0, "schedule", "anchor"], evaluate: asDefinition },
+    { type: "window", root: DEF, at: ["actions", 0, "schedule", "window"], evaluate: asDefinition },
+    { type: "offset", root: DEF, at: ["actions", 0, "schedule", "window", "opensAfter"], evaluate: asDefinition },
+    { type: "repeat", root: DEF, at: ["actions", 0, "schedule", "repeat"], evaluate: asDefinition },
+    { type: "completionCriteria", root: looseDef, at: ["actions", 0, "completion"], evaluate: asDefinition },
+    { type: "review", root: REVIEWS[0], at: [], evaluate: asReview },
+    { type: "reviewer", root: REVIEWS[0], at: ["reviewer"], evaluate: asReview },
+    { type: "completion", root: declaration("d-1"), at: [], evaluate: asCompletion },
+    { type: "completionProvenance", root: declaration("d-1"), at: ["provenance"], evaluate: asCompletion },
+    { type: "evidenceDeclared", root: declaration("d-1"), at: ["evidence"], evaluate: asCompletion },
+    { type: "evidenceHealthRecord", root: linkDeclaration, at: ["evidence"], evaluate: asCompletion },
+  ];
+  // Content rules that make an explicit `null` / `[]` invalid although the field's presence class allows it (documented, not silent).
+  const CONTENT_RULES: Record<string, { null?: string; empty?: string }> = {
+    "completion.evidence": { null: "a COMPLETION requires evidence (only a RETRACTION has none)" },
+  };
+
+  it("covers every policy record type and stays aligned with the canonical fixtures (drift guard)", () => {
+    expect(new Set(entries.map((e) => e.type))).toEqual(new Set(Object.keys(PROGRAMME_FIELD_POLICY)));
+    for (const e of entries) {
+      const record = getAt(e.root, e.at) as Rec;
+      expect(Object.keys(record).sort(), e.type).toEqual(Object.keys(PROGRAMME_FIELD_POLICY[e.type]).sort());
+      expect(conformsToPolicy(record, e.type), e.type).toBe(true);
+    }
+    // The C7 contract publishes the same table.
+    const contracts = readFileSync(join(__dirname, "../../../../docs/farm-return-next/DOMAIN_CONTRACTS.md"), "utf8");
+    const section = contracts.slice(contracts.indexOf("**Field-presence policy"));
+    for (const type of Object.keys(PROGRAMME_FIELD_POLICY)) expect(section, type).toContain(`\`${type}\``);
+  });
+
+  it("missing / undefined / null / [] / valid / malformed / unknown-field behave exactly as each field's policy declares", () => {
+    const failures: string[] = [];
+    for (const e of entries) {
+      expect(e.evaluate(e.root).ok, `${e.type} valid baseline`).toBe(true);
+      const policy = PROGRAMME_FIELD_POLICY[e.type] as Readonly<Record<string, ProgrammeFieldRule>>;
+      const check = (label: string, root: unknown, expected: boolean) => {
+        const r = e.evaluate(root);
+        if (r.ok !== expected) failures.push(`${e.type}.${label}: expected ${expected ? "accepted" : "rejected"}`);
+      };
+      for (const [field, rule] of Object.entries(policy)) {
+        const path = [...e.at, field];
+        const rules = CONTENT_RULES[`${e.type}.${field}`] ?? {};
+        check(`${field} missing`, withoutAt(e.root, path), false);
+        check(`${field} undefined`, setAt(e.root, path, undefined), false);
+        check(`${field} null`, setAt(e.root, path, null), rule === "REQUIRED_NULLABLE" && rules.null === undefined);
+        check(`${field} []`, setAt(e.root, path, []), rule === "REQUIRED_ARRAY" && rules.empty === undefined);
+        check(`${field} malformed object`, setAt(e.root, path, { "SYNTH-MALFORMED": true }), false);
+        check(`${field} malformed number`, setAt(e.root, path, 42.5), false);
+      }
+      check("unknown field", setAt(e.root, [...e.at, "SYNTH-UNKNOWN-FIELD"], null), false);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("explicit null / [] keep their contract meaning; the same meaning is never inferred from a missing property", () => {
+    // gates: [] = explicitly no gates; missing = invalid (F005).
+    expect(run({ definitions: [programme({ actions: [action({ gates: [] })] })], reviews: [] }).ok).toBe(true);
+    const noGates = withoutAt(DEF, ["actions", 0, "gates"]);
+    expect(codes(run({ definitions: [noGates] }))).toEqual(["CATTLE_PROGRAMME_DEFINITION_INVALID_ACTIONS"]);
+    expect(codes(run({ definitions: [setAt(DEF, ["actions", 0, "gates"], null)] }))).toEqual(["CATTLE_PROGRAMME_DEFINITION_INVALID_ACTIONS"]);
+    // productRef: null = no product restriction; missing = invalid (never "any product").
+    expect(codes(run({ definitions: [withoutAt(looseDef, ["actions", 0, "productRef"])] }))).toEqual(["CATTLE_PROGRAMME_DEFINITION_INVALID_ACTIONS"]);
+    // validTo: null = open-ended; missing = invalid (never open-ended).
+    expect(codes(run({ definitions: [withoutAt(DEF, ["validTo"])] }))).toEqual(["CATTLE_PROGRAMME_DEFINITION_INVALID_CONTENT", "CATTLE_PROGRAMME_DEFINITION_INVALID_PERIOD"]);
+    // repeat: null = one occurrence; missing = invalid.
+    expect(codes(run({ definitions: [withoutAt(DEF, ["actions", 0, "schedule", "repeat"])] }))).toEqual(["CATTLE_PROGRAMME_DEFINITION_INVALID_ACTIONS"]);
+    // A missing criterion never widens membership.
+    expect(codes(run({ definitions: [withoutAt(criteriaDef, ["applicability", "bornBefore"])] }))).toEqual(["CATTLE_PROGRAMME_DEFINITION_INVALID_APPLICABILITY"]);
+    // supersedes lists: [] = supersedes none; missing = invalid.
+    expect(codes(run({ definitions: [withoutAt(DEF, ["supersedesVersions"])] }))).toEqual(["CATTLE_PROGRAMME_DEFINITION_INVALID_CONTENT"]);
+    expect(codes(run({ reviews: [withoutAt(REVIEWS[0], ["supersedes"])] }))).toEqual(["CATTLE_PROGRAMME_REVIEW_INVALID_CONTENT"]);
+    expect(codes(run({ completions: [withoutAt(declaration("d-1"), ["supersedes"])] }))).toEqual(["CATTLE_PROGRAMME_COMPLETION_INVALID_CONTENT"]);
+    // The review fingerprint is computed only for a fully present definition.
+    expect(computeProgrammeDefinitionFingerprint(noGates, hash)).toBeNull();
+  });
+});
+
+describe("C7 closure B — every consumed predecessor record proves it belongs to this evaluation", () => {
+  /** Re-seals a C3 projection exactly as C3 fingerprints it (adversary model: internally consistent, foreign content). */
+  function resealHealth(p: AnimalHealthProjection): AnimalHealthProjection {
+    const context = { animalId: p.animalId, effectiveAt: p.effectiveAt, knowledgeCutoff: p.knowledgeCutoff, snapshotFingerprint: p.snapshotFingerprint };
+    const key = (t: string | null) => (t === null ? null : animalInstantKey(t));
+    const entry = <E extends { occurredAt: string | null; record: Parameters<typeof semanticHealthRecord>[0] }>(e: E) => ({ ...e, occurredAt: key(e.occurredAt), record: semanticHealthRecord(e.record) });
+    const { fingerprint: _t, ...timeline } = p.timeline;
+    const { fingerprint: _l, ...ledger } = p.medicineLedger;
+    const { fingerprint: _g, ...gate } = p.withdrawalGate;
+    void [_t, _l, _g];
+    const timelineFp = computeHealthFingerprint("CATTLE_HEALTH_TIMELINE", { ...context, knownRecordIds: p.knownRecordIds, ...timeline, entries: timeline.entries.map(entry) }, hash);
+    const ledgerFp = computeHealthFingerprint("CATTLE_MEDICINE_LEDGER", { ...context, foodProducts: p.foodProducts, entries: ledger.entries.map(entry), productVersionsUsed: ledger.productVersionsUsed }, hash);
+    const gateFp = computeHealthFingerprint("CATTLE_WITHDRAWAL_GATE", { ...context, foodProducts: p.foodProducts, medicineLedgerFingerprint: ledgerFp, entries: gate.entries }, hash);
+    return {
+      ...p,
+      timeline: { ...timeline, fingerprint: timelineFp },
+      medicineLedger: { ...ledger, fingerprint: ledgerFp },
+      withdrawalGate: { ...gate, medicineLedgerFingerprint: ledgerFp, fingerprint: gateFp },
+    };
+  }
+
+  it("C3: an outer projection for this animal never vouches for inner records of another animal, time or record (matrix)", () => {
+    const genuine = healthFor([adm("h-1", "2026-03-15T00:00:00Z")]);
+    // Control: the re-seal is faithful (an unmodified re-sealed projection is accepted).
+    expect(verifyAnimalHealthProjection(resealHealth(structuredClone(genuine)), hash).valid).toBe(true);
+    expect(run({ health: [resealHealth(structuredClone(genuine))] }).ok).toBe(true);
+    type Mutable = { timeline: { entries: Rec[]; notYetOccurredRecordIds: string[] }; medicineLedger: { entries: Rec[] } };
+    const variant = (change: (p: Mutable) => void) => {
+      const p = structuredClone(genuine) as unknown as Mutable;
+      change(p);
+      return resealHealth(p as unknown as AnimalHealthProjection);
+    };
+    const record = (e: Rec) => e.record as Rec;
+    const cases: [string, AnimalHealthProjection][] = [
+      ["timeline record of another animal", variant((p) => (record(p.timeline.entries[0]).animalId = B))],
+      ["ledger record of another animal", variant((p) => (record(p.medicineLedger.entries[0]).animalId = B))],
+      ["timeline entry wraps another record id", variant((p) => (record(p.timeline.entries[0]).recordId = "h-other"))],
+      ["ledger entry wraps another record id", variant((p) => (record(p.medicineLedger.entries[0]).recordId = "h-other"))],
+      ["record unknown to the projection", variant((p) => { p.timeline.entries[0].recordId = "h-foreign"; record(p.timeline.entries[0]).recordId = "h-foreign"; })],
+      ["record received after the cutoff", variant((p) => (record(p.timeline.entries[0]).provenance = { ...(record(p.timeline.entries[0]).provenance as Rec), receivedAt: "2027-06-01T00:00:00Z" }))],
+      ["entry valid time differs from its record", variant((p) => (p.timeline.entries[0].occurredAt = "2026-03-16T00:00:00Z"))],
+      ["timeline record after effectiveAt", variant((p) => { p.timeline.entries[0].occurredAt = "2026-05-01T00:00:00Z"; record(p.timeline.entries[0]).occurredAt = "2026-05-01T00:00:00Z"; })],
+      ["entry kind differs from its record", variant((p) => (p.timeline.entries[0].kind = "VETERINARY_EVENT"))],
+      ["duplicate timeline entry", variant((p) => p.timeline.entries.push(structuredClone(p.timeline.entries[0])))],
+      ["duplicate ledger entry", variant((p) => p.medicineLedger.entries.push(structuredClone(p.medicineLedger.entries[0])))],
+      ["not-yet-occurred id unknown", variant((p) => p.timeline.notYetOccurredRecordIds.push("h-unknown"))],
+    ];
+    for (const [label, projection] of cases) {
+      const r = run({ health: [projection] });
+      expect(codes(r), label).toEqual(["CATTLE_PROGRAMME_HEALTH_PROJECTION_FOREIGN_RECORD"]);
+    }
+  });
+
+  it("C2: an envelope for this animal never vouches for records of another animal, snapshot, time, version or identity (matrix)", () => {
+    const genuine = obligationEvaluation();
+    const reseal = (r: AnimalObligationEvaluation["results"][number], change: Rec) => {
+      const { fingerprint: _drop, ...content } = { ...r, ...change };
+      void _drop;
+      return { ...content, fingerprint: computeObligationFingerprint("CATTLE_OBLIGATION_STATE", content, hash) } as typeof r;
+    };
+    const other = obligationEvaluation(EFFECTIVE, ledgerOf(A, [dobOf(A), sexOf(A, "MALE")]));
+    const [record] = genuine.results;
+    const cases: [string, AnimalObligationEvaluation["results"]][] = [
+      ["animal", [reseal(record, { animalId: B })]],
+      ["snapshot", [reseal(record, { snapshotFingerprint: other.snapshotFingerprint })]],
+      ["effectiveAt", [reseal(record, { effectiveAt: "2026-04-16T00:00:00.000000000Z" })]],
+      ["knowledgeCutoff", [reseal(record, { knowledgeCutoff: "2026-12-30T00:00:00.000000000Z" })]],
+      ["payload version", [reseal(record, { obligationPayloadVersion: genuine.obligationPayloadVersion + 1 })]],
+      ["duplicate record identity", [record, record]],
+    ];
+    const mismatch = ["CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD", "CATTLE_PROGRAMME_OBLIGATIONS_INVALID"];
+    for (const [label, results] of cases) {
+      const r = run({ obligations: [{ ...genuine, results }] });
+      expect(r.ok, label).toBe(false);
+      for (const code of codes(r)) expect(mismatch, label).toContain(code);
+    }
+    // C7's own check (not only C2's) rejects the snapshot, payload-version and identity cases.
+    for (const label of ["snapshot", "payload version", "duplicate record identity"]) {
+      const results = cases.find(([l]) => l === label)![1];
+      expect(codes(run({ obligations: [{ ...genuine, results }] })), label).toEqual(["CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD"]);
+    }
+  });
+});
+
+describe("C7 closure C — result dependency set equals result binding set", () => {
+  const withdrawalRule = cattle.withdrawalGateRuleId(MEAT);
+  const def = programme({ actions: [action({ gates: [OBL_RULE, withdrawalRule] })] });
+  const baseLedger = [dobOf(A), sexOf(A), groupOf(A)];
+  const baseHealth = [adm("h-1", "2026-04-11T00:00:00Z")];
+  const baseCompletions = [vetDeclaration("d-1"), declaration("d-2", { occurrenceId: occId(1), evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-1" } })];
+  const baseObligation = obligationEvaluation();
+  type Parts = { definition: Rec; review: Rec | null; completions: Rec[]; ledger: Rec[]; health: Rec[]; obligationRecord: Rec };
+  const base: Parts = { definition: def, review: null, completions: baseCompletions, ledger: baseLedger, health: baseHealth, obligationRecord: baseObligation.results[0] as unknown as Rec };
+
+  /** Builds the request from canonical parts; predecessor outputs are regenerated by C1 / C3 / C2 (or re-sealed for a C2 record). `null` = rejected upstream. */
+  function evaluate(parts: Parts): ProgrammeEvaluationResult | null {
+    try {
+      const ledger = createAnimalLedger(A, parts.ledger);
+      if (!ledger.ok) return null;
+      const health = healthFor(parts.health, { ledger: ledger.ledger });
+      const sameLedger = parts.ledger === base.ledger;
+      const obligation = sameLedger ? baseObligation : obligationEvaluation(EFFECTIVE, ledger.ledger, false);
+      let results = obligation.results;
+      if (parts.obligationRecord !== base.obligationRecord) {
+        const { fingerprint: _drop, ...content } = parts.obligationRecord;
+        void _drop;
+        results = [{ ...content, fingerprint: computeObligationFingerprint("CATTLE_OBLIGATION_STATE", content, hash) } as unknown as (typeof results)[number]];
+      }
+      const bound = parts.review ?? (computeProgrammeDefinitionFingerprint(parts.definition, hash) === null ? REVIEWS[0] : review(parts.definition));
+      return run({ definitions: [parts.definition], reviews: [bound], completions: parts.completions, ledgers: [ledger.ledger], health: [health], obligations: [{ ...obligation, results }] });
+    } catch {
+      return null;
+    }
+  }
+  const resultOf = (r: ProgrammeEvaluationResult) => {
+    const e = ok(r);
+    const g = projectProgrammeHardGates(e, A, hash);
+    if (!g.ok) throw new Error(JSON.stringify(g.issues));
+    // No animal status (e.g. the programme is no longer in force) is itself a distinct result.
+    const animal = e.programmes[0]?.animals.find((a) => a.animalId === A);
+    return { evaluation: e.fingerprint.digest, animal: animal?.fingerprint.digest ?? "NO_ANIMAL_STATUS", gates: canonicalizeValue(g.gates.ruleEvaluations) };
+  };
+
+  type Leaf = { path: Path; value: unknown };
+  const leavesOf = (v: unknown, path: Path = []): Leaf[] =>
+    Array.isArray(v)
+      ? v.length === 0
+        ? [{ path, value: v }]
+        : v.flatMap((x, i) => leavesOf(x, [...path, i]))
+      : v !== null && typeof v === "object"
+        ? Object.entries(v).flatMap(([k, x]) => leavesOf(x, [...path, k]))
+        : [{ path, value: v }];
+  const ENUM_GROUPS: readonly (readonly string[])[] = [
+    PROGRAMME_CLASSIFICATIONS,
+    PROGRAMME_DECLARER_ROLES,
+    PROGRAMME_ANCHOR_KINDS,
+    PROGRAMME_WINDOW_BOUNDARIES,
+    PROGRAMME_COMPLETION_RECORD_KINDS,
+    ANIMAL_DATA_SOURCE_CATEGORIES,
+    ["HARD_GATE", "ADVISORY"],
+    ["RESEARCH", "DRAFT", "VALIDATED", "APPROVED", "PRODUCTION", "SUPERSEDED", "BLOCKED"],
+    ["APPROVED", "REJECTED"],
+    ["COMPLETION", "RETRACTION"],
+    ["DECLARED", "HEALTH_RECORD"],
+    ["DAY", "HOUR"],
+    ["FEMALE", "MALE"],
+  ];
+  /** Material, plausibly valid alternatives for one leaf (never an equivalent spelling). */
+  function candidates(value: unknown): unknown[] {
+    if (Array.isArray(value)) return [["SYNTH-MUT"]];
+    if (typeof value === "boolean") return [!value];
+    if (typeof value === "number") return [value + 1, value * 2, value - 1];
+    if (value === null) return ["SYNTH-MUT", "2026-02-01T00:00:00Z", "2026-02-01"];
+    const s = String(value);
+    if (isValidAnimalInstant(value)) return [addObligationOffset(value, { amount: 1, unit: "HOUR" })];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return [s === "2026-03-02" ? "2026-03-03" : "2026-03-02"];
+    if (/^[0-9a-f]{64}$/.test(s)) return [`${s[0] === "0" ? "1" : "0"}${s.slice(1)}`];
+    if (/^[A-Z][A-Z_]*$/.test(s)) return [...new Set(ENUM_GROUPS.filter((g) => g.includes(s)).flat())].filter((x) => x !== s).concat(`${s}_MUT`);
+    return [`${s}-MUT`];
+  }
+  /**
+   * Documented NON-DEPENDENCIES: canonical input leaves that do not affect
+   * the C7 results, each with its reason. Any other leaf whose material
+   * change is accepted must change every C7 result fingerprint.
+   */
+  const NON_DEPENDENCIES: { part: keyof Parts; path: RegExp; reason: string }[] = [];
+
+  it("every material change to a dependency leaf changes the evaluation, animal-status and hard-gate results (or fails closed)", () => {
+    const before = resultOf(evaluate(base)!);
+    const unbound: string[] = [];
+    const counts = { changed: 0, rejected: 0, excluded: 0 };
+    const roots: [keyof Parts, unknown][] = [
+      ["definition", base.definition],
+      ["review", review(def)],
+      ["completions", base.completions],
+      ["ledger", base.ledger],
+      ["health", base.health],
+      ["obligationRecord", base.obligationRecord],
+    ];
+    for (const [part, root] of roots) {
+      for (const leaf of leavesOf(root)) {
+        if (part === "obligationRecord" && leaf.path[0] === "fingerprint") continue; // re-sealed, not an input
+        const excluded = NON_DEPENDENCIES.find((n) => n.part === part && n.path.test(leaf.path.join(".")));
+        let accepted = 0;
+        for (const candidate of candidates(leaf.value)) {
+          const parts = { ...base, [part]: setAt(root, leaf.path, candidate) };
+          const r = evaluate(parts);
+          if (r === null || !r.ok) continue;
+          accepted++;
+          const after = resultOf(r);
+          const label = `${part}.${leaf.path.join(".")} → ${JSON.stringify(candidate)}`;
+          const changed = after.evaluation !== before.evaluation && after.animal !== before.animal && after.gates !== before.gates;
+          if (excluded ? after.evaluation !== before.evaluation : !changed) unbound.push(label);
+        }
+        if (excluded) counts.excluded++;
+        else if (accepted === 0) counts.rejected++;
+        else counts.changed++;
+      }
+    }
+    expect(unbound).toEqual([]);
+    // The guard exercises the binding, not only rejection.
+    expect(counts.changed).toBeGreaterThan(140);
+  }, 120_000);
+
+  it("equivalent instant spellings and input order never change a result fingerprint", () => {
+    const before = resultOf(evaluate(base)!);
+    const respell = (root: unknown) =>
+      leavesOf(root)
+        .filter((l) => typeof l.value === "string" && isValidAnimalInstant(l.value))
+        .reduce((acc, l) => setAt(acc, l.path, equivalentInstantSpellings(l.value as string).find((x) => x !== l.value)), root);
+    expect(resultOf(evaluate({ ...base, definition: respell(base.definition) as Rec })!)).toEqual(before);
+    expect(resultOf(evaluate({ ...base, review: respell(review(def)) as Rec })!)).toEqual(before);
+    expect(resultOf(evaluate({ ...base, completions: respell(base.completions) as Rec[] })!)).toEqual(before);
+    expect(resultOf(evaluate({ ...base, health: respell(base.health) as Rec[] })!)).toEqual(before);
+    expect(resultOf(evaluate({ ...base, completions: [...base.completions].reverse() })!)).toEqual(before);
+    expect(resultOf(evaluate({ ...base, ledger: [...base.ledger].reverse() })!)).toEqual(before);
+    // Not covered: C1 ledger instant spellings — the frozen C1 snapshot fingerprint is representation-sensitive (FINGERPRINTS.md).
+  });
+});
+
+describe("C7 closure D — ordering independence over every authoritative input array", () => {
+  it("reversing any request array (two animals, two programmes) leaves the evaluation identical", () => {
+    const farmer = farmerProgramme({ applicability: { kind: "EXPLICIT_SET", animalIds: [A, B] } });
+    const bHealth = healthFor([], { ledger: LEDGER_B });
+    const request = requestOf({
+      definitions: [DEF, farmer],
+      reviews: [...REVIEWS, review(farmer)],
+      completions: [vetDeclaration("d-1"), declaration("d-2", { occurrenceId: occId(1) }), declaration("d-3", { animalId: B, programmeId: "SYNTH-PROGRAMME-FARMER", occurrenceId: occId(0, B, ACT, "SYNTH-PROGRAMME-FARMER") })],
+      ledgers: [LEDGER_A, LEDGER_B],
+      health: [healthFor([adm("h-1", "2026-03-15T00:00:00Z")]), bHealth],
+      obligations: [obligationEvaluation(), obligationEvaluation(EFFECTIVE, LEDGER_B, false)],
+    });
+    const baseline = evaluateHealthProgrammes(request as never, hash);
+    expect(baseline.ok).toBe(true);
+    for (const key of ["definitions", "reviews", "completions", "ledgers", "health", "obligations"]) {
+      const reordered = { ...request, [key]: [...(request[key] as unknown[])].reverse() };
+      expect(evaluateHealthProgrammes(reordered as never, hash), key).toEqual(baseline);
+    }
+  });
+});
+
+describe("C7 closure E — identifier collision matrix", () => {
+  const adversarial: [string, string][] = [
+    ["SYNTH-P|SYNTH-Q", "SYNTH-R"],
+    ["SYNTH-P", "SYNTH-Q|SYNTH-R"],
+    ["SYNTH-P@SYNTH-Q", "SYNTH-R"],
+    ["SYNTH-P", "SYNTH-Q@SYNTH-R"],
+    ["SYNTH-P.SYNTH-Q", "SYNTH-R"],
+    ["SYNTH-P", "SYNTH-Q.SYNTH-R"],
+    ['SYNTH-P","SYNTH-Q', "SYNTH-R"],
+    ["SYNTH-P", 'SYNTH-Q","SYNTH-R'],
+  ];
+  it("occurrence ids, gate rule ids, issue refs and gate missing-input refs never collapse distinct identities", () => {
+    const occurrenceIds = adversarial.map(([p, a]) => programmeOccurrenceId(p, a, A, "DATE_OF_BIRTH", ANCHOR, 0));
+    expect(new Set(occurrenceIds).size).toBe(adversarial.length);
+    expect(new Set(adversarial.map(([p, a]) => programmeOccurrenceId(p, "SYNTH-ACT", a, "FIXED_INSTANT", ANCHOR, 1))).size).toBe(adversarial.length);
+    expect(new Set(adversarial.map(([p, a]) => programmeGateRuleId(p, a))).size).toBe(adversarial.length);
+    // Issue refs: invalid definitions with colliding display text stay distinct issues.
+    const invalid = adversarial.map(([p, v]) => programme({ programmeId: p, version: v, actions: [] }));
+    const r = run({ definitions: invalid, reviews: [] });
+    expect(new Set(r.ok ? [] : r.issues.map((i) => i.ref)).size).toBe(adversarial.length);
+    expect(uniqueProgrammeIssues([{ code: "X", ref: "a\u0000b" }, { code: "b\u0000X", ref: "a" }])).toHaveLength(2);
+  });
+
+  it("programmes whose ids collide under joined text keep separate occurrences, declarations and gates through the C0 pack", () => {
+    const defs = adversarial.slice(0, 2).map(([p, a]) => programme({ programmeId: p, actions: [action({ actionId: a })] }));
+    const completions = adversarial.slice(0, 2).map(([p, a], i) => vetDeclaration(`d-${i}`, { programmeId: p, actionId: a, occurrenceId: programmeOccurrenceId(p, a, A, "DATE_OF_BIRTH", ANCHOR, 0) }));
+    const e = ok(run({ definitions: defs, reviews: defs.map((d) => review(d)), completions: [completions[0]] }));
+    const [first, second] = adversarial.slice(0, 2).map(([p]) => e.programmes.find((x) => x.programmeId === p)!.animals[0]);
+    expect(first.records[0].state).toBe("COMPLETED");
+    expect(second.records[0].state).toBe("OVERDUE");
+    expect(second.unmatchedDeclarationIds).toEqual([]);
+    const g = projectProgrammeHardGates(e, A, hash);
+    if (!g.ok) throw new Error(JSON.stringify(g.issues));
+    const missing = g.gates.ruleEvaluations.flatMap((x) => x.missingInputs);
+    expect(new Set(missing).size).toBe(missing.length);
+    for (const x of g.gates.ruleEvaluations) expect(x.missingInputs.every((m) => m === x.requestedRuleId)).toBe(true);
+  });
+});
+
+describe("C7 closure F — veterinary completion safety (decision B2)", () => {
+  const gateState = (r: ProgrammeEvaluationResult) => {
+    const g = projectProgrammeHardGates(ok(r), A, hash);
+    if (!g.ok) throw new Error(JSON.stringify(g.issues));
+    return g.gates.ruleEvaluations[0].state;
+  };
+  it("a FARMER declaration alone never makes a VETERINARY_PROGRAMME HARD_GATE pass; it is retained as evidence", () => {
+    const farmerOnly = run({ completions: [declaration("d-1")] });
+    expect(occurrenceState(farmerOnly, 0)).toBe("REVIEW_REQUIRED");
+    expect(animalOf(farmerOnly).records[0].reasonCodes).toEqual(["CATTLE_PROGRAMME_FARMER_DECLARATION_NEEDS_VETERINARY_CONFIRMATION"]);
+    expect(animalOf(farmerOnly).records[0].completion?.counted).toEqual([expect.objectContaining({ basis: "DECLARATION", declaredBy: "FARMER", declarationId: "d-1" })]);
+    expect(gateState(farmerOnly)).not.toBe("PASS");
+    const farmerLink = run({ health: [healthFor([adm("h-1", "2026-03-15T00:00:00Z")])], definitions: [programme({ actions: [action({ completion: { recordKind: "MEDICINE_ADMINISTRATION", eventTypes: null, matchCriteria: false } })] })], reviews: [review(programme({ actions: [action({ completion: { recordKind: "MEDICINE_ADMINISTRATION", eventTypes: null, matchCriteria: false } })] }))], completions: [declaration("d-1", { evidence: { kind: "HEALTH_RECORD", healthRecordId: "h-1" } })] });
+    expect(occurrenceState(farmerLink, 0)).toBe("REVIEW_REQUIRED");
+    expect(gateState(farmerLink)).not.toBe("PASS");
+  });
+  it("veterinarian declarations, C3 records matching declared criteria, advisory actions and farmer programmes are unaffected", () => {
+    expect(occurrenceState(run({ completions: [vetDeclaration("d-1")] }), 0)).toBe("COMPLETED");
+    expect(occurrenceState(run({ completions: [declaration("d-1"), vetDeclaration("d-2")] }), 0)).toBe("COMPLETED");
+    expect(occurrenceState(run({ completions: [declaration("d-1")], health: [healthFor([adm("h-1", "2026-03-15T00:00:00Z")])] }), 0)).toBe("COMPLETED");
+    const advisory = programme({ actions: [action({ gateRole: "ADVISORY" })] });
+    expect(occurrenceState(run({ definitions: [advisory], reviews: [review(advisory)], completions: [declaration("d-1")] }), 0)).toBe("COMPLETED");
+    const farmer = farmerProgramme();
+    const r = run({ definitions: [farmer], reviews: [], completions: [declaration("d-1", { programmeId: "SYNTH-PROGRAMME-FARMER", occurrenceId: occId(0, A, ACT, "SYNTH-PROGRAMME-FARMER") })] });
+    expect(states(r, A, "SYNTH-PROGRAMME-FARMER")[0]).toBe("COMPLETED");
   });
 });

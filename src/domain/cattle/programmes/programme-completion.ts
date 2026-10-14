@@ -26,15 +26,9 @@ import { canonicalizeValue } from "../../assessment-integrity";
 import { ANIMAL_DATA_SOURCE_CATEGORIES, isOpaqueRef, type AnimalDataSourceCategory } from "../animal-ledger";
 import { compareStrings, sortedUnique } from "../integrity";
 import { collectBitemporalRecords, resolveBitemporalRecords, type BitemporalRecord } from "../regulatory/bitemporal-records";
-import { hasOnlyFields, isRecord, nullableRef, oneOf, rawIdentityKey } from "../health/health-input";
-import {
-  PROGRAMME_DECLARER_ROLES,
-  canonicalInstant,
-  receivedAfter,
-  refListOf,
-  uniqueProgrammeIssues,
-  type ProgrammeDeclarer,
-} from "./programme-definition";
+import { isRecord, oneOf, rawIdentityKey } from "../health/health-input";
+import { canonicalInstant, declarerOf, receivedAfter, uniqueProgrammeIssues, type ProgrammeDeclarer } from "./programme-definition";
+import { conformsToPolicy, explicitNullableRef, explicitRefList } from "./programme-fields";
 
 export type ProgrammeCompletionEvidence = { kind: "DECLARED"; completedAt: string } | { kind: "HEALTH_RECORD"; healthRecordId: string };
 
@@ -82,12 +76,10 @@ export interface CompletionIssue {
   ref: string | null;
 }
 
-const FIELDS = ["recordId", "animalId", "programmeId", "programmeVersion", "actionId", "occurrenceId", "kind", "evidence", "declaredBy", "provenance", "supersedes"];
-
 function provenanceOf(raw: unknown): ProgrammeCompletionProvenance | null {
-  if (!isRecord(raw) || !hasOnlyFields(raw, ["sourceCategory", "sourceSystem", "sourceRecordRef", "receivedAt"])) return null;
-  const system = nullableRef(raw.sourceSystem);
-  const recordRef = nullableRef(raw.sourceRecordRef);
+  if (!conformsToPolicy(raw, "completionProvenance")) return null;
+  const system = explicitNullableRef(raw.sourceSystem);
+  const recordRef = explicitNullableRef(raw.sourceRecordRef);
   const receivedAt = canonicalInstant(raw.receivedAt);
   if (!oneOf(ANIMAL_DATA_SOURCE_CATEGORIES, raw.sourceCategory) || !system.ok || !recordRef.ok || receivedAt === null) return null;
   return { sourceCategory: raw.sourceCategory, sourceSystem: system.value, sourceRecordRef: recordRef.value, receivedAt };
@@ -95,11 +87,11 @@ function provenanceOf(raw: unknown): ProgrammeCompletionProvenance | null {
 
 function evidenceOf(raw: unknown): ProgrammeCompletionEvidence | null {
   if (!isRecord(raw)) return null;
-  if (raw.kind === "DECLARED" && hasOnlyFields(raw, ["kind", "completedAt"])) {
+  if (raw.kind === "DECLARED" && conformsToPolicy(raw, "evidenceDeclared")) {
     const completedAt = canonicalInstant(raw.completedAt);
     return completedAt === null ? null : { kind: "DECLARED", completedAt };
   }
-  if (raw.kind === "HEALTH_RECORD" && hasOnlyFields(raw, ["kind", "healthRecordId"]) && isOpaqueRef(raw.healthRecordId)) return { kind: "HEALTH_RECORD", healthRecordId: raw.healthRecordId };
+  if (raw.kind === "HEALTH_RECORD" && conformsToPolicy(raw, "evidenceHealthRecord") && isOpaqueRef(raw.healthRecordId)) return { kind: "HEALTH_RECORD", healthRecordId: raw.healthRecordId };
   return null;
 }
 
@@ -113,17 +105,14 @@ function materialiseCompletion(raw: unknown): Materialised {
   if (canonicalInstant(isRecord(raw.provenance) ? raw.provenance.receivedAt : undefined) === null) codes.push("CATTLE_PROGRAMME_COMPLETION_INVALID_KNOWLEDGE_TIME");
   const provenance = provenanceOf(raw.provenance);
   if (provenance === null) codes.push("CATTLE_PROGRAMME_COMPLETION_INVALID_PROVENANCE");
-  const declarer = raw.declaredBy;
-  const declaredBy: ProgrammeDeclarer | null =
-    isRecord(declarer) && hasOnlyFields(declarer, ["role", "actor"]) && oneOf(PROGRAMME_DECLARER_ROLES, declarer.role) && isOpaqueRef(declarer.actor)
-      ? { role: declarer.role, actor: declarer.actor }
-      : null;
-  const supersedes = refListOf(raw.supersedes);
+  const declaredBy = declarerOf(raw.declaredBy);
+  const supersedes = explicitRefList(raw.supersedes);
   const kind = raw.kind === "COMPLETION" || raw.kind === "RETRACTION" ? raw.kind : null;
-  const rawEvidence = raw.evidence ?? null;
-  const evidence = rawEvidence === null ? null : evidenceOf(rawEvidence);
+  // An explicit `null` (RETRACTION) only; a missing `evidence` fails the policy below.
+  const rawEvidence = raw.evidence;
+  const evidence = rawEvidence === null || rawEvidence === undefined ? null : evidenceOf(rawEvidence);
   const idsOk = [raw.animalId, raw.programmeId, raw.programmeVersion, raw.actionId, raw.occurrenceId].every(isOpaqueRef);
-  if (!hasOnlyFields(raw, FIELDS) || !idsOk || declaredBy === null || supersedes === null || kind === null || (rawEvidence !== null && evidence === null)) {
+  if (!conformsToPolicy(raw, "completion") || !idsOk || declaredBy === null || supersedes === null || kind === null || (rawEvidence !== null && evidence === null)) {
     codes.push("CATTLE_PROGRAMME_COMPLETION_INVALID_CONTENT");
   } else if ((kind === "COMPLETION") !== (evidence !== null)) {
     codes.push("CATTLE_PROGRAMME_COMPLETION_INVALID_CONTENT");

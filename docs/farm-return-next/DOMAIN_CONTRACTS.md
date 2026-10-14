@@ -4193,10 +4193,46 @@ binding and C2 obligation state are never re-derived. Pack compatibility via C0
 |---|---|
 | `programme-definition.ts` | `HealthProgrammeDefinition` (`programmeId`, `version`, `supersedesVersions`, `classification` ∈ `VETERINARY_PROGRAMME` / `FARMER_INTENT` only, `declaredBy {role VETERINARIAN \| FARMER, actor}` — classification ⇔ role, `validFrom`/`validTo` (inclusive/exclusive), `applicability` `EXPLICIT_SET {animalIds}` \| `GROUP {groupRef}` \| `CRITERIA {sex, bornOnOrAfter, bornBefore}` (≥ 1 criterion), `actions` (`actionId`, opaque `actionKind`, `productRef {productId, productVersion\|null}\|null`, `schedule {anchor FIXED_INSTANT{at} \| DATE_OF_BIRTH, window {opensAfter, dueAfter, boundary}, repeat {interval, count}\|null}`, `completion {recordKind MEDICINE_ADMINISTRATION \| VETERINARY_EVENT \| null, eventTypes, matchCriteria}`, `gates` (requested hard-gate rule ids), `gateRole` — never HARD_GATE for FARMER_INTENT), C0 `productionState`, `provenance {sourceCategory, sourceSystem, sourceRecordRef, receivedAt, sourceDocument: SourceVersionRef\|null}`); `ProgrammeReviewRecord` (`reviewId`, programme id + version, `definitionFingerprint`, dimension `VETERINARY`, decision, reviewer role `VETERINARIAN`, `reviewedAt` knowledge time, `supersedes`); `computeProgrammeDefinitionFingerprint`; `programmeInformationClass` (veterinary ⇒ RULE, farmer ⇒ INTENT); `PRODUCTION_HEALTH_PROGRAMME_DEFINITIONS` (empty); `PROGRAMME_MAX_OCCURRENCES_PER_ACTION` (1000 — an engine resource bound, not a veterinary value; a larger count is rejected, never truncated). Admission and materialisation are module-internal |
 | `programme-completion.ts` | `ProgrammeCompletionRecord` (`recordId`, animal, programme id + exact `programmeVersion`, `actionId`, exact `occurrenceId`, `COMPLETION` with `evidence` `{DECLARED, completedAt}` \| `{HEALTH_RECORD, healthRecordId}`, or `RETRACTION` (supersedes ≥ 1, no evidence), `declaredBy` veterinarian / farmer, `provenance` with `receivedAt`, `supersedes` within one animal / programme / action / occurrence). Types only in the barrel |
-| `programme-schedule.ts` | `ProgrammeOccurrence`, `programmeOccurrenceId` (`<programmeId>\|<actionId>\|<animalId>\|<anchorKind>\|<canonical anchor>\|<n>`, version-independent, C2 pattern); derivation is module-internal |
+| `programme-schedule.ts` | `ProgrammeOccurrence`, `programmeOccurrenceId` — the canonical structured identity `["<programmeId>","<actionId>","<animalId>","<anchorKind>","<canonical anchor>",<n>]` (JSON; human decision B3: unambiguous whatever characters the opaque components contain), version-independent; derivation is module-internal |
+| `programme-fields.ts` | `PROGRAMME_FIELD_POLICY` (the one field-presence policy, below), `ProgrammeFieldRule`, `ProgrammeRecordType`, `conformsToPolicy`; `explicitNullableRef` / `explicitRefList` (C7 wrappers: a missing value is never read as `null` / `[]`; frozen C3 readers unchanged). Module-internal (not in the barrel) |
 | `programme-engine.ts` | `evaluateHealthProgrammes(request, hash)` → `ProgrammeStatusEvaluation`; `verifyProgrammeStatusEvaluation`; `PROGRAMME_OCCURRENCE_STATES`, `PROGRAMME_STATUS_PRECEDENCE`, `foldProgrammeStates` |
 | `programme-hard-gates.ts` | `projectProgrammeHardGates(evaluation, animalId, hash)`, `programmeGateRuleId`, `programmeStateToPackState` |
 | `programme-integrity.ts` | `computeProgrammeFingerprint`/`verifyProgrammeFingerprint`, `CATTLE_PROGRAMME_PAYLOAD_VERSION` |
+
+**Field-presence policy (human decision B1, 2026-10-14).** Canonical C7 data distinguishes a
+MISSING property from an explicit `null` from an explicit `[]`. Every field of every C7-owned record
+must be present and not `undefined`; a missing field is invalid canonical C7 input and fails closed —
+it never acquires a meaning. An explicit `null` keeps the contract meaning given below; a collection
+that may hold nothing must be present as `[]`; unknown fields are rejected. C7 is stricter than C1–C4
+about its own records; frozen predecessor semantics are unchanged. One table
+(`PROGRAMME_FIELD_POLICY`) drives every reader (R = required value, N = required, `null` permitted,
+A = required array, `[]` permitted, NE = required non-empty array):
+
+| Record type | Fields |
+|---|---|
+| `request` | `definitions` A, `reviews` A, `completions` A, `ledgers` A, `health` A, `obligations` A, `query` R |
+| `query` | `effectiveAt` R, `knowledgeCutoff` R |
+| `definition` | `programmeId` R, `version` R, `supersedesVersions` A (`[]` = supersedes none), `classification` R, `declaredBy` R, `validFrom` R, `validTo` N (`null` = open-ended), `applicability` R, `actions` NE, `productionState` R, `provenance` R |
+| `declarer` | `role` R, `actor` R |
+| `definitionProvenance` | `sourceCategory` R, `sourceSystem` N, `sourceRecordRef` N, `receivedAt` R, `sourceDocument` N (`null` = no document binding) |
+| `sourceDocument` | `sourceId` R, `version` R, `contentFingerprint` R |
+| `fingerprint` | `schemaVersion` R, `algorithm` R, `digest` R |
+| `applicabilityExplicitSet` | `kind` R, `animalIds` NE |
+| `applicabilityGroup` | `kind` R, `groupRef` R |
+| `applicabilityCriteria` | `kind` R, `sex` N, `bornOnOrAfter` N, `bornBefore` N (`null` = no such criterion; ≥ 1 non-null) |
+| `action` | `actionId` R, `actionKind` R, `productRef` N (`null` = no product restriction), `schedule` R, `completion` R, `gates` A (`[]` = no gates), `gateRole` R |
+| `productRef` | `productId` R, `productVersion` N (`null` = any bound version) |
+| `schedule` | `anchor` R, `window` R, `repeat` N (`null` = a single occurrence) |
+| `anchorFixedInstant` / `anchorDateOfBirth` | `kind` R, `at` R / `kind` R |
+| `window` | `opensAfter` R, `dueAfter` R, `boundary` R |
+| `offset` | `amount` R, `unit` R |
+| `repeat` | `interval` R, `count` R |
+| `completionCriteria` | `recordKind` N (`null` = declarations only), `eventTypes` N (non-empty for VETERINARY_EVENT, else `null`), `matchCriteria` R |
+| `review` | `reviewId` R, `programmeId` R, `programmeVersion` R, `definitionFingerprint` R, `dimension` R, `decision` R, `reviewer` R, `reviewedAt` R, `supersedes` A |
+| `reviewer` | `role` R, `actor` R |
+| `completion` | `recordId` R, `animalId` R, `programmeId` R, `programmeVersion` R, `actionId` R, `occurrenceId` R, `kind` R, `evidence` N (`null` only for a RETRACTION), `declaredBy` R, `provenance` R, `supersedes` A |
+| `completionProvenance` | `sourceCategory` R, `sourceSystem` N, `sourceRecordRef` N, `receivedAt` R |
+| `evidenceDeclared` / `evidenceHealthRecord` | `kind` R, `completedAt` R / `kind` R, `healthRecordId` R |
 
 **Request and admission.** `HealthProgrammeRequest` = `{definitions, reviews, completions, ledgers (C1;
 the animals evaluated, one each), health (C3 projections, ≤ 1 per animal), obligations (C2 evaluations,
@@ -4210,8 +4246,13 @@ idempotent), content and provenance validation (fingerprint and source-ref shape
 supersession at the cutoff (unknown target, out-of-scope link or cycle ⇒ fail closed) → C1 ledgers →
 C3 / C2 outputs re-verified and bound to the same animal, the same times by instant and the same C1
 ledger content (their snapshot fingerprint equals the one projected here); for C2 this holds for every
-consumed record, not only the envelope (`..._OBLIGATIONS_FOREIGN_RECORD`; CAT-INV-014/021/023); a
-filtered C3 timeline is rejected. Any malformed admitted record or predecessor output ⇒ `ok: false` (whole-request fail
+consumed record, not only the envelope, with the envelope's payload version and distinct (obligation,
+occurrence) identities (`..._OBLIGATIONS_FOREIGN_RECORD`); for C3 every timeline and medicine-ledger
+entry must carry this animal, wrap the record it names (same id, kind and valid time), be among the
+projection's known records, be known by the cutoff and — timeline — have occurred by `effectiveAt`,
+with distinct ids per view (`..._HEALTH_PROJECTION_FOREIGN_RECORD`; CAT-INV-014/021/023); a filtered
+C3 timeline is rejected. Issue refs use structured identities (`["<programmeId>","<version>"]`), never
+joined display text. Any malformed admitted record or predecessor output ⇒ `ok: false` (whole-request fail
 closed). Every version of one programme must share its classification. Output instants use the
 canonical nine-digit spelling. No clock read.
 
@@ -4257,14 +4298,18 @@ INVALID_EVIDENCE (unrepresentable) > NOT_APPLICABLE (window opens outside the go
 effective period) > group membership when the window opened (windows opened by `effectiveAt`; C4 at
 `opensAt`): INVALID_EVIDENCE > EVIDENCE_CONFLICT > UNKNOWN > NOT_APPLICABLE > EVIDENCE_CONFLICT
 (competing declaration corrections, a relevant C3 record in competition, or counted completions
-disagreeing on timing) > COMPLETED (only with no unresolved candidate) > REVIEW_REQUIRED (only
-other-version declarations) >
+disagreeing on timing) > REVIEW_REQUIRED (a VETERINARY_PROGRAMME HARD_GATE action whose only counted
+completions are FARMER declarations — human decision B2: retained as evidence, never by themselves a
+pass, pending an authorised veterinary completion-equivalence rule; reason
+`CATTLE_PROGRAMME_FARMER_DECLARATION_NEEDS_VETERINARY_CONFIRMATION`) > COMPLETED (only with no
+unresolved candidate) > REVIEW_REQUIRED (only other-version declarations) >
 INSUFFICIENT_EVIDENCE (unresolved candidates) > UPCOMING > BLOCKED (window open or passed and a
 declared gate is not PASS / NOT_APPLICABLE — FAIL, INSUFFICIENT_EVIDENCE, conflicting, UNSUPPORTED,
 REVIEW_REQUIRED or not supplied; gates come only from the supplied C2 / C3 hard-gate projections) >
 DUE > OVERDUE. Animal / group / programme status fold in `PROGRAMME_STATUS_PRECEDENCE`:
 REVIEW_REQUIRED > INVALID_EVIDENCE > EVIDENCE_CONFLICT > UNKNOWN > INSUFFICIENT_EVIDENCE > BLOCKED >
-OVERDUE > DUE > UPCOMING > COMPLETED > NOT_APPLICABLE; a programme also reports `NOT_IN_FORCE` /
+OVERDUE > DUE > UPCOMING > COMPLETED > NOT_APPLICABLE (an empty set never folds to a resolved state:
+INVALID_EVIDENCE); a programme also reports `NOT_IN_FORCE` /
 `NO_ANIMALS_EVALUATED`, and explicit-set members without a ledger make it INSUFFICIENT_EVIDENCE.
 Unresolved required evidence never surfaces as COMPLETED or NOT_APPLICABLE (CAT-INV-009).
 
@@ -4275,7 +4320,7 @@ state, governing version + review state + the live bound review records (reviewe
 supersession), conflicting versions, full version history, scope summary
 (members / non-members / unknown / conflict / invalid / declared members not evaluated), status and
 one `ProgrammeAnimalStatus` per evaluated animal (membership, folded status, records with occurrence,
-window, state, reason codes, completion summary, gate checks and — GROUP, windows opened by
+window, state, reason codes, completion summary (counted completions carry the declarer role), gate checks and — GROUP, windows opened by
 `effectiveAt` — the membership resolved at `opensAt`, unmatched declaration ids, every
 known completion declaration for the animal and programme (declarer, provenance, supersession), input
 fingerprints: C1 snapshot, C3 timeline / ledger / gate, C2 record fingerprints). Sorted, detached and
@@ -4296,8 +4341,11 @@ definition, review, declaration, C3 / C2 input, time or state does. Change detec
 signatures. **Hard-gate projection:** only `HARD_GATE` actions of veterinarian programmes (governing,
 or any version in conflict) → one `RuleEvaluationRecord` per action, `requestedRuleId
 CATTLE_PROGRAMME_ACTION:` + JSON `[programmeId, actionId]` (injective for any opaque id), classification `VETERINARY_PROGRAMME`, rule /
-fingerprint / implementation `null`, reviews from the programme review, reason codes binding the
-animal-status fingerprint, plus `requiredHardGateRuleIds` and programme `sourceRefs`; the evaluation
+fingerprint / implementation `null`, reviews from the governing programme review (version conflict:
+the classification's C0 minimum dimensions as PENDING, never an empty set), reason codes
+`CATTLE_PROGRAMME_STATE_<state>:["<actionId>","<occurrenceId>"]` (JSON) binding the animal-status
+fingerprint, `missingInputs` = the gate rule id, plus `requiredHardGateRuleIds` and programme
+`sourceRefs`; the evaluation
 is re-verified first (mismatch ⇒ `ok: false`). Mapping (engine convention): COMPLETED → PASS;
 NOT_APPLICABLE / UPCOMING → NOT_APPLICABLE; OVERDUE / BLOCKED → FAIL; REVIEW_REQUIRED →
 REVIEW_REQUIRED; EVIDENCE_CONFLICT → conflicting evidence; DUE / UNKNOWN / INSUFFICIENT_EVIDENCE /

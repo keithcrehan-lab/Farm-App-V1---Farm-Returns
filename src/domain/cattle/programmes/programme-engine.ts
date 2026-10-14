@@ -188,6 +188,16 @@ export interface ProgrammeMembership {
   /** Canonical instant the membership was resolved at. */
   at: string;
   reasonCodes: string[];
+  /**
+   * RESULT binding of the predecessor evidence this membership was resolved
+   * from (CAT-INV-021): GROUP — the C4 `CATTLE_GROUP_SCOPE` fingerprint at
+   * `at` (it carries the complete content and provenance of every C1
+   * MANAGEMENT_GROUP assertion behind the state; `null` only when C4 rejected
+   * the scope); CRITERIA — the bound C1 snapshot fingerprint the criteria were
+   * read from; EXPLICIT_SET — `null` (the animal set is part of the
+   * definition, bound through the programme provenance).
+   */
+  evidenceFingerprint: AssessmentFingerprint | null;
 }
 
 export interface ProgrammeGateCheck {
@@ -237,6 +247,8 @@ export interface ProgrammeOccurrenceRecord {
   reasonCodes: string[];
   completion: ProgrammeCompletionSummary | null;
   gates: ProgrammeGateCheck[];
+  /** GROUP only: the C4 membership resolved when this occurrence's window opened (`null` when not consulted). */
+  membershipAtOpen: ProgrammeMembership | null;
 }
 
 export interface ProgrammeAnimalInputs {
@@ -525,17 +537,24 @@ function fromC1<T>(r: AnimalResolution<T>): "INVALID" | "EVIDENCE_CONFLICT" | "U
 const UNRESOLVED_ORDER: readonly ProgrammeMembershipState[] = ["INVALID", "EVIDENCE_CONFLICT", "UNKNOWN"];
 
 function membershipAt(applicability: ProgrammeApplicability, ctx: AnimalContext, at: string, knowledgeCutoff: string, hash: CattleHash): ProgrammeMembership {
-  const of = (state: ProgrammeMembershipState, reasonCodes: string[] = []): ProgrammeMembership => ({ state, basis: applicability.kind, at, reasonCodes: sortedUnique(reasonCodes) });
+  const of = (state: ProgrammeMembershipState, reasonCodes: string[] = [], evidenceFingerprint: AssessmentFingerprint | null = null): ProgrammeMembership => ({
+    state,
+    basis: applicability.kind,
+    at,
+    reasonCodes: sortedUnique(reasonCodes),
+    evidenceFingerprint,
+  });
   switch (applicability.kind) {
     case "EXPLICIT_SET":
       return of(applicability.animalIds.includes(ctx.animalId) ? "MEMBER" : "NOT_MEMBER");
     case "GROUP": {
       const scope = resolveGroupScope({ scope: { kind: "GROUP", groupRef: applicability.groupRef, ledgers: [ctx.ledger] }, query: { effectiveAt: at, knowledgeCutoff } }, hash);
-      if (!scope.ok) return of("INVALID", ["CATTLE_PROGRAMME_GROUP_SCOPE_UNRESOLVABLE"]);
+      if (!scope.ok) return of("INVALID", ["CATTLE_PROGRAMME_GROUP_SCOPE_UNRESOLVABLE", ...scope.issues.map((i) => i.code)]);
       const entry = scope.scope.animals.find((a) => a.animalId === ctx.animalId);
-      return entry ? of(entry.state, [...entry.issues]) : of("UNKNOWN", ["CATTLE_PROGRAMME_GROUP_SCOPE_ANIMAL_ABSENT"]);
+      return entry ? of(entry.state, [...entry.issues], scope.scope.fingerprint) : of("UNKNOWN", ["CATTLE_PROGRAMME_GROUP_SCOPE_ANIMAL_ABSENT"], scope.scope.fingerprint);
     }
     case "CRITERIA": {
+      const snapshot = ctx.inputs.snapshotFingerprint;
       const { sex, dateOfBirth } = ctx.snapshot;
       const unresolved: ProgrammeMembershipState[] = [];
       const reasons: string[] = [];
@@ -554,13 +573,13 @@ function membershipAt(applicability: ProgrammeApplicability, ctx: AnimalContext,
         }
       }
       const worst = UNRESOLVED_ORDER.find((s) => unresolved.includes(s));
-      if (worst !== undefined) return of(worst, reasons);
+      if (worst !== undefined) return of(worst, reasons, snapshot);
       const dob = dateOfBirth.value;
       const matches =
         (applicability.sex === null || sex.value === applicability.sex) &&
         (applicability.bornOnOrAfter === null || (dob !== null && compareStrings(dob, applicability.bornOnOrAfter) >= 0)) &&
         (applicability.bornBefore === null || (dob !== null && compareStrings(dob, applicability.bornBefore) < 0));
-      return of(matches ? "MEMBER" : "NOT_MEMBER");
+      return of(matches ? "MEMBER" : "NOT_MEMBER", [], snapshot);
     }
   }
 }
@@ -729,15 +748,17 @@ function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrence): Pro
 
 function occurrenceRecord(o: OccurrenceContext, occ: ProgrammeOccurrence, gates: ProgrammeGateCheck[], hash: CattleHash): ProgrammeOccurrenceRecord {
   const { definition, action, ctx, effectiveAt } = o;
-  const base = { programmeId: definition.programmeId, programmeVersion: definition.version, actionId: action.actionId, actionKind: action.actionKind, animalId: ctx.animalId, occurrence: occ, gates };
+  const head = { programmeId: definition.programmeId, programmeVersion: definition.version, actionId: action.actionId, actionKind: action.actionKind, animalId: ctx.animalId, occurrence: occ, gates };
   if (!versionEffectiveAt(o.period, occ.opensAt)) {
-    return { ...base, state: "NOT_APPLICABLE", reasonCodes: ["CATTLE_PROGRAMME_WINDOW_OUTSIDE_PROGRAMME_PERIOD"], completion: null };
+    return { ...head, state: "NOT_APPLICABLE", reasonCodes: ["CATTLE_PROGRAMME_WINDOW_OUTSIDE_PROGRAMME_PERIOD"], completion: null, membershipAtOpen: null };
   }
   const position = windowPosition(occ, effectiveAt);
-  if (definition.applicability.kind === "GROUP" && position !== "BEFORE") {
-    const m = membershipAt(definition.applicability, ctx, occ.opensAt, o.knowledgeCutoff, hash);
-    const opened = m.state;
-    if (opened !== "MEMBER") return { ...base, state: MEMBERSHIP_TO_STATE[opened], reasonCodes: sortedUnique([`CATTLE_PROGRAMME_MEMBERSHIP_AT_WINDOW_OPEN_${opened}`, ...m.reasonCodes]), completion: null };
+  // Every C4 resolution consulted is retained so its fingerprint binds the result (CAT-INV-021).
+  const membershipAtOpen = definition.applicability.kind === "GROUP" && position !== "BEFORE" ? membershipAt(definition.applicability, ctx, occ.opensAt, o.knowledgeCutoff, hash) : null;
+  const base = { ...head, membershipAtOpen };
+  if (membershipAtOpen !== null && membershipAtOpen.state !== "MEMBER") {
+    const opened = membershipAtOpen.state;
+    return { ...base, state: MEMBERSHIP_TO_STATE[opened], reasonCodes: sortedUnique([`CATTLE_PROGRAMME_MEMBERSHIP_AT_WINDOW_OPEN_${opened}`, ...membershipAtOpen.reasonCodes]), completion: null };
   }
   const completion = evaluateCompletion(o, occ);
   const timings = new Set(completion.counted.map((c) => c.timing));
@@ -786,6 +807,7 @@ const programmeLevel = (programmeId: string, version: string | null, animalId: s
   reasonCodes: sortedUnique(reasonCodes),
   completion: null,
   gates: [],
+  membershipAtOpen: null,
 });
 
 function compareRecords(a: ProgrammeOccurrenceRecord, b: ProgrammeOccurrenceRecord): number {
@@ -941,6 +963,7 @@ function evaluateProgramme(programmeId: string, versions: readonly ProgrammeVers
           reasonCodes: sortedUnique(anchor.reasonCodes),
           completion: null,
           gates,
+          membershipAtOpen: null,
         });
         continue;
       }
@@ -959,6 +982,7 @@ function evaluateProgramme(programmeId: string, versions: readonly ProgrammeVers
             reasonCodes: [`CATTLE_PROGRAMME_WINDOW_NOT_REPRESENTABLE:${index}`],
             completion: null,
             gates,
+            membershipAtOpen: null,
           });
           continue;
         }

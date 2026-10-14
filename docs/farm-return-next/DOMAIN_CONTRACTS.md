@@ -4275,14 +4275,20 @@ state, governing version + review state + the live bound review records (reviewe
 supersession), conflicting versions, full version history, scope summary
 (members / non-members / unknown / conflict / invalid / declared members not evaluated), status and
 one `ProgrammeAnimalStatus` per evaluated animal (membership, folded status, records with occurrence,
-window, state, reason codes, completion summary and gate checks, unmatched declaration ids, every
+window, state, reason codes, completion summary, gate checks and — GROUP, windows opened by
+`effectiveAt` — the membership resolved at `opensAt`, unmatched declaration ids, every
 known completion declaration for the animal and programme (declarer, provenance, supersession), input
 fingerprints: C1 snapshot, C3 timeline / ledger / gate, C2 record fingerprints). Sorted, detached and
 deep-frozen. **Fingerprints:** `CATTLE_PROGRAMME_ANIMAL_STATUS` binds both canonical times and every
 animal-status field (incl. the input fingerprints) and the programme RESULT binding: the complete
 canonical governing / conflicting version records (every definition field, effective period, full
 provenance incl. `sourceSystem`, `sourceRecordRef`, `receivedAt`, `sourceDocument`, lifecycle and
-supersession, and their review fingerprint), review state and review records. The
+supersession, and their review fingerprint), review state and review records. Every membership
+C7 resolves carries `evidenceFingerprint`, binding the predecessor evidence it was resolved from
+(CAT-INV-021): GROUP — the C4 `CATTLE_GROUP_SCOPE` fingerprint of that exact resolution (current at
+`effectiveAt` and each window opening; it covers the full content and provenance of the C1
+MANAGEMENT_GROUP assertions behind the state), CRITERIA — the bound C1 snapshot fingerprint,
+EXPLICIT_SET — `null` (the set is part of the bound definition). The
 `CATTLE_PROGRAMME_DEFINITION` review fingerprint keeps its narrower meaning (reviewed content, without
 knowledge-time provenance) and is never the result binding on its own; `CATTLE_PROGRAMME_STATUS` binds the whole
 evaluation. Input order, key order and equivalent instant spellings do not change them; any

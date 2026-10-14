@@ -29,6 +29,7 @@ import * as cattle from "../index";
 import { computeSourceContentFingerprint, sourceVersionRef } from "../source";
 import { CATALOGUE, LEGAL_SOURCE, approve as approveRule, bindTo, hash, impl, synthRule } from "../test-fixtures";
 import { projectAnimalHealth, type AnimalHealthProjection } from "../health";
+import { resolveGroupScope } from "../weights";
 import { computeObligationFingerprint, createObligationImplementationRegistry, evaluateAnimalObligations, obligationTermsMarker, type AnimalObligationEvaluation, type ObligationDefinition } from "../regulatory";
 import {
   PRODUCTION_HEALTH_PROGRAMME_DEFINITIONS,
@@ -1059,6 +1060,95 @@ describe("C7 test 9 — determinism, aliasing, fingerprints, boundary", () => {
     const resealed = { ...e, fingerprint: computeProgrammeFingerprint("CATTLE_PROGRAMME_STATUS", content, hash) };
     expect(verifyProgrammeStatusEvaluation(resealed, hash).valid).toBe(false);
     expect(projectProgrammeHardGates(resealed, A, hash).ok).toBe(false);
+  });
+
+  it("membership binding matrix: every C4 group resolution C7 consults (current and each window opening) binds the result", () => {
+    const def = programme({ applicability: { kind: "GROUP", groupRef: GROUP } });
+    const late = "2026-05-15T00:00:00Z"; // all three repeat windows have opened
+    const OLD = "2026-01-01T00:00:00Z";
+    // Historical assertion explains windows 0 (Mar 11); current one explains window 1, window 2 and effectiveAt.
+    const hist = (fields: Rec = {}, provenance: Rec = {}) => ({ ...groupOf(A, GROUP, "2026-03-01T00:00:00Z", "2026-04-01T00:00:00Z", "g-hist"), ...fields, provenance: { ...prov(), ...provenance } });
+    const curr = (fields: Rec = {}, provenance: Rec = {}) => ({ ...groupOf(A, GROUP, "2026-04-01T00:00:00Z", null, "g-curr"), ...fields, provenance: { ...prov(), ...provenance } });
+    const stale = (provenance: Rec = {}) => ({ ...groupOf(A, "SYNTH-GROUP-3", OLD, "2026-02-01T00:00:00Z", "g-stale"), provenance: { ...prov(OLD), ...provenance } });
+    const ledgerWith = (h: Rec = hist(), c: Rec = curr(), st: Rec = stale()) => ledgerOf(A, [dobOf(A), sexOf(A), st, h, c]);
+    const at = (effectiveAt: string, ledger: AnimalLedger) => ok(run({ definitions: [def], reviews: [review(def)], ledgers: [ledger], effectiveAt }));
+    const animal = (e: ProgrammeStatusEvaluation) => e.programmes[0].animals.find((a) => a.animalId === A)!;
+    const gatesOf = (e: ProgrammeStatusEvaluation) => {
+      const g = projectProgrammeHardGates(e, A, hash);
+      if (!g.ok) throw new Error(JSON.stringify(g.issues));
+      return g.gates.ruleEvaluations;
+    };
+    const c4 = (ledger: AnimalLedger, effectiveAt: string) => {
+      const r = resolveGroupScope({ scope: { kind: "GROUP", groupRef: GROUP, ledgers: [ledger] }, query: { effectiveAt, knowledgeCutoff: CUTOFF } }, hash);
+      if (!r.ok) throw new Error(JSON.stringify(r.issues));
+      return r.scope.fingerprint;
+    };
+
+    for (const effectiveAt of [EFFECTIVE, late]) {
+      const ledger = ledgerWith();
+      const before = at(effectiveAt, ledger);
+      expect(states({ ok: true, evaluation: before } as ProgrammeEvaluationResult).slice(0, 2)).toEqual(["OVERDUE", effectiveAt === EFFECTIVE ? "DUE" : "OVERDUE"]);
+
+      // Every C4 resolution consulted is represented: current membership and each opened window (repeated), none for an unopened one.
+      expect(animal(before).membership!.evidenceFingerprint).toEqual(c4(ledger, effectiveAt));
+      for (const r of animal(before).records) {
+        const opened = r.occurrence !== null && r.state !== "UPCOMING";
+        expect(r.membershipAtOpen?.evidenceFingerprint ?? null, `window ${r.occurrence?.index}`).toEqual(opened ? c4(ledger, r.occurrence!.opensAt) : null);
+        if (opened) expect(r.membershipAtOpen).toMatchObject({ state: "MEMBER", basis: "GROUP", at: r.occurrence!.opensAt });
+      }
+      expect(animal(before).records.filter((r) => r.membershipAtOpen !== null)).toHaveLength(effectiveAt === EFFECTIVE ? 2 : 3);
+
+      // Material provenance / content changes to any consulted assertion propagate, membership states unchanged.
+      const variants: [string, AnimalLedger][] = [
+        ["historical provenance.sourceRecordRef", ledgerWith(hist({}, { sourceRecordRef: "SYNTH-RECORD-1" }))],
+        ["historical provenance.sourceSystem", ledgerWith(hist({}, { sourceSystem: "SYNTH-SYSTEM-1" }))],
+        ["historical provenance.receivedAt", ledgerWith(hist({}, { receivedAt: "2026-02-02T00:00:00Z" }))],
+        ["historical validFrom", ledgerWith(hist({ validFrom: "2026-02-15T00:00:00Z" }))],
+        ["current provenance.sourceRecordRef", ledgerWith(hist(), curr({}, { sourceRecordRef: "SYNTH-RECORD-2" }))],
+        ["current provenance.sourceSystem", ledgerWith(hist(), curr({}, { sourceSystem: "SYNTH-SYSTEM-2" }))],
+        ["current validTo", ledgerWith(hist(), curr({ validTo: "2026-12-01T00:00:00Z" }))],
+      ];
+      for (const [label, variant] of variants) {
+        const after = at(effectiveAt, variant);
+        expect(verifyProgrammeStatusEvaluation(after, hash).valid, label).toBe(true);
+        expect(animal(after).records.map((r) => r.state), label).toEqual(animal(before).records.map((r) => r.state));
+        expect(after.fingerprint, label).not.toEqual(before.fingerprint);
+        expect(animal(after).fingerprint, label).not.toEqual(animal(before).fingerprint);
+        expect(gatesOf(after), label).not.toEqual(gatesOf(before));
+      }
+
+      // Equivalent spelling and ledger order are not material.
+      const respelled = ledgerWith(hist({ validFrom: "2026-03-01T00:00:00.000Z" }, { receivedAt: "2026-02-01T00:00:00.000000Z" }));
+      expect(c4(respelled, OPEN0)).toEqual(c4(ledger, OPEN0));
+      const reordered = ledgerOf(A, [curr(), hist(), sexOf(A), stale(), dobOf(A)]);
+      expect(at(effectiveAt, reordered).fingerprint).toEqual(before.fingerprint);
+      expect(animal(at(effectiveAt, reordered)).fingerprint).toEqual(animal(before).fingerprint);
+
+      // Negative control: a group assertion no consulted resolution relies on leaves every C4 resolution unchanged.
+      const irrelevant = ledgerWith(hist(), curr(), stale({ sourceRecordRef: "SYNTH-RECORD-IRRELEVANT" }));
+      const control = at(effectiveAt, irrelevant);
+      expect(animal(control).membership!.evidenceFingerprint).toEqual(animal(before).membership!.evidenceFingerprint);
+      expect(animal(control).records.map((r) => r.membershipAtOpen)).toEqual(animal(before).records.map((r) => r.membershipAtOpen));
+      expect(control.fingerprint).toEqual(before.fingerprint);
+      expect(animal(control).fingerprint).toEqual(animal(before).fingerprint);
+
+      // Resealed tampering of a window-opening binding fails closed.
+      const e = structuredClone(before) as ProgrammeStatusEvaluation;
+      const opened = e.programmes[0].animals.find((a) => a.animalId === A)!.records.find((r) => r.membershipAtOpen !== null)!;
+      opened.membershipAtOpen!.evidenceFingerprint = { ...opened.membershipAtOpen!.evidenceFingerprint!, digest: "0".repeat(64) };
+      const content: Partial<ProgrammeStatusEvaluation> = { ...e };
+      delete content.fingerprint;
+      const resealed = { ...e, fingerprint: computeProgrammeFingerprint("CATTLE_PROGRAMME_STATUS", content, hash) };
+      expect(verifyProgrammeStatusEvaluation(resealed, hash).valid).toBe(false);
+      expect(projectProgrammeHardGates(resealed, A, hash).ok).toBe(false);
+    }
+
+    // CRITERIA membership is bound to the C1 snapshot it was read from; EXPLICIT_SET to the (provenance-bound) definition.
+    const criteria = programme({ applicability: { kind: "CRITERIA", sex: "FEMALE", bornOnOrAfter: null, bornBefore: null } });
+    const c = animal(ok(run({ definitions: [criteria], reviews: [review(criteria)] })));
+    expect(c.membership).toMatchObject({ basis: "CRITERIA", evidenceFingerprint: c.inputs.snapshotFingerprint });
+    expect(animal(ok(run())).membership).toMatchObject({ basis: "EXPLICIT_SET", evidenceFingerprint: null });
+    expect(animal(ok(run())).records.every((r) => r.membershipAtOpen === null)).toBe(true);
   });
 
   it("non-canonical input is rejected before evaluation", () => {

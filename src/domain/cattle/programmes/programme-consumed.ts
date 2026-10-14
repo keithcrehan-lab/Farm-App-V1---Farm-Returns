@@ -8,15 +8,13 @@
  * Every C1 / C2 / C3 / C4 value C7 reads is described here — owner, payload
  * version, presence, null semantics, runtime type, frozen vocabulary,
  * identifier / instant / date format and nested structure — and validated
- * once, at the predecessor-consumption boundary (`programme-predecessors.ts`),
+ * once, at the predecessor composition boundary (`programme-predecessors.ts`),
  * before any authoritative reasoning. Only the consumed surface is
- * described; frozen predecessor validators are called where they exist
- * (`rematerialiseAnimalLedger`, `verifyAnimalHealthProjection`,
- * `projectObligationHardGates`) and this schema covers what they do not.
+ * described.
  *
- * Coverage rule: every field C7 reads AND every field a frozen predecessor
- * function reads on C7's behalf from supplied data (C2
- * `projectObligationHardGates`, C3 `projectWithdrawalHardGates`) is declared.
+ * Coverage rule: every field C7 reads, and every field the frozen hard-gate
+ * projectors read from an engine output for C7 (C2
+ * `projectObligationHardGates`, C3 `projectWithdrawalHardGates`), is declared.
  *
  * Mechanical drift guard: `consume(spec, value)` returns a FRESH projected
  * copy holding only the declared fields, typed `ConsumedOf<S>` — a field the
@@ -24,11 +22,11 @@
  * cannot reach it). Every other C7 module sees only C7's internal evidence
  * representation.
  *
- * Trust bound (CAT-INV-028, human decision): the schema plus the boundary's
- * consistency predicates detect MALFORMED and SELF-CONTRADICTORY predecessor
- * outputs. A fully consistent output cannot be authenticated here —
- * fingerprints are change detection, not signatures; authenticity belongs to
- * the adapter / the C8 sealed context.
+ * Since the C7 architecture review (2026-10-14) every predecessor output C7
+ * consumes is produced IN-PROCESS by the frozen predecessor engine from
+ * canonical evidence — authoritative by construction, never caller-supplied —
+ * so no consistency predicate restates predecessor derivation. The schema
+ * remains the typed internal representation and the drift guard.
  *
  * Vocabularies come from the frozen contracts: runtime constants where the
  * predecessor exports them; otherwise a list checked at compile time to be
@@ -229,10 +227,10 @@ const C3_PRODUCT_BINDING = object({
 const C3_ENTRY_COMMON = { recordId: ref, occurredAt: nullable(instant), status: oneOfValues(C3_RECORD_STATUSES), inCompetition: bool, supersededBy: arrayOf(ref), record: C3_HEALTH_RECORD };
 
 /**
- * C3 `AnimalHealthProjection` — owner C3, payload version
- * `CATTLE_HEALTH_PAYLOAD_VERSION`. (Its fingerprints are re-verified by C3
- * `verifyAnimalHealthProjection`; its withdrawal gate is read only through
- * C3 `projectWithdrawalHardGates`, whose output is `GATE_PROJECTION`.)
+ * C3 `AnimalHealthProjection` — owner C3, produced in-process by
+ * `projectAnimalHealth`, payload version `CATTLE_HEALTH_PAYLOAD_VERSION`.
+ * Its withdrawal gate is read only through C3 `projectWithdrawalHardGates`
+ * (output: `GATE_PROJECTION`).
  */
 export const C3_PROJECTION = object({
   healthPayloadVersion: literal(CATTLE_HEALTH_PAYLOAD_VERSION),
@@ -267,9 +265,10 @@ export const C3_PROJECTION = object({
 });
 
 /**
- * C2 `AnimalObligationEvaluation` — owner C2, payload version
- * `CATTLE_OBLIGATION_PAYLOAD_VERSION` (envelope and every record). Record
- * fingerprints are re-verified by C2 `projectObligationHardGates`.
+ * C2 `AnimalObligationEvaluation` — owner C2, produced in-process by
+ * `evaluateHerdObligations`, payload version
+ * `CATTLE_OBLIGATION_PAYLOAD_VERSION` (envelope and every record); gates read
+ * only through C2 `projectObligationHardGates`.
  */
 const C0_RULE_REF = object({ ruleId: ref, version: int });
 
@@ -323,8 +322,8 @@ export const C4_SCOPE = object({ fingerprint, animals: arrayOf(object({ animalId
 /** The consumed-output contract, by surface (documentation and test generation). */
 export const PROGRAMME_CONSUMED_SURFACES = Object.freeze({
   C1_SNAPSHOT: { owner: "C1", producer: "projectAnimalSnapshot (in-process, C1-rematerialised ledger)", spec: C1_SNAPSHOT },
-  C2_EVALUATION: { owner: "C2", producer: "supplied AnimalObligationEvaluation", spec: C2_EVALUATION },
-  C3_PROJECTION: { owner: "C3", producer: "supplied AnimalHealthProjection", spec: C3_PROJECTION },
+  C2_EVALUATION: { owner: "C2", producer: "evaluateHerdObligations (in-process, canonical C2 evidence)", spec: C2_EVALUATION },
+  C3_PROJECTION: { owner: "C3", producer: "projectAnimalHealth (in-process, canonical C3 evidence)", spec: C3_PROJECTION },
   C4_SCOPE: { owner: "C4", producer: "resolveGroupScope (in-process, C1-rematerialised ledger)", spec: C4_SCOPE },
   GATE_PROJECTION: { owner: "C2 / C3", producer: "projectObligationHardGates / projectWithdrawalHardGates", spec: GATE_PROJECTION },
 });

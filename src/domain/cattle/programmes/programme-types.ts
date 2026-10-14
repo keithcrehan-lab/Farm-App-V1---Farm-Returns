@@ -6,8 +6,6 @@
 import type { AssessmentFingerprint } from "../../assessment-integrity";
 import type { AnimalLedger } from "../animal-ledger";
 import type { CattleEvaluationState } from "../evaluation";
-import type { AnimalHealthProjection } from "../health";
-import type { AnimalObligationEvaluation } from "../regulatory";
 import type { CompletionIssueCode, ProgrammeCompletionRecord } from "./programme-completion";
 import type {
   ProgrammeApplicability,
@@ -30,6 +28,34 @@ export interface HealthProgrammeQuery {
   knowledgeCutoff: string;
 }
 
+/**
+ * C3 canonical inputs. C7 composes them through the frozen C3 engine
+ * (`projectAnimalHealth`, one call per listed animal); a derived C3
+ * projection is never accepted as input (C7 architecture review 2026-10-14).
+ */
+export interface ProgrammeHealthEvidence {
+  /** Opaque food-product codes C3 gates (C3 query `foodProducts`). */
+  foodProducts: readonly string[];
+  /** C3 authorised-product records (C3 `productRecords`). */
+  productRecords: readonly unknown[];
+  /** Per animal: its C3 health records. An evaluated animal not listed has no C3 evidence supplied. */
+  animals: readonly { animalId: string; healthRecords: readonly unknown[] }[];
+}
+
+/**
+ * C2 canonical inputs. C7 composes them through the frozen C2 engine
+ * (`evaluateHerdObligations` over the request's ledgers) with the trusted
+ * implementation registry passed separately; a derived C2 evaluation is never
+ * accepted as input.
+ */
+export interface ProgrammeObligationEvidence {
+  /** C2 `ObligationCatalogue` (definitions, rule versions, sources, reviews). */
+  catalogue: unknown;
+  obligationIds: readonly string[];
+  /** C2 fulfilment evidence for any evaluated animal (partitioned by C2). */
+  evidence: readonly unknown[];
+}
+
 /** Every part must be canonical plain data and every field present (CAMPAIGN.md "Canonical input contract"; field policy). */
 export interface HealthProgrammeRequest {
   /** `HealthProgrammeDefinition` records (the whole append-only catalogue; empty in production). */
@@ -40,10 +66,10 @@ export interface HealthProgrammeRequest {
   completions: readonly unknown[];
   /** C1 ledgers — the animals evaluated (one per animal). */
   ledgers: readonly AnimalLedger[];
-  /** C3 projections (at most one per animal) at the query's own times. */
-  health: readonly AnimalHealthProjection[];
-  /** C2 evaluations (at most one per animal) at the query's own times. */
-  obligations: readonly AnimalObligationEvaluation[];
+  /** C3 canonical inputs, or `null` = no C3 evidence supplied. */
+  health: ProgrammeHealthEvidence | null;
+  /** C2 canonical inputs, or `null` = no C2 evidence supplied. */
+  obligations: ProgrammeObligationEvidence | null;
   query: HealthProgrammeQuery;
 }
 
@@ -148,6 +174,8 @@ export interface ProgrammeAnimalInputs {
   health: { timeline: AssessmentFingerprint; medicineLedger: AssessmentFingerprint; withdrawalGate: AssessmentFingerprint } | null;
   /** C2 obligation state record fingerprints (sorted by digest), or `null` when no evaluation was supplied. */
   obligationRecords: AssessmentFingerprint[] | null;
+  /** `CATTLE_PROGRAMME_OBLIGATION_INPUTS` of the canonical C2 catalogue and obligation ids composed, or `null` when none were supplied. */
+  obligationInputs: AssessmentFingerprint | null;
 }
 
 export interface ProgrammeAnimalStatus {
@@ -227,19 +255,14 @@ export type ProgrammeRequestIssueCode =
   | "CATTLE_PROGRAMME_INVALID_KNOWLEDGE_CUTOFF"
   | "CATTLE_PROGRAMME_INVALID_LEDGER"
   | "CATTLE_PROGRAMME_DUPLICATE_ANIMAL"
-  | "CATTLE_PROGRAMME_HEALTH_PROJECTION_INVALID"
-  | "CATTLE_PROGRAMME_HEALTH_PROJECTION_FILTERED"
-  | "CATTLE_PROGRAMME_HEALTH_PROJECTION_TIME_MISMATCH"
-  | "CATTLE_PROGRAMME_HEALTH_PROJECTION_UNKNOWN_ANIMAL"
-  | "CATTLE_PROGRAMME_HEALTH_PROJECTION_DUPLICATE"
-  | "CATTLE_PROGRAMME_HEALTH_PROJECTION_LEDGER_MISMATCH"
-  | "CATTLE_PROGRAMME_HEALTH_PROJECTION_FOREIGN_RECORD"
-  | "CATTLE_PROGRAMME_OBLIGATIONS_INVALID"
-  | "CATTLE_PROGRAMME_OBLIGATIONS_TIME_MISMATCH"
-  | "CATTLE_PROGRAMME_OBLIGATIONS_UNKNOWN_ANIMAL"
-  | "CATTLE_PROGRAMME_OBLIGATIONS_DUPLICATE"
-  | "CATTLE_PROGRAMME_OBLIGATIONS_LEDGER_MISMATCH"
-  | "CATTLE_PROGRAMME_OBLIGATIONS_FOREIGN_RECORD"
+  /** C3 rejected the canonical health evidence of an animal (its own validation), or its output failed C7's schema. */
+  | "CATTLE_PROGRAMME_HEALTH_EVIDENCE_INVALID"
+  | "CATTLE_PROGRAMME_HEALTH_EVIDENCE_UNKNOWN_ANIMAL"
+  | "CATTLE_PROGRAMME_HEALTH_EVIDENCE_DUPLICATE_ANIMAL"
+  /** C2 rejected the canonical obligation evidence (its own validation), or its output failed C7's schema. */
+  | "CATTLE_PROGRAMME_OBLIGATION_EVIDENCE_INVALID"
+  /** Obligation evidence supplied without a trusted C2 implementation registry. */
+  | "CATTLE_PROGRAMME_OBLIGATION_IMPLEMENTATIONS_MISSING"
   | ProgrammeRecordIssueCode
   | CompletionIssueCode;
 

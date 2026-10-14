@@ -55,6 +55,11 @@ short:
   too; a fully consistent forgery cannot be authenticated by the consumer
   and is the adapter's / C8 sealed context's responsibility (BLOCKERS
   CAT-B1).
+- **Compose predecessors, never accept derived outputs (C7 architecture
+  review 2026-10-14).** An authoritative consumer obtains predecessor
+  results by invoking the frozen predecessor engines over canonical inputs
+  (CAT-INV-023 delegation); a caller-supplied derived output is never
+  authoritative input. C8's sealed context is constructed the same way.
 - **Malformed canonical data still fails closed.** A canonical value with
   a bad shape, type, instant, unit or identity is rejected, or reported as
   INVALID or UNKNOWN. It is never repaired or coerced.

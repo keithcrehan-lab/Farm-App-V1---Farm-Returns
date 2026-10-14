@@ -25,6 +25,21 @@ Read `docs/farm-return-next/cattle/index.md` first, then only the shared documen
 - **PASS_TO_PASS regression surface:** frozen C0/C1/C2 suites and every earlier frozen phase suite under `src/domain/cattle`; conformance kit self-tests (`src/tooling/cattle-conformance`); directly affected predecessor integrity tests.
 - **Freeze definition:** `docs/farm-return-next/cattle/VERIFICATION.md` §Freeze definition (targeted + required conformance checks + PASS_TO_PASS + full quality gate + strict whole-phase audit CRITICAL=HIGH=MEDIUM=0).
 
+## Predecessor composition (inherited from the C7 architecture review, 2026-10-14)
+
+Binding for C8 design (`.agent/campaigns/cattle-engine-v1/C7_ARCHITECTURE_REVIEW.md`; CAT-INV-023 / 028):
+- Construct the sealed `CattleEvaluationContext` from canonical evidence by invoking the frozen C1–C7
+  engines in ONE construction boundary ("published outputs" = outputs produced by invoking the published
+  engines); never accept a caller-supplied derived predecessor output as authoritative, and never restate
+  a predecessor's derivation semantics to authenticate one.
+- Predecessor outputs are untrusted until their consumed fields are validated: one consumed-field
+  schema per consumed surface; fingerprints are integrity / replay identity, never semantic validity or
+  authenticity; runtime enum / state validation; fail-closed exhaustive translations; generated
+  malformed-output matrices from the schema; trusted non-canonical inputs (e.g. C2's implementation
+  registry) only as explicit trusted parameters.
+- Avoid recursive recomputation where practical (C7 composes C2 / C3 itself; duplicate deterministic
+  computation is acceptable, inconsistency is not).
+
 ## Campaign context
 
 - Campaign contract: `.agent/campaigns/cattle-engine-v1/CAMPAIGN.md` (locked architecture, rule classes, hard-gate principle, veterinary boundary, evidence-pack contract).

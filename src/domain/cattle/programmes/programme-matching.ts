@@ -202,7 +202,7 @@ export function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrenc
       continue;
     }
     if (ctx.health === null) {
-      unresolvedNote("DECLARATION", d.recordId, "INSUFFICIENT_EVIDENCE", "CATTLE_PROGRAMME_HEALTH_PROJECTION_NOT_SUPPLIED");
+      unresolvedNote("DECLARATION", d.recordId, "INSUFFICIENT_EVIDENCE", "CATTLE_PROGRAMME_HEALTH_EVIDENCE_NOT_SUPPLIED");
       continue;
     }
     const entry = timeline.find((e) => e.recordId === healthRecordId);
@@ -248,7 +248,7 @@ export function evaluateCompletion(o: OccurrenceContext, occ: ProgrammeOccurrenc
   // Declared criteria: only once the window has opened can an in-window record have occurred by effectiveAt.
   if (action.completion.matchCriteria && windowPosition(occ, effectiveAt) !== "BEFORE") {
     if (ctx.health === null) {
-      unresolvedNote("OCCURRENCE", occ.occurrenceId, "INSUFFICIENT_EVIDENCE", "CATTLE_PROGRAMME_HEALTH_PROJECTION_NOT_SUPPLIED");
+      unresolvedNote("OCCURRENCE", occ.occurrenceId, "INSUFFICIENT_EVIDENCE", "CATTLE_PROGRAMME_HEALTH_EVIDENCE_NOT_SUPPLIED");
     } else {
       for (const entry of timeline) {
         // Superseded history is not evidence. A linked record is ALSO an independent criteria candidate (monotonicity).

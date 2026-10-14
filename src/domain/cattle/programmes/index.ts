@@ -59,6 +59,7 @@ export { programmeOccurrenceId, type ProgrammeOccurrence, type WindowPosition } 
 export { PROGRAMME_OCCURRENCE_STATES, PROGRAMME_STATUS_PRECEDENCE, foldProgrammeStates, type ProgrammeOccurrenceState } from "./programme-state";
 export type { UnresolvedOutcome } from "./programme-evidence";
 export type * from "./programme-types";
+export type { ProgrammeTrustedInputs } from "./programme-predecessors";
 export * from "./programme-engine";
 export * from "./programme-hard-gates";
 export * from "./programme-integrity";

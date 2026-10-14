@@ -46,7 +46,13 @@ const NE = "REQUIRED_NON_EMPTY_ARRAY";
  * contract without a policy entry does not compile.
  */
 export const PROGRAMME_FIELD_POLICY = Object.freeze({
-  request: { definitions: A, reviews: A, completions: A, ledgers: A, health: A, obligations: A, query: R },
+  request: { definitions: A, reviews: A, completions: A, ledgers: A, health: N, obligations: N, query: R },
+  /** C3 canonical inputs, composed by C7 through C3 `projectAnimalHealth` (`null` = no C3 evidence supplied). */
+  healthEvidence: { foodProducts: A, productRecords: A, animals: A },
+  /** One animal's C3 health records (`[]` = supplied, none recorded). */
+  healthAnimal: { animalId: R, healthRecords: A },
+  /** C2 canonical inputs, composed by C7 through C2 `evaluateHerdObligations` (`null` = none supplied). */
+  obligationEvidence: { catalogue: R, obligationIds: A, evidence: A },
   query: { effectiveAt: R, knowledgeCutoff: R },
   definition: {
     programmeId: R,

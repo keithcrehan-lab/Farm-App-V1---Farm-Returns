@@ -246,6 +246,9 @@ These apply unless a phase section below says otherwise.
   - C3 administration and veterinary-event records, used as completion
     evidence;
   - C3 withdrawal gates and C2 hard gates, used as supplied gate data.
+  - (C7 architecture review 2026-10-14: C3 / C2 results — including these
+    gates — are composed by C7 from canonical C3 / C2 evidence through their
+    frozen engines; derived C3 / C2 outputs are never accepted as input.)
 - **Outputs:**
   - per-occurrence state;
   - programme status per animal or group;

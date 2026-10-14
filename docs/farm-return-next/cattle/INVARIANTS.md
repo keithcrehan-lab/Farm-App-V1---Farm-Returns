@@ -263,6 +263,15 @@ predecessor output exists. Examples:
 
 - C5 reads C4 series, not raw weights;
 - C8 reads the C2 evaluation, not obligation catalogues.
+- **Delegation is not reinterpretation (C7 architecture review,
+  2026-10-14).** Invoking a frozen predecessor engine over that
+  predecessor's canonical inputs is delegation to the authoritative
+  interpreter and is not reinterpretation of the predecessor's evidence by
+  the consuming phase. The consuming phase must never independently
+  reimplement predecessor derivation rules. A caller-supplied DERIVED
+  predecessor output cannot be authenticated by its consumer (fingerprints
+  can be recomputed), so authoritative consumers compose predecessor engines
+  rather than accept such outputs.
 
 ### CAT-INV-024 — Provenance validated before use
 
@@ -356,6 +365,11 @@ domain data until the consuming phase validates the fields it consumes
 - **Scope.** Malformed plain data at an inter-phase boundary. Hostile
   JavaScript (getters, proxies, functions) stays outside the canonical
   plain-data contract (ARCHITECTURE.md §Canonical input boundary).
+- **Composition supersedes predicates (C7 architecture review,
+  2026-10-14).** Where the consumer composes the predecessor engine over
+  canonical inputs (CAT-INV-023 delegation), the output is authoritative by
+  construction: consistency predicates restating predecessor derivation are
+  neither needed nor permitted; schema validation of consumed fields remains.
 - **Origin:** C7 findings F003 / F007; binding for C7 and every later phase
   (C8 preflight).
 

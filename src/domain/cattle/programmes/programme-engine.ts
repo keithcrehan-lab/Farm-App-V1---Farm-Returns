@@ -48,7 +48,7 @@ import {
 import { CATTLE_PROGRAMME_PAYLOAD_VERSION, computeProgrammeFingerprint, verifyProgrammeFingerprint } from "./programme-integrity";
 import { contestedRecords, evaluateCompletion, type OccurrenceContext } from "./programme-matching";
 import { anchorOf, membershipAt } from "./programme-membership";
-import { readAnimals, readRequest, type AnimalContext } from "./programme-predecessors";
+import { readAnimals, readRequest, type AnimalContext, type ProgrammeTrustedInputs } from "./programme-predecessors";
 import { deriveProgrammeOccurrences, windowPosition, type ProgrammeOccurrence } from "./programme-schedule";
 import { foldOrInvalid, membershipState, occurrenceState, outcomeState, type ProgrammeOccurrenceState } from "./programme-state";
 import type {
@@ -330,7 +330,7 @@ function evaluateProgramme(programmeId: string, versions: readonly ProgrammeVers
 // Entry points
 // ---------------------------------------------------------------------------
 
-function evaluateCanonical(req: unknown, hash: CattleHash): ProgrammeEvaluationResult {
+function evaluateCanonical(req: unknown, trusted: ProgrammeTrustedInputs, hash: CattleHash): ProgrammeEvaluationResult {
   const read = readRequest(req);
   if (!read.ok) return read;
   const { effectiveAt, knowledgeCutoff } = read.read;
@@ -341,7 +341,7 @@ function evaluateCanonical(req: unknown, hash: CattleHash): ProgrammeEvaluationR
   if (!reviews.ok) issues.push(...reviews.issues);
   const completions = admitProgrammeCompletions(read.read.completions, knowledgeCutoff);
   if (!completions.ok) issues.push(...completions.issues);
-  const animals = readAnimals(read.read, hash);
+  const animals = readAnimals(read.read, trusted, hash);
   if (!animals.ok) issues.push(...animals.issues);
   if (issues.length > 0 || !definitions.ok || !reviews.ok || !completions.ok || !animals.ok) return { ok: false, issues: uniqueProgrammeIssues(issues) };
 
@@ -361,14 +361,17 @@ function evaluateCanonical(req: unknown, hash: CattleHash): ProgrammeEvaluationR
 /**
  * Evaluates every declared programme for every supplied animal at
  * (`effectiveAt`, `knowledgeCutoff`). The complete request must be canonical
- * plain data with every field present; only the detached copy is used. Any
- * malformed admitted record or predecessor output fails the whole request
- * closed. The result is deep-frozen.
+ * plain data with every field present; only the detached copy is used. C2 /
+ * C3 results are composed in-process from the request's canonical evidence
+ * by their frozen engines; `trusted.obligationImplementations` is C2's trusted
+ * implementation registry (never request data — the C2 precedent). Any
+ * malformed admitted record or rejected predecessor evidence fails the whole
+ * request closed. The result is deep-frozen.
  */
-export function evaluateHealthProgrammes(request: unknown, hash: CattleHash): ProgrammeEvaluationResult {
+export function evaluateHealthProgrammes(request: unknown, hash: CattleHash, trusted: ProgrammeTrustedInputs = {}): ProgrammeEvaluationResult {
   const canonical = toCanonicalPlainData(request);
   if (!canonical.ok) return deepFreezeAnimalValue({ ok: false, issues: [{ code: "CATTLE_PROGRAMME_NON_CANONICAL_INPUT", ref: canonical.path }] });
-  return deepFreezeAnimalValue(structuredClone(evaluateCanonical(canonical.value, hash)));
+  return deepFreezeAnimalValue(structuredClone(evaluateCanonical(canonical.value, trusted, hash)));
 }
 
 /** Re-verifies every animal-status fingerprint (with its provenance binding) and the evaluation fingerprint. */

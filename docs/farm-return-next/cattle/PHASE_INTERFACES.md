@@ -285,6 +285,12 @@ These apply unless a phase section below says otherwise.
     from published C1–C7 outputs plus bound economic observations;
   - a `CandidateActionDefinition` registry *(proposed)*, supplied as
     data.
+  - (C8 preflight, 2026-10-15: "published C1–C7 outputs" means outputs
+    C8 produces by passing canonical predecessor evidence to the frozen
+    C1–C7 engines inside its one context-construction boundary. This is
+    delegation under CAT-INV-023, not a raw-record read. Derived
+    predecessor outputs are never accepted as input. See
+    `C8_BRIEF.md`, "Pre-start clarifications".)
 - **Outputs:**
   - per-animal recommendation records;
   - a herd ordering;

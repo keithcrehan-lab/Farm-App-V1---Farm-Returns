@@ -814,6 +814,10 @@ class Campaign:
             rc = self.model('build', ps, [str(SCRIPTS / 'agent-build')], log, child_env(
                 AGENT_CAMPAIGN_MODE='1', AGENT_CAMPAIGN_SCOPE_GUARD_JSON=json.dumps(ph['scope_guard']),
                 AGENT_CAMPAIGN_ALLOWED_SHARED_JSON=json.dumps(ph['allowed_shared_paths'])))
+            # The authorised brief is an immutable phase boundary. If the model touched it,
+            # BRIEF_CHANGED outranks the generic pre-commit scope guard so the stop reason
+            # identifies the actual contract violation.
+            self.check_brief(ph, ps)
             try:
                 self.settle('build', 'built', prev, rc, ps['in_flight_ref'], log)
             except Stop as e:
@@ -1028,6 +1032,7 @@ class Campaign:
             rc = self.model('fix', ps, cmd, log, child_env(
                 AGENT_CAMPAIGN_MODE='1', AGENT_CAMPAIGN_SCOPE_GUARD_JSON=json.dumps(ph['scope_guard']),
                 AGENT_CAMPAIGN_ALLOWED_SHARED_JSON=json.dumps(ph['allowed_shared_paths'])))
+            self.check_brief(ph, ps)
             try:
                 self.settle('fix', 'fixed', prev, rc, ps['in_flight_ref'], log)
             except Stop as e:

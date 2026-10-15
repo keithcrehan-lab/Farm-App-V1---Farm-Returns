@@ -74,7 +74,6 @@
 
 import type { AssessmentFingerprint, FingerprintVerificationResult } from "../../assessment-integrity";
 import { deepFreezeAnimalValue, compareInstants } from "../animal-ledger";
-import type { RuleEvaluationRecord } from "../evaluation";
 import { buildRecommendationEvidencePack, verifyRecommendationEvidencePack, type CandidateAction, type EvidencePackCalculationStep, type RecommendationEvidencePack, type RejectedAlternative } from "../evidence-pack";
 import type { CattleInputItem } from "../information";
 import { compareStrings, sameFingerprint, sortedUnique, type CattleHash } from "../integrity";
@@ -97,7 +96,8 @@ import { compareKnownValues, computeNetValue } from "./economic-context";
 import { buildEvaluationContexts, type RecommendationTrustedInputs } from "./evaluation-context";
 import { CATTLE_RECOMMENDATION_PAYLOAD_VERSION, computeRecommendationFingerprint, verifyRecommendationFingerprint } from "./recommendation-integrity";
 import { renderRecommendationExplanation } from "./recommendation-explanation";
-import type { ModelEvaluation } from "./recommendation-models";
+import { approvalEvidenced, type ModelEvaluation } from "./recommendation-models";
+import { EVIDENCE_PACK, exact, type CarriedRuleEvaluation } from "./recommendation-exact";
 import type {
   CandidateEffect,
   CandidateEvaluation,
@@ -120,13 +120,29 @@ const RANKING_FORMULA =
   "selectable first; tier SAFETY_LEGAL_WELFARE > AVOID_MATERIAL_LOSS > EXPECTED_NET_RETURN > VALUE_OF_INFORMATION; within a tier VALUE_KNOWN (exact, same currency, higher first) before VALUE_UNKNOWN; then action identity; non-actionable after, by tier then identity";
 const GATE_FORMULA = "CLEAR iff every prerequisite gate is PASS or NOT_APPLICABLE and every required context part is supplied";
 const VALUE_FORMULA = "NET_OF_BOUND_OBSERVATIONS: sum(benefit observations) - sum(cost observations), exact decimal (money.ts), one currency";
+const GATE_CHECK_FORMULA =
+  "one consulted prerequisite gate of a candidate: C0 state (or NOT_EVALUATED for a generated gate), its rule version, rule fingerprint, reasons and source checks; controls the C0 outcome only for the proposed action";
+const EXCLUSION_FORMULA = "registered actions not considered: trigger or eligibility resolved negative over KNOWN predecessor states (reason codes per action kind)";
 
 const ENGINE_LIMITATIONS = [
   "CATTLE_RECOMMENDATION_NO_EFFECT_MAGNITUDE_OR_PROBABILITY",
   "CATTLE_RECOMMENDATION_NO_CURRENCY_CONVERSION",
   "CATTLE_RECOMMENDATION_MODEL_RULES_RECEIVE_NO_ANIMAL_INPUTS",
   "CATTLE_RECOMMENDATION_EVIDENCE_COMPLETENESS_IS_ADAPTER_RESPONSIBILITY",
+  // D2 / D3 (human decisions 2026-10-15): disclosed, never presented as independently validated.
+  "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATIONS_NOT_INDEPENDENTLY_VALIDATED",
+  "CATTLE_RECOMMENDATION_ECONOMIC_MODEL_APPROVAL_COVERS_VALUE_FORM_ONLY",
+  "CATTLE_RECOMMENDATION_ACTION_PRIORITY_TIERS_REGISTRY_DECLARED_UNREVIEWED",
 ];
+
+/** The pack input key binding each gate source's owner output (CAT-INV-021); `null` for generated gates. */
+const OWNER_OUTPUT_INPUT: Readonly<Record<CandidateGate["source"], string | null>> = {
+  C2_OBLIGATION: "cattle.recommendation.c2.obligationState",
+  C3_WITHDRAWAL: "cattle.recommendation.c3.withdrawalGate",
+  C7_PROGRAMME: "cattle.recommendation.c7.programmeStatus",
+  CONTEXT: null,
+  UNRESOLVED_EVIDENCE: null,
+};
 
 const tierIndex =(t: string) => (RECOMMENDATION_PRIORITY_TIERS as readonly string[]).indexOf(t);
 const requires = (part: RecommendationContextPart) => `CATTLE_RECOMMENDATION_REQUIRES:${part}`;
@@ -262,11 +278,12 @@ function eligibilityOf(d: CandidateActionDefinition, ctx: CattleEvaluationContex
 interface GateFold {
   state: "CLEAR" | "NOT_CLEAR";
   checks: CandidateGate[];
-  records: RuleEvaluationRecord[];
+  /** The consulted (validated, carried) records, sorted by rule id. */
+  records: CarriedRuleEvaluation[];
   sourceRefs: SourceVersionRef[];
 }
 
-function gateRecords(ctx: CattleEvaluationContext, source: RecommendationGateSource): { gates: RuleEvaluationRecord[]; sourceRefs: SourceVersionRef[] } | null {
+function gateRecords(ctx: CattleEvaluationContext, source: RecommendationGateSource): { gates: CarriedRuleEvaluation[]; sourceRefs: SourceVersionRef[] } | null {
   switch (source) {
     case "C2_OBLIGATION":
       return ctx.obligations.state === "SUPPLIED" ? { gates: ctx.obligations.gates, sourceRefs: [] } : null;
@@ -288,7 +305,7 @@ const GATE_SOURCES = ["C2_OBLIGATION", "C3_WITHDRAWAL", "C7_PROGRAMME"] as const
  * differing records under one id are ambiguous and reported — never resolved
  * by first match or input order.
  */
-function byRuleIdentity<T extends { record: RuleEvaluationRecord }>(entries: readonly T[]): { unique: T[]; ambiguous: string[] } {
+function byRuleIdentity<T extends { record: CarriedRuleEvaluation }>(entries: readonly T[]): { unique: T[]; ambiguous: string[] } {
   const groups = new Map<string, T[]>();
   for (const e of entries) groups.set(e.record.requestedRuleId, [...(groups.get(e.record.requestedRuleId) ?? []), e]);
   const unique: T[] = [];
@@ -301,7 +318,7 @@ function byRuleIdentity<T extends { record: RuleEvaluationRecord }>(entries: rea
 }
 
 function foldGates(d: CandidateActionDefinition, ctx: CattleEvaluationContext, unresolved: readonly string[]): { ok: true; fold: GateFold } | { ok: false; ambiguous: string[] } {
-  const consulted: { record: RuleEvaluationRecord; source: RecommendationGateSource }[] = [];
+  const consulted: { record: CarriedRuleEvaluation; source: RecommendationGateSource }[] = [];
   const sourceRefs: SourceVersionRef[] = [];
   const markers = new Set(unresolved);
   for (const source of d.prerequisites.sources) {
@@ -311,7 +328,7 @@ function foldGates(d: CandidateActionDefinition, ctx: CattleEvaluationContext, u
       continue;
     }
     for (const r of g.gates) consulted.push({ record: r, source });
-    sourceRefs.push(...g.sourceRefs);
+    sourceRefs.push(...g.sourceRefs, ...g.gates.flatMap((r) => r.sourceChecks.map((c) => c.bound)));
   }
   // A named gate is looked up in EVERY supplied source (never first match).
   const missingNamed: string[] = [];
@@ -322,7 +339,7 @@ function foldGates(d: CandidateActionDefinition, ctx: CattleEvaluationContext, u
       const hits = g === null ? [] : g.gates.filter((x) => x.requestedRuleId === ruleId);
       if (g === null || hits.length === 0) continue;
       for (const r of hits) consulted.push({ record: r, source });
-      sourceRefs.push(...g.sourceRefs);
+      sourceRefs.push(...g.sourceRefs, ...hits.flatMap((r) => r.sourceChecks.map((c) => c.bound)));
       found = true;
     }
     if (!found) missingNamed.push(ruleId);
@@ -340,7 +357,7 @@ function foldGates(d: CandidateActionDefinition, ctx: CattleEvaluationContext, u
   if (collided.length > 0) return { ok: false, ambiguous: collided };
   checks.sort((a, b) => compareStrings(a.ruleId, b.ruleId));
   const records = unique.map((e) => e.record).sort((a, b) => compareStrings(a.requestedRuleId, b.requestedRuleId));
-  return { ok: true, fold: { state: checks.every((c) => c.satisfied) ? "CLEAR" : "NOT_CLEAR", checks, records, sourceRefs } };
+  return { ok: true, fold: { state: checks.every((c) => c.satisfied) ? "CLEAR" : "NOT_CLEAR", checks, records, sourceRefs: uniqueRefs(sourceRefs) } };
 }
 
 const ambiguityIssues = (animalId: string, ruleIds: readonly string[]): RecommendationIssue[] =>
@@ -358,7 +375,7 @@ function modelOf(ctx: CattleEvaluationContext, ref: RecommendationModelRef): Mod
 const NOT_EVALUATED_EFFECT: CandidateEffect = { state: "NOT_EVALUATED", model: null, expectedEffect: null, reasonCodes: ["CATTLE_RECOMMENDATION_NOT_EVALUATED_GATES_NOT_CLEAR"] };
 const NOT_EVALUATED_VALUE: CandidateValue = { state: "NOT_EVALUATED", model: null, amount: null, currency: null, observationIds: [], reasonCodes: ["CATTLE_RECOMMENDATION_NOT_EVALUATED_GATES_NOT_CLEAR"] };
 
-function effectOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { effect: CandidateEffect; record: RuleEvaluationRecord | null } {
+function effectOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { effect: CandidateEffect; record: CarriedRuleEvaluation | null } {
   const ref = d.effectModelRef;
   if (ref === null) return { effect: { state: "EFFECT_UNKNOWN", model: null, expectedEffect: null, reasonCodes: ["CATTLE_RECOMMENDATION_NO_EFFECT_MODEL"] }, record: null };
   const m = modelOf(ctx, ref);
@@ -370,8 +387,8 @@ function effectOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): {
   return { effect: { state: "EFFECT_UNKNOWN", model: ref, expectedEffect: null, reasonCodes: [`CATTLE_RECOMMENDATION_EFFECT_MODEL_${s}`] }, record: m.ruleEvaluation };
 }
 
-function valueOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { value: CandidateValue; record: RuleEvaluationRecord | null; observations: { key: string; role: "benefit" | "cost"; amount: string; currency: string; observationId: string; source: SourceVersionRef; receivedAt: string }[] } {
-  const unknown = (model: RecommendationModelRef | null, reasonCodes: string[], record: RuleEvaluationRecord | null = null) => ({
+function valueOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { value: CandidateValue; record: CarriedRuleEvaluation | null; observations: { key: string; role: "benefit" | "cost"; amount: string; currency: string; observationId: string; source: SourceVersionRef; receivedAt: string }[] } {
+  const unknown = (model: RecommendationModelRef | null, reasonCodes: string[], record: CarriedRuleEvaluation | null = null) => ({
     value: { state: "VALUE_UNKNOWN" as const, model, amount: null, currency: null, observationIds: [], reasonCodes },
     record,
     observations: [],
@@ -402,8 +419,9 @@ function valueOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { 
 interface Working {
   candidate: Omit<CandidateEvaluation, "rank">;
   gates: GateFold;
-  modelRecords: RuleEvaluationRecord[];
-  valueRecord: RuleEvaluationRecord | null;
+  modelRecords: CarriedRuleEvaluation[];
+  effectRecord: CarriedRuleEvaluation | null;
+  valueRecord: CarriedRuleEvaluation | null;
   valueObservations: ReturnType<typeof valueOf>["observations"];
   triggerReasons: string[];
 }
@@ -489,12 +507,27 @@ function regulatoryState(pack: RecommendationEvidencePack): RecommendationRecord
   return "GATES_SATISFIED";
 }
 
+/**
+ * Evidence labels (D1 / D2 / D3). An effect is labelled scientifically
+ * approved only when its carried C0 record itself evidences the approval; a
+ * known value is labelled as an approved value FORM over observations that are
+ * not independently validated (never "validated prices"); the action tier is
+ * always labelled registry-declared (never independently reviewed).
+ */
 function evidenceOf(p: Working | null): RecommendationRecord["evidence"] {
-  if (p === null) return { type: "NONE", strength: "NONE" };
-  if (p.candidate.benefitClaim === "NONE") return { type: "DATA_GAP_OR_OBLIGATION", strength: "PREDECESSOR_STATE" };
-  const effect = p.candidate.effect.state === "EFFECT_SUPPORTED";
-  const value = p.candidate.value.state === "VALUE_KNOWN";
-  return { type: "MODELLED", strength: effect && value ? "APPROVED_MODEL_EFFECT_AND_VALUE" : effect ? "APPROVED_MODEL_EFFECT" : value ? "APPROVED_MODEL_VALUE" : "UNMODELLED" };
+  const none = { effectBasis: "NONE", valueBasis: "NONE", priorityBasis: "NONE" } as const;
+  if (p === null) return { type: "NONE", strength: "NONE", ...none };
+  const priorityBasis = "REGISTRY_DECLARED_UNREVIEWED" as const;
+  if (p.candidate.benefitClaim === "NONE") return { type: "DATA_GAP_OR_OBLIGATION", strength: "PREDECESSOR_STATE", ...none, priorityBasis };
+  const effect = p.candidate.effect.state === "EFFECT_SUPPORTED" && p.effectRecord !== null && approvalEvidenced(p.effectRecord);
+  const value = p.candidate.value.state === "VALUE_KNOWN" && p.valueRecord !== null && approvalEvidenced(p.valueRecord);
+  return {
+    type: "MODELLED",
+    strength: effect && value ? "MODELLED_EFFECT_AND_VALUE" : effect ? "MODELLED_EFFECT" : value ? "MODELLED_VALUE" : "UNMODELLED",
+    effectBasis: effect ? "SCIENTIFICALLY_APPROVED_EFFECT_MODEL" : "NONE",
+    valueBasis: value ? "APPROVED_VALUE_FORM_OVER_UNVALIDATED_OBSERVATIONS" : "NONE",
+    priorityBasis,
+  };
 }
 
 function uniqueRefs(refs: SourceVersionRef[]): SourceVersionRef[] {
@@ -535,7 +568,8 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
         selectable: clear && effect.effect.state !== "EFFECT_NOT_SUPPORTED",
       },
       gates,
-      modelRecords: [effect.record, value.record].filter((r): r is RuleEvaluationRecord => r !== null),
+      modelRecords: [effect.record, value.record].filter((r): r is CarriedRuleEvaluation => r !== null),
+      effectRecord: effect.record,
       valueRecord: value.record,
       valueObservations: value.observations,
       triggerReasons: trigger.reasons,
@@ -566,6 +600,38 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
       rounding: null,
       rule: null,
     });
+    // Decision provenance (CAT-INV-021): EVERY consulted gate of EVERY candidate, as a non-controlling step — C0 derives
+    // the outcome only from `ruleEvaluations` / `requiredHardGateRuleIds`, which hold the proposed action's gates alone.
+    for (const c of w.gates.checks) {
+      const record = w.gates.records.find((r) => r.requestedRuleId === c.ruleId) ?? null;
+      const owner = OWNER_OUTPUT_INPUT[c.source];
+      steps.push({
+        sequence: steps.length + 1,
+        description: `Prerequisite gate ${c.ruleId} of the ${label}`,
+        formula: GATE_CHECK_FORMULA,
+        inputs: {
+          state: c.state,
+          source: c.source,
+          satisfied: c.satisfied,
+          controlsPackOutcome: w === proposed,
+          ...(owner === null ? {} : { ownerOutputInputKey: owner }),
+          ...(record === null
+            ? { record: "GENERATED_NOT_EVALUATED" }
+            : {
+                gateRole: record.gateRole ?? "NONE",
+                classification: record.classification ?? "NONE",
+                ruleFingerprint: record.ruleFingerprint?.digest ?? "NONE",
+                reasonCodes: JSON.stringify(record.reasonCodes),
+                sourceChecks: JSON.stringify(record.sourceChecks.map((s) => [s.bound.sourceId, s.bound.version, s.bound.contentFingerprint.digest, s.status])),
+                reviews: JSON.stringify(record.reviews.map((r) => [r.dimension, r.state])),
+              }),
+        },
+        output: c.state,
+        unit: null,
+        rounding: null,
+        rule: record?.rule ?? null,
+      });
+    }
     const v = w.candidate.value;
     if (v.state === "VALUE_KNOWN") {
       steps.push({
@@ -582,11 +648,28 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
   };
   if (proposed !== null) stepsFor(proposed, "proposed action");
   for (const w of ranked) if (w !== proposed) stepsFor(w, `alternative ${w.candidate.actionId}`);
+  // Exclusions (CAT-INV-021): every registered action not considered, with its reasons.
+  const excluded = [...notCandidates].sort((a, b) => compareStrings(a.actionKind, b.actionKind));
+  steps.push({
+    sequence: steps.length + 1,
+    description: "Registered actions not considered",
+    formula: EXCLUSION_FORMULA,
+    inputs: Object.fromEntries(excluded.map((n) => [`excluded:${n.actionKind}`, JSON.stringify(n.reasonCodes)])),
+    output: excluded.length,
+    unit: null,
+    rounding: null,
+    rule: null,
+  });
+  // Ranking with each candidate's ranking basis and every recorded tie (tiers are registry-declared — D3).
   steps.push({
     sequence: steps.length + 1,
     description: "Deterministic ranking of candidate actions",
     formula: RANKING_FORMULA,
-    inputs: Object.fromEntries(candidates.map((c) => [`rank:${String(c.rank).padStart(4, "0")}`, c.actionId])),
+    inputs: Object.fromEntries([
+      ...candidates.map((c) => [`rank:${String(c.rank).padStart(4, "0")}`, c.actionId] as const),
+      ...candidates.map((c) => [`basis:${c.actionId}`, JSON.stringify({ selectable: c.selectable, tier: c.tier, tierBasis: "REGISTRY_DECLARED_UNREVIEWED", value: c.value.state, amount: c.value.amount, currency: c.value.currency })] as const),
+      ...ties.map((tie, i) => [`tie:${String(i + 1).padStart(4, "0")}`, JSON.stringify({ actionIds: tie.actionIds, brokenBy: tie.brokenBy })] as const),
+    ]),
     output: proposed?.candidate.actionId ?? null,
     unit: null,
     rounding: null,
@@ -639,7 +722,9 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
     hash,
   );
   if (built.status === "INVALID") return { ok: false, issues: built.issues.map((i) => ({ code: "CATTLE_RECOMMENDATION_PACK_INVALID", ref: `${ctx.animalId}:${i}` })) };
-  const pack = built.pack;
+  // The C0 pack is read and stored only as its exact validated copy (CAT-INV-028).
+  const pack = exact(EVIDENCE_PACK, built.pack);
+  if (pack === null) return { ok: false, issues: [{ code: "CATTLE_RECOMMENDATION_PACK_INVALID", ref: `${ctx.animalId}:CATTLE_RECOMMENDATION_PACK_MALFORMED` }] };
   const verified = verifyRecommendationEvidencePack(pack, hash);
   if (!verified.valid) return { ok: false, issues: [{ code: "CATTLE_RECOMMENDATION_PACK_UNVERIFIED", ref: `${ctx.animalId}:${verified.reasonCode}` }] };
   // C0 alone derives the outcome from the pack; C8's own gate fold must never be less strict than it (CAT-INV-009).

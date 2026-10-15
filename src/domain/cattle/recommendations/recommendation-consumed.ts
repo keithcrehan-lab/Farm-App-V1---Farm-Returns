@@ -163,10 +163,11 @@ export const C1_SNAPSHOT_IDENTITY = object({
 });
 
 /**
- * One C0 `RuleEvaluationRecord` of a C2 / C3 / C7 hard-gate projection: the
- * fields C8 reads and the fields C0 `buildRecommendationEvidencePack` reads on
- * C8's behalf (the record is otherwise carried verbatim — it is produced
- * in-process by the frozen projector).
+ * One C0 `RuleEvaluationRecord` of a C2 / C3 / C7 hard-gate projection, as
+ * READ from the projection surface. The record is never carried from here:
+ * the copy C8 carries into its context and pack is validated against the
+ * exact, compile-checked C0 contract `RULE_EVALUATION_RECORD`
+ * (`recommendation-exact.ts`; C8 architecture review 2026-10-15, F005).
  */
 export const GATE_RECORD = object({
   requestedRuleId: ref,

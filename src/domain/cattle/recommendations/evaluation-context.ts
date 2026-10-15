@@ -44,7 +44,6 @@
 import type { AssessmentFingerprint } from "../../assessment-integrity";
 import { animalInstantKey, deepFreezeAnimalValue, rematerialiseAnimalLedger, type AnimalLedger } from "../animal-ledger";
 import { computeAnimalSnapshotFingerprint, projectAnimalSnapshot } from "../animal-snapshot";
-import type { RuleEvaluationRecord } from "../evaluation";
 import { projectProductionGoals, resolveGoalTargetApplicability, routeProductionGoals } from "../goals";
 import { projectAnimalHealth, projectWithdrawalHardGates } from "../health";
 import { compareStrings, sameFingerprint, type CattleHash } from "../integrity";
@@ -56,6 +55,7 @@ import { buildWeightReadContract } from "../weights";
 import { admitCandidateActionRegistry, type CandidateActionRegistry, type RecommendationModelRef } from "./candidate-actions";
 import { admitEconomicObservations, resolveEconomicValues, type EconomicObservation } from "./economic-context";
 import { admitRecommendationModels, evaluateRecommendationModel, relevantModelCatalogue, type AdmittedModelCatalogue } from "./recommendation-models";
+import { RULE_EVALUATION_RECORD, exact, type CarriedRuleEvaluation } from "./recommendation-exact";
 import { CATTLE_RECOMMENDATION_PAYLOAD_VERSION, computeRecommendationFingerprint } from "./recommendation-integrity";
 import {
   C1_SNAPSHOT_IDENTITY,
@@ -217,8 +217,20 @@ interface AnimalBuild {
 
 const NOT_SUPPLIED: NotSupplied = { state: "NOT_SUPPLIED" };
 
-function gatesOf(raw: readonly RuleEvaluationRecord[]): RuleEvaluationRecord[] {
-  return structuredClone([...raw]);
+/**
+ * The CARRIED copy of a hard-gate projection's records: each record validated
+ * against the exact C0 `RuleEvaluationRecord` contract and projected
+ * (`recommendation-exact.ts`); `null` when any record is malformed — the part
+ * then fails closed. No raw predecessor object enters the sealed context.
+ */
+function gatesOf(raw: readonly unknown[]): CarriedRuleEvaluation[] | null {
+  const out: CarriedRuleEvaluation[] = [];
+  for (const r of raw) {
+    const copy = exact(RULE_EVALUATION_RECORD, r);
+    if (copy === null) return null;
+    out.push(copy);
+  }
+  return out;
 }
 
 /** C8-owned inputs shared by every animal: the admitted registry, the referenced models and the economic resolutions they need. */
@@ -304,7 +316,8 @@ function composeAnimals(read: ReadRequest, trusted: RecommendationTrustedInputs,
         const build = e === null ? undefined : animals.get(e.animalId);
         const projection = e === null ? null : failClosed(() => projectObligationHardGates(raw, hash));
         const gates = projection !== null && projection.ok ? consume(C2_GATES, projection.projection) : null;
-        if (e === null || build === undefined || gates === null || projection === null || !projection.ok || gates.animalId !== e.animalId || !sameFingerprint(e.snapshotFingerprint, build.snapshotFingerprint)) {
+        const carried = projection !== null && projection.ok ? gatesOf(projection.projection.ruleEvaluations) : null;
+        if (e === null || build === undefined || gates === null || carried === null || projection === null || !projection.ok || gates.animalId !== e.animalId || !sameFingerprint(e.snapshotFingerprint, build.snapshotFingerprint)) {
           issues.push(issue("CATTLE_RECOMMENDATION_OBLIGATION_EVIDENCE_INVALID", e?.animalId ?? null));
           continue;
         }
@@ -315,7 +328,7 @@ function composeAnimals(read: ReadRequest, trusted: RecommendationTrustedInputs,
           state: "SUPPLIED",
           recordFingerprints: e.results.map((r) => r.fingerprint).sort(byDigest),
           records: e.results.map((r) => ({ obligationId: r.obligationId, occurrenceId: r.occurrence?.occurrenceId ?? null, state: r.state })),
-          gates: gatesOf(projection.projection.ruleEvaluations),
+          gates: carried,
         };
       }
       for (const b of builds) if (b.obligations.state !== "SUPPLIED") issues.push(issue("CATTLE_RECOMMENDATION_OBLIGATION_EVIDENCE_INVALID", b.animalId));
@@ -343,7 +356,8 @@ function composeAnimals(read: ReadRequest, trusted: RecommendationTrustedInputs,
       const p = projection === null ? null : consume(C3_PROJECTION, projection);
       const raw = projection === null ? null : failClosed(() => projectWithdrawalHardGates(projection, hash));
       const gates = raw !== null && raw.ok ? consume(SOURCED_GATES, raw.gates) : null;
-      if (p === null || raw === null || !raw.ok || gates === null || p.animalId !== entry.animalId || !sameFingerprint(p.snapshotFingerprint, build.snapshotFingerprint)) {
+      const carried = raw !== null && raw.ok ? gatesOf(raw.gates.ruleEvaluations) : null;
+      if (p === null || raw === null || !raw.ok || gates === null || carried === null || p.animalId !== entry.animalId || !sameFingerprint(p.snapshotFingerprint, build.snapshotFingerprint)) {
         issues.push(issue("CATTLE_RECOMMENDATION_HEALTH_EVIDENCE_INVALID", entry.animalId));
         continue;
       }
@@ -354,7 +368,7 @@ function composeAnimals(read: ReadRequest, trusted: RecommendationTrustedInputs,
         medicineLedgerFingerprint: p.medicineLedger.fingerprint,
         withdrawalGateFingerprint: p.withdrawalGate.fingerprint,
         withdrawal: p.withdrawalGate.entries.map((x) => ({ foodProduct: x.foodProduct, state: x.state })),
-        gates: gatesOf(raw.gates.ruleEvaluations),
+        gates: carried,
         sourceRefs: structuredClone(gates.sourceRefs) as SourceVersionRef[],
       };
     }
@@ -433,19 +447,20 @@ function composeAnimals(read: ReadRequest, trusted: RecommendationTrustedInputs,
       for (const build of builds) {
         const raw = failClosed(() => projectProgrammeHardGates(result.evaluation, build.animalId, hash));
         const gates = raw !== null && raw.ok ? consume(SOURCED_GATES, raw.gates) : null;
-        if (raw === null || !raw.ok || gates === null || !ev.animalIds.includes(build.animalId)) {
+        const carried = raw !== null && raw.ok ? gatesOf(raw.gates.ruleEvaluations) : null;
+        if (raw === null || !raw.ok || gates === null || carried === null || !ev.animalIds.includes(build.animalId)) {
           issues.push(issue("CATTLE_RECOMMENDATION_PROGRAMME_EVIDENCE_INVALID", build.animalId));
           continue;
         }
         echo(build, "C7_EVALUATION", ev);
-        build.programmes = programmesPart(ev, build.animalId, gatesOf(raw.gates.ruleEvaluations), structuredClone(gates.sourceRefs) as SourceVersionRef[]);
+        build.programmes = programmesPart(ev, build.animalId, carried, structuredClone(gates.sourceRefs) as SourceVersionRef[]);
       }
     }
   }
   return issues.length > 0 ? { ok: false, issues } : { ok: true, animals: builds };
 }
 
-function programmesPart(ev: ConsumedC7Evaluation, animalId: string, gates: RuleEvaluationRecord[], sourceRefs: SourceVersionRef[]): ProgrammesPart {
+function programmesPart(ev: ConsumedC7Evaluation, animalId: string, gates: CarriedRuleEvaluation[], sourceRefs: SourceVersionRef[]): ProgrammesPart {
   const statuses = ev.programmes.flatMap((p) => p.animals.filter((a) => a.animalId === animalId).map((a) => ({ programme: p, status: a })));
   return {
     state: "SUPPLIED",

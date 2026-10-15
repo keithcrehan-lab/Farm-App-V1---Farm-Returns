@@ -7,7 +7,52 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+/*
+ * Boundary fault injection (C8 consolidated repair, finding R11). Every seam C8
+ * calls is wrapped PASS-THROUGH: with no fault armed the real frozen engine's
+ * result is returned untouched, so every other suite runs against the real
+ * engines. A test arms one seam, which then returns a structured clone of the
+ * real result with one mutation applied to the picked record — the auditor's
+ * "canonical malformed-output fault injection", made a permanent oracle.
+ */
+const faults = vi.hoisted(() => ({
+  armed: null as null | { seam: string; mutate: (record: Record<string, unknown>) => void },
+  capture: null as null | { seam: string; value: unknown },
+}));
+vi.mock("../regulatory", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../regulatory")>();
+  return { ...real, projectObligationHardGates: (...a: Parameters<typeof real.projectObligationHardGates>) => injected("C2_GATES", real.projectObligationHardGates(...a), (r) => (r.ok ? r.projection.ruleEvaluations[0] : null)) };
+});
+vi.mock("../health", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../health")>();
+  return { ...real, projectWithdrawalHardGates: (...a: Parameters<typeof real.projectWithdrawalHardGates>) => injected("C3_GATES", real.projectWithdrawalHardGates(...a), (r) => (r.ok ? r.gates.ruleEvaluations[0] : null)) };
+});
+vi.mock("../programmes", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../programmes")>();
+  return { ...real, projectProgrammeHardGates: (...a: Parameters<typeof real.projectProgrammeHardGates>) => injected("C7_GATES", real.projectProgrammeHardGates(...a), (r) => (r.ok ? r.gates.ruleEvaluations[0] : null)) };
+});
+vi.mock("../evaluation", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../evaluation")>();
+  return { ...real, evaluateCattleRule: (...a: Parameters<typeof real.evaluateCattleRule>) => injected("MODEL_RECORD", real.evaluateCattleRule(...a), (r) => (r.requestedRuleId === "SYNTH-RULE-EFFECT" ? r : null)) };
+});
+vi.mock("../evidence-pack", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../evidence-pack")>();
+  return { ...real, buildRecommendationEvidencePack: (...a: Parameters<typeof real.buildRecommendationEvidencePack>) => injected("PACK", real.buildRecommendationEvidencePack(...a), (r) => (r.status === "BUILT" ? r.pack : null)) };
+});
+/** Pass-through unless `seam` is armed (mutated clone) or captured (clone recorded). */
+function injected<R>(seam: string, result: R, pick: (r: R) => unknown): R {
+  if (faults.capture?.seam === seam && faults.capture.value === undefined) {
+    const target = pick(result);
+    if (target !== null && target !== undefined) faults.capture.value = structuredClone(target);
+  }
+  if (faults.armed?.seam !== seam) return result;
+  const copy = structuredClone(result);
+  const target = pick(copy);
+  if (target !== null && target !== undefined) faults.armed.mutate(target as Record<string, unknown>);
+  return copy;
+}
 import {
   CONFORMS,
   RESOLVED_LOOKING_STATES,
@@ -44,6 +89,8 @@ import {
 import { sealEvaluationContext, buildEvaluationContexts } from "./evaluation-context";
 import { recommendationModelContentMarker, type RecommendationModelRecord } from "./recommendation-models";
 import { RECOMMENDATION_CONSUMED_SURFACES, valid, type FieldSpec } from "./recommendation-consumed";
+import * as cattleExact from "./recommendation-exact";
+import * as cattleModels from "./recommendation-models";
 
 type Rec = Record<string, unknown>;
 
@@ -341,7 +388,13 @@ describe("C8 test 1 — hard gates precede optimisation", () => {
     expect(rec.record.regulatoryStatus.state).toBe("GATES_SATISFIED");
     expect(rec.candidates[0].effect).toMatchObject({ state: "EFFECT_SUPPORTED", expectedEffect: "SYNTH asserted effect" });
     expect(rec.candidates[0].value).toMatchObject({ state: "VALUE_KNOWN", amount: "749.50", currency: "EUR", observationIds: ["o-cost", "o-price"] });
-    expect(rec.record.evidence).toEqual({ type: "MODELLED", strength: "APPROVED_MODEL_EFFECT_AND_VALUE" });
+    expect(rec.record.evidence).toEqual({
+      type: "MODELLED",
+      strength: "MODELLED_EFFECT_AND_VALUE",
+      effectBasis: "SCIENTIFICALLY_APPROVED_EFFECT_MODEL",
+      valueBasis: "APPROVED_VALUE_FORM_OVER_UNVALIDATED_OBSERVATIONS",
+      priorityBasis: "REGISTRY_DECLARED_UNREVIEWED",
+    });
     expect(rec.pack.hardGateOutcomes.map((g) => [g.ruleId, g.state])).toEqual([
       ["CATTLE_HEALTH_WITHDRAWAL:SYNTH-FOOD-MEAT", "PASS"],
       [OBL_RULE, "PASS"],
@@ -454,7 +507,7 @@ describe("C8 test 3 — each default data-gap action triggers only from its docu
     expect(yes.record.outcome).toBe("ACTIONABLE");
     expect(yes.record.recommendedAction?.actionKind).toBe(kind);
     expect(yes.candidates[0]).toMatchObject({ benefitClaim: "NONE", trigger: { state: "TRIGGERED" }, effect: { state: "EFFECT_UNKNOWN" }, value: { state: "VALUE_UNKNOWN", amount: null } });
-    expect(yes.record.evidence).toEqual({ type: "DATA_GAP_OR_OBLIGATION", strength: "PREDECESSOR_STATE" });
+    expect(yes.record.evidence).toEqual({ type: "DATA_GAP_OR_OBLIGATION", strength: "PREDECESSOR_STATE", effectBasis: "NONE", valueBasis: "NONE", priorityBasis: "REGISTRY_DECLARED_UNREVIEWED" });
     expect(yes.record.limitations).toContain("CATTLE_RECOMMENDATION_DATA_GAP_ACTION_CLAIMS_NO_BENEFIT");
     const no = recOf(run({ ...negative, actions: defaultOnly(kind) }));
     expect(no.record.outcome).toBe("NO_RECOMMENDATION");
@@ -784,7 +837,7 @@ describe("C8 test 9 — deterministic explanation from structured fields", () =>
   it("renders a fixed template from pack / record fields only (snapshot)", () => {
     const rec = recOf(run({ weights: { observations: [] }, actions: defaultOnly("RECORD_WEIGHT") }));
     expect(rec.record.explanation.replace(rec.pack.fingerprint.digest, "<PACK-DIGEST>").replace(rec.pack.recommendationId, "<PACK-ID>")).toBe(
-      "Outcome: ACTIONABLE. Proposed action: RECORD_WEIGHT (VALUE_OF_INFORMATION) - Record a weight observation for the animal (no weight observation is in view). Hard gates: none. Expected effect: EFFECT_UNKNOWN. Economic value: VALUE_UNKNOWN. Missing context: OBLIGATIONS, HEALTH, PERFORMANCE, GOALS, PROGRAMMES. Evidence pack <PACK-ID> (<PACK-DIGEST>).",
+      "Outcome: ACTIONABLE. Proposed action: RECORD_WEIGHT (VALUE_OF_INFORMATION, registry-declared priority) - Record a weight observation for the animal (no weight observation is in view). Hard gates: none. Expected effect: EFFECT_UNKNOWN. Economic value: VALUE_UNKNOWN. Missing context: OBLIGATIONS, HEALTH, PERFORMANCE, GOALS, PROGRAMMES. Evidence pack <PACK-ID> (<PACK-DIGEST>).",
     );
     expect(cattle.renderRecommendationExplanation({ pack: rec.pack, recommendedAction: rec.record.recommendedAction, effect: rec.candidates[0].effect, value: rec.candidates[0].value, missingContextParts: rec.record.missingContextParts })).toBe(
       rec.record.explanation,
@@ -1216,5 +1269,325 @@ describe("C8 remediation — model content binding, gate identity, ranking prove
     expect(gated.record.outcome).toBe("ACTIONABLE");
     expect(gated.pack.hardGateOutcomes).toEqual([]);
     expect(gated.pack.rejectedAlternatives).toContainEqual({ actionId: SELL_ID, reasonCodes: ["CATTLE_RECOMMENDATION_GATE_FAIL:CATTLE_HEALTH_WITHDRAWAL:SYNTH-FOOD-MEAT"] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C8 consolidated architectural repair (review 2026-10-15; F003 / F004 / F005, R1–R11)
+// ---------------------------------------------------------------------------
+
+/** Every mutation of a REAL record, enumerated from the record object itself (never from C8's schema). */
+function realMutations(record: unknown, isMap: (path: string[]) => boolean): { label: string; mutate: (root: Record<string, unknown>) => void }[] {
+  const out: { label: string; mutate: (root: Record<string, unknown>) => void }[] = [];
+  const at = (root: unknown, p: string[]) => p.reduce((v: unknown, k) => (v as Record<string, unknown>)[k], root);
+  const wrong = (v: unknown) => (v !== null && typeof v === "object" ? "SYNTH-WRONG-TYPE" : { synthWrongType: true });
+  const walk = (value: unknown, path: string[]) => {
+    if (Array.isArray(value)) {
+      if (value.length > 0) walk(value[0], [...path, "0"]);
+      return;
+    }
+    if (value === null || typeof value !== "object") return;
+    const map = isMap(path);
+    if (!map) out.push({ label: `${path.join(".") || "<root>"} + undeclared field`, mutate: (root) => void ((at(root, path) as Record<string, unknown>).synthUndeclared = "SYNTH") });
+    for (const [k, v] of Object.entries(value)) {
+      const p = [...path, k];
+      if (!map) out.push({ label: `${p.join(".")} missing`, mutate: (root) => void delete (at(root, path) as Record<string, unknown>)[k] });
+      out.push({ label: `${p.join(".")} wrong type`, mutate: (root) => void ((at(root, path) as Record<string, unknown>)[k] = wrong(v)) });
+      walk(v, p);
+    }
+  };
+  walk(record, []);
+  return out;
+}
+
+/** The real record a seam returns in `scenario` (captured through the pass-through wrapper). */
+function captureAt(seam: string, scenario: () => unknown): Record<string, unknown> {
+  faults.capture = { seam, value: undefined };
+  try {
+    scenario();
+    expect(faults.capture.value, `${seam} captured`).toBeDefined();
+    return faults.capture.value as Record<string, unknown>;
+  } finally {
+    faults.capture = null;
+  }
+}
+
+function withFault<T>(seam: string, mutate: (record: Record<string, unknown>) => void, scenario: () => T): T {
+  faults.armed = { seam, mutate };
+  try {
+    return scenario();
+  } finally {
+    faults.armed = null;
+  }
+}
+
+/** Recursively the object keys of a real value vs an exact spec's declared fields (map values excepted). */
+function keyMismatches(spec: unknown, value: unknown, path = "<root>"): string[] {
+  const s = spec as { t: string; of?: unknown; fields?: Record<string, unknown> };
+  if (s.t === "nullable") return value === null ? [] : keyMismatches(s.of, value, path);
+  if (s.t === "array") return Array.isArray(value) ? value.flatMap((x, i) => keyMismatches(s.of, x, `${path}.${i}`)) : [`${path}: not an array`];
+  if (s.t === "map") return [];
+  if (s.t !== "object") return [];
+  const declared = Object.keys(s.fields ?? {}).sort();
+  const actual = Object.keys(value as object).sort();
+  const diff = [...declared.filter((k) => !actual.includes(k)).map((k) => `${path}.${k} declared, absent`), ...actual.filter((k) => !declared.includes(k)).map((k) => `${path}.${k} present, undeclared`)];
+  return [...diff, ...declared.filter((k) => actual.includes(k)).flatMap((k) => keyMismatches(s.fields![k], (value as Record<string, unknown>)[k], `${path}.${k}`))];
+}
+
+describe("C8 repair A — boundary validation and checked-copy propagation (F005 / R3–R5)", () => {
+  const C2_SCENARIO = (): Run => favourable({ actions: registry([SELL(["C2_OBLIGATION"])]), obligations: obligations({ evidence: [fulfilment()] }) });
+  const C3_SCENARIO = (): Run => favourable({ actions: registry([SELL(["C3_WITHDRAWAL"])]), health: health(CLEAR_RECORDS) });
+  const C7_SCENARIO = (): Run => favourable({ actions: registry([SELL(["C7_PROGRAMME"])]), programmes: programmes(), health: health([]) });
+  const MODEL_SCENARIO = (): Run => favourable({ actions: registry([SELL()]) });
+  const SEAMS: { seam: string; scenario: () => Run; code: string }[] = [
+    { seam: "C2_GATES", scenario: C2_SCENARIO, code: "CATTLE_RECOMMENDATION_OBLIGATION_EVIDENCE_INVALID" },
+    { seam: "C3_GATES", scenario: C3_SCENARIO, code: "CATTLE_RECOMMENDATION_HEALTH_EVIDENCE_INVALID" },
+    { seam: "C7_GATES", scenario: C7_SCENARIO, code: "CATTLE_RECOMMENDATION_PROGRAMME_EVIDENCE_INVALID" },
+  ];
+
+  it("the exact C0 schemas declare exactly the fields of the REAL frozen outputs (gates of C2 / C3 / C7, model records, packs)", () => {
+    for (const { seam, scenario } of SEAMS) expect(keyMismatches(cattleExact.RULE_EVALUATION_RECORD, captureAt(seam, () => run(scenario()))), seam).toEqual([]);
+    expect(keyMismatches(cattleExact.RULE_EVALUATION_RECORD, captureAt("MODEL_RECORD", () => run(MODEL_SCENARIO())))).toEqual([]);
+    expect(keyMismatches(cattleExact.EVIDENCE_PACK, captureAt("PACK", () => run(C2_SCENARIO())))).toEqual([]);
+  });
+
+  it("every gate seam: each mutation of the real record (missing / wrong type / undeclared field, every level) fails the request closed — never ACTIONABLE", () => {
+    for (const { seam, scenario, code } of SEAMS) {
+      expect(recOf(run(scenario())).record.outcome === "BLOCKED" || recOf(run(scenario())).record.outcome === "ACTIONABLE", `${seam} baseline runs`).toBe(true);
+      const matrix = realMutations(captureAt(seam, () => run(scenario())), () => false);
+      expect(matrix.length, seam).toBeGreaterThan(30);
+      for (const m of matrix) {
+        const r = withFault(seam, m.mutate, () => run(scenario()));
+        expect(r.ok, `${seam}: ${m.label}`).toBe(false);
+        expect(codes(r), `${seam}: ${m.label}`).toContain(code);
+      }
+    }
+  });
+
+  it("F005 exact reproduction: a C3 projector record whose rule version is not an integer fails closed (never ACTIONABLE, never a verified pack)", () => {
+    const r = withFault("C3_GATES", (rec) => void (rec.rule = { ruleId: "SYNTH-RULE", version: "SYNTH-INVALID-VERSION" }), () => run(C3_SCENARIO()));
+    expect(r.ok).toBe(false);
+    expect(codes(r)).toContain("CATTLE_RECOMMENDATION_HEALTH_EVIDENCE_INVALID");
+  });
+
+  it("model seam: each mutation of the real C0 model record leaves the model UNAVAILABLE (effect unknown, no approval label, record absent from the pack)", () => {
+    const matrix = realMutations(captureAt("MODEL_RECORD", () => run(MODEL_SCENARIO())), () => false);
+    expect(matrix.length).toBeGreaterThan(30);
+    for (const m of matrix) {
+      const rec = recOf(withFault("MODEL_RECORD", m.mutate, () => run(MODEL_SCENARIO())));
+      expect(rec.candidates[0].effect.state, m.label).toBe("EFFECT_UNKNOWN");
+      expect(rec.candidates[0].effect.reasonCodes[0], m.label).toMatch(/^CATTLE_RECOMMENDATION_MODEL_EVALUATION_MALFORMED/);
+      expect(rec.record.evidence.effectBasis, m.label).toBe("NONE");
+      expect(rec.pack.ruleEvaluations.map((e) => e.requestedRuleId), m.label).not.toContain("SYNTH-RULE-EFFECT");
+    }
+  });
+
+  it("pack seam: each mutation of the real C0 pack fails the request closed (calculation-step input maps are free-form keys)", () => {
+    const isMap = (path: string[]) => path.length === 3 && path[0] === "calculationSteps" && path[2] === "inputs";
+    const matrix = realMutations(captureAt("PACK", () => run(C2_SCENARIO())), isMap);
+    expect(matrix.length).toBeGreaterThan(100);
+    for (const m of matrix) {
+      const r = withFault("PACK", m.mutate, () => run(C2_SCENARIO()));
+      expect(r.ok, m.label).toBe(false);
+      expect(r.ok ? [] : r.issues, m.label).toContainEqual({ code: "CATTLE_RECOMMENDATION_PACK_INVALID", ref: `${A}:CATTLE_RECOMMENDATION_PACK_MALFORMED` });
+    }
+  });
+
+  it("carried records are detached copies: no raw predecessor object is reachable from the context or the pack", () => {
+    const rec = recOf(run(C2_SCENARIO()));
+    const gate = (rec.context.obligations as { gates: unknown[] }).gates[0];
+    expect(cattleExact.exactValid(cattleExact.RULE_EVALUATION_RECORD, gate)).toBe(true);
+    expect(cattleExact.exactValid(cattleExact.EVIDENCE_PACK, rec.pack)).toBe(true);
+    expect(verifyCattleRecommendation(rec, hash).valid).toBe(true);
+  });
+});
+
+describe("C8 repair C — model eligibility (F004 / R2, R8, R9; human decision D1)", () => {
+  const CLASSIFICATIONS = ["LEGAL_REQUIRED", "LEGAL_CONDITIONAL", "SCHEME_CONDITIONAL", "VETERINARY_PROGRAMME", "SCIENCE_TARGET", "SCIENCE_CONSTRAINT", "FARMER_INTENT", "SYSTEM_INFERENCE"] as const;
+  const MINIMUM: Record<(typeof CLASSIFICATIONS)[number], ("SCIENTIFIC" | "LEGAL" | "VETERINARY")[]> = {
+    LEGAL_REQUIRED: ["LEGAL"],
+    LEGAL_CONDITIONAL: ["LEGAL"],
+    SCHEME_CONDITIONAL: ["LEGAL"],
+    VETERINARY_PROGRAMME: ["VETERINARY"],
+    SCIENCE_TARGET: ["SCIENTIFIC"],
+    SCIENCE_CONSTRAINT: ["SCIENTIFIC"],
+    FARMER_INTENT: [],
+    SYSTEM_INFERENCE: ["SCIENTIFIC"],
+  };
+  const ELIGIBLE = { EFFECT: ["SCIENCE_TARGET", "SCIENCE_CONSTRAINT", "SYSTEM_INFERENCE"], ECONOMIC: ["SYSTEM_INFERENCE"] } as const;
+
+  function cell(role: "EFFECT" | "ECONOMIC", classification: (typeof CLASSIFICATIONS)[number], sourced: boolean, scientific: boolean, approved: boolean, productionState: "PRODUCTION" | "SUPERSEDED") {
+    const requiredReviews = [...new Set([...MINIMUM[classification], ...(scientific ? (["SCIENTIFIC"] as const) : [])])];
+    const ruleId = role === "EFFECT" ? "SYNTH-RULE-EFFECT" : "SYNTH-RULE-ECONOMIC";
+    const rule = modelRule(ruleId, MODEL_PASS, { classification, sourceBindings: sourced ? [sourceVersionRef(SCIENCE_SOURCE)] : [], requiredReviews, productionState });
+    const model = role === "EFFECT" ? effectModel(rule) : econModel(["SYNTH-KEY-PRICE"], ["SYNTH-KEY-COST"], rule);
+    const other = role === "EFFECT" ? (FAVOURABLE_MODELS.records as Rec[])[1] : (FAVOURABLE_MODELS.records as Rec[])[0];
+    const reviews = [...(approved ? approveModels([model]) : []), ...approveModels([other])];
+    return recOf(run({ actions: registry([SELL()]), observations: FAVOURABLE_OBS, models: allModels([model, other], reviews) }));
+  }
+
+  it("matrix: 8 classifications × 2 roles × sources × SCIENTIFIC review × approval × production state — only the D1 cells are supported / valued, and only those are labelled approved", () => {
+    let eligibleCells = 0;
+    for (const role of ["EFFECT", "ECONOMIC"] as const)
+      for (const classification of CLASSIFICATIONS)
+        for (const sourced of [true, false])
+          for (const scientific of [true, false])
+            for (const approved of [true, false])
+              for (const productionState of ["PRODUCTION", "SUPERSEDED"] as const) {
+                const label = JSON.stringify({ role, classification, sourced, scientific, approved, productionState });
+                const rec = cell(role, classification, sourced, scientific, approved, productionState);
+                // SCIENTIFIC is required either explicitly or by the classification's C0 minimum.
+                const hasScientific = scientific || MINIMUM[classification].includes("SCIENTIFIC");
+                const expected = (ELIGIBLE[role] as readonly string[]).includes(classification) && sourced && hasScientific && approved && productionState === "PRODUCTION";
+                if (expected) eligibleCells++;
+                const c = rec.candidates[0];
+                if (role === "EFFECT") {
+                  expect(c.effect.state === "EFFECT_SUPPORTED", label).toBe(expected);
+                  expect(rec.record.evidence.effectBasis === "SCIENTIFICALLY_APPROVED_EFFECT_MODEL", label).toBe(expected);
+                } else {
+                  expect(c.value.state === "VALUE_KNOWN", label).toBe(expected);
+                  expect(rec.record.evidence.valueBasis === "APPROVED_VALUE_FORM_OVER_UNVALIDATED_OBSERVATIONS", label).toBe(expected);
+                }
+              }
+    // EFFECT: 3 classifications × SCIENTIFIC explicit-or-minimum (2); ECONOMIC: SYSTEM_INFERENCE × 2.
+    expect(eligibleCells).toBe(8);
+  });
+
+  it("F004 exact reproduction: content-bound FARMER_INTENT models with no sources, reviews or catalogue are never supported, valued or labelled approved", () => {
+    const intent = (id: string) => modelRule(id, MODEL_PASS, { classification: "FARMER_INTENT", sourceBindings: [], requiredReviews: [] });
+    const models = { records: [effectModel(intent("SYNTH-RULE-EFFECT")), econModel(["SYNTH-KEY-PRICE"], ["SYNTH-KEY-COST"], intent("SYNTH-RULE-ECONOMIC"))], reviews: [], sources: [] };
+    const rec = recOf(run({ actions: registry([SELL()]), observations: FAVOURABLE_OBS, models }));
+    expect(rec.candidates[0].effect.state).toBe("EFFECT_UNKNOWN");
+    expect(rec.candidates[0].value).toMatchObject({ state: "VALUE_UNKNOWN", amount: null });
+    expect(rec.candidates[0].effect.reasonCodes.join(" ")).toMatch(/CATTLE_RECOMMENDATION_MODEL_NOT_ELIGIBLE:CLASSIFICATION_NOT_ELIGIBLE_FOR_EFFECT:FARMER_INTENT/);
+    expect(rec.candidates[0].value.reasonCodes.join(" ")).toMatch(/CATTLE_RECOMMENDATION_MODEL_NOT_ELIGIBLE:CLASSIFICATION_NOT_ELIGIBLE_FOR_ECONOMIC:FARMER_INTENT/);
+    expect(rec.record.evidence).toMatchObject({ strength: "UNMODELLED", effectBasis: "NONE", valueBasis: "NONE" });
+  });
+
+  it("approval must be evidenced by the record itself (defence in depth over the eligibility policy)", () => {
+    const base = captureAt("MODEL_RECORD", () => run(favourable({ actions: registry([SELL()]) }))) as unknown as Parameters<typeof cattleModels.approvalEvidenced>[0];
+    expect(cattleModels.approvalEvidenced(base)).toBe(true);
+    expect(cattleModels.approvalEvidenced({ ...base, reviews: [] })).toBe(false);
+    expect(cattleModels.approvalEvidenced({ ...base, reviews: base.reviews.map((r) => ({ ...r, state: "PENDING" as const })) })).toBe(false);
+    expect(cattleModels.approvalEvidenced({ ...base, sourceChecks: [] })).toBe(false);
+    expect(cattleModels.approvalEvidenced({ ...base, sourceChecks: base.sourceChecks.map((s) => ({ ...s, status: "SOURCE_CONTENT_CHANGED" as const })) })).toBe(false);
+    expect(Object.keys(cattleModels.MODEL_ELIGIBILITY).sort()).toEqual(["ECONOMIC", "EFFECT"]);
+  });
+
+  it("D2 / D3 safeguards: a known value is never presented as validated prices; a priority tier is never presented as reviewed", () => {
+    const rec = recOf(run(favourable({ actions: registry([SELL()]) })));
+    expect(rec.candidates[0].value.state).toBe("VALUE_KNOWN");
+    expect(rec.pack.limitations).toEqual(
+      expect.arrayContaining([
+        "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATIONS_NOT_INDEPENDENTLY_VALIDATED",
+        "CATTLE_RECOMMENDATION_ECONOMIC_MODEL_APPROVAL_COVERS_VALUE_FORM_ONLY",
+        "CATTLE_RECOMMENDATION_ACTION_PRIORITY_TIERS_REGISTRY_DECLARED_UNREVIEWED",
+      ]),
+    );
+    expect(rec.record.evidence.valueBasis).toBe("APPROVED_VALUE_FORM_OVER_UNVALIDATED_OBSERVATIONS");
+    expect(rec.record.evidence.priorityBasis).toBe("REGISTRY_DECLARED_UNREVIEWED");
+    expect(rec.record.explanation).toContain("economic observations not independently validated");
+    expect(rec.record.explanation).toContain("registry-declared priority");
+    const ranking = rec.pack.calculationSteps.at(-1)!;
+    expect(JSON.parse(ranking.inputs[`basis:${rec.candidates[0].actionId}`] as string)).toMatchObject({ tierBasis: "REGISTRY_DECLARED_UNREVIEWED" });
+    expect(JSON.stringify(rec)).not.toMatch(/VALIDATED_PRICE|PRICES_VALIDATED|REVIEWED_PRIORITY|APPROVED_MODEL_VALUE/);
+  });
+});
+
+describe("C8 repair B — complete decision provenance (F003 / R1, R6)", () => {
+  /** Class oracle: every decision in the recommendation record maps to pack content. */
+  function expectDecisionProvenance(rec: CattleRecommendation) {
+    const steps = rec.pack.calculationSteps;
+    const proposedId = rec.pack.proposedActionId;
+    const ctxRecords = [rec.context.obligations, rec.context.health, rec.context.programmes].flatMap((p) => (p.state === "SUPPLIED" ? (p as { gates: { requestedRuleId: string; rule: unknown; ruleFingerprint: { digest: string } | null; sourceChecks: { bound: { sourceId: string; version: string } }[] }[] }).gates : []));
+    const packSources = rec.pack.sourceRefs.map((s) => `${s.sourceId}@${s.version}`);
+    for (const c of rec.candidates) {
+      const label = c.actionId === proposedId ? "proposed action" : `alternative ${c.actionId}`;
+      for (const check of c.gates.checks) {
+        const step = steps.find((s) => s.description === `Prerequisite gate ${check.ruleId} of the ${label}`);
+        expect(step, `${label} ${check.ruleId}`).toBeDefined();
+        expect(step!.output).toBe(check.state);
+        expect(step!.inputs.controlsPackOutcome).toBe(c.actionId === proposedId);
+        const source = ctxRecords.find((r) => r.requestedRuleId === check.ruleId);
+        if (check.source === "CONTEXT" || check.source === "UNRESOLVED_EVIDENCE") {
+          expect(step!.rule).toBeNull();
+          expect(step!.inputs.record).toBe("GENERATED_NOT_EVALUATED");
+        } else {
+          expect(step!.rule).toEqual(source!.rule);
+          expect(step!.inputs.ruleFingerprint).toBe(source!.ruleFingerprint?.digest ?? "NONE");
+          for (const sc of source!.sourceChecks) expect(packSources, `${check.ruleId} source`).toContain(`${sc.bound.sourceId}@${sc.bound.version}`);
+        }
+      }
+      // Non-control: only the proposed action's gates are C0 hard gates.
+      if (c.actionId !== proposedId) for (const check of c.gates.checks) if (!rec.candidates.find((x) => x.actionId === proposedId)?.gates.checks.some((p) => p.ruleId === check.ruleId)) expect(rec.pack.hardGateOutcomes.map((g) => g.ruleId)).not.toContain(check.ruleId);
+    }
+    const exclusions = steps.find((s) => s.description === "Registered actions not considered");
+    expect(exclusions).toBeDefined();
+    expect(exclusions!.output).toBe(rec.notCandidates.length);
+    for (const n of rec.notCandidates) expect(JSON.parse(exclusions!.inputs[`excluded:${n.actionKind}`] as string)).toEqual(n.reasonCodes);
+    const ranking = steps.at(-1)!;
+    expect(ranking.description).toBe("Deterministic ranking of candidate actions");
+    rec.ties.forEach((tie, i) => expect(JSON.parse(ranking.inputs[`tie:${String(i + 1).padStart(4, "0")}`] as string)).toEqual({ actionIds: tie.actionIds, brokenBy: tie.brokenBy }));
+    for (const c of rec.candidates) expect(ranking.inputs[`basis:${c.actionId}`]).toBeDefined();
+  }
+
+  const SELL_ID = JSON.stringify(["SYNTH-SELL", "ANIMAL", A]);
+  const OTHER = action("SYNTH-OTHER");
+
+  it("F003 exact reproduction: an alternative rejected by a failing C2 rule carries its rule version, fingerprint, state and sources in the pack", () => {
+    const rec = recOf(run(favourable({ actions: registry([SELL(["C2_OBLIGATION"]), OTHER]), obligations: obligations() })));
+    expect(rec.pack.proposedActionId).toBe(JSON.stringify(["SYNTH-OTHER", "ANIMAL", A]));
+    expect(rec.pack.rejectedAlternatives).toContainEqual({ actionId: SELL_ID, reasonCodes: [`CATTLE_RECOMMENDATION_GATE_FAIL:${OBL_RULE}`] });
+    const step = rec.pack.calculationSteps.find((s) => s.description === `Prerequisite gate ${OBL_RULE} of the alternative ${SELL_ID}`)!;
+    expect(step).toMatchObject({ output: "FAIL", rule: { ruleId: OBL_RULE, version: 1 } });
+    expect(step.inputs).toMatchObject({ state: "FAIL", source: "C2_OBLIGATION", controlsPackOutcome: false, ownerOutputInputKey: "cattle.recommendation.c2.obligationState" });
+    expect(rec.pack.sourceRefs.length).toBeGreaterThan(0);
+    expect(rec.pack.hardGateOutcomes).toEqual([]);
+    expect(rec.record.outcome).toBe("ACTIONABLE");
+    expectDecisionProvenance(rec);
+  });
+
+  it("class: C2 / C3 / C7 / generated-gate rejections, exclusions and ties are all in the pack, and never control the proposal's outcome", () => {
+    const tieA = action("SYNTH-TIE-A");
+    const tieB = action("SYNTH-TIE-B");
+    const notTriggered = action("SYNTH-NOT-TRIGGERED", { trigger: { kind: "GOAL_STATUS", statuses: ["NONE"] } });
+    const scenarios: Run[] = [
+      favourable({ actions: registry([SELL(["C2_OBLIGATION"]), OTHER]), obligations: obligations() }),
+      favourable({ actions: registry([SELL(["C3_WITHDRAWAL"]), OTHER]), health: health(IN_WITHDRAWAL_RECORDS) }),
+      favourable({ actions: registry([SELL(["C7_PROGRAMME"]), OTHER]), programmes: programmes(), health: health([]) }),
+      favourable({ actions: registry([SELL([], { evidenceRequirements: ["PERFORMANCE"] }), OTHER]) }),
+      favourable({ actions: registry([SELL([], { prerequisites: { sources: [], gateRuleIds: ["SYNTH-GATE-ABSENT"] } }), OTHER]) }),
+      { actions: registry([tieA, tieB, notTriggered]), goals: goals([goalDecl("g-fin")]) },
+      favourable({ actions: registry([SELL(["C2_OBLIGATION", "C3_WITHDRAWAL", "C7_PROGRAMME"]), tieA, tieB, notTriggered]), obligations: obligations(), health: health(IN_WITHDRAWAL_RECORDS), programmes: programmes(), goals: goals([goalDecl("g-fin")]) }),
+      favourable({ actions: registry([SELL(["C3_WITHDRAWAL"]), OTHER]), health: health(UNKNOWN_RECORDS) }),
+      favourable({ actions: registry([SELL(["C3_WITHDRAWAL"]), OTHER]), health: health(CONFLICT_RECORDS) }),
+      favourable({ actions: registry([SELL(["C2_OBLIGATION"]), OTHER]), obligations: obligations({ evidence: [fulfilment()], catalogue: { ...OBL_CATALOGUE, reviews: [] } }) }),
+      favourable({ actions: registry([SELL(["C2_OBLIGATION"])]), obligations: obligations() }),
+      favourable({ actions: registry([SELL(["C3_WITHDRAWAL"])]) }),
+    ];
+    for (const s of scenarios) expectDecisionProvenance(recOf(run(s)));
+    const rich = recOf(run(scenarios[6]));
+    expect(rich.notCandidates.map((n) => n.actionKind)).toEqual(["SYNTH-NOT-TRIGGERED"]);
+    expect(rich.ties.length).toBeGreaterThan(0);
+    expect(rich.record.outcome).toBe("ACTIONABLE");
+  });
+
+  it("metamorphic: adding failing / unresolved alternatives never changes the proposal's C0 outcome or hard-gate outcomes", () => {
+    const alone = recOf(run(favourable({ actions: registry([OTHER]) })));
+    const crowded = recOf(
+      run(
+        favourable({
+          actions: registry([OTHER, SELL(["C2_OBLIGATION", "C3_WITHDRAWAL", "C7_PROGRAMME"], { tier: "SAFETY_LEGAL_WELFARE", evidenceRequirements: ["PERFORMANCE"] })]),
+          obligations: obligations(),
+          health: health(IN_WITHDRAWAL_RECORDS),
+          programmes: programmes(),
+        }),
+      ),
+    );
+    expect(crowded.pack.proposedActionId).toBe(alone.pack.proposedActionId);
+    expect(crowded.record.outcome).toBe(alone.record.outcome);
+    expect(crowded.pack.hardGateOutcomes).toEqual(alone.pack.hardGateOutcomes);
+    expect(crowded.pack.requiredHardGateRuleIds).toEqual(alone.pack.requiredHardGateRuleIds);
+    expectDecisionProvenance(crowded);
   });
 });

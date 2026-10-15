@@ -4450,6 +4450,7 @@ canonicalisation changes. `livestock.ts` economic functions (`calculateFinishing
 | `recommendation-models.ts` | `RecommendationModelRecord` (`modelId`, `version`, `recordedAt`, `role` `EFFECT` \| `ECONOMIC`, `rule` C0 `CattleRuleVersion` — ADVISORY, no applicability, no required inputs —, `expectedEffect` (EFFECT only, opaque statement), `value {form: NET_OF_BOUND_OBSERVATIONS, benefitKeys, costKeys}` (ECONOMIC only)); `ModelEvaluation`. Admission / evaluation module-internal |
 | `economic-context.ts` | `EconomicObservation` (`observationId`, `valueKey`, `amount` canonical non-negative decimal string, `currency` explicit code, `observedAt` valid time, `receivedAt` knowledge time, `source` `SourceVersionRef`, `supersedes`); `EconomicValueResolution` `KNOWN` / `UNKNOWN` / `CONFLICT`; `COMPUTABLE_CURRENCIES` (`EUR`, compile-checked to `money.ts` `CurrencyCode`) |
 | `recommendation-consumed.ts` | THE consumed-field schema (CAT-INV-028) for every C1–C7 output C8 reads (`RECOMMENDATION_CONSUMED_SURFACES`); owned-record shape check (no undeclared field). Module-internal |
+| `recommendation-exact.ts` | Exact consumed contracts for every C0 record C8 CARRIES: `RULE_EVALUATION_RECORD`, `EVIDENCE_PACK`, `exact` / `exactValid`, `CarriedRuleEvaluation`; `C0_EXACTNESS` compile-time completeness against the frozen C0 types. Module-internal |
 | `evaluation-context.ts` | THE construction boundary: `buildEvaluationContexts`, `sealEvaluationContext`; `RecommendationTrustedInputs`. Module-internal except the trusted-input type |
 | `recommendation-engine.ts` | `recommendCattle(request, hash, trusted)` → `CattleRecommendationResult`; `verifyCattleRecommendation`; `CATTLE_RECOMMENDATION_ENGINE_VERSION` |
 | `recommendation-explanation.ts` | `renderRecommendationExplanation` (fixed template over pack / record fields) |
@@ -4552,15 +4553,41 @@ same identity space: a generated id equal to a supplied gate, to another generat
 record in the pack fails closed the same way, so a record can never decide a generated gate in C0. A
 pack that C0 derives as ACTIONABLE for a proposal that is not selectable fails the request closed
 (`CATTLE_RECOMMENDATION_PACK_OUTCOME_INCONSISTENT`).
+**Carried records (CAT-INV-028; C8 architecture review 2026-10-15, F005).** No raw predecessor or C0
+object is carried into the sealed context or the evidence pack. Every C0 `RuleEvaluationRecord` C8
+carries — C2 / C3 / C7 hard-gate records and C0 model rule evaluations — and the C0 pack C8 stores are
+validated against an EXACT schema (`recommendation-exact.ts`): every field of the frozen C0 type at
+every nesting level, runtime type, frozen vocabulary and format, and no undeclared field; only the
+projected copy is carried. Completeness is compile-checked (`Covers<spec, C0 type>`: the schema's keys
+equal the type's keys at every level and the projection is assignable to it), so omitting a C0 field is
+a type error. A malformed gate record fails its part closed (`..._OBLIGATION / HEALTH /
+PROGRAMME_EVIDENCE_INVALID`); a malformed model record leaves the model UNAVAILABLE
+(`..._MODEL_EVALUATION_MALFORMED`); a malformed pack fails the request closed (`..._PACK_INVALID` /
+`..._PACK_MALFORMED`). Structure only: no C0 / C2 / C3 / C7 derivation is restated.
+
+**Model eligibility (CAT-INV-016 / 025; human decision D1, 2026-10-15).** C0 PASS is necessary, not
+sufficient: C0 classifications legitimately differ in what they require (a FARMER_INTENT rule needs no
+source and no review), so C8 applies its own role-specific policy before evaluation
+(`MODEL_ELIGIBILITY`): EFFECT models only SCIENCE_TARGET, SCIENCE_CONSTRAINT or SYSTEM_INFERENCE;
+ECONOMIC models only SYSTEM_INFERENCE; never FARMER_INTENT, LEGAL_REQUIRED, LEGAL_CONDITIONAL,
+SCHEME_CONDITIONAL or VETERINARY_PROGRAMME. Independently of classification: at least one source
+binding, SCIENTIFIC among the required reviews, production state PRODUCTION (a SUPERSEDED version is
+never current). Ineligible ⇒ UNAVAILABLE (`..._MODEL_NOT_ELIGIBLE:<reason>:<model>`), never a request
+failure. A PASS counts only when the carried C0 record itself evidences approval — every review
+dimension APPROVED with SCIENTIFIC among them, every bound source CURRENT — otherwise UNAVAILABLE
+(`..._MODEL_APPROVAL_NOT_EVIDENCED`). **Scientific approval versus economic validation:** approval of an
+EFFECT model is scientific approval of its effect statement; approval of an ECONOMIC model covers its
+value FORM only (which bound observation keys are benefits and which are costs) — never the prices.
+
 **Model content binding (CAT-INV-025).** A model's rule version must carry
 `recommendationModelContentMarker(model)` (`cattle-recommendation-model-content:<modelId>:<digest>` of
 `CATTLE_RECOMMENDATION_MODEL_CONTENT`) in `assumptions`, so the C0 rule fingerprint a review approves
 covers the effect statement and value form; otherwise the model is UNAVAILABLE
 (`..._MODEL_CONTENT_NOT_BOUND_TO_RULE_VERSION`) and never supports an effect or a value.
 **Effect:** no model ⇒ `EFFECT_UNKNOWN`; model not admitted / role mismatch / content not bound /
-implementation not in the trusted registry ⇒ `EFFECT_UNKNOWN`; C0 PASS ⇒ `EFFECT_SUPPORTED` (the model's statement — no magnitude
+implementation not in the trusted registry / not eligible / approval not evidenced ⇒ `EFFECT_UNKNOWN`; C0 PASS ⇒ `EFFECT_SUPPORTED` (the model's statement — no magnitude
 or probability), FAIL ⇒ `EFFECT_NOT_SUPPORTED`, any other C0 state (REVIEW_REQUIRED, UNSUPPORTED, …) ⇒
-`EFFECT_UNKNOWN`. **Value:** REQUIRED an admitted ECONOMIC model with C0 PASS and every named key KNOWN
+`EFFECT_UNKNOWN`. **Value:** REQUIRED an admitted, eligible ECONOMIC model with an evidenced C0 PASS and every named key KNOWN
 in one computable currency; value = Σ benefit − Σ cost (exact decimal, `money.ts`); otherwise
 `VALUE_UNKNOWN` with reasons (`..._VALUE_INPUT_<state>:<key>`, `..._VALUE_CURRENCY_MIXED`,
 `..._VALUE_CURRENCY_NOT_COMPUTABLE`, model state).
@@ -4589,21 +4616,36 @@ the C6 goal snapshot ref (or `null`); inputs = every consumed owner-output bindi
 economic observations used by any candidate; rule evaluations = the proposed action's prerequisite gate
 records plus the (ADVISORY) model evaluations of every candidate consulted for ranking or rejection —
 never another action's gates, so only the proposal's gates decide C0's outcome; required hard gates = its
-gate checks; calculation steps = gate fold and value (when known) of the proposal, then of every
-alternative in rank order, then ranking; sources = gate product / programme sources of every candidate
-and observation sources (plus C0's from rule records); assumptions / limitations / uncertainties
+gate checks; calculation steps = for the proposal, then every alternative in rank order: the gate fold,
+then ONE step per consulted gate check (`Prerequisite gate <rule> of the <proposed action | alternative
+<id>>`: `rule` = the record's `RuleVersionRef`, or `null` for a generated gate; inputs = state, gate
+source, satisfied, `controlsPackOutcome` (true only for the proposal), the pack input key binding the
+owner output, gate role, classification, rule fingerprint, reason codes, source checks and reviews;
+output = the state), then the value step (when known); then the registered actions not considered
+(trigger / eligibility resolved negative, with reasons per action kind); then ranking (rank order, each
+candidate's ranking basis — selectable, tier with basis `REGISTRY_DECLARED_UNREVIEWED`, value — and
+every recorded tie). Decision provenance (CAT-INV-021): every candidate's gates, every exclusion,
+the ranking basis and every tie are in the pack; alternatives' gates enter ONLY as calculation steps
+and sources, which C0 never treats as gates, so they cannot affect the proposal's C0 outcome. Sources =
+the bound sources of every consulted gate record of every candidate (C2 included), gate product /
+programme sources and observation sources (plus C0's from rule records); assumptions / limitations / uncertainties
 (missing parts, unresolved gates, unknown effect / value reasons); every candidate; every non-proposed
 candidate rejected with structured reasons (`..._GATE_<state>:<rule>`, `..._EFFECT_NOT_SUPPORTED`,
-`..._RANKED_BELOW:<action>`). Built packs are re-verified with `verifyRecommendationEvidencePack`; an
-invalid or unverifiable pack fails the request closed (`..._PACK_INVALID` / `..._PACK_UNVERIFIED`).
+`..._RANKED_BELOW:<action>`). The built pack is read and stored only as its exact validated copy, then
+re-verified with `verifyRecommendationEvidencePack`; an invalid, malformed or unverifiable pack fails the
+request closed (`..._PACK_INVALID` / `..._PACK_UNVERIFIED`). A pack C0 derives as ACTIONABLE for a
+proposal C8 considers not selectable fails closed (`..._PACK_OUTCOME_INCONSISTENT`).
 
 **Record and explanation.** `RecommendationRecord` (information class RECOMMENDATION): recommended
 action, outcome / `actionable` (true only for C0 ACTIONABLE), structured reason codes, deterministic
 explanation (fixed template over pack / record fields; no model call), expected outcome (effect +
 value, or `EFFECT_UNKNOWN` / `VALUE_UNKNOWN`), regulatory status (`NO_PREREQUISITE_GATES` /
 `GATES_SATISFIED` / `GATE_FAILED` / `GATE_REVIEW_REQUIRED` / `GATE_UNRESOLVED` + C0 hard-gate outcomes),
-evidence type / strength (`DATA_GAP_OR_OBLIGATION` / `PREDECESSOR_STATE` or `MODELLED` / approved-model
-strengths / `UNMODELLED`), sources, assumptions, limitations, unknowns, missing context parts, pack id +
+evidence `{type, strength, effectBasis, valueBasis, priorityBasis}` — type `DATA_GAP_OR_OBLIGATION` /
+`MODELLED` / `NONE`; strength `PREDECESSOR_STATE` / `MODELLED_EFFECT_AND_VALUE` / `MODELLED_EFFECT` /
+`MODELLED_VALUE` / `UNMODELLED` / `NONE`; `effectBasis` `SCIENTIFICALLY_APPROVED_EFFECT_MODEL` only when the
+effect record evidences approval; `valueBasis` `APPROVED_VALUE_FORM_OVER_UNVALIDATED_OBSERVATIONS` (never
+"validated prices"); `priorityBasis` `REGISTRY_DECLARED_UNREVIEWED` — sources, assumptions, limitations, unknowns, missing context parts, pack id +
 fingerprint. **Herd:** per-animal results (sorted by animal id) and an ordering by proposed tier (none
 last), then outcome (BLOCKED, REVIEW_REQUIRED, INSUFFICIENT_EVIDENCE, ACTIONABLE, NO_RECOMMENDATION), then
 — between two ACTIONABLE animals — known value (exact, higher first, unknown after), then animal id; ties
@@ -4632,7 +4674,19 @@ interpreted (adapters supply the animals in scope). Completeness of the supplied
 the adapter's responsibility (C2 / C3 / C7 precedent). A malformed admitted record anywhere in a C8-owned
 collection (registry, models, observations) fails the request closed. Reproducing a recommendation
 requires resupplying the same registry, models and observations (they are versioned data, not stored by
-C8).
+C8). **Disclosed limitations (human decisions D2 / D3, 2026-10-15), in every pack's limitations:**
+economic observation amounts and source references are bound but NOT independently validated — no
+catalogue or authority check exists for prices (C0 has no authority kind for market prices)
+(`CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATIONS_NOT_INDEPENDENTLY_VALIDATED`); an economic model's approval
+covers its value form only (`..._ECONOMIC_MODEL_APPROVAL_COVERS_VALUE_FORM_ONLY`); action priority tiers
+are declared by the candidate-action registry, which carries no review state
+(`..._ACTION_PRIORITY_TIERS_REGISTRY_DECLARED_UNREVIEWED`). Safeguards: the record's `valueBasis` /
+`priorityBasis`, the ranking step's tier basis and the explanation text ("approved value form over
+economic observations not independently validated", "registry-declared priority") always state these
+bases; nothing presents a price as validated or a tier as reviewed. **Verification:** boundary fault
+injection at every seam C8 calls (C2 / C3 / C7 gate projectors, C0 model evaluation, C0 pack builder)
+enumerates mutations from the REAL frozen outputs (never from C8's schema) and requires fail-closed
+behaviour; a decision-provenance oracle checks that every decision in a record appears in its pack.
 
 **Exclusions.** No real legal, veterinary, scientific or economic content; no diagnosis, prescribing,
 treatment / dose / product / timing choice or legal interpretation; no AI / LLM narrative; no Plan job

@@ -22,10 +22,13 @@ export function renderRecommendationExplanation(f: ExplanationFields): string {
   const a = f.recommendedAction;
   const gates = f.pack.hardGateOutcomes.length === 0 ? "none" : f.pack.hardGateOutcomes.map((g) => `${g.ruleId}=${g.state}`).join(", ");
   const effect = f.effect === null ? "not evaluated" : `${f.effect.state}${f.effect.expectedEffect === null ? "" : ` (${f.effect.expectedEffect})`}`;
-  const value = f.value === null ? "not evaluated" : `${f.value.state}${f.value.amount === null ? "" : ` ${f.value.amount} ${f.value.currency}`}`;
+  // D2: a known value is never presented as validated prices.
+  const value =
+    f.value === null ? "not evaluated" : `${f.value.state}${f.value.amount === null ? "" : ` ${f.value.amount} ${f.value.currency} (approved value form over economic observations not independently validated)`}`;
   return [
     `Outcome: ${f.pack.outcome}.`,
-    a === null ? "No action proposed." : `Proposed action: ${a.actionKind} (${a.tier}) - ${a.description}.`,
+    // D3: the priority tier is registry-declared, never presented as independently reviewed.
+    a === null ? "No action proposed." : `Proposed action: ${a.actionKind} (${a.tier}, registry-declared priority) - ${a.description}.`,
     `Hard gates: ${gates}.`,
     `Expected effect: ${effect}.`,
     `Economic value: ${value}.`,

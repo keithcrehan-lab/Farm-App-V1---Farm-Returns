@@ -30,6 +30,24 @@
  * ⇒ EFFECT_UNKNOWN / VALUE_UNKNOWN): changing an effect statement or a
  * benefit / cost mapping needs a new rule version and renewed approval.
  *
+ * ELIGIBILITY (CAT-INV-016/025; human decision D1, 2026-10-15). C0 PASS is
+ * necessary but NOT sufficient: C0 classifications legitimately differ in what
+ * they require (a FARMER_INTENT rule needs no source and no review), so C8
+ * applies its own, stricter, role-specific policy BEFORE evaluation —
+ * `MODEL_ELIGIBILITY` (EFFECT: SCIENCE_TARGET / SCIENCE_CONSTRAINT /
+ * SYSTEM_INFERENCE; ECONOMIC: SYSTEM_INFERENCE; never FARMER_INTENT, legal,
+ * scheme or veterinary-programme classifications), at least one source
+ * binding, SCIENTIFIC among the required reviews and production state
+ * PRODUCTION (a SUPERSEDED version is never current). An ineligible model is
+ * UNAVAILABLE (⇒ EFFECT_UNKNOWN / VALUE_UNKNOWN), never a request failure.
+ * After evaluation the C0 record is carried only as its exact validated copy,
+ * and a PASS counts only when the record itself evidences the approval: every
+ * review dimension APPROVED (SCIENTIFIC among them) and every bound source
+ * CURRENT. Scientific approval of an ECONOMIC model covers its value FORM —
+ * which bound observation keys are benefits and which are costs — never the
+ * prices: observation amounts and sources are not independently validated
+ * (engine limitation, human decision D2).
+ *
  * C8 v1 supplies model rules NO animal inputs: a model rule must declare no
  * applicability conditions and no required inputs (otherwise it is malformed
  * and the request fails closed). Model rules are ADVISORY: a model never acts
@@ -51,7 +69,8 @@ import { compareStrings, type CattleHash } from "../integrity";
 import type { AssessmentFingerprint } from "../../assessment-integrity";
 import { computeRecommendationFingerprint } from "./recommendation-integrity";
 import { canonicalObligationInstant, findObligationImplementation } from "../regulatory";
-import { FAIL_CLOSED_UNKNOWN_POLICY, type CattleRuleProductionState, type CattleRuleVersion, type RuleReviewRecord } from "../rule";
+import { FAIL_CLOSED_UNKNOWN_POLICY, type CattleRuleClassification, type CattleRuleProductionState, type CattleRuleVersion, type RuleReviewRecord } from "../rule";
+import { RULE_EVALUATION_RECORD, exact, type CarriedRuleEvaluation } from "./recommendation-exact";
 import type { CattleEvidenceSource, CattleSourceAuthorityKind, CattleSourceLifecycle } from "../source";
 import type { RecommendationModelRef } from "./candidate-actions";
 import { dedupeIssues } from "./candidate-actions";
@@ -289,8 +308,36 @@ export function recommendationModelContentMarker(model: RecommendationModelRecor
   return `cattle-recommendation-model-content:${model.modelId}:${computeRecommendationModelContentFingerprint(model, hash).digest}`;
 }
 
+/** D1: the C0 classifications that may back each model role (fail closed: anything not listed is ineligible). */
+export const MODEL_ELIGIBILITY: Readonly<Record<RecommendationModelRole, readonly CattleRuleClassification[]>> = Object.freeze({
+  EFFECT: Object.freeze(["SCIENCE_TARGET", "SCIENCE_CONSTRAINT", "SYSTEM_INFERENCE"] as const),
+  ECONOMIC: Object.freeze(["SYSTEM_INFERENCE"] as const),
+});
+
+/** The eligibility reasons of a model (empty ⇒ eligible); independent of the C0 classification semantics. */
+export function modelEligibilityIssues(model: RecommendationModelRecord): string[] {
+  const r = model.rule;
+  const issues: string[] = [];
+  if (!MODEL_ELIGIBILITY[model.role].includes(r.classification)) issues.push(`CLASSIFICATION_NOT_ELIGIBLE_FOR_${model.role}:${r.classification}`);
+  if (r.sourceBindings.length === 0) issues.push("NO_SOURCE_BINDING");
+  if (!r.requiredReviews.includes("SCIENTIFIC")) issues.push("NO_SCIENTIFIC_REVIEW_REQUIRED");
+  if (r.productionState !== "PRODUCTION") issues.push(`NOT_IN_PRODUCTION:${r.productionState}`);
+  return issues;
+}
+
+/** True when a PASS record itself evidences approval: reviews non-empty, all APPROVED, SCIENTIFIC among them; sources non-empty, all CURRENT. */
+export function approvalEvidenced(record: CarriedRuleEvaluation): boolean {
+  return (
+    record.reviews.length > 0 &&
+    record.reviews.every((x) => x.state === "APPROVED") &&
+    record.reviews.some((x) => x.dimension === "SCIENTIFIC") &&
+    record.sourceChecks.length > 0 &&
+    record.sourceChecks.every((c) => c.status === "CURRENT")
+  );
+}
+
 export type ModelEvaluation =
-  | { state: "EVALUATED"; model: RecommendationModelRecord; ruleEvaluation: RuleEvaluationRecord }
+  | { state: "EVALUATED"; model: RecommendationModelRecord; ruleEvaluation: CarriedRuleEvaluation }
   | { state: "UNAVAILABLE"; reasonCodes: string[] };
 
 /** Evaluates one referenced model through C0 at `evaluationDate` (no inputs supplied). */
@@ -308,8 +355,20 @@ export function evaluateRecommendationModel(
   if (!model.rule.assumptions.includes(recommendationModelContentMarker(model, hash))) {
     return { state: "UNAVAILABLE", reasonCodes: [`CATTLE_RECOMMENDATION_MODEL_CONTENT_NOT_BOUND_TO_RULE_VERSION:${JSON.stringify([ref.modelId, ref.version])}`] };
   }
+  const id = JSON.stringify([ref.modelId, ref.version]);
+  const ineligible = modelEligibilityIssues(model);
+  if (ineligible.length > 0) return { state: "UNAVAILABLE", reasonCodes: ineligible.map((i) => `CATTLE_RECOMMENDATION_MODEL_NOT_ELIGIBLE:${i}:${id}`) };
   const implementation = findObligationImplementation(implementations, model.rule.implementation.implementationId, model.rule.implementation.version);
-  if (implementation === null) return { state: "UNAVAILABLE", reasonCodes: [`CATTLE_RECOMMENDATION_MODEL_IMPLEMENTATION_NOT_REGISTERED:${JSON.stringify([ref.modelId, ref.version])}`] };
-  const ruleEvaluation = evaluateCattleRule(model.rule, implementation, { evaluationDate, inputs: [], catalogue: catalogue.sources, reviews: catalogue.reviews }, hash);
+  if (implementation === null) return { state: "UNAVAILABLE", reasonCodes: [`CATTLE_RECOMMENDATION_MODEL_IMPLEMENTATION_NOT_REGISTERED:${id}`] };
+  let raw: RuleEvaluationRecord;
+  try {
+    raw = evaluateCattleRule(model.rule, implementation, { evaluationDate, inputs: [], catalogue: catalogue.sources, reviews: catalogue.reviews }, hash);
+  } catch {
+    return { state: "UNAVAILABLE", reasonCodes: [`CATTLE_RECOMMENDATION_MODEL_EVALUATION_FAILED:${id}`] };
+  }
+  // The C0 record is carried only as its exact validated copy (CAT-INV-028).
+  const ruleEvaluation = exact(RULE_EVALUATION_RECORD, raw);
+  if (ruleEvaluation === null || ruleEvaluation.requestedRuleId !== model.rule.ruleId) return { state: "UNAVAILABLE", reasonCodes: [`CATTLE_RECOMMENDATION_MODEL_EVALUATION_MALFORMED:${id}`] };
+  if (ruleEvaluation.state === "PASS" && !approvalEvidenced(ruleEvaluation)) return { state: "UNAVAILABLE", reasonCodes: [`CATTLE_RECOMMENDATION_MODEL_APPROVAL_NOT_EVIDENCED:${id}`] };
   return { state: "EVALUATED", model, ruleEvaluation };
 }

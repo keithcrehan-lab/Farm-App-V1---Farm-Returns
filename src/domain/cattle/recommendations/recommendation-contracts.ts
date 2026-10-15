@@ -5,7 +5,6 @@
 
 import type { AssessmentFingerprint } from "../../assessment-integrity";
 import type { AnimalLedger } from "../animal-ledger";
-import type { RuleEvaluationRecord } from "../evaluation";
 import type { RecommendationEvidencePack, RecommendationOutcome, HardGateOutcome } from "../evidence-pack";
 import type { SourceVersionRef } from "../source";
 import type { CandidateActionRegistry, RecommendationContextPart, RecommendationGateSource, RecommendationModelRef, RecommendationPriorityTier, BenefitClaim } from "./candidate-actions";
@@ -13,6 +12,7 @@ import type { EconomicValueResolution } from "./economic-context";
 import type { AdmittedModelCatalogue, ModelEvaluation } from "./recommendation-models";
 import type { CATTLE_RECOMMENDATION_PAYLOAD_VERSION } from "./recommendation-integrity";
 import type { ConsumedGoalSnapshot } from "./recommendation-consumed";
+import type { CarriedRuleEvaluation } from "./recommendation-exact";
 
 // ---------------------------------------------------------------------------
 // Request (canonical plain data; every field present — field-presence policy)
@@ -67,8 +67,8 @@ export interface ObligationsPart {
   /** C2 `CATTLE_OBLIGATION_STATE` record fingerprints (sorted by digest). */
   recordFingerprints: AssessmentFingerprint[];
   records: { obligationId: string; occurrenceId: string | null; state: string }[];
-  /** C2 `projectObligationHardGates` records (C0 form, verbatim). */
-  gates: RuleEvaluationRecord[];
+  /** C2 `projectObligationHardGates` records — exact validated copies (never the raw projector objects). */
+  gates: CarriedRuleEvaluation[];
 }
 
 export interface HealthPart {
@@ -77,7 +77,8 @@ export interface HealthPart {
   medicineLedgerFingerprint: AssessmentFingerprint;
   withdrawalGateFingerprint: AssessmentFingerprint;
   withdrawal: { foodProduct: string; state: string }[];
-  gates: RuleEvaluationRecord[];
+  /** C3 `projectWithdrawalHardGates` records — exact validated copies. */
+  gates: CarriedRuleEvaluation[];
   sourceRefs: SourceVersionRef[];
 }
 
@@ -119,7 +120,8 @@ export interface ProgrammesPart {
   /** C7 `CATTLE_PROGRAMME_ANIMAL_STATUS` fingerprints of this animal (sorted by digest). */
   animalStatusFingerprints: AssessmentFingerprint[];
   occurrences: ProgrammeOccurrenceView[];
-  gates: RuleEvaluationRecord[];
+  /** C7 `projectProgrammeHardGates` records — exact validated copies. */
+  gates: CarriedRuleEvaluation[];
   sourceRefs: SourceVersionRef[];
 }
 
@@ -230,7 +232,20 @@ export interface RecommendationRecord {
   explanation: string;
   expectedOutcome: { effect: CandidateEffect; value: CandidateValue } | null;
   regulatoryStatus: { state: "NO_PREREQUISITE_GATES" | "GATES_SATISFIED" | "GATE_FAILED" | "GATE_REVIEW_REQUIRED" | "GATE_UNRESOLVED"; hardGateOutcomes: HardGateOutcome[] };
-  evidence: { type: "DATA_GAP_OR_OBLIGATION" | "MODELLED" | "NONE"; strength: "PREDECESSOR_STATE" | "APPROVED_MODEL_EFFECT_AND_VALUE" | "APPROVED_MODEL_EFFECT" | "APPROVED_MODEL_VALUE" | "UNMODELLED" | "NONE" };
+  /**
+   * Evidence labels (human decisions D1–D3, 2026-10-15): `effectBasis` names a
+   * scientifically approved effect model only when its C0 record evidences the
+   * approval; `valueBasis` never claims validated prices — an approved value
+   * FORM over observations that are not independently validated; the action's
+   * priority tier is registry-declared and unreviewed.
+   */
+  evidence: {
+    type: "DATA_GAP_OR_OBLIGATION" | "MODELLED" | "NONE";
+    strength: "PREDECESSOR_STATE" | "MODELLED_EFFECT_AND_VALUE" | "MODELLED_EFFECT" | "MODELLED_VALUE" | "UNMODELLED" | "NONE";
+    effectBasis: "SCIENTIFICALLY_APPROVED_EFFECT_MODEL" | "NONE";
+    valueBasis: "APPROVED_VALUE_FORM_OVER_UNVALIDATED_OBSERVATIONS" | "NONE";
+    priorityBasis: "REGISTRY_DECLARED_UNREVIEWED" | "NONE";
+  };
   sourceRefs: SourceVersionRef[];
   assumptions: string[];
   limitations: string[];

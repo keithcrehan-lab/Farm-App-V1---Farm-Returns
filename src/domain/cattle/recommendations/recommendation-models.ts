@@ -21,6 +21,15 @@
  *   existing exact-decimal `money.ts` exports (`addMoney` / `subtractMoney`).
  *   The form embeds no price, cost, rate or other constant.
  *
+ * CONTENT BINDING (CAT-INV-025; C2 `obligationTermsMarker` precedent): C0
+ * reviews approve the rule fingerprint only, so the model's material content
+ * (role, `expectedEffect`, value form with its benefit / cost keys) is bound
+ * to it — the rule's `assumptions` must carry
+ * `recommendationModelContentMarker(model)`, a C8 fingerprint of exactly that
+ * content. A model whose content is not bound is never evaluated (UNAVAILABLE
+ * ⇒ EFFECT_UNKNOWN / VALUE_UNKNOWN): changing an effect statement or a
+ * benefit / cost mapping needs a new rule version and renewed approval.
+ *
  * C8 v1 supplies model rules NO animal inputs: a model rule must declare no
  * applicability conditions and no required inputs (otherwise it is malformed
  * and the request fails closed). Model rules are ADVISORY: a model never acts
@@ -39,6 +48,8 @@ import { compareInstants } from "../animal-ledger";
 import { evaluateCattleRule, type RuleEvaluationRecord } from "../evaluation";
 import { rawIdentityKey } from "../health/health-input";
 import { compareStrings, type CattleHash } from "../integrity";
+import type { AssessmentFingerprint } from "../../assessment-integrity";
+import { computeRecommendationFingerprint } from "./recommendation-integrity";
 import { canonicalObligationInstant, findObligationImplementation } from "../regulatory";
 import { FAIL_CLOSED_UNKNOWN_POLICY, type CattleRuleProductionState, type CattleRuleVersion, type RuleReviewRecord } from "../rule";
 import type { CattleEvidenceSource, CattleSourceAuthorityKind, CattleSourceLifecycle } from "../source";
@@ -256,6 +267,28 @@ export function relevantModelCatalogue(catalogue: AdmittedModelCatalogue, refs: 
   };
 }
 
+/** Fingerprint of exactly the model content a rule approval must cover (benefit / cost keys as sets). */
+export function computeRecommendationModelContentFingerprint(model: RecommendationModelRecord, hash: CattleHash): AssessmentFingerprint {
+  return computeRecommendationFingerprint(
+    "CATTLE_RECOMMENDATION_MODEL_CONTENT",
+    {
+      modelId: model.modelId,
+      version: model.version,
+      role: model.role,
+      ruleId: model.rule.ruleId,
+      ruleVersion: model.rule.version,
+      expectedEffect: model.expectedEffect,
+      value: model.value === null ? null : { form: model.value.form, benefitKeys: [...model.value.benefitKeys].sort(compareStrings), costKeys: [...model.value.costKeys].sort(compareStrings) },
+    },
+    hash,
+  );
+}
+
+/** The marker the model's C0 rule version must carry in `assumptions`. */
+export function recommendationModelContentMarker(model: RecommendationModelRecord, hash: CattleHash): string {
+  return `cattle-recommendation-model-content:${model.modelId}:${computeRecommendationModelContentFingerprint(model, hash).digest}`;
+}
+
 export type ModelEvaluation =
   | { state: "EVALUATED"; model: RecommendationModelRecord; ruleEvaluation: RuleEvaluationRecord }
   | { state: "UNAVAILABLE"; reasonCodes: string[] };
@@ -272,6 +305,9 @@ export function evaluateRecommendationModel(
   const model = catalogue.records.find((m) => m.modelId === ref.modelId && m.version === ref.version);
   if (model === undefined) return { state: "UNAVAILABLE", reasonCodes: [`CATTLE_RECOMMENDATION_MODEL_NOT_KNOWN:${JSON.stringify([ref.modelId, ref.version])}`] };
   if (model.role !== role) return { state: "UNAVAILABLE", reasonCodes: [`CATTLE_RECOMMENDATION_MODEL_ROLE_MISMATCH:${JSON.stringify([ref.modelId, ref.version])}`] };
+  if (!model.rule.assumptions.includes(recommendationModelContentMarker(model, hash))) {
+    return { state: "UNAVAILABLE", reasonCodes: [`CATTLE_RECOMMENDATION_MODEL_CONTENT_NOT_BOUND_TO_RULE_VERSION:${JSON.stringify([ref.modelId, ref.version])}`] };
+  }
   const implementation = findObligationImplementation(implementations, model.rule.implementation.implementationId, model.rule.implementation.version);
   if (implementation === null) return { state: "UNAVAILABLE", reasonCodes: [`CATTLE_RECOMMENDATION_MODEL_IMPLEMENTATION_NOT_REGISTERED:${JSON.stringify([ref.modelId, ref.version])}`] };
   const ruleEvaluation = evaluateCattleRule(model.rule, implementation, { evaluationDate, inputs: [], catalogue: catalogue.sources, reviews: catalogue.reviews }, hash);

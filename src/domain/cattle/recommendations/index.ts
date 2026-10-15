@@ -34,6 +34,8 @@ export { COMPUTABLE_CURRENCIES, type EconomicObservation, type EconomicValueReso
 export {
   ECONOMIC_VALUE_FORMS,
   RECOMMENDATION_MODEL_ROLES,
+  computeRecommendationModelContentFingerprint,
+  recommendationModelContentMarker,
   type AdmittedModelCatalogue,
   type EconomicValueForm,
   type ModelEvaluation,

@@ -4438,7 +4438,8 @@ schema machinery (`valid`, `consume`, `FieldSpec`) and the C2 / C3 surfaces (`C2
 generic readers (`rawIdentityKey`) from C3 `health-input.ts`. Fingerprints reuse
 `assessment-integrity.ts` unchanged through the phase-local wrapper
 `{kind, recommendationPayloadVersion: 1, payload}` with new result kinds `CATTLE_RECOMMENDATION_CONTEXT`,
-`CATTLE_RECOMMENDATION_RECORD`, `CATTLE_RECOMMENDATION_HERD` — no existing kind, payload version or
+`CATTLE_RECOMMENDATION_RECORD`, `CATTLE_RECOMMENDATION_HERD` and the semantic kind
+`CATTLE_RECOMMENDATION_MODEL_CONTENT` (model content bound into its rule version) — no existing kind, payload version or
 canonicalisation changes. `livestock.ts` economic functions (`calculateFinishingBudget`,
 `calculateSellNowVsFinish`, `targetADGForAnimalType`, `concentrateKgPerDay`, `FINISHING_KILL_OUT_PCT`,
 `WEANLING_*`) embed constants and are **not** used (pre-start clarification 2).
@@ -4541,8 +4542,18 @@ production; a supplied registry may declare it with `PROGRAMME_ACTION_STATE` and
 candidate > any prerequisite gate (C2 / C3 / C7 projection record, or a named gate id) not PASS /
 NOT_APPLICABLE, or absent ⇒ NOT_CLEAR, and effect and value are **not evaluated** (favourability never
 consulted) > gates CLEAR ⇒ effect, then value; EFFECT_NOT_SUPPORTED ⇒ not selectable > ranking.
-**Effect:** no model ⇒ `EFFECT_UNKNOWN`; model not admitted / role mismatch / implementation not in the
-trusted registry ⇒ `EFFECT_UNKNOWN`; C0 PASS ⇒ `EFFECT_SUPPORTED` (the model's statement — no magnitude
+**Gate identity (CAT-INV-026).** A named gate id is looked up in every supplied source (never first
+match); records sharing a rule id collapse only when identical (labelled by the fixed source order
+C2 → C3 → C7), and differing records under one rule id — across or within sources, or between a gate and
+a model rule in the pack — fail the request closed (`CATTLE_RECOMMENDATION_GATE_IDENTITY_AMBIGUOUS`);
+there is no implicit precedence.
+**Model content binding (CAT-INV-025).** A model's rule version must carry
+`recommendationModelContentMarker(model)` (`cattle-recommendation-model-content:<modelId>:<digest>` of
+`CATTLE_RECOMMENDATION_MODEL_CONTENT`) in `assumptions`, so the C0 rule fingerprint a review approves
+covers the effect statement and value form; otherwise the model is UNAVAILABLE
+(`..._MODEL_CONTENT_NOT_BOUND_TO_RULE_VERSION`) and never supports an effect or a value.
+**Effect:** no model ⇒ `EFFECT_UNKNOWN`; model not admitted / role mismatch / content not bound /
+implementation not in the trusted registry ⇒ `EFFECT_UNKNOWN`; C0 PASS ⇒ `EFFECT_SUPPORTED` (the model's statement — no magnitude
 or probability), FAIL ⇒ `EFFECT_NOT_SUPPORTED`, any other C0 state (REVIEW_REQUIRED, UNSUPPORTED, …) ⇒
 `EFFECT_UNKNOWN`. **Value:** REQUIRED an admitted ECONOMIC model with C0 PASS and every named key KNOWN
 in one computable currency; value = Σ benefit − Σ cost (exact decimal, `money.ts`); otherwise
@@ -4570,10 +4581,12 @@ version; ruleset `["<registryId>","<version>"]`; `evaluationDate` (UTC date of `
 `knownAt` = `generatedAt` = the canonical knowledge cutoff (no clock is read; `generatedAt` is excluded
 from the C0 fingerprint); target scope `{ANIMAL, animalId, CATTLE_ANIMAL_SNAPSHOT:<digest>}`; intent =
 the C6 goal snapshot ref (or `null`); inputs = every consumed owner-output binding plus the bound
-economic observations used; rule evaluations = the proposed action's prerequisite gate records and its
-model evaluations (never another action's gates); required hard gates = its gate checks; calculation
-steps = prerequisite gate fold, value (when known) and ranking; sources = gate product / programme
-sources and observation sources (plus C0's from rule records); assumptions / limitations / uncertainties
+economic observations used by any candidate; rule evaluations = the proposed action's prerequisite gate
+records plus the (ADVISORY) model evaluations of every candidate consulted for ranking or rejection —
+never another action's gates, so only the proposal's gates decide C0's outcome; required hard gates = its
+gate checks; calculation steps = gate fold and value (when known) of the proposal, then of every
+alternative in rank order, then ranking; sources = gate product / programme sources of every candidate
+and observation sources (plus C0's from rule records); assumptions / limitations / uncertainties
 (missing parts, unresolved gates, unknown effect / value reasons); every candidate; every non-proposed
 candidate rejected with structured reasons (`..._GATE_<state>:<rule>`, `..._EFFECT_NOT_SUPPORTED`,
 `..._RANKED_BELOW:<action>`). Built packs are re-verified with `verifyRecommendationEvidencePack`; an
@@ -4591,7 +4604,9 @@ last), then outcome (BLOCKED, REVIEW_REQUIRED, INSUFFICIENT_EVIDENCE, ACTIONABLE
 — between two ACTIONABLE animals — known value (exact, higher first, unknown after), then animal id; ties
 recorded; no cross-animal averaging.
 
-**Fingerprints.** All result fingerprints. `CATTLE_RECOMMENDATION_CONTEXT` binds both canonical times,
+**Fingerprints.** `CATTLE_RECOMMENDATION_MODEL_CONTENT` is a semantic fingerprint of a model's id,
+version, role, rule id / version, expected effect and value form (benefit / cost keys as sets); the other
+kinds are result fingerprints. `CATTLE_RECOMMENDATION_CONTEXT` binds both canonical times,
 every part binding, the admitted registry, relevant models / reviews / sources, model evaluations and
 economic resolutions (canonical instant spellings in admitted copies). `CATTLE_RECOMMENDATION_RECORD`
 binds the context, candidates, non-candidates, ties, pack and record; `CATTLE_RECOMMENDATION_HERD` binds

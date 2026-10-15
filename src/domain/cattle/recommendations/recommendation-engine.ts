@@ -47,7 +47,9 @@
  *   f. ranking among selectable candidates.
  * The pack outcome is derived by C0 alone from the proposed action's
  * prerequisite gates, so unresolved required evidence never surfaces as
- * ACTIONABLE.
+ * ACTIONABLE. Gate records sharing a rule id collapse only when identical;
+ * differing ones fail closed (`CATTLE_RECOMMENDATION_GATE_IDENTITY_AMBIGUOUS`,
+ * no first-match precedence — CAT-INV-026).
  *
  * SELECTION: the best-ranked selectable candidate is proposed. With none, the
  * best-ranked NOT_CLEAR candidate is proposed with its prerequisite gates in
@@ -76,6 +78,7 @@ import type { WithdrawalGateState } from "../health";
 import type { GoalProjectionStatus } from "../goals";
 import type { ProgrammeOccurrenceState } from "../programmes";
 import { compareSourceVersionRefs, type SourceVersionRef } from "../source";
+import { rawIdentityKey } from "../health/health-input";
 import {
   GATE_SOURCE_PART,
   RECOMMENDATION_CONTEXT_PARTS,
@@ -271,15 +274,30 @@ function gateRecords(ctx: CattleEvaluationContext, source: RecommendationGateSou
 
 const satisfied = (state: string) => state === "PASS" || state === "NOT_APPLICABLE";
 
-function foldGates(d: CandidateActionDefinition, ctx: CattleEvaluationContext, unresolved: readonly string[]): GateFold {
-  const checks: CandidateGate[] = [];
-  const records: RuleEvaluationRecord[] = [];
+/** Fixed source order: only labels a gate consulted identically from several sources; never chooses between differing records. */
+const GATE_SOURCES = ["C2_OBLIGATION", "C3_WITHDRAWAL", "C7_PROGRAMME"] as const;
+
+/**
+ * Rule-evaluation identity (CAT-INV-026: no implicit precedence). Records
+ * sharing a `requestedRuleId` collapse only when their content is identical;
+ * differing records under one id are ambiguous and reported — never resolved
+ * by first match or input order.
+ */
+function byRuleIdentity<T extends { record: RuleEvaluationRecord }>(entries: readonly T[]): { unique: T[]; ambiguous: string[] } {
+  const groups = new Map<string, T[]>();
+  for (const e of entries) groups.set(e.record.requestedRuleId, [...(groups.get(e.record.requestedRuleId) ?? []), e]);
+  const unique: T[] = [];
+  const ambiguous: string[] = [];
+  for (const [ruleId, group] of groups) {
+    if (new Set(group.map((e) => rawIdentityKey(e.record))).size > 1) ambiguous.push(ruleId);
+    else unique.push(group[0]);
+  }
+  return { unique, ambiguous: ambiguous.sort(compareStrings) };
+}
+
+function foldGates(d: CandidateActionDefinition, ctx: CattleEvaluationContext, unresolved: readonly string[]): { ok: true; fold: GateFold } | { ok: false; ambiguous: string[] } {
+  const consulted: { record: RuleEvaluationRecord; source: RecommendationGateSource }[] = [];
   const sourceRefs: SourceVersionRef[] = [];
-  const add = (r: RuleEvaluationRecord, source: RecommendationGateSource) => {
-    if (checks.some((c) => c.ruleId === r.requestedRuleId)) return;
-    checks.push({ ruleId: r.requestedRuleId, state: r.state, source, satisfied: satisfied(r.state) });
-    records.push(r);
-  };
   const markers = new Set(unresolved);
   for (const source of d.prerequisites.sources) {
     const g = gateRecords(ctx, source);
@@ -287,28 +305,38 @@ function foldGates(d: CandidateActionDefinition, ctx: CattleEvaluationContext, u
       markers.add(requires(GATE_SOURCE_PART[source]));
       continue;
     }
-    for (const r of g.gates) add(r, source);
+    for (const r of g.gates) consulted.push({ record: r, source });
     sourceRefs.push(...g.sourceRefs);
   }
+  // A named gate is looked up in EVERY supplied source (never first match).
+  const missingNamed: string[] = [];
   for (const ruleId of d.prerequisites.gateRuleIds) {
     let found = false;
-    for (const source of ["C2_OBLIGATION", "C3_WITHDRAWAL", "C7_PROGRAMME"] as const) {
+    for (const source of GATE_SOURCES) {
       const g = gateRecords(ctx, source);
-      const r = g?.gates.find((x) => x.requestedRuleId === ruleId);
-      if (g !== null && r !== undefined) {
-        add(r, source);
-        sourceRefs.push(...g.sourceRefs);
-        found = true;
-        break;
-      }
+      const hits = g === null ? [] : g.gates.filter((x) => x.requestedRuleId === ruleId);
+      if (g === null || hits.length === 0) continue;
+      for (const r of hits) consulted.push({ record: r, source });
+      sourceRefs.push(...g.sourceRefs);
+      found = true;
     }
-    if (!found && !checks.some((c) => c.ruleId === ruleId)) checks.push({ ruleId, state: "NOT_EVALUATED", source: "CONTEXT", satisfied: false });
+    if (!found) missingNamed.push(ruleId);
   }
+  // Identical copies from several sources are one gate, labelled by the fixed source order (input-order independent).
+  consulted.sort((a, b) => GATE_SOURCES.indexOf(a.source) - GATE_SOURCES.indexOf(b.source));
+  const { unique, ambiguous } = byRuleIdentity(consulted);
+  if (ambiguous.length > 0) return { ok: false, ambiguous };
+  const checks: CandidateGate[] = unique.map(({ record: r, source }) => ({ ruleId: r.requestedRuleId, state: r.state, source, satisfied: satisfied(r.state) }));
+  for (const ruleId of missingNamed) if (!checks.some((c) => c.ruleId === ruleId)) checks.push({ ruleId, state: "NOT_EVALUATED", source: "CONTEXT", satisfied: false });
   for (const part of d.evidenceRequirements) if (!partSupplied(ctx, part)) markers.add(requires(part));
   for (const m of [...markers].sort(compareStrings)) checks.push({ ruleId: m, state: "NOT_EVALUATED", source: "UNRESOLVED_EVIDENCE", satisfied: false });
   checks.sort((a, b) => compareStrings(a.ruleId, b.ruleId));
-  return { state: checks.every((c) => c.satisfied) ? "CLEAR" : "NOT_CLEAR", checks, records, sourceRefs };
+  const records = unique.map((e) => e.record).sort((a, b) => compareStrings(a.requestedRuleId, b.requestedRuleId));
+  return { ok: true, fold: { state: checks.every((c) => c.satisfied) ? "CLEAR" : "NOT_CLEAR", checks, records, sourceRefs } };
 }
+
+const ambiguityIssues = (animalId: string, ruleIds: readonly string[]): RecommendationIssue[] =>
+  ruleIds.map((ruleId) => ({ code: "CATTLE_RECOMMENDATION_GATE_IDENTITY_AMBIGUOUS", ref: `${animalId}:${ruleId}` }));
 
 // ---------------------------------------------------------------------------
 // Stages 4 / 5 — effect and value (registered models only)
@@ -478,7 +506,9 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
       continue;
     }
     const unresolved = [...(trigger.state === "UNRESOLVED" ? trigger.reasons : []), ...(eligibility.state === "UNRESOLVED" ? eligibility.reasons : [])];
-    const gates = foldGates(d, ctx, unresolved);
+    const folded = foldGates(d, ctx, unresolved);
+    if (!folded.ok) return { ok: false, issues: ambiguityIssues(ctx.animalId, folded.ambiguous) };
+    const gates = folded.fold;
     const clear = gates.state === "CLEAR";
     const effect = clear ? effectOf(d, ctx) : { effect: NOT_EVALUATED_EFFECT, record: null };
     const value = clear ? valueOf(d, ctx) : { value: NOT_EVALUATED_VALUE, record: null, observations: [] };
@@ -507,34 +537,39 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
   const proposed = ranked.find((w) => w.candidate.selectable) ?? ranked.find((w) => w.gates.state === "NOT_CLEAR") ?? null;
   const candidates: CandidateEvaluation[] = ranked.map((w, i) => ({ ...w.candidate, rank: i + 1 }));
 
-  // Pack content: the proposed action's prerequisite gates (+ its model evaluations), never another action's.
-  const modelRecords = proposed === null ? [] : proposed.modelRecords.filter((r, i, a) => a.findIndex((x) => x.requestedRuleId === r.requestedRuleId) === i);
+  // Pack content: only the proposed action's prerequisite gates decide C0's outcome (never another action's gates);
+  // the ADVISORY model evaluations, observations, sources and calculation steps of EVERY candidate consulted for
+  // ranking or rejection are included (CAT-INV-021) so the comparison that selected the proposal is reconstructable.
+  const packRules = byRuleIdentity([...(proposed?.gates.records ?? []), ...ranked.flatMap((w) => w.modelRecords)].map((record) => ({ record })));
+  if (packRules.ambiguous.length > 0) return { ok: false, issues: ambiguityIssues(ctx.animalId, packRules.ambiguous) };
   const steps: EvidencePackCalculationStep[] = [];
-  if (proposed !== null) {
+  const stepsFor = (w: Working, label: string) => {
     steps.push({
-      sequence: 1,
-      description: "Prerequisite hard gates of the proposed action",
+      sequence: steps.length + 1,
+      description: `Prerequisite hard gates of the ${label}`,
       formula: GATE_FORMULA,
-      inputs: Object.fromEntries(proposed.gates.checks.map((c) => [c.ruleId, c.state])),
-      output: proposed.gates.state,
+      inputs: Object.fromEntries(w.gates.checks.map((c) => [c.ruleId, c.state])),
+      output: w.gates.state,
       unit: null,
       rounding: null,
       rule: null,
     });
-    const v = proposed.candidate.value;
+    const v = w.candidate.value;
     if (v.state === "VALUE_KNOWN") {
       steps.push({
         sequence: steps.length + 1,
-        description: "Economic value of the proposed action from bound observations",
+        description: `Economic value of the ${label} from bound observations`,
         formula: VALUE_FORMULA,
-        inputs: Object.fromEntries(proposed.valueObservations.map((o) => [`${o.role}:${o.key}:${o.observationId}`, `${o.amount} ${o.currency}`])),
+        inputs: Object.fromEntries(w.valueObservations.map((o) => [`${o.role}:${o.key}:${o.observationId}`, `${o.amount} ${o.currency}`])),
         output: v.amount,
         unit: v.currency,
         rounding: null,
-        rule: proposed.valueRecord?.rule ?? null,
+        rule: w.valueRecord?.rule ?? null,
       });
     }
-  }
+  };
+  if (proposed !== null) stepsFor(proposed, "proposed action");
+  for (const w of ranked) if (w !== proposed) stepsFor(w, `alternative ${w.candidate.actionId}`);
   steps.push({
     sequence: steps.length + 1,
     description: "Deterministic ranking of candidate actions",
@@ -546,7 +581,8 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
     rule: null,
   });
   const goal = ctx.goals.state === "SUPPLIED" ? ctx.goals : null;
-  const economicInputs: CattleInputItem[] = (proposed?.valueObservations ?? []).map((o) => ({
+  const usedObservations = ranked.flatMap((w) => w.valueObservations).filter((o, i, a) => a.findIndex((x) => x.key === o.key && x.observationId === o.observationId) === i);
+  const economicInputs: CattleInputItem[] = usedObservations.map((o) => ({
     inputKey: `cattle.recommendation.economic.${o.key}`,
     value: o.amount,
     unit: o.currency,
@@ -574,10 +610,10 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
       targetScope: { kind: "ANIMAL", id: ctx.animalId, snapshotRef: `CATTLE_ANIMAL_SNAPSHOT:${ctx.animal.snapshotFingerprint.digest}` },
       intent: goal === null ? null : { intentId: `CATTLE_GOAL_SNAPSHOT:${goal.snapshot.fingerprint.digest}`, description: `C6 goal snapshot ${goal.status}: ${JSON.stringify(goal.snapshot.goals.map((g) => [g.goalId, g.version]))}` },
       inputs: [...contextInputs(ctx), ...economicInputs],
-      ruleEvaluations: proposed === null ? [] : [...proposed.gates.records, ...modelRecords].map((r) => structuredClone(r)),
+      ruleEvaluations: packRules.unique.map((e) => structuredClone(e.record)),
       requiredHardGateRuleIds: proposed === null ? [] : proposed.gates.checks.map((c) => c.ruleId),
       calculationSteps: steps,
-      additionalSourceRefs: proposed === null ? [] : uniqueRefs([...proposed.gates.sourceRefs, ...proposed.valueObservations.map((o) => o.source)]),
+      additionalSourceRefs: uniqueRefs([...ranked.flatMap((w) => w.gates.sourceRefs), ...usedObservations.map((o) => o.source)]),
       assumptions: definition?.assumptions ?? [],
       limitations: [...ENGINE_LIMITATIONS, ...(definition?.limitations ?? [])],
       uncertainties,

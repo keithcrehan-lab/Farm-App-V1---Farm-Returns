@@ -42,6 +42,7 @@ import {
   type CattleRecommendationOutcomeResult,
 } from "./index";
 import { sealEvaluationContext, buildEvaluationContexts } from "./evaluation-context";
+import { recommendationModelContentMarker, type RecommendationModelRecord } from "./recommendation-models";
 import { RECOMMENDATION_CONSUMED_SURFACES, valid, type FieldSpec } from "./recommendation-consumed";
 
 type Rec = Record<string, unknown>;
@@ -246,17 +247,27 @@ function modelRule(ruleId: string, implementation = MODEL_PASS, o: Partial<Cattl
 }
 const EFFECT_RULE = modelRule("SYNTH-RULE-EFFECT");
 const ECON_RULE = modelRule("SYNTH-RULE-ECONOMIC");
-const effectModel = (rule = EFFECT_RULE, o: Rec = {}) => ({ modelId: "SYNTH-MODEL-EFFECT", version: "v1", recordedAt: "2026-01-01T00:00:00Z", role: "EFFECT", rule, expectedEffect: "SYNTH asserted effect", value: null, ...o });
-const econModel = (benefitKeys: string[], costKeys: string[], rule = ECON_RULE, o: Rec = {}) => ({
-  modelId: "SYNTH-MODEL-ECONOMIC",
-  version: "v1",
-  recordedAt: "2026-01-01T00:00:00Z",
-  role: "ECONOMIC",
-  rule,
-  expectedEffect: null,
-  value: { form: "NET_OF_BOUND_OBSERVATIONS", benefitKeys, costKeys },
-  ...o,
-});
+/** Binds the model's content into its rule version (`recommendationModelContentMarker` in `assumptions`), as an approver would. */
+const bindContent = <M extends Rec>(m: M): M => {
+  const rule = m.rule as CattleRuleVersion;
+  return { ...m, rule: { ...rule, assumptions: [...rule.assumptions, recommendationModelContentMarker(m as unknown as RecommendationModelRecord, hash)] } };
+};
+const effectModel = (rule = EFFECT_RULE, o: Rec = {}) =>
+  bindContent({ modelId: "SYNTH-MODEL-EFFECT", version: "v1", recordedAt: "2026-01-01T00:00:00Z", role: "EFFECT", rule, expectedEffect: "SYNTH asserted effect", value: null, ...o });
+const econModel = (benefitKeys: string[], costKeys: string[], rule = ECON_RULE, o: Rec = {}) =>
+  bindContent({
+    modelId: "SYNTH-MODEL-ECONOMIC",
+    version: "v1",
+    recordedAt: "2026-01-01T00:00:00Z",
+    role: "ECONOMIC",
+    rule,
+    expectedEffect: null,
+    value: { form: "NET_OF_BOUND_OBSERVATIONS", benefitKeys, costKeys },
+    ...o,
+  });
+/** Approvals of exactly the (bound) rule versions the model records carry. */
+const approveModels = (records: Rec[]) =>
+  records.flatMap((m) => approve(m.rule as CattleRuleVersion)).filter((r, i, a) => a.findIndex((x) => JSON.stringify(x) === JSON.stringify(r)) === i);
 const EFFECT_REF = { modelId: "SYNTH-MODEL-EFFECT", version: "v1" };
 const ECON_REF = { modelId: "SYNTH-MODEL-ECONOMIC", version: "v1" };
 const PRICE_SOURCE = { sourceId: "SYNTH-SRC-PRICE", version: "v1", contentFingerprint: computeSourceContentFingerprint({ text: "synthetic price list" }, hash) };
@@ -271,7 +282,7 @@ const econObs = (observationId: string, valueKey: string, amount: string, o: Rec
   supersedes: [],
   ...o,
 });
-const allModels = (records: Rec[], reviews: unknown[] = [...approve(EFFECT_RULE), ...approve(ECON_RULE)]) => ({ records, reviews, sources: CATALOGUE });
+const allModels = (records: Rec[], reviews: unknown[] = approveModels(records)) => ({ records, reviews, sources: CATALOGUE });
 const NO_MODELS = { records: [], reviews: [], sources: [] };
 
 interface Run {
@@ -315,6 +326,7 @@ const codes = (r: CattleRecommendationOutcomeResult) => (r.ok ? [] : r.issues.ma
 /** A favourable, fully modelled synthetic action gated by `sources`. */
 const SELL = (sources: string[] = [], o: Rec = {}) => action("SYNTH-SELL", { prerequisites: { sources, gateRuleIds: [] }, effectModelRef: EFFECT_REF, economicModelRef: ECON_REF, ...o });
 const FAVOURABLE_MODELS = allModels([effectModel(), econModel(["SYNTH-KEY-PRICE"], ["SYNTH-KEY-COST"])]);
+const FAVOURABLE_REVIEWS = approveModels(FAVOURABLE_MODELS.records);
 const FAVOURABLE_OBS = [econObs("o-price", "SYNTH-KEY-PRICE", "1000.00"), econObs("o-cost", "SYNTH-KEY-COST", "250.5")];
 const favourable = (o: Run = {}): Run => ({ models: FAVOURABLE_MODELS, observations: FAVOURABLE_OBS, ...o });
 
@@ -498,7 +510,7 @@ describe("C8 test 4 — registered, provenance-bound, approved models only", () 
       {
         models: allModels(
           [effectModel(), econModel(["SYNTH-KEY-PRICE"], ["SYNTH-KEY-COST"])],
-          [...approve(EFFECT_RULE), ...approve(ECON_RULE), ...approve(EFFECT_RULE).map((r) => ({ ...r, decision: "REJECTED", reviewedAt: "2026-01-06T00:00:00Z" })), ...approve(ECON_RULE).map((r) => ({ ...r, decision: "REJECTED", reviewedAt: "2026-01-06T00:00:00Z" }))],
+          [...FAVOURABLE_REVIEWS, ...FAVOURABLE_REVIEWS.map((r) => ({ ...r, decision: "REJECTED", reviewedAt: "2026-01-06T00:00:00Z" }))],
         ),
       },
     ],
@@ -521,10 +533,10 @@ describe("C8 test 4 — registered, provenance-bound, approved models only", () 
   });
 
   it("a FAIL effect model ⇒ EFFECT_NOT_SUPPORTED: never proposed, rejected with its reason", () => {
-    const rec = recOf(run({ actions: registry([SELL(), action("SYNTH-OTHER")]), models: allModels([effectModel(modelRule("SYNTH-RULE-EFFECT", MODEL_FAIL))], approve(modelRule("SYNTH-RULE-EFFECT", MODEL_FAIL))) }));
+    const rec = recOf(run({ actions: registry([SELL(), action("SYNTH-OTHER")]), models: allModels([effectModel(modelRule("SYNTH-RULE-EFFECT", MODEL_FAIL))]) }));
     expect(rec.record.recommendedAction?.actionKind).toBe("SYNTH-OTHER");
     expect(rec.pack.rejectedAlternatives).toContainEqual({ actionId: JSON.stringify(["SYNTH-SELL", "ANIMAL", A]), reasonCodes: ["CATTLE_RECOMMENDATION_EFFECT_NOT_SUPPORTED"] });
-    const alone = recOf(run({ actions: registry([SELL()]), models: allModels([effectModel(modelRule("SYNTH-RULE-EFFECT", MODEL_FAIL))], approve(modelRule("SYNTH-RULE-EFFECT", MODEL_FAIL))) }));
+    const alone = recOf(run({ actions: registry([SELL()]), models: allModels([effectModel(modelRule("SYNTH-RULE-EFFECT", MODEL_FAIL))]) }));
     expect(alone.record.outcome).toBe("NO_RECOMMENDATION");
   });
 
@@ -567,12 +579,15 @@ describe("C8 test 4 — registered, provenance-bound, approved models only", () 
 });
 
 describe("C8 test 5 — deterministic ranking", () => {
-  const known = (kind: string, benefit: string, cost: string, tier = "EXPECTED_NET_RETURN") => ({
-    def: action(kind, { tier, economicModelRef: { modelId: `SYNTH-MODEL-${kind}`, version: "v1" } }),
-    model: econModel([`SYNTH-KEY-${kind}-B`], [`SYNTH-KEY-${kind}-C`], modelRule(`SYNTH-RULE-${kind}`), { modelId: `SYNTH-MODEL-${kind}` }),
-    obs: [econObs(`o-${kind}-b`, `SYNTH-KEY-${kind}-B`, benefit), econObs(`o-${kind}-c`, `SYNTH-KEY-${kind}-C`, cost)],
-    reviews: approve(modelRule(`SYNTH-RULE-${kind}`)),
-  });
+  const known = (kind: string, benefit: string, cost: string, tier = "EXPECTED_NET_RETURN") => {
+    const model = econModel([`SYNTH-KEY-${kind}-B`], [`SYNTH-KEY-${kind}-C`], modelRule(`SYNTH-RULE-${kind}`), { modelId: `SYNTH-MODEL-${kind}` });
+    return {
+      def: action(kind, { tier, economicModelRef: { modelId: `SYNTH-MODEL-${kind}`, version: "v1" } }),
+      model,
+      obs: [econObs(`o-${kind}-b`, `SYNTH-KEY-${kind}-B`, benefit), econObs(`o-${kind}-c`, `SYNTH-KEY-${kind}-C`, cost)],
+      reviews: approveModels([model]),
+    };
+  };
   const runKnown = (entries: ReturnType<typeof known>[], extraDefs: Rec[] = []) =>
     recOf(
       run({
@@ -712,7 +727,7 @@ describe("C8 test 8 — later knowledge never alters a stored recommendation", (
         knowledgeCutoff: cutoff,
         goals: goals(of("goal")),
         observations: [...FAVOURABLE_OBS, ...of("obs")],
-        models: allModels([effectModel(), econModel(["SYNTH-KEY-PRICE"], ["SYNTH-KEY-COST"]), ...of("model")]),
+        models: allModels([effectModel(), econModel(["SYNTH-KEY-PRICE"], ["SYNTH-KEY-COST"]), ...of("model")], FAVOURABLE_MODELS.reviews),
         actions: registry([SELL(), ...DEFAULT_CANDIDATE_ACTION_REGISTRY.definitions.filter((d) => d.actionKind === "DECLARE_PRODUCTION_GOAL"), ...of("def")]),
       });
       return ok(r).fingerprint.digest;
@@ -1005,5 +1020,141 @@ describe("C8 consumed-field schema (CAT-INV-028) — generated malformed-output 
       }
     }
     expect(conformanceSnapshot(Object.keys(outputs).sort())).toBe(conformanceSnapshot(Object.keys(RECOMMENDATION_CONSUMED_SURFACES).sort()));
+  });
+});
+
+describe("C8 remediation — model content binding, gate identity, ranking provenance", () => {
+  const SELL_ID = JSON.stringify(["SYNTH-SELL", "ANIMAL", A]);
+  const [EFFECT_BOUND, ECON_BOUND] = FAVOURABLE_MODELS.records as Rec[];
+  /** Replaces a bound model's content WITHOUT rebinding or re-approving its rule (the F001 reproduction). */
+  const unbound = (m: Rec, patch: Rec) => ({ ...m, ...patch });
+  const sellWith = (records: Rec[]) => recOf(run({ actions: registry([SELL()]), observations: FAVOURABLE_OBS, models: allModels(records, FAVOURABLE_MODELS.reviews) })).candidates[0];
+
+  it("F001: a changed effect statement or reversed benefit / cost keys under the same approval is never supported or valued", () => {
+    const effect = sellWith([unbound(EFFECT_BOUND, { expectedEffect: "SYNTH unreviewed effect" }), ECON_BOUND]);
+    expect(effect.effect.state).toBe("EFFECT_UNKNOWN");
+    expect(effect.effect.reasonCodes[0]).toMatch(/^CATTLE_RECOMMENDATION_MODEL_CONTENT_NOT_BOUND_TO_RULE_VERSION/);
+    const reversed = sellWith([EFFECT_BOUND, unbound(ECON_BOUND, { value: { form: "NET_OF_BOUND_OBSERVATIONS", benefitKeys: ["SYNTH-KEY-COST"], costKeys: ["SYNTH-KEY-PRICE"] } })]);
+    expect(reversed.value).toMatchObject({ state: "VALUE_UNKNOWN", amount: null });
+    expect(reversed.value.reasonCodes[0]).toMatch(/^CATTLE_RECOMMENDATION_MODEL_CONTENT_NOT_BOUND_TO_RULE_VERSION/);
+  });
+
+  it("F001 class: every material content mutation unbinds the model; set order of keys does not", () => {
+    const econValue = ECON_BOUND.value as Rec;
+    const effectMutations: Rec[] = [{ expectedEffect: "SYNTH asserted effect, revised" }, { modelId: "SYNTH-MODEL-EFFECT-2" }, { version: "v2" }];
+    const econMutations: Rec[] = [
+      { value: { ...econValue, benefitKeys: ["SYNTH-KEY-PRICE", "SYNTH-KEY-EXTRA"] } },
+      { value: { ...econValue, costKeys: [] } },
+      { value: { ...econValue, benefitKeys: econValue.costKeys, costKeys: econValue.benefitKeys } },
+    ];
+    for (const patch of effectMutations) {
+      const ref = { modelId: (patch.modelId as string | undefined) ?? "SYNTH-MODEL-EFFECT", version: (patch.version as string | undefined) ?? "v1" };
+      const c = recOf(run({ actions: registry([SELL([], { effectModelRef: ref })]), observations: FAVOURABLE_OBS, models: allModels([unbound(EFFECT_BOUND, patch), ECON_BOUND], FAVOURABLE_MODELS.reviews) })).candidates[0];
+      expect(c.effect.state, JSON.stringify(patch)).toBe("EFFECT_UNKNOWN");
+    }
+    for (const patch of econMutations) expect(sellWith([EFFECT_BOUND, unbound(ECON_BOUND, patch)]).value.state, JSON.stringify(patch)).toBe("VALUE_UNKNOWN");
+    // Metamorphic: benefit / cost keys are sets — permuting them keeps the binding (same approval, same value).
+    const two = econModel(["SYNTH-KEY-PRICE", "SYNTH-KEY-BONUS"], ["SYNTH-KEY-COST"]);
+    const twoPermuted = unbound(two, { value: { ...(two.value as Rec), benefitKeys: ["SYNTH-KEY-BONUS", "SYNTH-KEY-PRICE"] } });
+    const obs = [...FAVOURABLE_OBS, econObs("o-bonus", "SYNTH-KEY-BONUS", "1")];
+    const valueWith = (m: Rec) => recOf(run({ actions: registry([SELL()]), observations: obs, models: allModels([EFFECT_BOUND, m], approveModels([EFFECT_BOUND, two])) })).candidates[0].value;
+    expect(valueWith(two)).toMatchObject({ state: "VALUE_KNOWN", amount: "750.50" });
+    expect(valueWith(twoPermuted)).toMatchObject({ state: "VALUE_KNOWN", amount: "750.50" });
+  });
+
+  // A synthetic C2 obligation whose rule id collides with C3's withdrawal gate id.
+  const COLLIDING = "CATTLE_HEALTH_WITHDRAWAL:SYNTH-FOOD-MEAT";
+  const COLLIDING_DEF: ObligationDefinition = { ...OBL_DEFINITION, ruleId: COLLIDING };
+  const COLLIDING_RULE = synthRule({ ruleId: COLLIDING, version: 1, requiredInputs: [], implementation: bindTo(OBL_IMPL), assumptions: ["synthetic assumption", obligationTermsMarker(COLLIDING_DEF, hash)] });
+  const collidingObligations = obligations({
+    catalogue: { definitions: [COLLIDING_DEF], ruleVersions: [COLLIDING_RULE], sources: CATALOGUE, reviews: approve(COLLIDING_RULE) },
+    evidence: [{ ...fulfilment(), rule: { ruleId: COLLIDING, version: 1 } }],
+  });
+  const collide = (sell: Rec) => run(favourable({ actions: registry([sell]), obligations: collidingObligations, health: health(IN_WITHDRAWAL_RECORDS) }));
+
+  it("F002: a passing C2 gate sharing the failing C3 withdrawal gate id never masks it — every source order and the named lookup fail closed", () => {
+    const variants: [string, Rec][] = [
+      ["C2 then C3", SELL(["C2_OBLIGATION", "C3_WITHDRAWAL"])],
+      ["C3 then C2", SELL(["C3_WITHDRAWAL", "C2_OBLIGATION"])],
+      ["named gate only", SELL([], { prerequisites: { sources: [], gateRuleIds: [COLLIDING] } })],
+      ["C2 source + named gate", SELL([], { prerequisites: { sources: ["C2_OBLIGATION"], gateRuleIds: [COLLIDING] } })],
+    ];
+    for (const [label, sell] of variants) {
+      const r = collide(sell);
+      expect(r.ok, label).toBe(false);
+      expect(r.ok ? [] : r.issues, label).toContainEqual({ code: "CATTLE_RECOMMENDATION_GATE_IDENTITY_AMBIGUOUS", ref: `${A}:${COLLIDING}` });
+    }
+  });
+
+  it("F002 class: prerequisite source order never changes the gates, outcome or pack gate outcomes (no first-match precedence)", () => {
+    const sources = ["C2_OBLIGATION", "C3_WITHDRAWAL", "C7_PROGRAMME"];
+    for (const records of [CLEAR_RECORDS, IN_WITHDRAWAL_RECORDS]) {
+      // Registry content (incl. its source order) is fingerprinted by design, so the gate semantics are compared.
+      const v = checkOrderIndependence("prerequisite sources", sources, (s) => {
+        const rec = recOf(
+          run(
+            favourable({
+              actions: registry([SELL([...s], { prerequisites: { sources: [...s], gateRuleIds: [OBL_RULE, PROGRAMME_GATE] } })]),
+              obligations: obligations({ evidence: [fulfilment()] }),
+              health: health(records),
+              programmes: programmes(),
+            }),
+          ),
+        );
+        return conformanceSnapshot({ outcome: rec.record.outcome, gates: rec.candidates[0].gates, hard: rec.pack.hardGateOutcomes, rules: rec.pack.ruleEvaluations });
+      });
+      expect(v).toEqual(CONFORMS);
+    }
+  });
+
+  const alt = (kind: string, benefit: string, ruleId: string) => {
+    const model = econModel([`SYNTH-KEY-${kind}`], [], modelRule(ruleId), { modelId: `SYNTH-MODEL-${kind}` });
+    return { def: action(kind, { economicModelRef: { modelId: `SYNTH-MODEL-${kind}`, version: "v1" } }), model, obs: [econObs(`o-${kind}`, `SYNTH-KEY-${kind}`, benefit)] };
+  };
+  /** Class invariant: every candidate's consulted model evaluation, observations and value step are in the pack. */
+  function expectRankingEvidence(rec: CattleRecommendation) {
+    const ruleIds = rec.pack.ruleEvaluations.map((e) => e.requestedRuleId);
+    const inputRefs = rec.pack.inputs.map((i) => i.provenance.ref);
+    for (const c of rec.candidates) {
+      const label = c.actionId === rec.pack.proposedActionId ? "proposed action" : c.actionId;
+      expect(rec.pack.calculationSteps.some((s) => s.formula === rec.pack.calculationSteps[0].formula && s.description.includes(label)), `${c.actionId} gate step`).toBe(true);
+      if (c.value.state !== "VALUE_KNOWN") continue;
+      const step = rec.pack.calculationSteps.find((s) => s.output === c.value.amount && s.description.startsWith("Economic value") && s.description.includes(label));
+      expect(step?.rule, c.actionId).toBeTruthy();
+      expect(ruleIds, c.actionId).toContain(step!.rule!.ruleId);
+      for (const id of c.value.observationIds) expect(inputRefs, `${c.actionId}:${id}`).toContain(id);
+    }
+  }
+
+  it("F003: the pack carries the rule evaluation, observations and value step of an alternative it ranked below the proposal", () => {
+    const win = alt("SYNTH-WIN", "900", "SYNTH-WIN-RULE");
+    const lose = alt("SYNTH-ALT", "250.5", "SYNTH-ALT-RULE");
+    const rec = recOf(run({ actions: registry([win.def, lose.def]), models: allModels([win.model, lose.model]), observations: [...win.obs, ...lose.obs] }));
+    expect(rec.pack.proposedActionId).toBe(JSON.stringify(["SYNTH-WIN", "ANIMAL", A]));
+    expect(rec.pack.ruleEvaluations.map((e) => e.requestedRuleId)).toEqual(["SYNTH-ALT-RULE", "SYNTH-WIN-RULE"]);
+    expect(rec.pack.candidateActions.find((c) => c.favourability === "250.5 EUR")).toBeDefined();
+    expect(rec.pack.calculationSteps.find((s) => s.description.includes("alternative") && s.output === "250.5")?.rule?.ruleId).toBe("SYNTH-ALT-RULE");
+    expect(rec.pack.inputs.map((i) => i.provenance.ref)).toEqual(expect.arrayContaining(["o-SYNTH-ALT", "o-SYNTH-WIN"]));
+    expect(rec.record.outcome).toBe("ACTIONABLE");
+    expect(verifyCattleRecommendation(rec, hash).valid).toBe(true);
+    expectRankingEvidence(rec);
+  });
+
+  it("F003 class: ranking evidence is complete in every scenario; alternatives' hard gates never decide the proposal's outcome", () => {
+    const a = alt("SYNTH-A", "10", "SYNTH-RULE-A");
+    const b = alt("SYNTH-B", "20", "SYNTH-RULE-B");
+    const withA = [...(FAVOURABLE_MODELS.records as Rec[]), a.model];
+    const scenarios: Run[] = [
+      { actions: registry([a.def, b.def, action("SYNTH-UNKNOWN")]), models: allModels([a.model, b.model]), observations: [...a.obs, ...b.obs] },
+      favourable({ actions: registry([SELL(), a.def]), models: allModels(withA), observations: [...FAVOURABLE_OBS, ...a.obs] }),
+      // The gated alternative fails its C3 gate: its gate step is recorded, but the ungated proposal stays ACTIONABLE.
+      favourable({ actions: registry([SELL(["C3_WITHDRAWAL"], { tier: "SAFETY_LEGAL_WELFARE" }), a.def]), models: allModels(withA), observations: [...FAVOURABLE_OBS, ...a.obs], health: health(IN_WITHDRAWAL_RECORDS) }),
+    ];
+    for (const s of scenarios) expectRankingEvidence(recOf(run(s)));
+    const gated = recOf(run(scenarios[2]));
+    expect(gated.pack.proposedActionId).toBe(JSON.stringify(["SYNTH-A", "ANIMAL", A]));
+    expect(gated.record.outcome).toBe("ACTIONABLE");
+    expect(gated.pack.hardGateOutcomes).toEqual([]);
+    expect(gated.pack.rejectedAlternatives).toContainEqual({ actionId: SELL_ID, reasonCodes: ["CATTLE_RECOMMENDATION_GATE_FAIL:CATTLE_HEALTH_WITHDRAWAL:SYNTH-FOOD-MEAT"] });
   });
 });

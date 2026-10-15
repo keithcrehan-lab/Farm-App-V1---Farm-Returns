@@ -4546,7 +4546,12 @@ consulted) > gates CLEAR ⇒ effect, then value; EFFECT_NOT_SUPPORTED ⇒ not se
 match); records sharing a rule id collapse only when identical (labelled by the fixed source order
 C2 → C3 → C7), and differing records under one rule id — across or within sources, or between a gate and
 a model rule in the pack — fail the request closed (`CATTLE_RECOMMENDATION_GATE_IDENTITY_AMBIGUOUS`);
-there is no implicit precedence.
+there is no implicit precedence. Generated gates (a named gate absent from every source, recorded
+NOT_EVALUATED; an unresolved-evidence marker such as `CATTLE_RECOMMENDATION_REQUIRES:<part>`) are in the
+same identity space: a generated id equal to a supplied gate, to another generated gate or to any rule
+record in the pack fails closed the same way, so a record can never decide a generated gate in C0. A
+pack that C0 derives as ACTIONABLE for a proposal that is not selectable fails the request closed
+(`CATTLE_RECOMMENDATION_PACK_OUTCOME_INCONSISTENT`).
 **Model content binding (CAT-INV-025).** A model's rule version must carry
 `recommendationModelContentMarker(model)` (`cattle-recommendation-model-content:<modelId>:<digest>` of
 `CATTLE_RECOMMENDATION_MODEL_CONTENT`) in `assumptions`, so the C0 rule fingerprint a review approves

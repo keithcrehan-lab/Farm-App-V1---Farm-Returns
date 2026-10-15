@@ -1107,6 +1107,66 @@ describe("C8 remediation — model content binding, gate identity, ranking prove
     }
   });
 
+  // F002 (re-audit): generated gates share the rule identity space with supplied gates and pack records.
+  /** A passing synthetic C2 obligation whose rule id is `ruleId`. */
+  const c2Passing = (ruleId: string) => {
+    const def: ObligationDefinition = { ...OBL_DEFINITION, ruleId };
+    const rule = synthRule({ ruleId, version: 1, requiredInputs: [], implementation: bindTo(OBL_IMPL), assumptions: ["synthetic assumption", obligationTermsMarker(def, hash)] });
+    return obligations({ catalogue: { definitions: [def], ruleVersions: [rule], sources: CATALOGUE, reviews: approve(rule) }, evidence: [{ ...fulfilment(), rule: { ruleId, version: 1 } }] });
+  };
+  /** A gate-clear alternative that is never selectable (FAIL effect) but whose PASSING economic rule id is `ruleId`. */
+  const shadowingAlternative = (ruleId: string) => {
+    const effect = effectModel(modelRule("SYNTH-RULE-SHADOW-EFFECT", MODEL_FAIL), { modelId: "SYNTH-MODEL-SHADOW-EFFECT" });
+    const econ = econModel(["SYNTH-KEY-PRICE"], ["SYNTH-KEY-COST"], modelRule(ruleId), { modelId: "SYNTH-MODEL-SHADOW-ECON" });
+    const def = action("SYNTH-SHADOW", { effectModelRef: { modelId: "SYNTH-MODEL-SHADOW-EFFECT", version: "v1" }, economicModelRef: { modelId: "SYNTH-MODEL-SHADOW-ECON", version: "v1" } });
+    return { def, models: allModels([effect, econ]) };
+  };
+  /** Every generated-gate family of the proposed (NOT_CLEAR) action: its generated id and the action definition producing it. */
+  const GENERATED_FAMILIES: { family: string; id: string; gated: Rec; c2: boolean }[] = [
+    { family: "evidence requirement", id: "CATTLE_RECOMMENDATION_REQUIRES:PERFORMANCE", gated: action("SYNTH-GATED", { prerequisites: { sources: ["C2_OBLIGATION"], gateRuleIds: [] }, evidenceRequirements: ["PERFORMANCE"] }), c2: true },
+    { family: "missing gate source", id: "CATTLE_RECOMMENDATION_REQUIRES:PROGRAMMES", gated: action("SYNTH-GATED", { prerequisites: { sources: ["C2_OBLIGATION", "C7_PROGRAMME"], gateRuleIds: [] } }), c2: true },
+    { family: "unresolved eligibility", id: "CATTLE_RECOMMENDATION_REQUIRES:GOALS", gated: action("SYNTH-GATED", { prerequisites: { sources: ["C2_OBLIGATION"], gateRuleIds: [] }, applicableGoalTypes: ["FINISHING"] }), c2: true },
+    // A named gate absent from every source: a C2 record under its id would FIND it (not a collision), so only the pack route applies.
+    { family: "named gate absent", id: "SYNTH-RULE-NAMED-ABSENT", gated: action("SYNTH-GATED", { prerequisites: { sources: [], gateRuleIds: ["SYNTH-RULE-NAMED-ABSENT"] } }), c2: false },
+  ];
+  const ambiguous = (r: CattleRecommendationOutcomeResult, id: string, label: string) => {
+    expect(r.ok, label).toBe(false);
+    expect(r.ok ? [] : r.issues, label).toContainEqual({ code: "CATTLE_RECOMMENDATION_GATE_IDENTITY_AMBIGUOUS", ref: `${A}:${id}` });
+  };
+
+  it("F002 re-audit: a passing C2 rule named like a required-evidence marker never satisfies the missing evidence", () => {
+    const id = "CATTLE_RECOMMENDATION_REQUIRES:PERFORMANCE";
+    const r = run(favourable({ actions: registry([SELL(["C2_OBLIGATION"], { evidenceRequirements: ["PERFORMANCE"] })]), obligations: c2Passing(id) }));
+    ambiguous(r, id, "audit reproduction");
+  });
+
+  it("F002 class: every generated-gate family fails closed on a collision with a supplied gate or any pack record; never ACTIONABLE", () => {
+    for (const { family, id, gated, c2 } of GENERATED_FAMILIES) {
+      const shadow = shadowingAlternative(id);
+      const control = shadowingAlternative("SYNTH-RULE-SHADOW-ECON");
+      const routes: [string, Run, Run][] = [
+        ["pack record", { actions: registry([gated, shadow.def]), models: shadow.models, observations: FAVOURABLE_OBS, obligations: c2Passing(OBL_RULE) }, { actions: registry([gated, control.def]), models: control.models, observations: FAVOURABLE_OBS, obligations: c2Passing(OBL_RULE) }],
+      ];
+      if (c2) routes.push(["supplied C2 gate", { actions: registry([gated]), obligations: c2Passing(id) }, { actions: registry([gated]), obligations: c2Passing(OBL_RULE) }]);
+      for (const [route, colliding, nonColliding] of routes) {
+        const label = `${family} × ${route}`;
+        ambiguous(run(colliding), id, label);
+        // Positive control: without the collision the generated gate stays unresolved and the gated proposal is not actionable.
+        const rec = recOf(run(nonColliding));
+        expect(rec.pack.proposedActionId, label).toBe(JSON.stringify(["SYNTH-GATED", "ANIMAL", A]));
+        expect(rec.candidates.find((c) => c.actionKind === "SYNTH-GATED")?.gates.checks.map((c) => c.ruleId), label).toContain(id);
+        expect(rec.record.outcome, label).not.toBe("ACTIONABLE");
+        expect(rec.pack.hardGateOutcomes.find((g) => g.ruleId === id)?.state, label).toBe("NOT_EVALUATED");
+      }
+    }
+  });
+
+  it("F002 class: a named gate equal to a generated marker is one ambiguous identity, never two checks C0 resolves by first match", () => {
+    const id = "CATTLE_RECOMMENDATION_REQUIRES:PERFORMANCE";
+    const r = run({ actions: registry([action("SYNTH-GATED", { prerequisites: { sources: [], gateRuleIds: [id] }, evidenceRequirements: ["PERFORMANCE"] })]) });
+    ambiguous(r, id, "named gate × marker");
+  });
+
   const alt = (kind: string, benefit: string, ruleId: string) => {
     const model = econModel([`SYNTH-KEY-${kind}`], [], modelRule(ruleId), { modelId: `SYNTH-MODEL-${kind}` });
     return { def: action(kind, { economicModelRef: { modelId: `SYNTH-MODEL-${kind}`, version: "v1" } }), model, obs: [econObs(`o-${kind}`, `SYNTH-KEY-${kind}`, benefit)] };

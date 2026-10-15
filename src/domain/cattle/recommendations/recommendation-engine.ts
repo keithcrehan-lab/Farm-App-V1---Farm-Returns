@@ -49,7 +49,12 @@
  * prerequisite gates, so unresolved required evidence never surfaces as
  * ACTIONABLE. Gate records sharing a rule id collapse only when identical;
  * differing ones fail closed (`CATTLE_RECOMMENDATION_GATE_IDENTITY_AMBIGUOUS`,
- * no first-match precedence — CAT-INV-026).
+ * no first-match precedence — CAT-INV-026). Generated gates (a named gate
+ * absent from every source, or an unresolved-evidence marker) share that
+ * identity space: a generated id that is also a supplied gate, another
+ * generated gate, or any rule record in the pack fails closed the same way.
+ * As a final guard, a pack C0 derives as ACTIONABLE for a proposal that is
+ * not selectable fails closed (`CATTLE_RECOMMENDATION_PACK_OUTCOME_INCONSISTENT`).
  *
  * SELECTION: the best-ranked selectable candidate is proposed. With none, the
  * best-ranked NOT_CLEAR candidate is proposed with its prerequisite gates in
@@ -330,6 +335,9 @@ function foldGates(d: CandidateActionDefinition, ctx: CattleEvaluationContext, u
   for (const ruleId of missingNamed) if (!checks.some((c) => c.ruleId === ruleId)) checks.push({ ruleId, state: "NOT_EVALUATED", source: "CONTEXT", satisfied: false });
   for (const part of d.evidenceRequirements) if (!partSupplied(ctx, part)) markers.add(requires(part));
   for (const m of [...markers].sort(compareStrings)) checks.push({ ruleId: m, state: "NOT_EVALUATED", source: "UNRESOLVED_EVIDENCE", satisfied: false });
+  // Generated gates share the identity space (CAT-INV-026): one id backing two checks is ambiguous, never resolved by C0's first match.
+  const collided = sortedUnique(checks.map((c) => c.ruleId).filter((id, i, a) => a.indexOf(id) !== i));
+  if (collided.length > 0) return { ok: false, ambiguous: collided };
   checks.sort((a, b) => compareStrings(a.ruleId, b.ruleId));
   const records = unique.map((e) => e.record).sort((a, b) => compareStrings(a.requestedRuleId, b.requestedRuleId));
   return { ok: true, fold: { state: checks.every((c) => c.satisfied) ? "CLEAR" : "NOT_CLEAR", checks, records, sourceRefs } };
@@ -542,6 +550,10 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
   // ranking or rejection are included (CAT-INV-021) so the comparison that selected the proposal is reconstructable.
   const packRules = byRuleIdentity([...(proposed?.gates.records ?? []), ...ranked.flatMap((w) => w.modelRecords)].map((record) => ({ record })));
   if (packRules.ambiguous.length > 0) return { ok: false, issues: ambiguityIssues(ctx.animalId, packRules.ambiguous) };
+  // A generated (record-less) required gate must stay record-less in the pack: any record under its id would decide it in C0.
+  const generated = new Set((proposed?.gates.checks ?? []).filter((c) => c.source === "CONTEXT" || c.source === "UNRESOLVED_EVIDENCE").map((c) => c.ruleId));
+  const shadowed = sortedUnique(packRules.unique.map((e) => e.record.requestedRuleId).filter((id) => generated.has(id)));
+  if (shadowed.length > 0) return { ok: false, issues: ambiguityIssues(ctx.animalId, shadowed) };
   const steps: EvidencePackCalculationStep[] = [];
   const stepsFor = (w: Working, label: string) => {
     steps.push({
@@ -630,6 +642,10 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
   const pack = built.pack;
   const verified = verifyRecommendationEvidencePack(pack, hash);
   if (!verified.valid) return { ok: false, issues: [{ code: "CATTLE_RECOMMENDATION_PACK_UNVERIFIED", ref: `${ctx.animalId}:${verified.reasonCode}` }] };
+  // C0 alone derives the outcome from the pack; C8's own gate fold must never be less strict than it (CAT-INV-009).
+  if (pack.outcome === "ACTIONABLE" && !(proposed?.candidate.selectable ?? false)) {
+    return { ok: false, issues: [{ code: "CATTLE_RECOMMENDATION_PACK_OUTCOME_INCONSISTENT", ref: `${ctx.animalId}:${proposed?.candidate.actionId ?? "NONE"}` }] };
+  }
 
   const recommendedAction = proposed === null ? null : { actionId: proposed.candidate.actionId, actionKind: proposed.candidate.actionKind, description: proposed.candidate.description, tier: proposed.candidate.tier };
   const effect = proposed?.candidate.effect ?? null;

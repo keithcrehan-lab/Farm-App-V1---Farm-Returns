@@ -140,8 +140,8 @@ Critical → always stop, no fixer — including an artifact that reports any Cr
 or a non-zero count) but is contradictory or unassessed, which stops as the non-resumable
 AUDIT_ARTIFACT_CONTRADICTION (never re-audited past by a rerun); High → repaired only when CONFIRMED, at most `high_rounds`
 (2) rounds; Medium → repaired in at most `medium_rounds` (4) rounds; any finding whose signature
-(severity + file path + normalised title; never the renumbered F-ID) was already attempted
-`attempts_per_signature` (2) times → REPEATED_*_FINDING stop. Budgets are counted before the
+(governing invariant + explicit defect family when supplied; legacy artifacts fall back to severity + file + normalised title; never the renumbered F-ID) was already attempted
+`attempts_per_signature` (2) times → REPEATED_*_FINDING stop. Explicit family identity deliberately ignores severity/file/title so reclassification or movement cannot reset the budget. Budgets are counted before the
 call. The manifest may only tighten these ceilings. Low → recorded in the receipt, never sent to
 a fixer (`--only` refuses Low IDs); a Low headed `BLOCKING` stops. Findings that cannot be
 identified exactly (counts ≠ parsed blocks) stop as AGENT_OUTPUT_AMBIGUOUS.
@@ -168,13 +168,13 @@ audit of the same kind, tier and range appeared.
 
 FREEZE needs a strict audit of exactly `phase_base..HEAD`, committed (`working-tree: false`),
 CRITICAL=HIGH=MEDIUM=0, then runs the phase verify command and `scripts/quality-gate.sh` at that
-HEAD. The receipt (`receipts/<phase>.json`, schema 1, local canonical SHA-256 fingerprint — an
+HEAD. Campaign freeze flake recovery is narrower than the generic one-task harness: only an explicit `KNOWN_FREEZE_FLAKES` signature may be retried, once in isolation; a recovered receipt must carry the failure, retry and continued typecheck/lint/build evidence. The receipt (`receipts/<phase>.json`, schema 1, local canonical SHA-256 fingerprint — an
 integrity check, not a signature) binds campaign/phase, base, functional freeze SHA, brief
 SHA-256, contract blobs at freeze, verify command and results, the strict audit (tracked copy in
 `audits/` + SHA-256 + counts), audits, remediation rounds, finding signatures, outstanding Low,
 migration/frozen-contract/human-gate status, `pushed_or_deployed: false` and the predecessor
 receipt fingerprint. A receipt is invalid if the freeze SHA left HEAD's history, the audit range
-differs, any of C/H/M is non-zero, verification is missing or not PASS at the freeze SHA, the
+differs, any of C/H/M is non-zero, verification is missing or neither PASS nor bounded FLAKY_RECOVERED at the freeze SHA, the
 brief changed, an artifact changed or the predecessor chain breaks. CLOSURE_RECORD then writes the
 receipt, the audit copy, a new `BUILD_STATE.json` phase entry and an `IMPLEMENTATION_LOG.md`
 entry — only if BUILD_STATE round-trips byte-exactly as 2-space JSON, otherwise it stops — checks

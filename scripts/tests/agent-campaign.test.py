@@ -41,7 +41,8 @@ seq = json.load(open(d + '/claude.json'))
 act = seq[n - 1] if n <= len(seq) else 'unexpected'
 def change():
     open('src/domain/fixture/work.ts', 'a').write('// change %d\n' % n)
-out = 'BUILD_RESULT: DONE'
+out = ('CAMPAIGN_CONTRACT_PREFLIGHT: PASS\nCAMPAIGN_VERIFIER_SELF_CHECK: PASS\nBUILD_RESULT: DONE'
+       if 'Campaign phase discipline (mandatory)' in prompt else 'BUILD_RESULT: DONE')
 if act == 'done': change()
 elif act == 'noop': pass
 elif act.startswith('blocked:'): out = 'BUILD_RESULT: BLOCKED %s needs a human decision' % act.split(':', 1)[1]
@@ -51,6 +52,8 @@ elif act == 'editbrief':
     change(); p = '.agent/campaigns/fx/X1_BRIEF.md'; open(p, 'a').write('\nWidened scope.\n')
 elif act == 'migration':
     os.makedirs('supabase/migrations', exist_ok=True); open('supabase/migrations/0001_x.sql', 'w').write('select 1;\n')
+elif act == 'outside':
+    os.makedirs('src/domain/other', exist_ok=True); open('src/domain/other/escape.ts', 'w').write('export const escape = 1;\n')
 elif act == 'frozen':
     os.makedirs('src/domain', exist_ok=True); open('src/domain/evidence.ts', 'w').write('export const x = 1;\n')
 elif act == 'contracts_add':
@@ -94,8 +97,9 @@ for i, f in enumerate(spec.get('f', []), 1):
     counts[sev] += 1
     lines.append('### [%s] [F%03d] %s' % (sev, i, title))
     if sev in ('CRITICAL', 'HIGH', 'MEDIUM'):
-        lines += ['- FILE:LINE: work.txt:%d' % i, '- PROBLEM: %s, REGRESSION - reproduced with a test' % proof,
-                  '- WHY_IT_MATTERS: x', '- REQUIRED_FIX: y']
+        lines += ['- FILE:LINE: work.txt:%d' % i, '- INVARIANT: FX-INV-001', '- DEFECT_FAMILY: fixture-family-%s' % title.lower().replace(' ', '-'),
+                  '- PROBLEM: %s, REGRESSION - reproduced with a test' % proof,
+                  '- WHY_IT_MATTERS: x', '- REQUIRED_FIX: repair the class']
 if spec.get('stop'): lines.append('STOP: ' + spec['stop'])
 counts.update(spec.get('summary', {}))  # tests only: a summary contradicting the finding headings
 lines += ['AUDIT_STATUS: ' + spec.get('status', 'ASSESSED'), 'AUDIT_SUMMARY: CRITICAL=%d HIGH=%d MEDIUM=%d LOW=%d' % tuple(counts[k] for k in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW'))]
@@ -227,7 +231,7 @@ class CampaignTests(unittest.TestCase):
                                contracts=['AGENTS.md'], verify='test ! -e verify-fail', strict_freeze=True,
                                closure='docs-commit', build_state_key='c%d_fixture_%s' % (i, pid.lower()),
                                scope_guard=['src/%s' % pid.lower()],
-                               allowed_shared_paths=['docs/farm-return-next/DOMAIN_CONTRACTS.md']))
+                               allowed_shared_paths=['docs/farm-return-next/DOMAIN_CONTRACTS.md', 'src/domain/fixture/work.ts']))
             prev = pid
         self.manifest = dict(schema_version=1, campaign_id=CID, title='Fixture Campaign', campaign_doc=CAMP + '/CAMPAIGN.md',
                              branch='work', build_state_key='fixture_campaign', closure_commit_prefix='Fixture',
@@ -383,7 +387,7 @@ class CampaignTests(unittest.TestCase):
         text = sel[0].read_text()
         self.assertIn('[MEDIUM] [F001]', text); self.assertNotIn('LOW', text); self.assertNotIn('Rename helper', text)
         prompts = (self.T / 'claude.prompts').read_text()
-        self.assertIn('Fix ONLY these selected findings', prompts); self.assertIn('never Low findings', prompts)
+        self.assertIn('Fix ONLY the defect families represented by these selected findings', prompts); self.assertIn('never Low findings', prompts)
         self.assertEqual([a['tier'] for a in x1['audits']], ['standard', 'standard', 'strict'])
         self.assertIn('Rename helper', ' '.join(self.receipt('X1')['outstanding_low_findings']) or 'none')
 
@@ -658,6 +662,37 @@ class CampaignTests(unittest.TestCase):
         self.stopped('REPEATED_MEDIUM_FINDING')
         self.assertEqual((self.calls('claude'), self.calls('codex')), (3, 3))
 
+    def test_09b_explicit_defect_family_identity_ignores_severity_file_and_title(self):
+        mod = self.module()
+        a = dict(severity='HIGH', file='a.ts', title='First symptom', invariant='CAT-INV-021', defect_family='owner binding')
+        b = dict(severity='MEDIUM', file='b.ts', title='Different symptom', invariant='CAT-INV-021', defect_family='owner binding')
+        c = dict(severity='MEDIUM', file='b.ts', title='Different symptom', invariant='CAT-INV-022', defect_family='owner binding')
+        self.assertEqual(mod.signature(a), mod.signature(b))
+        self.assertNotEqual(mod.signature(a), mod.signature(c))
+
+    def test_09c_freeze_flake_recovery_is_full_suite_only(self):
+        mod = self.module()
+        calls = []
+        original_recover, original_known = mod.rs.recover_flaky, mod.known_freeze_flake
+        try:
+            def fake(c, log, phase, run_id):
+                calls.append((c, str(log), phase, run_id))
+                return True, {'outcome': 'FLAKY_RECOVERED'}
+            mod.rs.recover_flaky = fake
+            mod.known_freeze_flake = lambda log: (False, 'not registered')
+            self.assertEqual(mod.recover_freeze_flake('phase_verify', 'npx vitest run x', 'a.log', 'X1', 'fx', 'a' * 40),
+                             (False, None))
+            ok, ev = mod.recover_freeze_flake('full_suite', 'bash scripts/quality-gate.sh', 'b.log', 'X1', 'fx', 'a' * 40)
+            self.assertFalse(ok); self.assertEqual(ev['outcome'], 'NOT_ELIGIBLE'); self.assertEqual(calls, [])
+            mod.known_freeze_flake = lambda log: (True, 'documented timing flake')
+            ok, ev = mod.recover_freeze_flake('full_suite', 'bash scripts/quality-gate.sh', 'b.log', 'X1', 'fx', 'a' * 40)
+            self.assertTrue(ok); self.assertEqual(ev['outcome'], 'FLAKY_RECOVERED')
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][0], {'name': 'quality_gate', 'cmd': 'bash scripts/quality-gate.sh'})
+            self.assertEqual(calls[0][2], 'campaign-freeze-X1')
+        finally:
+            mod.rs.recover_flaky, mod.known_freeze_flake = original_recover, original_known
+
     def test_10_medium_round_budget_exhausted_stops(self):
         self.one_phase()
         self.seq(['done'] * 5, [M('A'), M('B'), M('C'), M('D'), M('E')])
@@ -736,6 +771,26 @@ class CampaignTests(unittest.TestCase):
         self.write(CAMP + '/campaign.json', json.dumps(m)); self.commit('m')
         self.run_campaign()
         self.stopped('MANIFEST_INVALID'); self.assertEqual(self.calls('claude'), 0)
+
+    def test_14c_phase_allow_list_blocks_unrelated_product_path(self):
+        self.one_phase()
+        before = self.git('rev-parse', 'HEAD')
+        self.seq(['outside'], [])
+        self.run_campaign()
+        self.stopped('TASK_SCOPE_EXPANSION_REQUIRED'); self.assertEqual(self.calls('codex'), 0)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), before)  # rejected before checkpoint commit
+        self.assertIn('src/domain/other/escape.ts', self.out)
+        self.assertIn('src/domain/other/', self.git('status', '--porcelain'))
+
+    def test_14d_phase_allow_list_blocks_unrelated_fix_before_commit(self):
+        self.one_phase()
+        self.seq(['done', 'outside'], [M('A')])
+        self.run_campaign()
+        self.stopped('TASK_SCOPE_EXPANSION_REQUIRED')
+        self.assertEqual((self.calls('claude'), self.calls('codex')), (2, 1))
+        self.assertIn('Agent checkpoint (build)', self.git('log', '-1', '--format=%s'))
+        self.assertNotIn('Agent checkpoint (fix)', self.git('log', '-1', '--format=%s'))
+        self.assertIn('src/domain/other/', self.git('status', '--porcelain'))
 
     def test_15_frozen_contract_change_stops(self):
         self.one_phase()
@@ -862,7 +917,20 @@ class CampaignTests(unittest.TestCase):
         self.assertIn('no verification', self.validate('X1'))
         self.rewrite_receipt('X1', lambda r: r.update(verification=[dict(name='phase_verify', result='PASS', head=r['functional_freeze_sha']),
                                                                     dict(name='full_suite', result='FAIL', head=r['functional_freeze_sha'])]))
-        self.assertIn('did not pass', self.validate('X1'))
+        self.assertIn('did not qualify', self.validate('X1'))
+        self.rewrite_receipt('X1', lambda r: r.update(verification=[dict(name='phase_verify', result='PASS', head=r['functional_freeze_sha']),
+                                                                    dict(name='full_suite', result='FLAKY_RECOVERED', head=r['functional_freeze_sha'])]))
+        self.assertIn('lacks bounded recovery evidence', self.validate('X1'))
+        def recovered(r):
+            log = '.agent/history/quality-gate-known-flake.log'
+            r.update(verification=[dict(name='phase_verify', result='PASS', head=r['functional_freeze_sha']),
+                                   dict(name='full_suite', result='FLAKY_RECOVERED', head=r['functional_freeze_sha'], log=log,
+                                        flaky=dict(outcome='FLAKY_RECOVERED', original_log=log,
+                                                   failures=[dict(file='src/tooling/agent-run.test.ts', name='scripts/agent-run passes the harness boundary/usage tests (agent-context.test.py)')],
+                                                   retries=[dict(result='PASS')],
+                                                   continued=dict(typecheck='PASS', lint='PASS', build='PASS')))])
+        self.rewrite_receipt('X1', recovered)
+        self.assertIsNone(self.validate('X1'))
 
     def test_24b_receipt_brief_changed_or_tampered_invalid(self):
         self._frozen_x1()
@@ -1502,13 +1570,15 @@ class CampaignTests(unittest.TestCase):
 
     def test_30_build_state_corruption_stops_without_closure(self):
         self.one_phase()
+        base = self.git('rev-parse', 'HEAD')
         log_before = (self.R / 'docs/farm-return-next/IMPLEMENTATION_LOG.md').read_text()
         self.seq(['breakstate'], [CLEAN, CLEAN])
         self.run_campaign()
-        self.stopped('CLOSURE_SCHEMA_UNSUPPORTED')
+        self.stopped('TASK_SCOPE_EXPANSION_REQUIRED')
+        self.assertEqual(self.git('rev-parse', 'HEAD'), base)  # corruption never enters a checkpoint
         self.assertNotIn('record closure', self.git('log', '-1', '--format=%s'))
         self.assertEqual((self.R / 'docs/farm-return-next/IMPLEMENTATION_LOG.md').read_text(), log_before)
-        self.assertEqual(self.git('status', '--porcelain'), '')
+        self.assertIn('docs/farm-return-next/BUILD_STATE.json', self.git('status', '--porcelain'))
         self.assertFalse((self.R / CAMP / 'receipts/X1.json').exists())
         self.run_campaign('--status'); self.assertNotRegex(self.out, r'X1\s+FROZEN')
 
@@ -1598,7 +1668,7 @@ class CampaignTests(unittest.TestCase):
         rc, out = fix('--only', 'F001', '--audit', art + '.old', '--dry-run'); self.assertNotEqual(rc, 0); self.assertIn('stale pin', out)
         rc, out = fix('--only', 'F001', '--audit', art, '--expect-head', 'HEAD~1', '--dry-run'); self.assertNotEqual(rc, 0)
         rc, out = fix('--only', 'F001', '--audit', art, '--dry-run'); self.assertEqual(rc, 0, out)
-        self.assertIn('Fix ONLY these selected findings', out)
+        self.assertIn('Fix ONLY the defect families represented by these selected findings', out)
         rc, out = fix('--dry-run'); self.assertEqual(rc, 0, out); self.assertIn('no findings to fix', out)  # default unchanged: C/H only
         self.assertEqual(self.calls('claude'), 1)
 

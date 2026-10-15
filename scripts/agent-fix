@@ -70,8 +70,7 @@ if [[ -n "$ONLY" ]]; then
   sel="${audit%.md}.selected-findings.md"
   n="$(python3 scripts/agent-context.py select-findings "$audit" "$sel" "$ONLY")" || die "cannot select findings $ONLY from $audit"
   FINDINGS="Selected findings: $sel (exactly $n finding(s) $ONLY extracted from $audit; read that file only for findings).
-Fix ONLY these selected findings. Do not fix, refactor or touch any other finding in the audit — in particular never Low findings. Do not refactor working code. Do not broaden scope.
-Reproduce each finding first (a failing test or exact trace) before changing code.
+Fix ONLY the defect families represented by these selected findings; do not fix a different finding/family from the audit, and never Low findings. For each selected finding, read its INVARIANT and DEFECT_FAMILY, reproduce the cited example first, then search the authorised current-phase scope for sibling instances of that same family. Repair the class rather than only the cited line. Add a direct regression plus a class/property/metamorphic regression where practical. Do not refactor unrelated working code or broaden scope.
 If a finding needs a human decision rather than a code repair (scientific, regulatory, veterinary, evidence, source precedence, product, migration, frozen-contract, scope, push/deploy, secrets or production access), change no code for it and print a line 'STOP: <REASON> <finding ID> <detail>' using the reason vocabulary in .agent/AUDIT_RULES.md."
 elif $ALL; then
   FINDINGS="Read the audit findings in $audit. Fix the $levels findings only."
@@ -89,9 +88,9 @@ Fix only the open Critical/High findings. Do not refactor unrelated code. Do not
 fi
 PROMPT="$CONTEXT
 $FINDINGS
-For each: confirm it against the code first; if it's a genuine defect, fix it minimally and add a regression test that fails without the fix. If a finding is wrong or not reproducible, don't change code for it — say why in one line.
+For each selected family: confirm the cited finding against the code first. If genuine, repair the whole family inside CURRENT_TASK scope and test both the cited regression and the class-wide invariant; inspect sibling sites before declaring it fixed. If a finding is wrong or not reproducible, don't change code for it — say why in one line.
 Stay within CURRENT_TASK scope; no refactors beyond the fixes. Search/read only the files implicated by the findings and the contracts/evidence they require; don't narrate.
-Never run git commit, push, reset, checkout, stash or clean. Do not edit .agent/CURRENT_TASK.md, .agent/TASK.json, .agent/STATE.md, secrets, .env*, or any Claude/Codex settings or hooks.
+Never run git commit, push, reset, checkout, stash or clean. Do not edit .agent/CURRENT_TASK.md, .agent/TASK.json, .agent/STATE.md, docs/farm-return-next/BUILD_STATE.json, docs/farm-return-next/IMPLEMENTATION_LOG.md, campaign receipts/audit copies, secrets, .env*, or any Claude/Codex settings or hooks.
 Finish with at most 10 lines: per finding FIXED/REJECTED + test name, tests run with actual results — then a final line exactly 'BUILD_RESULT: DONE' or 'BUILD_RESULT: BLOCKED <reason>'."
 
 if $DRY; then
@@ -117,6 +116,11 @@ if [[ -z "$(dirty_paths)" ]]; then
   die "claude changed nothing (every finding rejected?) — read $out and decide; nothing committed"
 fi
 python3 scripts/agent-context.py pin >/dev/null || die "task boundary changed"
+if ! scope_err="$(campaign_scope_check_dirty 2>&1)"; then
+  state_set stage fix-scope-failed; state_set blockers "$scope_err"; state_touch
+  echo "$scope_err" >&2
+  die "campaign pre-commit scope guard rejected the fix — nothing committed; edits left in the tree for review"
+fi
 if ! run_verify; then
   state_set stage fix-verify-failed; state_touch
   die "verify command failed — nothing committed; edits left in the tree for review"

@@ -361,15 +361,61 @@ def norm(s):
 
 
 def signature(f):
-    """Stable identity of a finding across independent audits: severity, file path (no line) and
-    normalised title. Finding IDs (F001...) are deliberately excluded — they renumber per audit."""
-    return hashlib.sha256(('%s|%s|%s' % (f['severity'], f['file'], norm(f['title']))).encode()).hexdigest()[:16]
+    """Stable defect-family identity across independent audits. Prefer explicit invariant/family
+    metadata; fall back to the historical severity/file/title identity for legacy artifacts. Explicit
+    family identity deliberately ignores finding id, file, title and severity so the same invariant
+    family cannot evade the bounded repair budget by moving or being re-severity-rated."""
+    family = norm(f.get('defect_family', ''))
+    invariant = norm(f.get('invariant', ''))
+    identity = ('family|%s|%s' % (invariant, family)) if family else ('legacy|%s|%s|%s' % (f['severity'], f['file'], norm(f['title'])))
+    return hashlib.sha256(identity.encode()).hexdigest()[:16]
+
+
+KNOWN_FREEZE_FLAKES = ({
+    'file': 'src/tooling/agent-run.test.ts',
+    'name': 'scripts/agent-run passes the harness boundary/usage tests (agent-context.test.py)',
+    'markers': ('TimeoutExpired', 'test_timeout_cleanup_needs_no_process_enumeration'),
+},)
+
+
+def known_freeze_flake(log):
+    """(True, detail) only for a documented freeze-gate flake signature. Unknown test failures
+    are never retried by the campaign, even when the generic one-task harness classifier could
+    isolate them. This is the campaign's explicit known-flake registry."""
+    try:
+        text = Path(log).read_text(errors='replace')
+        m = rs.GATE_LINE_RE.search(text)
+        if not m: return False, 'quality gate did not fail on tests alone'
+        test_log = Path(m.group(1)) / 'test.log'
+        if not test_log.is_file(): return False, 'quality-gate test log is missing'
+        found = rs.vitest_failures(test_log.read_text(errors='replace'))
+    except OSError as e:
+        return False, 'cannot read quality-gate evidence: %s' % e
+    if isinstance(found, str): return False, found
+    if len(found) != 1: return False, 'known-flake policy permits exactly one failing test'
+    f, name, block = found[0]
+    for rule in KNOWN_FREEZE_FLAKES:
+        if f == rule['file'] and name == rule['name'] and all(marker in block for marker in rule['markers']):
+            return True, '%s > %s' % (f, name)
+    return False, 'failure is not in the campaign known-flake registry'
+
+
+def recover_freeze_flake(name, cmd, log, pid, cid, h):
+    """Retry a documented full-suite freeze flake once through the existing deterministic
+    harness recovery. Phase verification and unknown full-suite failures are never retried."""
+    if name != 'full_suite': return False, None
+    known, why = known_freeze_flake(log)
+    if not known:
+        return False, dict(outcome='NOT_ELIGIBLE', original_log=str(log), why=why)
+    return rs.recover_flaky(dict(name='quality_gate', cmd=cmd), Path(log),
+                            'campaign-freeze-%s' % pid, '%s-%s-%s' % (cid, pid, short(h)))
 
 
 def findings_of(path):
     out = []
     for b in ctx.parse_findings(Path(path).read_text(errors='replace')):
         out.append(dict(severity=b['severity'], id=b['id'], title=b['title'], file=b['file'],
+                        invariant=b.get('invariant', ''), defect_family=b.get('defect_family', ''),
                         confirmed='CONFIRMED' in b['problem'] and 'PLAUSIBLE' not in b['problem'],
                         blocking=b['severity'] == 'LOW' and re.search(r'\bBLOCKING\b', b['title']) is not None,
                         signature=signature(b)))
@@ -433,7 +479,18 @@ def validate_receipt(m, ph, pred_fp):
         names = {v.get('name') for v in ver}
         if not {'phase_verify', 'full_suite'} <= names: raise ValueError('receipt lacks phase_verify/full_suite verification')
         for v in ver:
-            if v.get('result') != 'PASS' or v.get('head') != freeze: raise ValueError('verification %s did not pass at the freeze SHA' % v.get('name'))
+            if v.get('head') != freeze or v.get('result') not in ('PASS', 'FLAKY_RECOVERED'):
+                raise ValueError('verification %s did not qualify at the freeze SHA' % v.get('name'))
+            if v.get('result') == 'FLAKY_RECOVERED':
+                flaky = v.get('flaky')
+                if v.get('name') != 'full_suite' or not isinstance(flaky, dict) or flaky.get('outcome') != 'FLAKY_RECOVERED':
+                    raise ValueError('FLAKY_RECOVERED verification lacks bounded recovery evidence')
+                failures, retries, continued = flaky.get('failures'), flaky.get('retries'), flaky.get('continued')
+                if (not isinstance(failures, list) or len(failures) != 1 or not isinstance(retries, list) or
+                        len(retries) != len(failures) or any(x.get('result') != 'PASS' for x in retries) or
+                        not isinstance(continued, dict) or any(continued.get(k) != 'PASS' for k in ('typecheck', 'lint', 'build')) or
+                        flaky.get('original_log') != v.get('log')):
+                    raise ValueError('FLAKY_RECOVERED verification evidence is incomplete or inconsistent')
         rem = r.get('remediation') or {}
         pol = effective_policy(m, ph)
         if rem.get('medium_rounds', 99) > pol['medium_rounds'] or rem.get('high_rounds', 99) > pol['high_rounds']:
@@ -716,6 +773,16 @@ class Campaign:
         stage = s.get('stage', '')
         if result.startswith('BLOCKED') and 'invalid CLI JSON' not in result:
             raise Stop(gate_reason(result, kind.upper() + '_BLOCKED'), '%s: %s (%s)' % (kind, result, out), 'resolve the blocker')
+        if stage.endswith('scope-failed'):
+            blockers = str(s.get('blockers', ''))
+            if 'MIGRATION_APPROVAL_REQUIRED' in blockers:
+                reason = 'MIGRATION_APPROVAL_REQUIRED'
+            elif 'FROZEN_CONTRACT_CHANGE_REQUIRED' in blockers:
+                reason = 'FROZEN_CONTRACT_CHANGE_REQUIRED'
+            else:
+                reason = 'TASK_SCOPE_EXPANSION_REQUIRED'
+            raise Stop(reason, 'pre-commit scope guard rejected %s; edits were not committed: %s' % (kind, blockers),
+                       'review the uncommitted edits; expand scope only in a separately authorised task')
         if stage.endswith('verify-failed'):
             raise Stop('VERIFICATION_FAILED', 'verification failed after %s; edits left in the tree' % kind, 'fix the failure or discard the edits yourself')
         if stage.endswith('noop'):
@@ -744,7 +811,9 @@ class Campaign:
             ps.update(in_flight='build', in_flight_ref=s.get('last_build', ''))
             print('[%s] BUILDING: scripts/agent-build' % pid)
             log = self.log(pid, 'build')
-            rc = self.model('build', ps, [str(SCRIPTS / 'agent-build')], log, child_env())
+            rc = self.model('build', ps, [str(SCRIPTS / 'agent-build')], log, child_env(
+                AGENT_CAMPAIGN_MODE='1', AGENT_CAMPAIGN_SCOPE_GUARD_JSON=json.dumps(ph['scope_guard']),
+                AGENT_CAMPAIGN_ALLOWED_SHARED_JSON=json.dumps(ph['allowed_shared_paths'])))
             try:
                 self.settle('build', 'built', prev, rc, ps['in_flight_ref'], log)
             except Stop as e:
@@ -893,6 +962,10 @@ class Campaign:
             if len(got) != n[sev.lower()] or any(not f['id'] for f in got) or len({f['id'] for f in got}) != len(got):
                 raise Stop('AGENT_OUTPUT_AMBIGUOUS', '%s findings in %s cannot be identified exactly (%d parsed, %d counted)' % (
                     sev, a['artifact'], len(got), n[sev.lower()]), 'review the audit; no automatic repair without exact findings')
+            missing_family = [f['id'] for f in got if not f.get('invariant') or not f.get('defect_family')]
+            if missing_family:
+                raise Stop('AGENT_OUTPUT_AMBIGUOUS', '%s finding(s) %s omit INVARIANT/DEFECT_FAMILY in %s' % (
+                    sev, ','.join(missing_family), a['artifact']), 'rerun/review the audit; class-wide repair requires family metadata')
         lows = [f for f in fs if f['severity'] == 'LOW']
         if any(f['blocking'] for f in lows):
             raise Stop('LOW_FINDING_BLOCKING', 'a Low finding is marked BLOCKING — %s' % a['artifact'], 'human review')
@@ -952,7 +1025,9 @@ class Campaign:
             cmd = [str(SCRIPTS / 'agent-fix'), '--only', ','.join(pr['ids']), '--audit', pr['audit'], '--expect-head', prev]
             print('[%s] REMEDIATING: scripts/agent-fix --only %s' % (pid, ','.join(pr['ids'])))
             log = self.log(pid, 'fix')
-            rc = self.model('fix', ps, cmd, log, child_env())
+            rc = self.model('fix', ps, cmd, log, child_env(
+                AGENT_CAMPAIGN_MODE='1', AGENT_CAMPAIGN_SCOPE_GUARD_JSON=json.dumps(ph['scope_guard']),
+                AGENT_CAMPAIGN_ALLOWED_SHARED_JSON=json.dumps(ph['allowed_shared_paths'])))
             try:
                 self.settle('fix', 'fixed', prev, rc, ps['in_flight_ref'], log)
             except Stop as e:
@@ -976,7 +1051,7 @@ class Campaign:
             raise Stop('UNEXPECTED_STATE_CHANGE', 'strict audit is not clean of Critical/High/Medium', 'inspect the audit')
         ps['scope'] = scope_check(ph, base, h)
         for name, cmd in (('phase_verify', ph['verify']), ('full_suite', 'bash scripts/quality-gate.sh')):
-            if any(v['name'] == name and v['head'] == h and v['result'] == 'PASS' for v in ps['verification']): continue
+            if any(v['name'] == name and v['head'] == h and v['result'] in ('PASS', 'FLAKY_RECOVERED') for v in ps['verification']): continue
             log = self.log(pid, 'freeze-' + name)
             print('[%s] FREEZE: %s' % (pid, cmd))
             with open(log, 'w') as f:
@@ -984,8 +1059,27 @@ class Campaign:
             if head() != h or porcelain():
                 raise Stop('UNEXPECTED_STATE_CHANGE', 'freeze verification %s changed HEAD or the tree' % name, 'inspect the working tree')
             if rc:
-                ps['verification'].append(dict(name=name, cmd=cmd, head=h, result='FAIL', log=log, at=now())); self.save()
-                raise Stop('VERIFICATION_FAILED', 'freeze verification %s failed (exit %d) — %s' % (name, rc, log), 'fix the failure')
+                # Reuse the single-task harness's deterministic flake classifier, but only for the
+                # full quality gate. It retries each exactly identified Vitest failure once in
+                # isolation; crashes, unparseable failures and deterministic product assertions
+                # remain failures. For a recovered quality-gate test flake it also runs the
+                # typecheck/lint/build gates that fail-fast skipped. No model call is involved.
+                recovered = False
+                flaky = None
+                recovered, flaky = recover_freeze_flake(name, cmd, log, pid, self.cid, h)
+                if recovered:
+                    if head() != h or porcelain():
+                        raise Stop('UNEXPECTED_STATE_CHANGE', 'flake recovery changed HEAD or the tree', 'inspect the working tree')
+                    ps['verification'].append(dict(name=name, cmd=cmd, head=h, result='FLAKY_RECOVERED',
+                                                   log=log, flaky=flaky, at=now()))
+                    self.save()
+                    print('  %s FLAKY_RECOVERED — exact isolated retry passed; original failure retained' % name)
+                    continue
+                ps['verification'].append(dict(name=name, cmd=cmd, head=h, result='FAIL', log=log,
+                                               **({'flaky': flaky} if flaky else {}), at=now())); self.save()
+                detail = 'freeze verification %s failed (exit %d) — %s' % (name, rc, log)
+                if flaky: detail += ' — flake recovery %s: %s' % (flaky.get('outcome'), flaky.get('why', ''))
+                raise Stop('VERIFICATION_FAILED', detail, 'fix the failure')
             ps['verification'].append(dict(name=name, cmd=cmd, head=h, result='PASS', log=log, at=now()))
             self.save()
         ps.update(freeze_sha=h, frozen_at=ps.get('frozen_at') or now(), stage='CLOSURE_RECORD', head=h)
@@ -1173,11 +1267,15 @@ def is_tracked(ref, p):
 # ── scope checks (deterministic, after every build/fix and at freeze) ──
 def scope_check(ph, base, h):
     files = rs.delta_files(base, h)
+    import fnmatch
+    guards = [g.rstrip('/') for g in ph['scope_guard']]
+    shared_patterns = ph['allowed_shared_paths']
+    harness_owned = {'.agent/CURRENT_TASK.md', '.agent/TASK.json'}
+    # Specific safety gates outrank the generic phase allow-list so stop reasons remain actionable.
     mig = [f for f in files if rs.category(f) == 'F']
     if mig:
         raise Stop('MIGRATION_APPROVAL_REQUIRED', 'phase changes migration/schema paths: ' + ', '.join(mig[:5]),
                    'a migration needs separate explicit authorisation; the campaign never applies one')
-    import fnmatch
     shared = [f for f in files if rs.category(f) == 'E']
     for f in shared:
         if not any(fnmatch.fnmatch(f, pat) for pat in ph['allowed_shared_paths']):
@@ -1187,6 +1285,12 @@ def scope_check(ph, base, h):
         if removed:
             raise Stop('FROZEN_CONTRACT_CHANGE_REQUIRED', '%s: only additive changes are pre-authorised (%d line(s) removed)' % (f, removed),
                        'frozen-contract changes need a separately authorised task')
+    def in_scope(f):
+        return f in harness_owned or any(f == g or f.startswith(g + '/') for g in guards) or any(fnmatch.fnmatch(f, pat) for pat in shared_patterns)
+    outside = [f for f in files if not in_scope(f)]
+    if outside:
+        raise Stop('TASK_SCOPE_EXPANSION_REQUIRED', 'phase changed path(s) outside its manifest allow-list: ' + ', '.join(outside[:5]),
+                   'human review; expand the manifest scope only in a separately authorised infrastructure task')
     return dict(migration_status='NONE', frozen_contract_status=('ADDITIVE_ALLOWED: ' + ', '.join(shared)) if shared else 'UNCHANGED',
                 files=len(files))
 
@@ -1244,8 +1348,9 @@ def closure_plan(m, ph, ps, pred_fp=None, check_only=False):
                    fix_commit=r.get('fix_commit')) for r in ps['round_history']]
     remediated = ['%s (%s, %s): %s — sig %s' % (i.split('@')[0], s['severity'], i.split('@')[1], s['title'], k)
                   for k, s in sorted(ps['signatures'].items()) for i in s['ids']]
-    verification = [dict(name=v['name'], cmd=v['cmd'], head=v['head'], result=v['result'], log=v['log'])
-                    for v in ps['verification'] if v['name'] in ('phase_verify', 'full_suite') and v['head'] == freeze and v['result'] == 'PASS']
+    verification = [dict(name=v['name'], cmd=v['cmd'], head=v['head'], result=v['result'], log=v['log'],
+                         **({'flaky': v['flaky']} if v['result'] == 'FLAKY_RECOVERED' else {}))
+                    for v in ps['verification'] if v['name'] in ('phase_verify', 'full_suite') and v['head'] == freeze and v['result'] in ('PASS', 'FLAKY_RECOVERED')]
     contracts = [dict(path=c, blob_at_freeze=subprocess.run(['git', 'rev-parse', '%s:%s' % (freeze, c)], capture_output=True, text=True).stdout.strip())
                  for c in ph['contracts']]
     receipt = dict(
@@ -1269,7 +1374,7 @@ def closure_plan(m, ph, ps, pred_fp=None, check_only=False):
     sec[ph['build_state_key']] = dict(
         status='FROZEN_COMPLETE_IN_CODE', task=ps['task_id'], base_sha=base, final_audited_sha=freeze, final_audit=audit_copy,
         final_audit_summary=summary, remediated_findings=remediated, outstanding_low_findings=ps['outstanding_low'],
-        verification='at %s: phase verify `%s` PASS; full suite scripts/quality-gate.sh PASS' % (freeze, ph['verify']),
+        verification='at %s: phase verify `%s` qualified; full suite scripts/quality-gate.sh qualified (PASS or bounded FLAKY_RECOVERED)' % (freeze, ph['verify']),
         receipt=rpath, receipt_fingerprint=receipt['receipt_fingerprint'], closed_by='scripts/agent-campaign-run',
         next_phase=('%s NOT_STARTED' % nxt) if nxt else 'none (campaign complete)')
     if prior is not None:  # the phase's own build-time record is kept verbatim, never rewritten

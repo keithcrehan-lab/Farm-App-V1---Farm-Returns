@@ -73,12 +73,14 @@ For each finding, only these fields:
 ```
 ### [SEVERITY] [F001] <short title>
 - FILE:LINE: path:line
+- INVARIANT: <governing invariant / contract rule, or NONE if genuinely not applicable>
+- DEFECT_FAMILY: <short stable class name shared by sibling instances>
 - PROBLEM: CONFIRMED | PLAUSIBLE, REGRESSION | PRE-EXISTING — <what is wrong; evidence command / exact trace>
 - WHY_IT_MATTERS: <one line>
-- REQUIRED_FIX: <one or two lines>
+- REQUIRED_FIX: <one or two lines; describe the class repair, not only the cited line>
 ```
 
-Medium/Low findings may be given as the heading line only. You may start the
+Low findings may be given as the heading line only. Critical/High/Medium findings must include INVARIANT and DEFECT_FAMILY so bounded remediation can repair the class rather than one example. You may start the
 result with `AUDIT_RESULT: CLEAN` (no Critical/High) or `AUDIT_RESULT: FINDINGS`.
 
 ## Human-judgement gate marker

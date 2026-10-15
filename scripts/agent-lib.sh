@@ -90,6 +90,57 @@ require_task() {
 # Changes outside .agent/ count as "unrelated work" we must not touch.
 dirty_paths() { git status --porcelain --untracked-files=all -- . ":(exclude)$AGENT_DIR"; }
 
+# In campaign mode, enforce the manifest write boundary BEFORE verification/checkpoint commit.
+# This is intentionally duplicated with the campaign runner's post-commit scope check: the early
+# guard prevents an out-of-scope model edit from ever entering a local checkpoint, while the later
+# guard independently verifies the committed delta.
+campaign_scope_check_dirty() {
+  [[ "${AGENT_CAMPAIGN_MODE:-}" == "1" ]] || return 0
+  [[ -n "${AGENT_CAMPAIGN_SCOPE_GUARD_JSON:-}" && -n "${AGENT_CAMPAIGN_ALLOWED_SHARED_JSON:-}" ]] || {
+    echo "TASK_SCOPE_EXPANSION_REQUIRED: campaign scope metadata is missing" >&2; return 5;
+  }
+  python3 - "$AGENT_CAMPAIGN_SCOPE_GUARD_JSON" "$AGENT_CAMPAIGN_ALLOWED_SHARED_JSON" <<'PY_SCOPE'
+import fnmatch, json, os, re, subprocess, sys
+guards = [x.rstrip('/') for x in json.loads(sys.argv[1])]
+shared = json.loads(sys.argv[2])
+harness_owned = {'.agent/CURRENT_TASK.md', '.agent/TASK.json'}
+tracked = subprocess.check_output(['git','diff','--no-renames','--name-only','-z','HEAD','--','.']).split(b'\0')
+untracked = subprocess.check_output(['git','ls-files','--others','--exclude-standard','-z','--','.']).split(b'\0')
+paths = sorted(set(os.fsdecode(x) for x in tracked + untracked if x))
+
+def allowed(path):
+    return (path in harness_owned or any(path == g or path.startswith(g + '/') for g in guards)
+            or any(fnmatch.fnmatch(path, pat) for pat in shared))
+
+migrations = [p for p in paths if p.startswith('supabase/migrations/') or p.endswith('.sql')]
+if migrations:
+    print('MIGRATION_APPROVAL_REQUIRED: campaign edit touches migration/schema path(s): ' + ', '.join(migrations[:5]), file=sys.stderr)
+    sys.exit(6)
+outside = [p for p in paths if not allowed(p)]
+if outside:
+    frozen_inventory = set()
+    try:
+        text = open('docs/farm-return-next/DOMAIN_CONTRACTS.md').read()
+        section = re.search(r'^## Frozen contract inventory \(`src/domain/\*\.ts`\)\n(.*?)^## ', text, re.M | re.S)
+        if section:
+            frozen_inventory = {'src/domain/' + n for n in re.findall(r'`([A-Za-z0-9_.-]+\.ts)`', section.group(1))}
+    except OSError:
+        frozen_inventory = set()
+    e_files = {'docs/farm-return-next/DOMAIN_CONTRACTS.md', 'package.json', 'package-lock.json', 'tsconfig.json',
+               'next.config.ts', 'next.config.js', 'next.config.mjs', 'vitest.config.ts', 'eslint.config.mjs',
+               'src/proxy.ts', 'src/middleware.ts', 'middleware.ts'}
+    def frozen_path(path):
+        return (path in e_files or path in frozen_inventory or path.startswith(('src/lib/farm-data/', 'src/types/'))
+                or path.endswith('database.types.ts') or re.match(r'^src/domain/(.+/)?types\.ts$', path))
+    frozen = [p for p in outside if frozen_path(p)]
+    if frozen:
+        print('FROZEN_CONTRACT_CHANGE_REQUIRED: campaign edit touches frozen predecessor/shared path(s): ' + ', '.join(frozen[:5]), file=sys.stderr)
+        sys.exit(7)
+    print('TASK_SCOPE_EXPANSION_REQUIRED: campaign edit is outside the manifest allow-list: ' + ', '.join(outside[:5]), file=sys.stderr)
+    sys.exit(5)
+PY_SCOPE
+}
+
 require_clean() {
   local d; d="$(dirty_paths)"
   if [[ -n "$d" ]]; then

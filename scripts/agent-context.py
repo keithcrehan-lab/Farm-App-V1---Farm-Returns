@@ -180,7 +180,8 @@ def parse_findings(text):
     for b in blocks:
         field_of = lambda k: field(b['lines'], k)
         loc = field_of('FILE:LINE')
-        b.update(file=re.sub(r':\d+(-\d+)?$', '', loc.split()[0]) if loc else '', problem=field_of('PROBLEM'),
+        b.update(file=re.sub(r':\d+(-\d+)?$', '', loc.split()[0]) if loc else '', invariant=field_of('INVARIANT'),
+                 defect_family=field_of('DEFECT_FAMILY'), problem=field_of('PROBLEM'),
                  required_fix=field_of('REQUIRED_FIX'), text='\n'.join(b['lines']).rstrip())
     return blocks
 

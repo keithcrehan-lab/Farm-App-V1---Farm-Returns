@@ -35,11 +35,18 @@ start="$(git rev-parse HEAD)"
 base="$(python3 scripts/agent-context.py pin)"
 CONTEXT="$(python3 scripts/agent-context.py context)"
 
+CAMPAIGN_DISCIPLINE=""
+if [[ "${AGENT_CAMPAIGN_MODE:-}" == "1" ]]; then
+  CAMPAIGN_DISCIPLINE="
+Campaign phase discipline (mandatory): before production implementation, derive the class-wide phase contract from CURRENT_TASK: owned/non-owned semantics, field-presence rules (missing/null/empty), temporal cutoff, status/evidence precedence, identity, units/precision, owner-aware A/B/C dependencies and forbidden dependencies. Design the verifier/tests before relying on implementation. Include positive controls and safe negative/mutation/metamorphic controls for the important invariants, including owner-output equivalence where predecessors are consumed. Search for likely sibling cases rather than implementing only named examples.
+Before BUILD_RESULT, include two exact report lines: 'CAMPAIGN_CONTRACT_PREFLIGHT: PASS' and 'CAMPAIGN_VERIFIER_SELF_CHECK: PASS'. Only print PASS after the work and tests actually establish them; otherwise use BUILD_RESULT: BLOCKED with the appropriate STOP reason."
+fi
+
 PROMPT="$CONTEXT
 Implement CURRENT_TASK only.
-Rules: stay within its Scope; honour its STOP conditions; search/read only relevant files; add/update the tests it requires and run the targeted ones; do not narrate progress.
-Never run git commit, push, reset, checkout, stash or clean — the calling script commits after verifying independently. Do not edit .agent/CURRENT_TASK.md, .agent/TASK.json, .agent/STATE.md, secrets, .env*, or any Claude/Codex settings or hooks.
-Finish with at most 10 lines: files changed, tests run with their actual results, open concerns — then a final line exactly 'BUILD_RESULT: DONE' or 'BUILD_RESULT: BLOCKED <reason>'."
+Rules: stay within its Scope; honour its STOP conditions; search/read only relevant files; add/update the tests it requires and run the targeted ones; do not narrate progress.$CAMPAIGN_DISCIPLINE
+Never run git commit, push, reset, checkout, stash or clean — the calling script commits after verifying independently. Do not edit .agent/CURRENT_TASK.md, .agent/TASK.json, .agent/STATE.md, docs/farm-return-next/BUILD_STATE.json, docs/farm-return-next/IMPLEMENTATION_LOG.md, campaign receipts/audit copies, secrets, .env*, or any Claude/Codex settings or hooks.
+Finish concisely: files changed, tests run with their actual results, open concerns, any mandatory campaign markers — then a final line exactly 'BUILD_RESULT: DONE' or 'BUILD_RESULT: BLOCKED <reason>'."
 
 if [[ "$MODE" == "--dry-run" ]]; then
   note "pre-flight OK. task='$(task_title)' base=$(short "$base") head=$(short "$start")"
@@ -70,12 +77,21 @@ if [[ "$result" != DONE* ]]; then
   state_set stage build-blocked; state_set blockers "${result:-no BUILD_RESULT line} ($out)"; state_touch
   die "build not DONE (${result:-no BUILD_RESULT line}) — nothing committed; edits left in the tree for review"
 fi
+if [[ "${AGENT_CAMPAIGN_MODE:-}" == "1" ]]; then
+  grep -Fxq 'CAMPAIGN_CONTRACT_PREFLIGHT: PASS' "$out" || { state_set stage build-blocked; state_set blockers "missing campaign contract preflight marker ($out)"; state_touch; die "campaign build did not prove contract preflight — nothing committed"; }
+  grep -Fxq 'CAMPAIGN_VERIFIER_SELF_CHECK: PASS' "$out" || { state_set stage build-blocked; state_set blockers "missing campaign verifier self-check marker ($out)"; state_touch; die "campaign build did not prove verifier self-check — nothing committed"; }
+fi
 if [[ -z "$(dirty_paths)" ]]; then
   state_set stage build-noop; state_touch
   die "claude reported DONE but changed nothing"
 fi
 
 python3 scripts/agent-context.py pin >/dev/null || die "task boundary changed"
+if ! scope_err="$(campaign_scope_check_dirty 2>&1)"; then
+  state_set stage build-scope-failed; state_set blockers "$scope_err"; state_touch
+  echo "$scope_err" >&2
+  die "campaign pre-commit scope guard rejected the build — nothing committed; edits left in the tree for review"
+fi
 if ! run_verify; then
   state_set stage build-verify-failed; state_touch
   die "verify command failed — nothing committed; edits left in the tree for review"

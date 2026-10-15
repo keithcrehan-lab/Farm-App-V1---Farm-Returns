@@ -13,6 +13,7 @@ Official/farm/device data -> canonical cattle state -> legal/welfare gates -> sc
 ## Campaign rules
 
 - Work phase-by-phase. The next phase starts only through `scripts/agent-campaign-run`'s dependency-gated transition (valid predecessor receipt, docs closure committed, clean tree, READY brief), or manually after human review.
+- C8–C10 are autonomous-by-default under `AUTONOMY.md`: normal build/audit/family-repair/freeze/closure transitions continue without human approval; human involvement is the exception path for explicit judgement/safety/repeated-defect stops.
 - Every phase has an immutable task boundary, explicit starting SHA, acceptance criteria, verify command and STOP conditions.
 - Use the existing Farm Return agent harness. C2–C10 run through the campaign orchestrator (`scripts/agent-campaign-run cattle-engine-v1`, manifest `campaign.json`), authorised 2026-10-10 by task `cattle-campaign-orchestrator-20261010`; it composes, never replaces, the one-task scripts. See `.agent/README.md`, "Campaign orchestrator".
 - Normal loop: build -> deterministic verification -> standard audit -> bounded narrow repair of in-scope engineering High/Medium findings -> strict full-phase audit (phase base..HEAD; CRITICAL=HIGH=MEDIUM=0) -> freeze verification -> receipt -> docs closure commit. Critical findings and every judgement gate stop for human review.

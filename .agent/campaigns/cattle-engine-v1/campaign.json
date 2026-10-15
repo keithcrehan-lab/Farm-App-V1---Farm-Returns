@@ -159,13 +159,14 @@
       "brief": ".agent/campaigns/cattle-engine-v1/C8_BRIEF.md",
       "brief_status": "READY",
       "domains": ["cattle"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md", ".agent/skills/cattle-evidence-rules.md", "docs/farm-return-next/cattle/index.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md", ".agent/campaigns/cattle-engine-v1/AUTONOMY.md", ".agent/skills/cattle-evidence-rules.md", "docs/farm-return-next/cattle/index.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
       "verify": "npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c8_recommendation_engine",
       "scope_guard": ["src/domain/cattle/recommendations"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md"]
+      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "src/domain/cattle/index.ts"],
+      "policy": {"medium_rounds": 2, "high_rounds": 2, "attempts_per_signature": 2}
     },
     {
       "id": "C9",
@@ -177,13 +178,14 @@
       "brief": ".agent/campaigns/cattle-engine-v1/C9_BRIEF.md",
       "brief_status": "READY",
       "domains": ["cattle", "plan"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md", ".agent/skills/cattle-evidence-rules.md", ".agent/skills/plan-domain.md", "docs/farm-return-next/cattle/index.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md", ".agent/campaigns/cattle-engine-v1/AUTONOMY.md", ".agent/skills/cattle-evidence-rules.md", ".agent/skills/plan-domain.md", "docs/farm-return-next/cattle/index.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
       "verify": "npx vitest run src/domain/cattle src/tooling/cattle-conformance src/domain/plan --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c9_plan_interface",
       "scope_guard": ["src/domain/cattle/plan-interface"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md"]
+      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "src/domain/cattle/index.ts"],
+      "policy": {"medium_rounds": 2, "high_rounds": 2, "attempts_per_signature": 2}
     },
     {
       "id": "C10",
@@ -195,13 +197,14 @@
       "brief": ".agent/campaigns/cattle-engine-v1/C10_BRIEF.md",
       "brief_status": "READY",
       "domains": ["cattle", "ui"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/PRODUCT_RULES.md", ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md", ".agent/skills/cattle-evidence-rules.md", "docs/farm-return-next/cattle/index.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/PRODUCT_RULES.md", ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md", ".agent/campaigns/cattle-engine-v1/AUTONOMY.md", ".agent/skills/cattle-evidence-rules.md", "docs/farm-return-next/cattle/index.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
       "verify": "npx vitest run cattle src/components/shell --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c10_cattle_ux",
       "scope_guard": ["src/app/(app)/cattle", "src/components/cattle", "src/domain/cattle/presentation"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md"]
+      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "src/domain/cattle/index.ts", "src/components/shell/nav-items.ts", "src/components/shell/nav-items.test.ts", "src/components/shell/nav-items.test.tsx"],
+      "policy": {"medium_rounds": 2, "high_rounds": 2, "attempts_per_signature": 2}
     }
   ]
 }

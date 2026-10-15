@@ -69,7 +69,7 @@ export interface EconomicObservation {
   supersedes: string[];
 }
 
-const OBSERVATION_SPEC = object({
+export const OBSERVATION_SPEC = object({
   observationId: ref,
   valueKey: ref,
   amount: code,

@@ -4535,6 +4535,12 @@ occurrence of a VETERINARY_PROGRAMME), `DECLARE_PRODUCTION_GOAL` (VALUE_OF_INFOR
 `REQUEST_VETERINARY_REVIEW` default ships (no supplied sourced rule or programme action kind exists in
 production; a supplied registry may declare it with `PROGRAMME_ACTION_STATE` and explicit action kinds).
 
+**Required evidence before exclusion (audit F007).** A definition is excluded as "not a candidate"
+(trigger / eligibility resolved negative) only when nothing it requires is unresolved: any required
+context part not supplied (evidence requirement or prerequisite gate source) or any unresolved trigger /
+eligibility keeps it a non-actionable candidate even when the other resolved negative (trigger state
+`NOT_MET` / eligibility `NOT_ELIGIBLE` recorded; never selectable; INSUFFICIENT_EVIDENCE when proposed).
+
 **Status / evidence precedence (per candidate, first match).** REQUIRED context part not supplied
 (trigger, eligibility, evidence requirement or prerequisite source) ⇒ NOT_EVALUATED gate
 `CATTLE_RECOMMENDATION_REQUIRES:<PART>` > trigger over unresolved predecessor states ⇒
@@ -4714,7 +4720,21 @@ spellings do not change them; any material input, cutoff, effective time, regist
 or observation does. `verifyCattleRecommendation` re-verifies the C0 pack, the context and record
 fingerprints, the exact C0 pack contract of the stored pack and record = `deriveRecommendationRecord(pack)`
 with the pack ↔ context identity link; a malformed stored recommendation is invalid
-(`CATTLE_RECOMMENDATION_MALFORMED` / `..._PACK_MALFORMED`), never a thrown error; never repairs. Change detection only, not
+(`CATTLE_RECOMMENDATION_MALFORMED` / `..._PACK_MALFORMED`), never a thrown error; never repairs.
+**Stored recommendations (genuine trust boundary; audit F005 of 2026-10-15T210448Z).** Before any
+fingerprint is accepted, `storedRecommendationIssue` (`recommendation-stored.ts`) checks the COMPLETE
+stored structure (`STORED_RECOMMENDATION`: every field, the sealed context with every part, the admitted
+registry / models / reviews / sources / observations through their owned-record specs, model
+evaluations, economic resolutions, candidates, non-candidates, ties and the exact C0 pack; the record
+by derivation) and every relationship C8 establishes: payload versions; animal identity (record ↔
+context ↔ pack target scope ↔ snapshot ref); both canonical times, the pack's `knownAt` and the
+evaluation date; candidates (rank, description, tier, claim, trigger, eligibility, gate state and
+checks, selectability, effect, value) ↔ the pack's candidate, gate-check and ranking steps; exclusions
+↔ the exclusion step; ties ↔ the ranking step (`..._STORED_<STRUCTURE | ANIMAL | SNAPSHOT | TIMES |
+EVALUATION_DATE | CANDIDATES | EXCLUSIONS | TIES>_...`). A re-sealed edit is therefore rejected whenever it
+is malformed or inconsistent. Limitation: a fully consistent forgery (every part rebuilt and every
+fingerprint recomputed) is indistinguishable by inspection — reproduction over the same canonical
+evidence is the authenticity check. Change detection only, not
 signatures. Reproduction = re-running over the same canonical evidence at the same times; a later
 correction or late record never alters the recommendation reproduced at an earlier cutoff.
 

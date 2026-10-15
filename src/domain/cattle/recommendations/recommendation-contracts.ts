@@ -162,7 +162,8 @@ export interface CattleEvaluationContext {
 // Outputs
 // ---------------------------------------------------------------------------
 
-export type TriggerState = "TRIGGERED" | "UNRESOLVED";
+/** NOT_MET: resolved negative, kept as a candidate only because required evidence is unresolved (precedence a before c). */
+export type TriggerState = "TRIGGERED" | "UNRESOLVED" | "NOT_MET";
 export type GateState = "CLEAR" | "NOT_CLEAR";
 export type EffectState = "EFFECT_SUPPORTED" | "EFFECT_NOT_SUPPORTED" | "EFFECT_UNKNOWN" | "NOT_EVALUATED";
 export type ValueState = "VALUE_KNOWN" | "VALUE_UNKNOWN" | "NOT_EVALUATED";
@@ -200,7 +201,7 @@ export interface CandidateEvaluation {
   tier: RecommendationPriorityTier;
   benefitClaim: BenefitClaim;
   trigger: { state: TriggerState; reasonCodes: string[] };
-  eligibility: { state: "ELIGIBLE" | "UNRESOLVED"; reasonCodes: string[] };
+  eligibility: { state: "ELIGIBLE" | "UNRESOLVED" | "NOT_ELIGIBLE"; reasonCodes: string[] };
   gates: { state: GateState; checks: CandidateGate[] };
   effect: CandidateEffect;
   value: CandidateValue;

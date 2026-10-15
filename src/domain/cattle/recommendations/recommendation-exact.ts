@@ -35,7 +35,7 @@ import type { SourceBindingCheck, SourceVersionRef } from "../source";
 import { fingerprintOf } from "../health/health-input";
 import { CATTLE_EVIDENCE_ARCHITECTURE_VERSION } from "../version";
 import { C0_EVALUATION_STATES, C0_GATE_ROLES, C0_RULE_CLASSIFICATIONS, valid } from "../programmes/programme-consumed";
-import { vocabulary } from "./recommendation-consumed";
+import { ownedValid, vocabulary, type FieldSpec } from "./recommendation-consumed";
 import type { CattleInformationClass, ProvenanceKind } from "../information";
 import type { SourceBindingStatus } from "../source";
 import type { CattleReviewDimension, ReviewDimensionState } from "../rule";
@@ -52,13 +52,18 @@ export type ExactSpec =
   | { t: "bool" }
   | { t: "scalar" }
   | { t: "date" }
+  | { t: "instant" }
   | { t: "fingerprint" }
-  | { t: "literal"; value: string }
+  | { t: "literal"; value: string | number }
   | { t: "enum"; values: readonly string[] }
   | { t: "nullable"; of: ExactSpec }
   | { t: "array"; of: ExactSpec }
   | { t: "map"; of: ExactSpec }
-  | { t: "object"; fields: Record<string, ExactSpec> };
+  | { t: "object"; fields: Record<string, ExactSpec> }
+  /** A C8-owned record validated by its owned-record spec (`ownedValid`: declared fields valid, no undeclared field). */
+  | { t: "owned"; spec: FieldSpec }
+  /** A tagged union: the tag selects the variant's exact fields (the tag plus those fields, nothing else). */
+  | { t: "tagged"; tag: string; variants: Record<string, Record<string, ExactSpec>> };
 
 const text = { t: "text" } as const;
 const ref = { t: "ref" } as const;
@@ -125,10 +130,19 @@ export function exactValid(spec: ExactSpec, value: unknown): boolean {
       return typeof value === "string";
     case "scalar":
       return typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value));
+    case "owned":
+      return ownedValid(spec.spec, value);
+    case "tagged": {
+      if (!isRecord(value) || typeof value[spec.tag] !== "string" || !Object.hasOwn(spec.variants, value[spec.tag] as string)) return false;
+      const fields = spec.variants[value[spec.tag] as string];
+      if (Object.keys(value).some((k) => k !== spec.tag && !Object.hasOwn(fields, k))) return false;
+      return Object.entries(fields).every(([k, f]) => Object.hasOwn(value, k) && exactValid(f, value[k]));
+    }
     case "ref":
     case "int":
     case "bool":
     case "date":
+    case "instant":
     case "fingerprint":
     case "literal":
     case "enum":

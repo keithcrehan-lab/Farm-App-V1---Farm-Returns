@@ -98,6 +98,7 @@ import { CATTLE_RECOMMENDATION_PAYLOAD_VERSION, computeRecommendationFingerprint
 import { CANDIDATE_STEP_FORMULA, CONTEXT_PART_UNCERTAINTY, MODEL_STEP_FORMULA, PROPOSED_LABEL, alternativeLabel, candidateStepDescription, deriveRecommendationRecord, modelStepDescription } from "./recommendation-explanation";
 import { computeRecommendationModelContentFingerprint, type ModelEvaluation, type RecommendationModelRecord } from "./recommendation-models";
 import { EVIDENCE_PACK, exact, exactValid, type CarriedRuleEvaluation } from "./recommendation-exact";
+import { storedRecommendationIssue } from "./recommendation-stored";
 import type {
   CandidateEffect,
   CandidateEvaluation,
@@ -530,7 +531,13 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
   for (const d of ctx.actions.definitions) {
     const trigger = triggerOf(d, ctx);
     const eligibility = eligibilityOf(d, ctx);
-    if (trigger.state === "NO" || eligibility.state === "NO") {
+    // Precedence (a / a' / b before c; CAT-INV-009 / 022 — audit F007): a definition is excluded as "not a candidate"
+    // only when NOTHING it requires is unresolved. Any required context part not supplied (evidence requirement or
+    // prerequisite gate source) or any unresolved trigger / eligibility keeps it a non-actionable candidate, even when
+    // the other of trigger / eligibility resolved negative — required evidence is resolved before exclusion.
+    const requiredMissing = [...d.evidenceRequirements, ...d.prerequisites.sources.map((s) => GATE_SOURCE_PART[s])].filter((part) => !partSupplied(ctx, part));
+    const anyUnresolved = trigger.state === "UNRESOLVED" || eligibility.state === "UNRESOLVED" || requiredMissing.length > 0;
+    if (!anyUnresolved && (trigger.state === "NO" || eligibility.state === "NO")) {
       notCandidates.push({ actionKind: d.actionKind, reasonCodes: sortedUnique([...(trigger.state === "NO" ? trigger.reasons : []), ...(eligibility.state === "NO" ? eligibility.reasons : [])]) });
       continue;
     }
@@ -548,12 +555,12 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
         description: d.description,
         tier: d.tier,
         benefitClaim: d.benefitClaim,
-        trigger: { state: trigger.state === "YES" ? "TRIGGERED" : "UNRESOLVED", reasonCodes: sortedUnique(trigger.reasons) },
-        eligibility: { state: eligibility.state === "YES" ? "ELIGIBLE" : "UNRESOLVED", reasonCodes: sortedUnique(eligibility.reasons) },
+        trigger: { state: trigger.state === "YES" ? "TRIGGERED" : trigger.state === "NO" ? "NOT_MET" : "UNRESOLVED", reasonCodes: sortedUnique(trigger.reasons) },
+        eligibility: { state: eligibility.state === "YES" ? "ELIGIBLE" : eligibility.state === "NO" ? "NOT_ELIGIBLE" : "UNRESOLVED", reasonCodes: sortedUnique(eligibility.reasons) },
         gates: { state: gates.state, checks: gates.checks },
         effect: effect.effect,
         value: value.value,
-        selectable: clear && effect.effect.state !== "EFFECT_NOT_SUPPORTED",
+        selectable: clear && trigger.state === "YES" && eligibility.state === "YES" && effect.effect.state !== "EFFECT_NOT_SUPPORTED",
       },
       gates,
       modelRecords: [effect.record, value.record].filter((r): r is CarriedRuleEvaluation => r !== null),
@@ -886,17 +893,20 @@ export function recommendCattle(request: unknown, hash: CattleHash, trusted: Rec
  * detection, not authenticity; reproduction requires re-running
  * `recommendCattle` over the same canonical evidence at the same times.
  */
-const RECOMMENDATION_KEYS = ["animalId", "candidates", "context", "effectiveAt", "fingerprint", "knowledgeCutoff", "notCandidates", "pack", "recommendationPayloadVersion", "record", "ties"];
-const isPlainRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 
 export function verifyCattleRecommendation(recommendation: CattleRecommendation, hash: CattleHash): FingerprintVerificationResult {
   // A stored recommendation is reloaded data (a genuine trust boundary, CAT-INV-028): it is checked structurally
   // before anything in it is read, and anything it cannot verify is invalid — never a thrown error.
+  // Complete structure and every identity / time / version relationship BEFORE any fingerprint is accepted: a
+  // re-sealed edit (fingerprints recomputed) is still rejected when malformed or inconsistent (audit F005).
+  let issue: string | null;
+  try {
+    issue = storedRecommendationIssue(recommendation);
+  } catch {
+    issue = "CATTLE_RECOMMENDATION_MALFORMED";
+  }
+  if (issue !== null) return { valid: false, reasonCode: issue, detail: "the stored recommendation is malformed or internally inconsistent" };
   const malformed: FingerprintVerificationResult = { valid: false, reasonCode: "CATTLE_RECOMMENDATION_MALFORMED", detail: "the stored recommendation is not a well-formed C8 recommendation" };
-  const raw: unknown = recommendation;
-  if (!isPlainRecord(raw) || Object.keys(raw).sort().join() !== RECOMMENDATION_KEYS.join() || !isPlainRecord(raw.context) || !isPlainRecord(raw.record)) return malformed;
-  // The two fingerprints no hash covers (the record's and the context's own) must be exact fingerprints.
-  if (!exactValid({ t: "fingerprint" }, raw.fingerprint) || !exactValid({ t: "fingerprint" }, raw.context.fingerprint)) return malformed;
   try {
     return verifyStored(recommendation, hash);
   } catch {

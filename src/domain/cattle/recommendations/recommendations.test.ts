@@ -103,6 +103,7 @@ import { RECOMMENDATION_CONSUMED_SURFACES, valid, type FieldSpec } from "./recom
 import * as cattleExact from "./recommendation-exact";
 import * as cattleModels from "./recommendation-models";
 import * as cattleEconomic from "./economic-context";
+import { computeRecommendationFingerprint } from "./recommendation-integrity";
 
 type Rec = Record<string, unknown>;
 
@@ -1625,7 +1626,7 @@ describe("C8 bounded repair — genuine trust boundary: a stored / reloaded reco
     const rec = recOf(run(favourable({ actions: registry([SELL()]) })));
     const copy = structuredClone(rec) as unknown as { pack: Record<string, unknown> };
     copy.pack.synthUndeclared = "SYNTH";
-    expect(verifyCattleRecommendation(copy as unknown as CattleRecommendation, hash)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_PACK_MALFORMED" });
+    expect(verifyCattleRecommendation(copy as unknown as CattleRecommendation, hash)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_STRUCTURE_MALFORMED" });
   });
 
   it("F005 disposition: owner-specific value constraints of a frozen in-process engine are the owner's — C8 neither restates them nor relies on them", () => {
@@ -1757,5 +1758,97 @@ describe("C8 bounded repair — F006: monetary precision never exceeds the canon
     );
     expect(rec.candidates[0].value).toMatchObject({ state: "VALUE_UNKNOWN", amount: null });
     expect(rec.candidates[0].value.reasonCodes[0]).toMatch(/^CATTLE_RECOMMENDATION_VALUE_PRECISION_UNSUPPORTED:21>20$/);
+  });
+});
+
+describe("C8 audit 2026-10-15T210448Z — F005: re-sealed stored recommendations; F007: required evidence before exclusion", () => {
+  /** Re-seals a stored recommendation after an edit: recomputes the OUTER record fingerprint (the audit's attack). */
+  const reseal = (r: Record<string, unknown>): CattleRecommendation => {
+    const { fingerprint: _f, ...body } = r;
+    void _f;
+    return { ...(body as object), fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_RECORD", body, hash) } as unknown as CattleRecommendation;
+  };
+  const stored = () => structuredClone(recOf(run(favourable({ actions: registry([SELL(["C3_WITHDRAWAL"]), action("SYNTH-OTHER"), action("SYNTH-OFF", { trigger: { kind: "GOAL_STATUS", statuses: ["NONE"] } })]), health: health(IN_WITHDRAWAL_RECORDS), goals: goals([goalDecl("g-fin")]) })))) as unknown as Record<string, unknown>;
+
+  it("F005 exact reproduction: animal id, invalid time, wrong-typed candidates and an unknown payload version are rejected even when re-sealed", () => {
+    const base = stored();
+    expect(verifyCattleRecommendation(reseal(base), hash).valid).toBe(true); // re-sealing an unedited record is a no-op
+    const edits: [string, (r: Record<string, unknown>) => void][] = [
+      ["animalId → another animal", (r) => void (r.animalId = B)],
+      ["effectiveAt → INVALID", (r) => void (r.effectiveAt = "INVALID")],
+      ["candidates → string", (r) => void (r.candidates = "SYNTH")],
+      ["payload version → 999", (r) => void (r.recommendationPayloadVersion = 999)],
+    ];
+    for (const [label, edit] of edits) {
+      const r = stored();
+      edit(r);
+      expect(verifyCattleRecommendation(reseal(r), hash).valid, label).toBe(false);
+    }
+  });
+
+  it("class: every structural mutation and every identity / time / decision inconsistency of a stored recommendation is rejected after re-sealing", () => {
+    const base = stored();
+    const isMap = (path: string[]) => path.length === 4 && path[0] === "pack" && path[1] === "calculationSteps" && path[3] === "inputs";
+    const matrix = realMutations(base, isMap).filter((m) => !m.label.startsWith("fingerprint"));
+    expect(matrix.length).toBeGreaterThan(500);
+    for (const m of matrix) {
+      const r = stored();
+      m.mutate(r);
+      expect(verifyCattleRecommendation(reseal(r), hash).valid, m.label).toBe(false);
+    }
+    // Well-typed but inconsistent edits (re-sealed): times, ranks, decision fields, exclusions, ties.
+    const semantic: [string, (r: Record<string, unknown>) => void][] = [
+      ["knowledgeCutoff → another valid instant", (r) => void (r.knowledgeCutoff = LATER)],
+      ["candidate rank swapped", (r) => void ((r.candidates as { rank: number }[])[0].rank = 2)],
+      ["candidate effect state edited", (r) => void ((r.candidates as { effect: { state: string } }[])[0].effect.state = "EFFECT_SUPPORTED")],
+      ["candidate selectable flipped", (r) => void ((r.candidates as { selectable: boolean }[])[1].selectable = !(r.candidates as { selectable: boolean }[])[1].selectable)],
+      ["non-candidate reasons edited", (r) => void ((r.notCandidates as { reasonCodes: string[] }[])[0].reasonCodes = ["SYNTH"])],
+      ["non-candidate removed", (r) => void (r.notCandidates = [])],
+      ["tie invented", (r) => void (r.ties = [{ actionIds: ["a", "b"], brokenBy: "ACTION_IDENTITY" }])],
+      ["gate check satisfied flipped", (r) => void ((r.candidates as { gates: { checks: { satisfied: boolean }[] } }[]).find((c) => c.gates.checks.length > 0)!.gates.checks[0].satisfied = true)],
+    ];
+    for (const [label, edit] of semantic) {
+      const r = stored();
+      edit(r);
+      expect(verifyCattleRecommendation(reseal(r), hash).valid, label).toBe(false);
+    }
+  }, 60_000);
+
+  it("F007 exact reproduction: a negative trigger never masks a required evidence part that is not supplied", () => {
+    // Known weight ⇒ RECORD_WEIGHT's trigger resolves negative; the definition also requires PERFORMANCE, which is absent.
+    const rec = recOf(run({ weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] }, actions: defaultOnly("RECORD_WEIGHT", { evidenceRequirements: ["PERFORMANCE"] }) }));
+    expect(rec.record.outcome).toBe("INSUFFICIENT_EVIDENCE");
+    expect(rec.notCandidates).toEqual([]);
+    expect(rec.candidates[0]).toMatchObject({ trigger: { state: "NOT_MET" }, selectable: false, gates: { state: "NOT_CLEAR" } });
+    expect(rec.candidates[0].gates.checks.map((c) => c.ruleId)).toContain("CATTLE_RECOMMENDATION_REQUIRES:PERFORMANCE");
+  });
+
+  it("F007 exact reproduction: unresolved eligibility (GOALS absent) is not masked by a negative trigger", () => {
+    const sale = action("SYNTH-SALE", { applicableGoalTypes: ["FINISHING"], trigger: { kind: "WEIGHT_MISSING_OR_STALE", staleAfter: null } });
+    const rec = recOf(run({ weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] }, actions: registry([sale]) }));
+    expect(rec.record.outcome).toBe("INSUFFICIENT_EVIDENCE");
+    expect(rec.candidates[0]).toMatchObject({ trigger: { state: "NOT_MET" }, eligibility: { state: "UNRESOLVED" }, selectable: false });
+  });
+
+  it("F007 class: negative trigger / eligibility × every kind of unresolved requirement is never NO_RECOMMENDATION; with nothing unresolved it is excluded", () => {
+    const known = { weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] } };
+    const notMet = { kind: "WEIGHT_MISSING_OR_STALE", staleAfter: null };
+    const cases: [string, Rec, Run][] = [
+      ["trigger NO × evidence requirement missing", { trigger: notMet, evidenceRequirements: ["HEALTH"] }, known],
+      ["trigger NO × prerequisite gate source missing", { trigger: notMet, prerequisites: { sources: ["C2_OBLIGATION"], gateRuleIds: [] } }, known],
+      ["trigger NO × eligibility unresolved (goals absent)", { trigger: notMet, applicableGoalTypes: ["FINISHING"] }, known],
+      ["eligibility NO × evidence requirement missing", { applicableGoalTypes: ["SALE"], evidenceRequirements: ["HEALTH"] }, { goals: goals([goalDecl("g-fin")]) }],
+      ["eligibility NO × trigger unresolved (weights absent)", { applicableGoalTypes: ["SALE"], trigger: notMet }, { goals: goals([goalDecl("g-fin")]) }],
+    ];
+    for (const [label, patch, o] of cases) {
+      const rec = recOf(run({ ...o, actions: registry([action("SYNTH-X", patch)]) }));
+      expect(rec.record.outcome, label).toBe("INSUFFICIENT_EVIDENCE");
+      expect(rec.notCandidates, label).toEqual([]);
+      expect(rec.candidates[0].selectable, label).toBe(false);
+    }
+    // Positive control: resolved negative with every requirement supplied ⇒ excluded, NO_RECOMMENDATION.
+    const off = recOf(run({ ...known, actions: registry([action("SYNTH-X", { trigger: notMet })]) }));
+    expect(off.record.outcome).toBe("NO_RECOMMENDATION");
+    expect(off.notCandidates.map((n) => n.actionKind)).toEqual(["SYNTH-X"]);
   });
 });

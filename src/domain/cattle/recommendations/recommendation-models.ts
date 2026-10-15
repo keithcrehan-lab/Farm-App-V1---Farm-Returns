@@ -159,7 +159,7 @@ export const MODEL_SPEC = object({
   value: nullable(object({ form: oneOfValues(ECONOMIC_VALUE_FORMS), benefitKeys: arrayOf(ref), costKeys: arrayOf(ref) })),
 });
 
-const REVIEW_SPEC = object({
+export const REVIEW_SPEC = object({
   ruleId: ref,
   ruleVersion: int,
   ruleFingerprint: fingerprint,
@@ -169,7 +169,7 @@ const REVIEW_SPEC = object({
   reviewedAt: instant,
 });
 
-const SOURCE_SPEC = object({
+export const SOURCE_SPEC = object({
   sourceId: ref,
   publisher: code,
   title: code,

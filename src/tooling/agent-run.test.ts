@@ -13,6 +13,11 @@ const repoRoot = path.resolve(__dirname, "../..");
 const env = { ...process.env };
 delete env.AGENT_RUN_STATE;
 delete env.AGENT_PHASE;
+// Nor an enclosing campaign build's mode / write scope (scripts/agent-campaign-run sets them for
+// agent-build / agent-fix, whose verification can run this suite).
+delete env.AGENT_CAMPAIGN_MODE;
+delete env.AGENT_CAMPAIGN_SCOPE_GUARD_JSON;
+delete env.AGENT_CAMPAIGN_ALLOWED_SHARED_JSON;
 
 describe("scripts/agent-run", () => {
   it("harness scripts pass shell and python syntax validation", () => {

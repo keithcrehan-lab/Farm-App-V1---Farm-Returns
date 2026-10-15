@@ -16,6 +16,8 @@ PASSED=0; FAILED=0; FAILS=""
 export AGENT_CLAUDE_TIMEOUT=20 AGENT_CODEX_TIMEOUT=20
 # The operator's audit tier/model choice never leaks into the fixtures.
 unset AGENT_AUDIT_TIER AGENT_CODEX_MODEL AGENT_CODEX_REASONING
+# Nor does an enclosing campaign build's mode / scope (the full gate runs inside agent-build).
+unset AGENT_CAMPAIGN_MODE AGENT_CAMPAIGN_SCOPE_GUARD_JSON AGENT_CAMPAIGN_ALLOWED_SHARED_JSON
 
 # ── fixture ────────────────────────────────────────────────────────────
 # setup "claude actions" "codex results" — one action/result per line.

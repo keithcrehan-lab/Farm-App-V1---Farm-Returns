@@ -4409,3 +4409,212 @@ never passes; a farmer-recorded record linked by a veterinarian is corroborated.
 independent path is evaluated (a linked record is also a criteria candidate), so adding resolved evidence
 never weakens a resolved completion; a genuine conflict or unresolved candidate evidence still prevents a
 resolved state. Advisory actions and FARMER_INTENT programmes are unaffected.
+
+## Cattle C8 — Recommendation engine (2026-10-15)
+
+C0–C7 are **frozen** (campaign receipts); C8 changes no earlier file except one additive
+`export * from "./recommendations";` line in `src/domain/cattle/index.ts`. New, **non-frozen** pure
+modules under `src/domain/cattle/recommendations/` (barrel `recommendations/index.ts`); tests
+`recommendations/recommendations.test.ts` (synthetic `SYNTH-*` animals, obligations, products,
+programmes, goals, actions, models, rules, sources, value keys, amounts and currency codes only). A
+deterministic, evidence-first recommendation engine emitting verified C0 Recommendation Evidence
+Packs from one sealed context per animal. **No invented benefit, value, probability, cost, price,
+target, ranking weight or effect constant**; no diagnosis, prescribing, treatment choice or legal
+interpretation; no clock, network, persistence, schema, migration, UI, Plan job (C9) or AI call
+(CAT-INV-017/027). Shared contract: `docs/farm-return-next/cattle/` (CAT-INV-001–028; 015 and 020
+primary).
+
+**Reuse decisions.** Canonical boundary: C2 `toCanonicalPlainData` on the whole request. Instants:
+C1 `animalInstantKey`/`compareInstants`; canonical spellings, `addObligationOffset` and
+`utcCalendarDateOf` from C2. Predecessors only through their frozen engines (below). Pack assembly and
+verification: C0 `buildRecommendationEvidencePack` / `verifyRecommendationEvidencePack` unchanged
+(never forked); model rules through C0 `evaluateCattleRule` (validation, effective window, version-bound
+reviews, source currency and implementation binding stay C0's); implementations resolved with C2
+`findObligationImplementation` from the one trusted registry. Append-only economic observations
+through C2 `resolveBitemporalRecords`. Money through the existing `money.ts` exports
+(`createMoneyAmount`, `zeroMoney`, `addMoney`, `subtractMoney`, `compareMoney`). The consumed-field
+schema machinery (`valid`, `consume`, `FieldSpec`) and the C2 / C3 surfaces (`C2_EVALUATION`,
+`C3_PROJECTION`) are imported from C7's `programme-consumed.ts` (generic machinery implemented once);
+generic readers (`rawIdentityKey`) from C3 `health-input.ts`. Fingerprints reuse
+`assessment-integrity.ts` unchanged through the phase-local wrapper
+`{kind, recommendationPayloadVersion: 1, payload}` with new result kinds `CATTLE_RECOMMENDATION_CONTEXT`,
+`CATTLE_RECOMMENDATION_RECORD`, `CATTLE_RECOMMENDATION_HERD` — no existing kind, payload version or
+canonicalisation changes. `livestock.ts` economic functions (`calculateFinishingBudget`,
+`calculateSellNowVsFinish`, `targetADGForAnimalType`, `concentrateKgPerDay`, `FINISHING_KILL_OUT_PCT`,
+`WEANLING_*`) embed constants and are **not** used (pre-start clarification 2).
+
+| Module | Contract |
+|---|---|
+| `candidate-actions.ts` | `CandidateActionDefinition` (`actionKind` unique per registry, `recordedAt` knowledge time, `description`, `tier` ∈ `RECOMMENDATION_PRIORITY_TIERS`, `benefitClaim` `NONE` (no model may be named) \| `MODELLED`, `applicableGoalTypes` (`null` = goal-independent), `trigger` (closed vocabulary below), `prerequisites {sources ⊆ C2_OBLIGATION/C3_WITHDRAWAL/C7_PROGRAMME, gateRuleIds}`, `evidenceRequirements` (context parts), `effectModelRef` / `economicModelRef` `{modelId, version} \| null`, `assumptions`, `limitations`); `CandidateActionRegistry {registryId, version, definitions}`; `DEFAULT_CANDIDATE_ACTION_REGISTRY` (frozen). Admission is module-internal |
+| `recommendation-models.ts` | `RecommendationModelRecord` (`modelId`, `version`, `recordedAt`, `role` `EFFECT` \| `ECONOMIC`, `rule` C0 `CattleRuleVersion` — ADVISORY, no applicability, no required inputs —, `expectedEffect` (EFFECT only, opaque statement), `value {form: NET_OF_BOUND_OBSERVATIONS, benefitKeys, costKeys}` (ECONOMIC only)); `ModelEvaluation`. Admission / evaluation module-internal |
+| `economic-context.ts` | `EconomicObservation` (`observationId`, `valueKey`, `amount` canonical non-negative decimal string, `currency` explicit code, `observedAt` valid time, `receivedAt` knowledge time, `source` `SourceVersionRef`, `supersedes`); `EconomicValueResolution` `KNOWN` / `UNKNOWN` / `CONFLICT`; `COMPUTABLE_CURRENCIES` (`EUR`, compile-checked to `money.ts` `CurrencyCode`) |
+| `recommendation-consumed.ts` | THE consumed-field schema (CAT-INV-028) for every C1–C7 output C8 reads (`RECOMMENDATION_CONSUMED_SURFACES`); owned-record shape check (no undeclared field). Module-internal |
+| `evaluation-context.ts` | THE construction boundary: `buildEvaluationContexts`, `sealEvaluationContext`; `RecommendationTrustedInputs`. Module-internal except the trusted-input type |
+| `recommendation-engine.ts` | `recommendCattle(request, hash, trusted)` → `CattleRecommendationResult`; `verifyCattleRecommendation`; `CATTLE_RECOMMENDATION_ENGINE_VERSION` |
+| `recommendation-explanation.ts` | `renderRecommendationExplanation` (fixed template over pack / record fields) |
+| `recommendation-contracts.ts` | request, `CattleEvaluationContext`, candidate, record and herd types (types only) |
+| `recommendation-integrity.ts` | `computeRecommendationFingerprint` / `verifyRecommendationFingerprint`, `CATTLE_RECOMMENDATION_PAYLOAD_VERSION` |
+
+**Request (canonical evidence only; field-presence policy as C7 B1 — every field present, `null` /
+`[]` only where meaningful, unknown fields rejected).** `CattleRecommendationRequest = {query
+{effectiveAt, knowledgeCutoff}, ledgers (C1, the animals in scope), obligations {catalogue,
+obligationIds, evidence} | null (C2), health {foodProducts, productRecords, animals [{animalId,
+healthRecords}]} | null (C3), weights {observations} | null (C4), performance {targets, policies,
+contexts, windowFrom} | null (C5; requires weights), goals {declarations, routingRegistry} | null (C6),
+programmes {definitions, reviews, completions} | null (C7), economics {observations}, models {records,
+reviews, sources}, actions (registry)}`. It never carries a derived predecessor output (no C4 read
+contract, C5 evaluation, C6 projection, C7 evaluation or C2 / C3 result — clarification 6). The only
+trusted, non-canonical input is the C2 implementation registry (`trusted.obligationImplementations`),
+required with C2 evidence, passed unchanged to C2 and C7 and the only source of model implementations
+(clarification 4). Order: whole-request canonical check (`CATTLE_RECOMMENDATION_NON_CANONICAL_INPUT`) →
+field policy (`..._INVALID_REQUEST`, `..._PERFORMANCE_WITHOUT_WEIGHTS`) → query (canonical nine-digit
+spellings, neither defaulted from the other) → C8-owned admission → predecessor composition → sealing.
+
+**C8-owned admission (CAT-INV-003/004/005/008/024).** Registry definitions (`recordedAt`), model records
+(`recordedAt`), model reviews (`reviewedAt`), model sources (later of `retrievedAt` / `checkedAt`) and
+economic observations (`receivedAt`): a readable knowledge time after the cutoff sets the record aside
+before any other read; an unreadable one fails closed; identity (action kind; model id + version;
+observation id) is judged among admitted records before validity — equivalent instant spellings are
+idempotent, any other difference (an invalid copy included) fails closed; every admitted record is
+validated (strict UTC instants, assessment-integrity fingerprints, closed vocabularies) and any defect
+fails the request closed; admitted copies carry canonical instant spellings. Relevance is decided by
+admitted records only (CAT-INV-006): the context holds only models an admitted definition references,
+their reviews and bound sources, and the economic resolutions of the value keys those models name.
+
+**Predecessor composition (CAT-INV-023 delegation; C7 architecture review; clarifications 1/3/5).** In
+`evaluation-context.ts` only: C1 `rematerialiseAnimalLedger` / `projectAnimalSnapshot` /
+`computeAnimalSnapshotFingerprint` per ledger; C2 `evaluateHerdObligations` (herd) +
+`projectObligationHardGates` per animal; C3 `projectAnimalHealth` + `projectWithdrawalHardGates` per
+listed animal; per animal C4 `buildWeightReadContract` (explicit set of that animal) → C5
+`evaluatePerformance` over that contract (applicability contexts passed unchanged; C8 never derives a
+`goalRef`) → C6 `projectProductionGoals` / `routeProductionGoals` and `resolveGoalTargetApplicability`
+over that C5 evaluation; C7 `evaluateHealthProgrammes` over the same canonical C1 / C2 / C3 evidence
+(C2 / C3 run twice from one evidence set — duplicate deterministic work, never reconciled) +
+`projectProgrammeHardGates` per animal. Every output passes the consumed-field schema; evidence a frozen
+engine rejects fails the request closed (`..._OBLIGATION_` / `HEALTH_` / `WEIGHT_` / `PERFORMANCE_` /
+`GOAL_` / `PROGRAMME_EVIDENCE_INVALID`, `..._HEALTH_EVIDENCE_UNKNOWN_ANIMAL` / `_DUPLICATE_ANIMAL`,
+`..._INVALID_LEDGER`, `..._DUPLICATE_ANIMAL`, `..._OBLIGATION_IMPLEMENTATIONS_MISSING`). No predecessor
+admission, normalisation, ordering, equivalence or derivation rule is restated.
+
+**Sealed context (CAT-INV-015).** `CattleEvaluationContext` per animal = `{effectiveAt,
+knowledgeCutoff, evaluationDate, animal {snapshotFingerprint}, obligations | health | weights |
+performance | goals | programmes (each SUPPLIED with the owner's per-animal output bindings — C2 record
+fingerprints, states and gate records; C3 three view fingerprints, withdrawal states, gate records and
+product source refs; C4 contract + series fingerprints and latest-weight state; C5 evaluation + animal
+fingerprints; C6 snapshot ref, status, active goal types, routing and target-applicability
+fingerprints; C7 animal-status fingerprints, occurrence states and gate records — or `NOT_SUPPLIED`,
+never defaulted), actions, models, modelEvaluations (each referenced model evaluated once through C0 at
+`evaluationDate`, no inputs), economics, fingerprint}`. Sealing rejects any part whose echoed
+`effectiveAt` / `knowledgeCutoff` differ by instant (`CATTLE_RECOMMENDATION_CONTEXT_TIME_MISMATCH`); the
+context is deep-frozen; evaluation reads nothing else. **Binding (CAT-INV-021):** owner outputs, never
+raw predecessor inputs; C3 / C4 / C5 / C6 are per animal, so another animal's evidence changes this
+animal's result only through a consumed owner output. C1's snapshot fingerprint stays
+representation-sensitive (C8 always passes canonical query spellings).
+
+**Triggers (closed vocabulary; context only).** `WEIGHT_MISSING_OR_STALE {staleAfter}` (C4 latest NONE;
+or, only with a supplied `staleAfter`, latest instant + `staleAfter` ≤ `effectiveAt`);
+`OBLIGATION_STATE {states}`; `WITHDRAWAL_STATE {states}`; `PROGRAMME_ACTION_STATE {states,
+classifications, actionKinds | null}`; `GOAL_STATUS {statuses}`; `UNCONDITIONAL`. A trigger is NOT met
+only over resolved predecessor states; when no state meets it and a relevant predecessor state is
+unresolved (C2 UNKNOWN / INSUFFICIENT_EVIDENCE / EVIDENCE_CONFLICT / INVALID_EVIDENCE / UNSUPPORTED /
+REVIEW_REQUIRED; C3 UNKNOWN / EVIDENCE_CONFLICT; C7 UNKNOWN / INSUFFICIENT_EVIDENCE / EVIDENCE_CONFLICT /
+REVIEW_REQUIRED / INVALID_EVIDENCE, programme-level records included; C6 INVALID / INTENT_CONFLICT) it
+is UNRESOLVED; its part not supplied ⇒ UNRESOLVED. Eligibility by goal type: ACTIVE with a matching type
+⇒ eligible; NONE / ACTIVE without match ⇒ not eligible; INVALID / INTENT_CONFLICT or goals not supplied
+⇒ unresolved (never "not eligible").
+
+**Default registry** (`DEFAULT_CANDIDATE_ACTION_REGISTRY`, `CATTLE_DEFAULT_DATA_GAP_ACTIONS` v1): every
+entry `benefitClaim: NONE`, no model, no prerequisite gate, goal-independent, limitation
+`CATTLE_RECOMMENDATION_DATA_GAP_ACTION_CLAIMS_NO_BENEFIT`: `RECORD_WEIGHT` (VALUE_OF_INFORMATION;
+C4 no weight in view; `staleAfter: null` — no staleness interval ships), `RESOLVE_OBLIGATION_EVIDENCE`
+(SAFETY_LEGAL_WELFARE; C2 OUTSTANDING / OVERDUE / UNKNOWN), `REVIEW_WITHDRAWAL_STATUS`
+(SAFETY_LEGAL_WELFARE; C3 UNKNOWN), `COMPLETE_PROGRAMME_ACTION` (SAFETY_LEGAL_WELFARE; DUE / OVERDUE
+occurrence of a VETERINARY_PROGRAMME), `DECLARE_PRODUCTION_GOAL` (VALUE_OF_INFORMATION; C6 NONE). No
+`REQUEST_VETERINARY_REVIEW` default ships (no supplied sourced rule or programme action kind exists in
+production; a supplied registry may declare it with `PROGRAMME_ACTION_STATE` and explicit action kinds).
+
+**Status / evidence precedence (per candidate, first match).** REQUIRED context part not supplied
+(trigger, eligibility, evidence requirement or prerequisite source) ⇒ NOT_EVALUATED gate
+`CATTLE_RECOMMENDATION_REQUIRES:<PART>` > trigger over unresolved predecessor states ⇒
+`CATTLE_RECOMMENDATION_TRIGGER_UNRESOLVED:<KIND>_<STATE>` > goal unresolved ⇒
+`CATTLE_RECOMMENDATION_GOAL_UNRESOLVED:<status>` > trigger / eligibility resolved negative ⇒ not a
+candidate > any prerequisite gate (C2 / C3 / C7 projection record, or a named gate id) not PASS /
+NOT_APPLICABLE, or absent ⇒ NOT_CLEAR, and effect and value are **not evaluated** (favourability never
+consulted) > gates CLEAR ⇒ effect, then value; EFFECT_NOT_SUPPORTED ⇒ not selectable > ranking.
+**Effect:** no model ⇒ `EFFECT_UNKNOWN`; model not admitted / role mismatch / implementation not in the
+trusted registry ⇒ `EFFECT_UNKNOWN`; C0 PASS ⇒ `EFFECT_SUPPORTED` (the model's statement — no magnitude
+or probability), FAIL ⇒ `EFFECT_NOT_SUPPORTED`, any other C0 state (REVIEW_REQUIRED, UNSUPPORTED, …) ⇒
+`EFFECT_UNKNOWN`. **Value:** REQUIRED an admitted ECONOMIC model with C0 PASS and every named key KNOWN
+in one computable currency; value = Σ benefit − Σ cost (exact decimal, `money.ts`); otherwise
+`VALUE_UNKNOWN` with reasons (`..._VALUE_INPUT_<state>:<key>`, `..._VALUE_CURRENCY_MIXED`,
+`..._VALUE_CURRENCY_NOT_COMPUTABLE`, model state).
+
+**Money (NUMERIC_SEMANTICS.md decision).** Canonical exact decimal string + explicit currency code
+(`money.ts` `MoneyAmount`), non-negative magnitudes in observations; exact add / subtract / compare;
+never binary floating point, never rounded (CAT-INV-019). No implicit currency and no conversion:
+differing currencies are never combined or compared (no exchange-rate observation contract exists);
+only `EUR` (the `money.ts` currency) computes. Ranking compares canonical unrounded values; money
+equality is amount + currency + the bound observations used (recorded per value).
+
+**Selection and ranking (total, stable).** Selectable candidates first, by tier
+(SAFETY_LEGAL_WELFARE → AVOID_MATERIAL_LOSS → EXPECTED_NET_RETURN → VALUE_OF_INFORMATION), then within a
+tier `VALUE_KNOWN` before `VALUE_UNKNOWN` (unknown never zero, never best), known values exactly and
+higher first, then action identity; non-actionable candidates after, by tier then identity (values never
+consulted). Equal keys are recorded as ties broken by `ACTION_IDENTITY`. Proposed: the first selectable
+candidate; else the first NOT_CLEAR candidate (its prerequisite gates in the pack ⇒ C0 BLOCKED /
+REVIEW_REQUIRED / INSUFFICIENT_EVIDENCE); else none ⇒ NO_RECOMMENDATION. A gate-clear candidate with a
+negative effect model is never proposed. Action identity = JSON `["<actionKind>","ANIMAL","<animalId>"]`.
+
+**Evidence pack (C0, reused).** `recommendationId` `CATTLE_RECOMMENDATION:<context digest>`; engine
+version; ruleset `["<registryId>","<version>"]`; `evaluationDate` (UTC date of `effectiveAt`);
+`knownAt` = `generatedAt` = the canonical knowledge cutoff (no clock is read; `generatedAt` is excluded
+from the C0 fingerprint); target scope `{ANIMAL, animalId, CATTLE_ANIMAL_SNAPSHOT:<digest>}`; intent =
+the C6 goal snapshot ref (or `null`); inputs = every consumed owner-output binding plus the bound
+economic observations used; rule evaluations = the proposed action's prerequisite gate records and its
+model evaluations (never another action's gates); required hard gates = its gate checks; calculation
+steps = prerequisite gate fold, value (when known) and ranking; sources = gate product / programme
+sources and observation sources (plus C0's from rule records); assumptions / limitations / uncertainties
+(missing parts, unresolved gates, unknown effect / value reasons); every candidate; every non-proposed
+candidate rejected with structured reasons (`..._GATE_<state>:<rule>`, `..._EFFECT_NOT_SUPPORTED`,
+`..._RANKED_BELOW:<action>`). Built packs are re-verified with `verifyRecommendationEvidencePack`; an
+invalid or unverifiable pack fails the request closed (`..._PACK_INVALID` / `..._PACK_UNVERIFIED`).
+
+**Record and explanation.** `RecommendationRecord` (information class RECOMMENDATION): recommended
+action, outcome / `actionable` (true only for C0 ACTIONABLE), structured reason codes, deterministic
+explanation (fixed template over pack / record fields; no model call), expected outcome (effect +
+value, or `EFFECT_UNKNOWN` / `VALUE_UNKNOWN`), regulatory status (`NO_PREREQUISITE_GATES` /
+`GATES_SATISFIED` / `GATE_FAILED` / `GATE_REVIEW_REQUIRED` / `GATE_UNRESOLVED` + C0 hard-gate outcomes),
+evidence type / strength (`DATA_GAP_OR_OBLIGATION` / `PREDECESSOR_STATE` or `MODELLED` / approved-model
+strengths / `UNMODELLED`), sources, assumptions, limitations, unknowns, missing context parts, pack id +
+fingerprint. **Herd:** per-animal results (sorted by animal id) and an ordering by proposed tier (none
+last), then outcome (BLOCKED, REVIEW_REQUIRED, INSUFFICIENT_EVIDENCE, ACTIONABLE, NO_RECOMMENDATION), then
+— between two ACTIONABLE animals — known value (exact, higher first, unknown after), then animal id; ties
+recorded; no cross-animal averaging.
+
+**Fingerprints.** All result fingerprints. `CATTLE_RECOMMENDATION_CONTEXT` binds both canonical times,
+every part binding, the admitted registry, relevant models / reviews / sources, model evaluations and
+economic resolutions (canonical instant spellings in admitted copies). `CATTLE_RECOMMENDATION_RECORD`
+binds the context, candidates, non-candidates, ties, pack and record; `CATTLE_RECOMMENDATION_HERD` binds
+the times, per-animal record fingerprints and the ordering. Input order, key order and equivalent instant
+spellings do not change them; any material input, cutoff, effective time, registry version, tier, model
+or observation does. `verifyCattleRecommendation` re-verifies the C0 pack, the context and record
+fingerprints and the record ↔ pack ↔ context identity links; never repairs. Change detection only, not
+signatures. Reproduction = re-running over the same canonical evidence at the same times; a later
+correction or late record never alters the recommendation reproduced at an earlier cutoff.
+
+**Known limitations.** No production model, effect or economic content ships, so with the default
+registry every expected outcome is `EFFECT_UNKNOWN` / `VALUE_UNKNOWN`. Model rules receive no animal
+inputs (C8 v1): a model is a governed, sourced, approved assertion, evaluated once per context; a model
+rule with applicability or required inputs is rejected. One economic form (`NET_OF_BOUND_OBSERVATIONS`);
+no currency conversion (only `EUR` computes); no effect magnitude or probability. Model implementations
+share the trusted C2 implementation registry (clarification 4). Lifecycle / presence of an animal is not
+interpreted (adapters supply the animals in scope). Completeness of the supplied canonical evidence is
+the adapter's responsibility (C2 / C3 / C7 precedent). A malformed admitted record anywhere in a C8-owned
+collection (registry, models, observations) fails the request closed. Reproducing a recommendation
+requires resupplying the same registry, models and observations (they are versioned data, not stored by
+C8).
+
+**Exclusions.** No real legal, veterinary, scientific or economic content; no diagnosis, prescribing,
+treatment / dose / product / timing choice or legal interpretation; no AI / LLM narrative; no Plan job
+creation (C9) or UI (C10); no persistence, schema, migration, network, connector or clock; no change to
+C0–C7, `livestock.ts`, `money.ts` or any frozen contract.

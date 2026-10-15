@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "task_id": "cattle-c7-veterinary-health-programme-engine-20261013",
-  "title": "Cattle C7 - Veterinary Health-Programme Engine",
-  "base_sha": "fea84ae8fb7623e3c8abe7df67535c512eca4231",
+  "task_id": "cattle-c8-recommendation-engine-20261015",
+  "title": "Cattle C8 - Recommendation Engine",
+  "base_sha": "c3aa26d84906b33bebfe8b8cc664804151cf55d2",
   "domains": [
     "ui",
     "agent-harness",
@@ -16,6 +16,8 @@
     "src/tooling/cattle-conformance",
     "src/domain/cattle",
     "docs/farm-return-next/cattle/VERIFICATION.md",
+    ".agent/campaigns/cattle-engine-v1/C7_ARCHITECTURE_REVIEW.md",
+    "src/domain/livestock.ts",
     ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
     ".agent/skills/cattle-evidence-rules.md",
     "docs/farm-return-next/DOMAIN_CONTRACTS.md",
@@ -30,6 +32,7 @@
     ".agent/AUDIT_RULES.md",
     ".agent/PRODUCT_RULES.md",
     ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
+    ".agent/campaigns/cattle-engine-v1/AUTONOMY.md",
     ".agent/skills/cattle-evidence-rules.md",
     "docs/farm-return-next/cattle/index.md",
     "docs/farm-return-next/DOMAIN_CONTRACTS.md"

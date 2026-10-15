@@ -1814,6 +1814,36 @@ describe("C8 audit 2026-10-15T210448Z — F005: re-sealed stored recommendations
     }
   }, 60_000);
 
+  it("audit 2026-10-15T224053Z F005 exact reproduction: deleting a stored candidate's gate checks is rejected after re-sealing", () => {
+    const r = stored();
+    const gated = (r.candidates as { gates: { checks: { state: string }[] } }[]).find((c) => c.gates.checks.some((g) => g.state === "FAIL"))!;
+    expect(gated).toBeDefined();
+    gated.gates.checks = [];
+    expect(verifyCattleRecommendation(reseal(r), hash)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_CANDIDATES_INCONSISTENT" });
+  });
+
+  it("class: stored gate-check and exclusion collections must equal the pack's bidirectionally (deletion, duplication, substitution)", () => {
+    type Check = { ruleId: string; state: string };
+    type Cand = { gates: { checks: Check[] } };
+    const withChecks = (r: Record<string, unknown>) => (r.candidates as Cand[]).filter((c) => c.gates.checks.length > 0);
+    expect(withChecks(stored()).length).toBeGreaterThan(0);
+    expect((stored().notCandidates as unknown[]).length).toBeGreaterThan(0);
+    const edits: [string, (r: Record<string, unknown>) => void][] = [];
+    for (const [ci, c] of withChecks(stored()).entries()) {
+      const at = (r: Record<string, unknown>) => withChecks(r)[ci].gates.checks;
+      edits.push([`candidate ${ci}: delete last check`, (r) => void at(r).pop()]);
+      edits.push([`candidate ${ci}: delete first check`, (r) => void at(r).shift()]);
+      edits.push([`candidate ${ci}: duplicate first check`, (r) => void at(r).push(structuredClone(at(r)[0]))]);
+      if (c.gates.checks.length > 1) edits.push([`candidate ${ci}: replace last check with a duplicate of the first`, (r) => void (at(r)[at(r).length - 1] = structuredClone(at(r)[0]))]);
+    }
+    edits.push(["duplicate a non-candidate", (r) => void (r.notCandidates as unknown[]).push(structuredClone((r.notCandidates as unknown[])[0]))]);
+    for (const [label, edit] of edits) {
+      const r = stored();
+      edit(r);
+      expect(verifyCattleRecommendation(reseal(r), hash).valid, label).toBe(false);
+    }
+  });
+
   it("F007 exact reproduction: a negative trigger never masks a required evidence part that is not supplied", () => {
     // Known weight ⇒ RECORD_WEIGHT's trigger resolves negative; the definition also requires PERFORMANCE, which is absent.
     const rec = recOf(run({ weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] }, actions: defaultOnly("RECORD_WEIGHT", { evidenceRequirements: ["PERFORMANCE"] }) }));

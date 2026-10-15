@@ -190,13 +190,35 @@ export function storedRecommendationIssue(stored: CattleRecommendation): string 
     ) {
       return "CATTLE_RECOMMENDATION_STORED_CANDIDATES_INCONSISTENT";
     }
+    // The complete gate-check collection, both directions: the pack's per-candidate gate summary lists every consulted
+    // gate exactly once (membership, uniqueness, state); each stored check then matches its own per-gate step.
+    const summary = steps.find((x) => x.description === `Prerequisite hard gates of the ${label}`);
+    const ruleIds = c.gates.checks.map((check) => check.ruleId);
+    if (
+      summary === undefined ||
+      summary.output !== c.gates.state ||
+      new Set(ruleIds).size !== ruleIds.length ||
+      Object.keys(summary.inputs).length !== ruleIds.length ||
+      c.gates.checks.some((check) => !Object.hasOwn(summary.inputs, check.ruleId) || summary.inputs[check.ruleId] !== check.state)
+    ) {
+      return "CATTLE_RECOMMENDATION_STORED_CANDIDATES_INCONSISTENT";
+    }
     for (const check of c.gates.checks) {
       const s = steps.find((x) => x.description === `Prerequisite gate ${check.ruleId} of the ${label}`);
       if (s === undefined || s.output !== check.state || s.inputs.satisfied !== check.satisfied || s.inputs.source !== check.source) return "CATTLE_RECOMMENDATION_STORED_CANDIDATES_INCONSISTENT";
     }
   }
+  // Exclusions, both directions: unique action kinds, exactly the pack's `excluded:*` entries.
   const exclusions = steps.find((s) => s.description === "Registered actions not considered");
-  if (exclusions === undefined || exclusions.output !== stored.notCandidates.length) return "CATTLE_RECOMMENDATION_STORED_EXCLUSIONS_INCONSISTENT";
+  const excludedKinds = stored.notCandidates.map((n) => n.actionKind);
+  if (
+    exclusions === undefined ||
+    exclusions.output !== stored.notCandidates.length ||
+    new Set(excludedKinds).size !== excludedKinds.length ||
+    Object.keys(exclusions.inputs).filter((k) => k.startsWith("excluded:")).length !== excludedKinds.length
+  ) {
+    return "CATTLE_RECOMMENDATION_STORED_EXCLUSIONS_INCONSISTENT";
+  }
   for (const n of stored.notCandidates) if (exclusions.inputs[`excluded:${n.actionKind}`] !== JSON.stringify(n.reasonCodes)) return "CATTLE_RECOMMENDATION_STORED_EXCLUSIONS_INCONSISTENT";
   const tieKeys = Object.keys(ranking.inputs).filter((k) => k.startsWith("tie:"));
   if (tieKeys.length !== stored.ties.length) return "CATTLE_RECOMMENDATION_STORED_TIES_INCONSISTENT";

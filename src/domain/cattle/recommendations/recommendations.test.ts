@@ -10,12 +10,23 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 /*
- * Boundary fault injection (C8 consolidated repair, finding R11). Every seam C8
- * calls is wrapped PASS-THROUGH: with no fault armed the real frozen engine's
+ * Fault model (CAT-INV-028 as clarified by the human architecture decision of
+ * 2026-10-15). Validation follows trust boundaries and contract ownership:
+ * - IN SCOPE (adversarial): genuinely untrusted boundaries — the canonical
+ *   request (external input) and a stored / reloaded recommendation
+ *   (`verifyCattleRecommendation`); C8-owned records; and, for outputs of the
+ *   frozen in-process engines, only the SHARED cross-engine protocol C8 relies
+ *   on — the structural shape of C0's `RuleEvaluationRecord` and evidence pack
+ *   (required presence, runtime type, no undeclared field).
+ * - OUT OF SCOPE: arbitrary post-return corruption of an approved frozen
+ *   engine's OWNER-SPECIFIC domain values (e.g. a C2 rule version of 0, or
+ *   C3's contractually null `rule` replaced by an object). C2 / C3 / C7 own
+ *   those invariants; C8 does not duplicate them (audit F005 disposition).
+ *
+ * Seams are wrapped PASS-THROUGH: with no fault armed the real frozen engine's
  * result is returned untouched, so every other suite runs against the real
  * engines. A test arms one seam, which then returns a structured clone of the
- * real result with one mutation applied to the picked record — the auditor's
- * "canonical malformed-output fault injection", made a permanent oracle.
+ * real result with one STRUCTURAL protocol mutation applied.
  */
 const faults = vi.hoisted(() => ({
   armed: null as null | { seam: string; mutate: (record: Record<string, unknown>) => void },
@@ -91,6 +102,7 @@ import { recommendationModelContentMarker, type RecommendationModelRecord } from
 import { RECOMMENDATION_CONSUMED_SURFACES, valid, type FieldSpec } from "./recommendation-consumed";
 import * as cattleExact from "./recommendation-exact";
 import * as cattleModels from "./recommendation-models";
+import * as cattleEconomic from "./economic-context";
 
 type Rec = Record<string, unknown>;
 
@@ -839,9 +851,8 @@ describe("C8 test 9 — deterministic explanation from structured fields", () =>
     expect(rec.record.explanation.replace(rec.pack.fingerprint.digest, "<PACK-DIGEST>").replace(rec.pack.recommendationId, "<PACK-ID>")).toBe(
       "Outcome: ACTIONABLE. Proposed action: RECORD_WEIGHT (VALUE_OF_INFORMATION, registry-declared priority) - Record a weight observation for the animal (no weight observation is in view). Hard gates: none. Expected effect: EFFECT_UNKNOWN. Economic value: VALUE_UNKNOWN. Missing context: OBLIGATIONS, HEALTH, PERFORMANCE, GOALS, PROGRAMMES. Evidence pack <PACK-ID> (<PACK-DIGEST>).",
     );
-    expect(cattle.renderRecommendationExplanation({ pack: rec.pack, recommendedAction: rec.record.recommendedAction, effect: rec.candidates[0].effect, value: rec.candidates[0].value, missingContextParts: rec.record.missingContextParts })).toBe(
-      rec.record.explanation,
-    );
+    // The explanation is rendered from the pack alone (F003: single source of decision evidence).
+    expect(cattle.renderRecommendationExplanation(rec.pack)).toBe(rec.record.explanation);
   });
 
   it("no clock, randomness, network, AI or tooling import anywhere in the production modules", () => {
@@ -1334,7 +1345,7 @@ function keyMismatches(spec: unknown, value: unknown, path = "<root>"): string[]
   return [...diff, ...declared.filter((k) => actual.includes(k)).flatMap((k) => keyMismatches(s.fields![k], (value as Record<string, unknown>)[k], `${path}.${k}`))];
 }
 
-describe("C8 repair A — boundary validation and checked-copy propagation (F005 / R3–R5)", () => {
+describe("C8 repair A — shared C0 protocol shape at the in-process seams (CAT-INV-028, clarified)", () => {
   const C2_SCENARIO = (): Run => favourable({ actions: registry([SELL(["C2_OBLIGATION"])]), obligations: obligations({ evidence: [fulfilment()] }) });
   const C3_SCENARIO = (): Run => favourable({ actions: registry([SELL(["C3_WITHDRAWAL"])]), health: health(CLEAR_RECORDS) });
   const C7_SCENARIO = (): Run => favourable({ actions: registry([SELL(["C7_PROGRAMME"])]), programmes: programmes(), health: health([]) });
@@ -1589,5 +1600,162 @@ describe("C8 repair B — complete decision provenance (F003 / R1, R6)", () => {
     expect(crowded.pack.hardGateOutcomes).toEqual(alone.pack.hardGateOutcomes);
     expect(crowded.pack.requiredHardGateRuleIds).toEqual(alone.pack.requiredHardGateRuleIds);
     expectDecisionProvenance(crowded);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C8 bounded architecture repair (2026-10-15): CAT-INV-028 trust boundaries, F003 single source, F006 precision
+// ---------------------------------------------------------------------------
+
+describe("C8 bounded repair — genuine trust boundary: a stored / reloaded recommendation (CAT-INV-028)", () => {
+  it("every mutation of a stored recommendation (record, pack, context, candidates — every level) is rejected by verification", () => {
+    const rec = recOf(run(favourable({ actions: registry([SELL(["C2_OBLIGATION", "C3_WITHDRAWAL"]), action("SYNTH-OTHER")]), obligations: obligations({ evidence: [fulfilment()] }), health: health(CLEAR_RECORDS) })));
+    expect(verifyCattleRecommendation(rec, hash).valid).toBe(true);
+    const isMap = (path: string[]) => path.length === 4 && path[0] === "pack" && path[1] === "calculationSteps" && path[3] === "inputs";
+    const matrix = realMutations(rec, isMap);
+    expect(matrix.length).toBeGreaterThan(500);
+    for (const m of matrix) {
+      const copy = structuredClone(rec) as unknown as Record<string, unknown>;
+      m.mutate(copy);
+      expect(verifyCattleRecommendation(copy as unknown as CattleRecommendation, hash).valid, m.label).toBe(false);
+    }
+  });
+
+  it("a stored pack that is structurally malformed is rejected before anything in it is read", () => {
+    const rec = recOf(run(favourable({ actions: registry([SELL()]) })));
+    const copy = structuredClone(rec) as unknown as { pack: Record<string, unknown> };
+    copy.pack.synthUndeclared = "SYNTH";
+    expect(verifyCattleRecommendation(copy as unknown as CattleRecommendation, hash)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_PACK_MALFORMED" });
+  });
+
+  it("F005 disposition: owner-specific value constraints of a frozen in-process engine are the owner's — C8 neither restates them nor relies on them", () => {
+    // C8's own consumption of a carried gate record relies only on the shared C0 protocol shape: identity
+    // (`requestedRuleId`), state, rule reference and source checks are carried verbatim into the pack. The owner
+    // (C2 / C3) guarantees its rule-version range and null semantics; nothing in C8 branches on them.
+    const src = readFileSync(join(__dirname, "recommendation-exact.ts"), "utf8") + readFileSync(join(__dirname, "evaluation-context.ts"), "utf8");
+    expect(src).not.toMatch(/version\s*(>=|>|<)\s*[01]\b|rule\s*===\s*null\s*&&\s*source|C3_RULE_MUST_BE_NULL/);
+  });
+});
+
+describe("C8 bounded repair — F003: the evidence pack is the single source of decision evidence", () => {
+  const SELL_RUN = (): Run => favourable({ actions: registry([SELL()]) });
+
+  it("F003 exact reproduction: the effect model's statement, assumptions and limitations are pack evidence, and the explanation shows only what the pack holds", () => {
+    const rec = recOf(run(SELL_RUN()));
+    expect(rec.record.explanation).toContain("SYNTH asserted effect");
+    const model = rec.pack.calculationSteps.find((s) => s.description === `Effect model ${JSON.stringify(["SYNTH-MODEL-EFFECT", "v1"])} of the proposed action`)!;
+    expect(model).toBeDefined();
+    expect(JSON.parse(model.inputs.expectedEffect as string)).toBe("SYNTH asserted effect");
+    expect(JSON.parse(model.inputs.limitations as string)).toContain("synthetic limitation");
+    expect(model.rule).toEqual({ ruleId: "SYNTH-RULE-EFFECT", version: 1 });
+    const tagged = `CATTLE_RECOMMENDATION_MODEL_LIMITATION:${JSON.stringify(["SYNTH-MODEL-EFFECT", "v1"])}:synthetic limitation`;
+    expect(rec.pack.limitations).toContain(tagged);
+    expect(rec.record.limitations).toContain(tagged);
+    expect(rec.pack.assumptions.some((a) => a.startsWith(`CATTLE_RECOMMENDATION_MODEL_ASSUMPTION:${JSON.stringify(["SYNTH-MODEL-EFFECT", "v1"])}:`))).toBe(true);
+  });
+
+  it("construction: the record and the explanation are exactly what the pack derives, in every scenario (no parallel data path)", () => {
+    const scenarios: Run[] = [
+      SELL_RUN(),
+      favourable({ actions: registry([SELL(["C3_WITHDRAWAL"]), action("SYNTH-OTHER")]), health: health(IN_WITHDRAWAL_RECORDS) }),
+      favourable({ actions: registry([SELL(["C2_OBLIGATION"])]), obligations: obligations() }),
+      { weights: { observations: [] }, actions: defaultOnly("RECORD_WEIGHT") },
+      { actions: registry([]) },
+      {},
+    ];
+    for (const s of scenarios) {
+      const rec = recOf(run(s));
+      expect(cattle.deriveRecommendationRecord(rec.pack)).toEqual(rec.record);
+      expect(cattle.renderRecommendationExplanation(rec.pack)).toBe(rec.record.explanation);
+    }
+    // The renderer and the record derivation take the pack and nothing else.
+    expect(cattle.renderRecommendationExplanation.length).toBe(1);
+    expect(cattle.deriveRecommendationRecord.length).toBe(1);
+  });
+
+  it("explanation-visible model content cannot exist without the corresponding pack content", () => {
+    const rec = recOf(run(SELL_RUN()));
+    const steps = rec.pack.calculationSteps;
+    const candidateIdx = steps.findIndex((s) => s.description === "Candidate proposed action");
+    expect(candidateIdx).toBeGreaterThanOrEqual(0);
+    // Without the candidate step the decision cannot be read at all — nothing is rendered from elsewhere.
+    const stripped = { ...rec.pack, calculationSteps: steps.filter((_, i) => i !== candidateIdx) };
+    expect(cattle.renderRecommendationExplanation(stripped)).toBeNull();
+    expect(cattle.deriveRecommendationRecord(stripped)).toBeNull();
+    // The statement shown is the one IN the pack: change it there and the explanation follows.
+    const effect = JSON.parse(steps[candidateIdx].inputs.effect as string);
+    const edited = { ...rec.pack, calculationSteps: steps.map((s, i) => (i === candidateIdx ? { ...s, inputs: { ...s.inputs, effect: JSON.stringify({ ...effect, expectedEffect: "SYNTH statement only in this pack" }) } } : s)) };
+    expect(cattle.renderRecommendationExplanation(edited)).toContain("SYNTH statement only in this pack");
+    expect(cattle.renderRecommendationExplanation(edited)).not.toContain("SYNTH asserted effect");
+    // An approval label needs the model's rule evaluation reachable through the pack's own model step.
+    const noModelStep = { ...rec.pack, calculationSteps: steps.filter((s) => !s.description.startsWith("Effect model")) };
+    expect(cattle.deriveRecommendationRecord(noModelStep)?.evidence.effectBasis).toBe("NONE");
+    expect(rec.record.evidence.effectBasis).toBe("SCIENTIFICALLY_APPROVED_EFFECT_MODEL");
+  });
+
+  it("a stored record that says more (or other) than its pack fails verification", () => {
+    const rec = recOf(run(SELL_RUN()));
+    const tampered = structuredClone(rec) as unknown as { record: { explanation: string; evidence: { effectBasis: string } } };
+    tampered.record.explanation += " SYNTH claim not in the pack.";
+    expect(verifyCattleRecommendation(tampered as unknown as CattleRecommendation, hash).valid).toBe(false);
+  });
+});
+
+describe("C8 bounded repair — F006: monetary precision never exceeds the canonical money arithmetic", () => {
+  const valueModel = (kind: string) => econModel([`SYNTH-KEY-${kind}`], [], modelRule(`SYNTH-RULE-${kind}`), { modelId: `SYNTH-MODEL-${kind}` });
+  const valued = (kind: string) => action(kind, { economicModelRef: { modelId: `SYNTH-MODEL-${kind}`, version: "v1" } });
+  const runWith = (entries: [string, string][]) =>
+    run({ actions: registry(entries.map(([k]) => valued(k))), models: allModels(entries.map(([k]) => valueModel(k))), observations: entries.map(([k, amount]) => econObs(`o-${k}`, `SYNTH-KEY-${k}`, amount)) });
+
+  it("the precision is the canonical money layer's own (decimal.js configuration used by money.ts), not a C8 constant", () => {
+    expect(cattleEconomic.MONEY_ARITHMETIC_PRECISION).toBe(20);
+    expect(cattleEconomic.amountWithinMoneyPrecision("1000.0000000000000001")).toBe(true); // 4 + 16 = 20 digits
+    expect(cattleEconomic.amountWithinMoneyPrecision("1000.00000000000000001")).toBe(false); // 21 digits
+    expect(cattleEconomic.amountWithinMoneyPrecision("0.12345678901234567890")).toBe(true); // 20 fraction digits
+    expect(cattleEconomic.amountWithinMoneyPrecision("0.123456789012345678901")).toBe(false);
+  });
+
+  it("maximum accepted precision: a 20-digit amount is valued exactly", () => {
+    const rec = recOf(runWith([["SYNTH-A", "1000.0000000000000001"]]));
+    expect(rec.candidates[0].value).toMatchObject({ state: "VALUE_KNOWN", amount: "1000.0000000000000001", currency: "EUR" });
+  });
+
+  it("one digit beyond: the observation is rejected with an explicit deterministic error (fail closed, never rounded)", () => {
+    const r = runWith([["SYNTH-A", "1000.00000000000000001"]]);
+    expect(r.ok).toBe(false);
+    expect(r.ok ? [] : r.issues).toContainEqual({ code: "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_PRECISION_UNSUPPORTED", ref: "o-SYNTH-A" });
+  });
+
+  it("F006 exact reproduction: the audit's two over-precise values never collapse into one value — the request fails closed", () => {
+    const r = runWith([
+      ["SYNTH-A", "1000.00000000000000001"],
+      ["SYNTH-B", "1000.00000000000000002"],
+    ]);
+    expect(r.ok).toBe(false);
+    expect(codes(r).filter((c) => c === "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_PRECISION_UNSUPPORTED")).toHaveLength(2);
+  });
+
+  it("two distinct maximum-precision values stay distinct: the higher wins on value, never on the identity tie-break", () => {
+    // Identity order would favour SYNTH-A; its value is LOWER by one unit in the last supported digit.
+    const rec = recOf(runWith([
+      ["SYNTH-A", "1000.0000000000000001"],
+      ["SYNTH-B", "1000.0000000000000002"],
+    ]));
+    expect(rec.record.recommendedAction?.actionKind).toBe("SYNTH-B");
+    expect(rec.ties).toEqual([]);
+    expect(rec.candidates.map((c) => c.value.amount)).toEqual(["1000.0000000000000002", "1000.0000000000000001"]);
+  });
+
+  it("a sum whose exact result could exceed the arithmetic's precision is VALUE_UNKNOWN, never a rounded amount", () => {
+    const model = econModel(["SYNTH-KEY-X", "SYNTH-KEY-Y"], [], modelRule("SYNTH-RULE-SUM"), { modelId: "SYNTH-MODEL-SUM" });
+    const rec = recOf(
+      run({
+        actions: registry([action("SYNTH-SUM", { economicModelRef: { modelId: "SYNTH-MODEL-SUM", version: "v1" } })]),
+        models: allModels([model]),
+        observations: [econObs("o-x", "SYNTH-KEY-X", "9999.9999999999999999"), econObs("o-y", "SYNTH-KEY-Y", "0.0000000000000001")],
+      }),
+    );
+    expect(rec.candidates[0].value).toMatchObject({ state: "VALUE_UNKNOWN", amount: null });
+    expect(rec.candidates[0].value.reasonCodes[0]).toMatch(/^CATTLE_RECOMMENDATION_VALUE_PRECISION_UNSUPPORTED:21>20$/);
   });
 });

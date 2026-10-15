@@ -4553,7 +4553,31 @@ same identity space: a generated id equal to a supplied gate, to another generat
 record in the pack fails closed the same way, so a record can never decide a generated gate in C0. A
 pack that C0 derives as ACTIONABLE for a proposal that is not selectable fails the request closed
 (`CATTLE_RECOMMENDATION_PACK_OUTCOME_INCONSISTENT`).
-**Carried records (CAT-INV-028; C8 architecture review 2026-10-15, F005).** No raw predecessor or C0
+**CAT-INV-028 — trust boundaries and contract ownership (campaign-level clarification; human
+architecture decision 2026-10-15; binding for C8 and every later phase).** Validation must follow trust
+boundaries and contract ownership. Data entering the system across an external, persisted, imported,
+deserialised, user-controlled or otherwise untrusted boundary is untrusted and must be validated before
+use. An output returned directly in-process by an approved frozen engine is trusted to satisfy that
+engine's published domain contract. A downstream engine is not responsible for reimplementing every
+owner-specific invariant already guaranteed by a frozen predecessor. Therefore C2 owns C2 domain
+invariants, C3 owns C3 domain invariants, C7 owns C7 domain invariants and C8 owns C8 domain
+invariants. C8 must continue to validate: C8-owned inputs and outputs; genuine external / persistence /
+deserialisation boundaries; required structural presence; identity / reference consistency C8 itself
+relies upon; shared cross-engine protocol invariants owned by the architecture. C8 must not duplicate
+arbitrary predecessor-specific domain constraints purely to survive mutation of an object returned
+directly from a frozen in-process engine.
+**Fault model (audit and tests).** In scope: the canonical request (external input); a stored /
+reloaded recommendation (`verifyCattleRecommendation` — every field at every level is untrusted, it is
+checked structurally first, and anything it cannot verify is invalid, never a thrown error); C8-owned
+records (registry, models, observations, the recommendation); the shared C0 protocol shape of records
+returned by frozen in-process engines (required presence, runtime type, no undeclared field); fields
+whose correctness C8 independently owns or relies upon. Out of scope: arbitrary post-return corruption
+of an approved frozen in-process engine's owner-specific domain values. **F005 disposition (audit
+2026-10-15T194252Z):** changing a C2 rule version to 0 (C2 owns the rule-version constraint) or replacing
+C3's owner-defined null `rule` with an object (C3 owns that invariant) are not valid C8 adversarial
+faults; C8 does not duplicate those C2 / C3 constraints.
+
+**Carried records (shared C0 protocol shape; C8 architecture review 2026-10-15).** No raw predecessor or C0
 object is carried into the sealed context or the evidence pack. Every C0 `RuleEvaluationRecord` C8
 carries — C2 / C3 / C7 hard-gate records and C0 model rule evaluations — and the C0 pack C8 stores are
 validated against an EXACT schema (`recommendation-exact.ts`): every field of the frozen C0 type at
@@ -4563,7 +4587,8 @@ equal the type's keys at every level and the projection is assignable to it), so
 a type error. A malformed gate record fails its part closed (`..._OBLIGATION / HEALTH /
 PROGRAMME_EVIDENCE_INVALID`); a malformed model record leaves the model UNAVAILABLE
 (`..._MODEL_EVALUATION_MALFORMED`); a malformed pack fails the request closed (`..._PACK_INVALID` /
-`..._PACK_MALFORMED`). Structure only: no C0 / C2 / C3 / C7 derivation is restated.
+`..._PACK_MALFORMED`). Structure only (the shared C0 protocol): no C0 / C2 / C3 / C7 derivation and no
+owner-specific value constraint is restated (CAT-INV-028 as clarified above).
 
 **Model eligibility (CAT-INV-016 / 025; human decision D1, 2026-10-15).** C0 PASS is necessary, not
 sufficient: C0 classifications legitimately differ in what they require (a FARMER_INTENT rule needs no
@@ -4591,6 +4616,16 @@ or probability), FAIL ⇒ `EFFECT_NOT_SUPPORTED`, any other C0 state (REVIEW_REQ
 in one computable currency; value = Σ benefit − Σ cost (exact decimal, `money.ts`); otherwise
 `VALUE_UNKNOWN` with reasons (`..._VALUE_INPUT_<state>:<key>`, `..._VALUE_CURRENCY_MIXED`,
 `..._VALUE_CURRENCY_NOT_COMPUTABLE`, model state).
+
+**Monetary precision (CAT-INV-019; audit F006).** The canonical money layer (`money.ts`) computes through
+`decimal.js` at that library's configured significant-digit precision (documented in `money.ts`
+`multiplyMoney`; 20); beyond it `addMoney` / `subtractMoney` would round. C8 reads that limit from the
+same configuration (`MONEY_ARITHMETIC_PRECISION`; no C8 constant, never raised locally) and never feeds
+the arithmetic an amount or a sum that could exceed it: an observation whose amount needs more digits
+fails the request closed (`..._ECONOMIC_OBSERVATION_PRECISION_UNSUPPORTED`); a net value whose exact
+result could need more digits (Σ of N terms each below 10^k needs at most k + digits(N − 1) integer
+digits) is `VALUE_UNKNOWN` (`..._VALUE_PRECISION_UNSUPPORTED:<bound>><precision>`). Nothing is silently
+rounded, so ranking and identity tie-breaking only ever compare exact values.
 
 **Money (NUMERIC_SEMANTICS.md decision).** Canonical exact decimal string + explicit currency code
 (`money.ts` `MoneyAmount`), non-negative magnitudes in observations; exact add / subtract / compare;
@@ -4621,7 +4656,12 @@ then ONE step per consulted gate check (`Prerequisite gate <rule> of the <propos
 <id>>`: `rule` = the record's `RuleVersionRef`, or `null` for a generated gate; inputs = state, gate
 source, satisfied, `controlsPackOutcome` (true only for the proposal), the pack input key binding the
 owner output, gate role, classification, rule fingerprint, reason codes, source checks and reviews;
-output = the state), then the value step (when known); then the registered actions not considered
+output = the state), then the CANDIDATE step (`Candidate <label>`: action id / kind, tier with basis
+`REGISTRY_DECLARED_UNREVIEWED`, benefit claim, trigger, eligibility, gate state, selectability, the full
+effect — including the effect model's statement — and value), then one MODEL step per consulted model
+(`<Effect | Economic> model ["<id>","<version>"] of the <label>`: role, identity, content fingerprint,
+effect statement / value form, the model rule's assumptions and limitations; `rule` = the model's C0
+rule version), then the value step (when known); then the registered actions not considered
 (trigger / eligibility resolved negative, with reasons per action kind); then ranking (rank order, each
 candidate's ranking basis — selectable, tier with basis `REGISTRY_DECLARED_UNREVIEWED`, value — and
 every recorded tie). Decision provenance (CAT-INV-021): every candidate's gates, every exclusion,
@@ -4635,6 +4675,18 @@ candidate rejected with structured reasons (`..._GATE_<state>:<rule>`, `..._EFFE
 re-verified with `verifyRecommendationEvidencePack`; an invalid, malformed or unverifiable pack fails the
 request closed (`..._PACK_INVALID` / `..._PACK_UNVERIFIED`). A pack C0 derives as ACTIONABLE for a
 proposal C8 considers not selectable fails closed (`..._PACK_OUTCOME_INCONSISTENT`).
+
+**The pack is the single source of decision evidence (audit F003; bounded repair 2026-10-15).**
+canonical inputs → complete evidence pack → decision record derived from the pack → explanation derived
+from the pack. `deriveRecommendationRecord(pack)` and `renderRecommendationExplanation(pack)` take the
+pack and nothing else; the engine's record IS `deriveRecommendationRecord(pack)` (a pack that does not
+carry the decision evidence fails the request closed, `..._PACK_DECISION_UNREADABLE`), so anything the
+record or explanation shows — including an effect model's statement — is in the pack by construction.
+Evidence labels are recovered through the pack's own model steps and C0 rule evaluations. The
+proposal's consulted models' rule assumptions and limitations are in the pack's (and so the record's)
+assumptions / limitations, tagged `CATTLE_RECOMMENDATION_MODEL_ASSUMPTION:` /
+`..._MODEL_LIMITATION:["<id>","<version>"]:<text>`. `verifyCattleRecommendation` requires the stored
+record to equal the one its pack derives.
 
 **Record and explanation.** `RecommendationRecord` (information class RECOMMENDATION): recommended
 action, outcome / `actionable` (true only for C0 ACTIONABLE), structured reason codes, deterministic
@@ -4660,7 +4712,9 @@ binds the context, candidates, non-candidates, ties, pack and record; `CATTLE_RE
 the times, per-animal record fingerprints and the ordering. Input order, key order and equivalent instant
 spellings do not change them; any material input, cutoff, effective time, registry version, tier, model
 or observation does. `verifyCattleRecommendation` re-verifies the C0 pack, the context and record
-fingerprints and the record ↔ pack ↔ context identity links; never repairs. Change detection only, not
+fingerprints, the exact C0 pack contract of the stored pack and record = `deriveRecommendationRecord(pack)`
+with the pack ↔ context identity link; a malformed stored recommendation is invalid
+(`CATTLE_RECOMMENDATION_MALFORMED` / `..._PACK_MALFORMED`), never a thrown error; never repairs. Change detection only, not
 signatures. Reproduction = re-running over the same canonical evidence at the same times; a later
 correction or late record never alters the recommendation reproduced at an earlier cutoff.
 

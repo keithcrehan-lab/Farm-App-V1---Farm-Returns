@@ -15,8 +15,11 @@
  * requires the schema's keys to equal `keyof T` at every nesting level and the
  * projected type to be assignable to the owner's type, so omitting a field of
  * a frozen C0 type is a type error (the F005 defect class cannot recur
- * silently). The schema validates structure only — no consistency predicate
- * restates C0 / C2 / C3 / C7 derivation.
+ * silently). The schema validates structure only — the SHARED C0 protocol
+ * shape — and no consistency predicate restates C0 / C2 / C3 / C7 derivation.
+ * Owner-specific value constraints of a frozen in-process engine's output (a
+ * C2 rule-version range, C3's null `rule`) belong to that owner and are not
+ * re-checked here (CAT-INV-028 as clarified 2026-10-15; audit F005 disposition).
  *
  * Leaf kinds reuse the C7 consumed-field leaf validators (`valid`); C8 adds the
  * kinds C0 records need that the C7 machinery cannot express: `text` (any

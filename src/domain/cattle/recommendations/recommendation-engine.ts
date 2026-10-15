@@ -95,9 +95,9 @@ import {
 import { compareKnownValues, computeNetValue } from "./economic-context";
 import { buildEvaluationContexts, type RecommendationTrustedInputs } from "./evaluation-context";
 import { CATTLE_RECOMMENDATION_PAYLOAD_VERSION, computeRecommendationFingerprint, verifyRecommendationFingerprint } from "./recommendation-integrity";
-import { renderRecommendationExplanation } from "./recommendation-explanation";
-import { approvalEvidenced, type ModelEvaluation } from "./recommendation-models";
-import { EVIDENCE_PACK, exact, type CarriedRuleEvaluation } from "./recommendation-exact";
+import { CANDIDATE_STEP_FORMULA, CONTEXT_PART_UNCERTAINTY, MODEL_STEP_FORMULA, PROPOSED_LABEL, alternativeLabel, candidateStepDescription, deriveRecommendationRecord, modelStepDescription } from "./recommendation-explanation";
+import { computeRecommendationModelContentFingerprint, type ModelEvaluation, type RecommendationModelRecord } from "./recommendation-models";
+import { EVIDENCE_PACK, exact, exactValid, type CarriedRuleEvaluation } from "./recommendation-exact";
 import type {
   CandidateEffect,
   CandidateEvaluation,
@@ -375,22 +375,30 @@ function modelOf(ctx: CattleEvaluationContext, ref: RecommendationModelRef): Mod
 const NOT_EVALUATED_EFFECT: CandidateEffect = { state: "NOT_EVALUATED", model: null, expectedEffect: null, reasonCodes: ["CATTLE_RECOMMENDATION_NOT_EVALUATED_GATES_NOT_CLEAR"] };
 const NOT_EVALUATED_VALUE: CandidateValue = { state: "NOT_EVALUATED", model: null, amount: null, currency: null, observationIds: [], reasonCodes: ["CATTLE_RECOMMENDATION_NOT_EVALUATED_GATES_NOT_CLEAR"] };
 
-function effectOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { effect: CandidateEffect; record: CarriedRuleEvaluation | null } {
-  const ref = d.effectModelRef;
-  if (ref === null) return { effect: { state: "EFFECT_UNKNOWN", model: null, expectedEffect: null, reasonCodes: ["CATTLE_RECOMMENDATION_NO_EFFECT_MODEL"] }, record: null };
-  const m = modelOf(ctx, ref);
-  if (m.state === "UNAVAILABLE") return { effect: { state: "EFFECT_UNKNOWN", model: ref, expectedEffect: null, reasonCodes: m.reasonCodes }, record: null };
-  if (m.model.role !== "EFFECT") return { effect: { state: "EFFECT_UNKNOWN", model: ref, expectedEffect: null, reasonCodes: [`CATTLE_RECOMMENDATION_MODEL_ROLE_MISMATCH:${JSON.stringify([ref.modelId, ref.version])}`] }, record: null };
-  const s = m.ruleEvaluation.state;
-  if (s === "PASS") return { effect: { state: "EFFECT_SUPPORTED", model: ref, expectedEffect: m.model.expectedEffect, reasonCodes: ["CATTLE_RECOMMENDATION_EFFECT_MODEL_PASS"] }, record: m.ruleEvaluation };
-  if (s === "FAIL") return { effect: { state: "EFFECT_NOT_SUPPORTED", model: ref, expectedEffect: null, reasonCodes: ["CATTLE_RECOMMENDATION_EFFECT_MODEL_FAIL"] }, record: m.ruleEvaluation };
-  return { effect: { state: "EFFECT_UNKNOWN", model: ref, expectedEffect: null, reasonCodes: [`CATTLE_RECOMMENDATION_EFFECT_MODEL_${s}`] }, record: m.ruleEvaluation };
+/** A consulted (EVALUATED) model and its carried C0 record — written to the pack as a model step. */
+interface ConsultedModel {
+  model: RecommendationModelRecord;
+  record: CarriedRuleEvaluation;
 }
 
-function valueOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { value: CandidateValue; record: CarriedRuleEvaluation | null; observations: { key: string; role: "benefit" | "cost"; amount: string; currency: string; observationId: string; source: SourceVersionRef; receivedAt: string }[] } {
-  const unknown = (model: RecommendationModelRef | null, reasonCodes: string[], record: CarriedRuleEvaluation | null = null) => ({
+function effectOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { effect: CandidateEffect; record: CarriedRuleEvaluation | null; consulted: ConsultedModel | null } {
+  const ref = d.effectModelRef;
+  if (ref === null) return { effect: { state: "EFFECT_UNKNOWN", model: null, expectedEffect: null, reasonCodes: ["CATTLE_RECOMMENDATION_NO_EFFECT_MODEL"] }, record: null, consulted: null };
+  const m = modelOf(ctx, ref);
+  if (m.state === "UNAVAILABLE") return { effect: { state: "EFFECT_UNKNOWN", model: ref, expectedEffect: null, reasonCodes: m.reasonCodes }, record: null, consulted: null };
+  if (m.model.role !== "EFFECT") return { effect: { state: "EFFECT_UNKNOWN", model: ref, expectedEffect: null, reasonCodes: [`CATTLE_RECOMMENDATION_MODEL_ROLE_MISMATCH:${JSON.stringify([ref.modelId, ref.version])}`] }, record: null, consulted: null };
+  const consulted = { model: m.model, record: m.ruleEvaluation };
+  const s = m.ruleEvaluation.state;
+  if (s === "PASS") return { effect: { state: "EFFECT_SUPPORTED", model: ref, expectedEffect: m.model.expectedEffect, reasonCodes: ["CATTLE_RECOMMENDATION_EFFECT_MODEL_PASS"] }, record: m.ruleEvaluation, consulted };
+  if (s === "FAIL") return { effect: { state: "EFFECT_NOT_SUPPORTED", model: ref, expectedEffect: null, reasonCodes: ["CATTLE_RECOMMENDATION_EFFECT_MODEL_FAIL"] }, record: m.ruleEvaluation, consulted };
+  return { effect: { state: "EFFECT_UNKNOWN", model: ref, expectedEffect: null, reasonCodes: [`CATTLE_RECOMMENDATION_EFFECT_MODEL_${s}`] }, record: m.ruleEvaluation, consulted };
+}
+
+function valueOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { value: CandidateValue; record: CarriedRuleEvaluation | null; consulted: ConsultedModel | null; observations: { key: string; role: "benefit" | "cost"; amount: string; currency: string; observationId: string; source: SourceVersionRef; receivedAt: string }[] } {
+  const unknown = (model: RecommendationModelRef | null, reasonCodes: string[], consulted: ConsultedModel | null = null) => ({
     value: { state: "VALUE_UNKNOWN" as const, model, amount: null, currency: null, observationIds: [], reasonCodes },
-    record,
+    record: consulted?.record ?? null,
+    consulted,
     observations: [],
   });
   const ref = d.economicModelRef;
@@ -398,9 +406,10 @@ function valueOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { 
   const m = modelOf(ctx, ref);
   if (m.state === "UNAVAILABLE") return unknown(ref, m.reasonCodes);
   if (m.model.role !== "ECONOMIC" || m.model.value === null) return unknown(ref, [`CATTLE_RECOMMENDATION_MODEL_ROLE_MISMATCH:${JSON.stringify([ref.modelId, ref.version])}`]);
-  if (m.ruleEvaluation.state !== "PASS") return unknown(ref, [`CATTLE_RECOMMENDATION_ECONOMIC_MODEL_${m.ruleEvaluation.state}`], m.ruleEvaluation);
+  const consulted = { model: m.model, record: m.ruleEvaluation };
+  if (m.ruleEvaluation.state !== "PASS") return unknown(ref, [`CATTLE_RECOMMENDATION_ECONOMIC_MODEL_${m.ruleEvaluation.state}`], consulted);
   const v = computeNetValue(m.model.value, ctx.economics);
-  if (v.state === "VALUE_UNKNOWN") return unknown(ref, v.reasonCodes, m.ruleEvaluation);
+  if (v.state === "VALUE_UNKNOWN") return unknown(ref, v.reasonCodes, consulted);
   const observations = [
     ...v.benefit.map((o) => ({ key: o.valueKey, role: "benefit" as const, amount: o.amount, currency: o.currency, observationId: o.observationId, source: o.source, receivedAt: o.receivedAt })),
     ...v.cost.map((o) => ({ key: o.valueKey, role: "cost" as const, amount: o.amount, currency: o.currency, observationId: o.observationId, source: o.source, receivedAt: o.receivedAt })),
@@ -408,6 +417,7 @@ function valueOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { 
   return {
     value: { state: "VALUE_KNOWN", model: ref, amount: v.amount, currency: v.currency, observationIds: sortedUnique(observations.map((o) => o.observationId)), reasonCodes: ["CATTLE_RECOMMENDATION_ECONOMIC_MODEL_PASS"] },
     record: m.ruleEvaluation,
+    consulted,
     observations,
   };
 }
@@ -420,8 +430,9 @@ interface Working {
   candidate: Omit<CandidateEvaluation, "rank">;
   gates: GateFold;
   modelRecords: CarriedRuleEvaluation[];
-  effectRecord: CarriedRuleEvaluation | null;
   valueRecord: CarriedRuleEvaluation | null;
+  /** The models consulted for this candidate (written to the pack as model steps). */
+  consultedModels: { role: "EFFECT" | "ECONOMIC"; consulted: ConsultedModel }[];
   valueObservations: ReturnType<typeof valueOf>["observations"];
   triggerReasons: string[];
 }
@@ -498,36 +509,13 @@ function rejectionReasons(w: Working, proposed: Working | null): string[] {
   return reasons;
 }
 
-function regulatoryState(pack: RecommendationEvidencePack): RecommendationRecord["regulatoryStatus"]["state"] {
-  const g = pack.hardGateOutcomes;
-  if (g.length === 0) return "NO_PREREQUISITE_GATES";
-  if (g.some((x) => x.state === "FAIL")) return "GATE_FAILED";
-  if (g.some((x) => x.state === "REVIEW_REQUIRED")) return "GATE_REVIEW_REQUIRED";
-  if (g.some((x) => !x.satisfied)) return "GATE_UNRESOLVED";
-  return "GATES_SATISFIED";
-}
 
-/**
- * Evidence labels (D1 / D2 / D3). An effect is labelled scientifically
- * approved only when its carried C0 record itself evidences the approval; a
- * known value is labelled as an approved value FORM over observations that are
- * not independently validated (never "validated prices"); the action tier is
- * always labelled registry-declared (never independently reviewed).
- */
-function evidenceOf(p: Working | null): RecommendationRecord["evidence"] {
-  const none = { effectBasis: "NONE", valueBasis: "NONE", priorityBasis: "NONE" } as const;
-  if (p === null) return { type: "NONE", strength: "NONE", ...none };
-  const priorityBasis = "REGISTRY_DECLARED_UNREVIEWED" as const;
-  if (p.candidate.benefitClaim === "NONE") return { type: "DATA_GAP_OR_OBLIGATION", strength: "PREDECESSOR_STATE", ...none, priorityBasis };
-  const effect = p.candidate.effect.state === "EFFECT_SUPPORTED" && p.effectRecord !== null && approvalEvidenced(p.effectRecord);
-  const value = p.candidate.value.state === "VALUE_KNOWN" && p.valueRecord !== null && approvalEvidenced(p.valueRecord);
-  return {
-    type: "MODELLED",
-    strength: effect && value ? "MODELLED_EFFECT_AND_VALUE" : effect ? "MODELLED_EFFECT" : value ? "MODELLED_VALUE" : "UNMODELLED",
-    effectBasis: effect ? "SCIENTIFICALLY_APPROVED_EFFECT_MODEL" : "NONE",
-    valueBasis: value ? "APPROVED_VALUE_FORM_OVER_UNVALIDATED_OBSERVATIONS" : "NONE",
-    priorityBasis,
-  };
+
+/** A proposal's consulted models' rule assumptions / limitations, each tagged with its model identity. */
+function modelNotes(w: Working | null, kind: "assumptions" | "limitations"): string[] {
+  if (w === null) return [];
+  const tag = kind === "assumptions" ? "CATTLE_RECOMMENDATION_MODEL_ASSUMPTION" : "CATTLE_RECOMMENDATION_MODEL_LIMITATION";
+  return w.consultedModels.flatMap(({ consulted: { model } }) => model.rule[kind].map((note) => `${tag}:${JSON.stringify([model.modelId, model.version])}:${note}`));
 }
 
 function uniqueRefs(refs: SourceVersionRef[]): SourceVersionRef[] {
@@ -551,8 +539,8 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
     if (!folded.ok) return { ok: false, issues: ambiguityIssues(ctx.animalId, folded.ambiguous) };
     const gates = folded.fold;
     const clear = gates.state === "CLEAR";
-    const effect = clear ? effectOf(d, ctx) : { effect: NOT_EVALUATED_EFFECT, record: null };
-    const value = clear ? valueOf(d, ctx) : { value: NOT_EVALUATED_VALUE, record: null, observations: [] };
+    const effect = clear ? effectOf(d, ctx) : { effect: NOT_EVALUATED_EFFECT, record: null, consulted: null };
+    const value = clear ? valueOf(d, ctx) : { value: NOT_EVALUATED_VALUE, record: null, consulted: null, observations: [] };
     working.push({
       candidate: {
         actionId: actionIdOf(d.actionKind, ctx.animalId),
@@ -569,8 +557,11 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
       },
       gates,
       modelRecords: [effect.record, value.record].filter((r): r is CarriedRuleEvaluation => r !== null),
-      effectRecord: effect.record,
       valueRecord: value.record,
+      consultedModels: [
+        ...(effect.consulted === null ? [] : [{ role: "EFFECT" as const, consulted: effect.consulted }]),
+        ...(value.consulted === null ? [] : [{ role: "ECONOMIC" as const, consulted: value.consulted }]),
+      ],
       valueObservations: value.observations,
       triggerReasons: trigger.reasons,
     });
@@ -632,6 +623,55 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
         rule: record?.rule ?? null,
       });
     }
+    // The candidate itself (F003: the pack is the single source of decision evidence — the record and the
+    // explanation are derived from this step, never from a parallel path).
+    const c = w.candidate;
+    steps.push({
+      sequence: steps.length + 1,
+      description: candidateStepDescription(label),
+      formula: CANDIDATE_STEP_FORMULA,
+      inputs: {
+        actionId: c.actionId,
+        actionKind: c.actionKind,
+        tier: c.tier,
+        tierBasis: "REGISTRY_DECLARED_UNREVIEWED",
+        benefitClaim: c.benefitClaim,
+        trigger: JSON.stringify(c.trigger),
+        eligibility: JSON.stringify(c.eligibility),
+        gates: c.gates.state,
+        selectable: c.selectable,
+        effect: JSON.stringify(c.effect),
+        value: JSON.stringify(c.value),
+      },
+      output: c.selectable,
+      unit: null,
+      rounding: null,
+      rule: null,
+    });
+    // Every model consulted for the candidate: its statement / value form, assumptions and limitations (F003).
+    for (const { role, consulted } of w.consultedModels) {
+      const m = consulted.model;
+      steps.push({
+        sequence: steps.length + 1,
+        description: modelStepDescription(role, m.modelId, m.version, label),
+        formula: MODEL_STEP_FORMULA,
+        inputs: {
+          role,
+          modelId: m.modelId,
+          version: m.version,
+          contentFingerprint: computeRecommendationModelContentFingerprint(m, hash).digest,
+          expectedEffect: JSON.stringify(m.expectedEffect),
+          valueForm: JSON.stringify(m.value),
+          assumptions: JSON.stringify(m.rule.assumptions),
+          limitations: JSON.stringify(m.rule.limitations),
+          state: consulted.record.state,
+        },
+        output: consulted.record.state,
+        unit: null,
+        rounding: null,
+        rule: consulted.record.rule,
+      });
+    }
     const v = w.candidate.value;
     if (v.state === "VALUE_KNOWN") {
       steps.push({
@@ -646,8 +686,8 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
       });
     }
   };
-  if (proposed !== null) stepsFor(proposed, "proposed action");
-  for (const w of ranked) if (w !== proposed) stepsFor(w, `alternative ${w.candidate.actionId}`);
+  if (proposed !== null) stepsFor(proposed, PROPOSED_LABEL);
+  for (const w of ranked) if (w !== proposed) stepsFor(w, alternativeLabel(w.candidate.actionId));
   // Exclusions (CAT-INV-021): every registered action not considered, with its reasons.
   const excluded = [...notCandidates].sort((a, b) => compareStrings(a.actionKind, b.actionKind));
   steps.push({
@@ -691,7 +731,7 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
     if (effect.state !== "EFFECT_SUPPORTED") unresolvedNotes.push(...effect.reasonCodes.map((r) => `${effect.state}:${r}`));
     if (value.state !== "VALUE_KNOWN") unresolvedNotes.push(...value.reasonCodes.map((r) => `${value.state}:${r}`));
   }
-  const uncertainties = sortedUnique([...missingContextParts.map((p) => `CATTLE_RECOMMENDATION_CONTEXT_PART_NOT_SUPPLIED:${p}`), ...unresolvedNotes]);
+  const uncertainties = sortedUnique([...missingContextParts.map((p) => `${CONTEXT_PART_UNCERTAINTY}${p}`), ...unresolvedNotes]);
   const definition = proposed === null ? null : ctx.actions.definitions.find((d) => d.actionKind === proposed.candidate.actionKind) ?? null;
   const built = buildRecommendationEvidencePack(
     {
@@ -709,8 +749,9 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
       requiredHardGateRuleIds: proposed === null ? [] : proposed.gates.checks.map((c) => c.ruleId),
       calculationSteps: steps,
       additionalSourceRefs: uniqueRefs([...ranked.flatMap((w) => w.gates.sourceRefs), ...usedObservations.map((o) => o.source)]),
-      assumptions: definition?.assumptions ?? [],
-      limitations: [...ENGINE_LIMITATIONS, ...(definition?.limitations ?? [])],
+      // The proposal's consulted models' assumptions and limitations travel with it (F003; never dropped).
+      assumptions: [...(definition?.assumptions ?? []), ...modelNotes(proposed, "assumptions")],
+      limitations: [...ENGINE_LIMITATIONS, ...(definition?.limitations ?? []), ...modelNotes(proposed, "limitations")],
       uncertainties,
       candidateActions: candidates.map(
         (c): CandidateAction => ({ actionId: c.actionId, description: c.description, favourability: c.value.state === "VALUE_KNOWN" ? `${c.value.amount} ${c.value.currency}` : null }),
@@ -732,27 +773,9 @@ function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { 
     return { ok: false, issues: [{ code: "CATTLE_RECOMMENDATION_PACK_OUTCOME_INCONSISTENT", ref: `${ctx.animalId}:${proposed?.candidate.actionId ?? "NONE"}` }] };
   }
 
-  const recommendedAction = proposed === null ? null : { actionId: proposed.candidate.actionId, actionKind: proposed.candidate.actionKind, description: proposed.candidate.description, tier: proposed.candidate.tier };
-  const effect = proposed?.candidate.effect ?? null;
-  const value = proposed?.candidate.value ?? null;
-  const record: RecommendationRecord = {
-    informationClass: "RECOMMENDATION",
-    recommendedAction,
-    outcome: pack.outcome,
-    actionable: pack.outcome === "ACTIONABLE",
-    reasonCodes: sortedUnique([...pack.outcomeReasonCodes, ...(proposed === null ? [] : [`CATTLE_RECOMMENDATION_PROPOSED:${proposed.candidate.actionKind}`, ...proposed.triggerReasons])]),
-    explanation: renderRecommendationExplanation({ pack, recommendedAction, effect, value, missingContextParts }),
-    expectedOutcome: proposed === null ? null : { effect: proposed.candidate.effect, value: proposed.candidate.value },
-    regulatoryStatus: { state: regulatoryState(pack), hardGateOutcomes: pack.hardGateOutcomes },
-    evidence: evidenceOf(proposed),
-    sourceRefs: pack.sourceRefs,
-    assumptions: pack.assumptions,
-    limitations: pack.limitations,
-    unknowns: pack.uncertainties,
-    missingContextParts: [...missingContextParts],
-    packId: pack.recommendationId,
-    packFingerprint: pack.fingerprint,
-  };
+  // F003: the decision record (and its explanation) is DERIVED from the pack alone — no parallel data path.
+  const record = deriveRecommendationRecord(pack);
+  if (record === null) return { ok: false, issues: [{ code: "CATTLE_RECOMMENDATION_PACK_DECISION_UNREADABLE", ref: ctx.animalId }] };
   const body: Omit<CattleRecommendation, "fingerprint"> = {
     recommendationPayloadVersion: CATTLE_RECOMMENDATION_PAYLOAD_VERSION,
     animalId: ctx.animalId,
@@ -863,18 +886,36 @@ export function recommendCattle(request: unknown, hash: CattleHash, trusted: Rec
  * detection, not authenticity; reproduction requires re-running
  * `recommendCattle` over the same canonical evidence at the same times.
  */
+const RECOMMENDATION_KEYS = ["animalId", "candidates", "context", "effectiveAt", "fingerprint", "knowledgeCutoff", "notCandidates", "pack", "recommendationPayloadVersion", "record", "ties"];
+const isPlainRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+
 export function verifyCattleRecommendation(recommendation: CattleRecommendation, hash: CattleHash): FingerprintVerificationResult {
+  // A stored recommendation is reloaded data (a genuine trust boundary, CAT-INV-028): it is checked structurally
+  // before anything in it is read, and anything it cannot verify is invalid — never a thrown error.
+  const malformed: FingerprintVerificationResult = { valid: false, reasonCode: "CATTLE_RECOMMENDATION_MALFORMED", detail: "the stored recommendation is not a well-formed C8 recommendation" };
+  const raw: unknown = recommendation;
+  if (!isPlainRecord(raw) || Object.keys(raw).sort().join() !== RECOMMENDATION_KEYS.join() || !isPlainRecord(raw.context) || !isPlainRecord(raw.record)) return malformed;
+  // The two fingerprints no hash covers (the record's and the context's own) must be exact fingerprints.
+  if (!exactValid({ t: "fingerprint" }, raw.fingerprint) || !exactValid({ t: "fingerprint" }, raw.context.fingerprint)) return malformed;
+  try {
+    return verifyStored(recommendation, hash);
+  } catch {
+    return malformed;
+  }
+}
+
+function verifyStored(recommendation: CattleRecommendation, hash: CattleHash): FingerprintVerificationResult {
+  if (!exactValid(EVIDENCE_PACK, recommendation.pack)) return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_PACK_MALFORMED", detail: "the stored evidence pack does not match the C0 pack contract" };
   const pack = verifyRecommendationEvidencePack(recommendation.pack, hash);
   if (!pack.valid) return pack;
   const { record, context } = recommendation;
+  // F003: the record must be exactly the one the pack derives (single source of decision evidence).
+  const derived = deriveRecommendationRecord(recommendation.pack);
   const consistent =
-    record.outcome === recommendation.pack.outcome &&
-    record.actionable === (recommendation.pack.outcome === "ACTIONABLE") &&
-    record.packId === recommendation.pack.recommendationId &&
-    sameFingerprint(record.packFingerprint, recommendation.pack.fingerprint) &&
-    recommendation.pack.recommendationId === `CATTLE_RECOMMENDATION:${context.fingerprint.digest}` &&
-    (record.recommendedAction?.actionId ?? null) === recommendation.pack.proposedActionId;
-  if (!consistent) return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_RECORD_PACK_INCONSISTENT", detail: "the record does not match its evidence pack or sealed context" };
+    derived !== null &&
+    rawIdentityKey(derived) === rawIdentityKey(record) &&
+    recommendation.pack.recommendationId === `CATTLE_RECOMMENDATION:${context.fingerprint.digest}`;
+  if (!consistent) return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_RECORD_PACK_INCONSISTENT", detail: "the record is not the one its evidence pack derives, or the pack does not belong to the sealed context" };
   const { fingerprint: contextFingerprint, ...contextBody } = context;
   const c = verifyRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", contextBody, contextFingerprint as AssessmentFingerprint, hash);
   if (!c.valid) return c;

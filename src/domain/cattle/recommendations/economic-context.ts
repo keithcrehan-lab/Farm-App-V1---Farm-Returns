@@ -22,12 +22,26 @@
  * the cutoff through C2 `resolveBitemporalRecords` (links only within one
  * value key; unknown target / cycle ⇒ fail closed).
  *
+ * PRECISION (CAT-INV-019; F006). The canonical money layer (`money.ts`)
+ * computes through `decimal.js` at that library's configured significant-digit
+ * precision (documented in `money.ts` `multiplyMoney`; default 20); beyond it
+ * `addMoney` / `subtractMoney` would round. C8 therefore never feeds that
+ * arithmetic an amount — or a sum — that could exceed it: the limit is READ
+ * from the same configuration (`MONEY_ARITHMETIC_PRECISION`), never a C8
+ * constant, and never raised locally. An observation whose amount needs more
+ * digits fails the request closed
+ * (`..._ECONOMIC_OBSERVATION_PRECISION_UNSUPPORTED`); a net value whose exact
+ * result could need more digits than the arithmetic carries is VALUE_UNKNOWN
+ * (`..._VALUE_PRECISION_UNSUPPORTED`). Nothing is ever silently rounded, so
+ * ranking and identity tie-breaking only ever see exact values.
+ *
  * Resolution of a value key at (`effectiveAt`, `knowledgeCutoff`), REQUIRED:
  * the live observations of the key observed by `effectiveAt`. None ⇒ UNKNOWN
  * (never zero); more than one, or one in a competing correction ⇒ CONFLICT
  * (no latest-wins, no averaging — CAT-INV-026); exactly one ⇒ KNOWN.
  */
 
+import Decimal from "decimal.js";
 import { compareInstants } from "../animal-ledger";
 import { compareStrings } from "../integrity";
 import { addMoney, compareMoney, createMoneyAmount, subtractMoney, zeroMoney, type CurrencyCode, type MoneyAmount } from "../../money";
@@ -66,6 +80,21 @@ const OBSERVATION_SPEC = object({
   supersedes: arrayOf(ref),
 });
 
+/** The canonical money layer's exact-arithmetic precision (significant digits), read from the `decimal.js` configuration `money.ts` uses. */
+export const MONEY_ARITHMETIC_PRECISION: number = Decimal.precision;
+
+/** Positional digit width of a canonical non-negative decimal string (integer digits, "0" counting none, plus every fraction digit) — an upper bound on its significant digits. */
+export function amountDigitWidth(amount: string): { integer: number; fraction: number } {
+  const [int, frac = ""] = amount.replace(/^-/, "").split(".");
+  return { integer: int === "0" ? 0 : int.length, fraction: frac.length };
+}
+
+/** True when the amount is exactly representable by the canonical money arithmetic. */
+export function amountWithinMoneyPrecision(amount: string): boolean {
+  const w = amountDigitWidth(amount);
+  return w.integer + w.fraction <= MONEY_ARITHMETIC_PRECISION;
+}
+
 function amountValid(amount: string): boolean {
   try {
     createMoneyAmount(amount, "EUR");
@@ -80,7 +109,8 @@ export type EconomicIssueCode =
   | "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_INVALID"
   | "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_UNREADABLE_KNOWLEDGE_TIME"
   | "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_DUPLICATE_DIFFERENT_CONTENT"
-  | "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_SUPERSESSION_INVALID";
+  | "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_SUPERSESSION_INVALID"
+  | "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_PRECISION_UNSUPPORTED";
 
 type Issue = { code: EconomicIssueCode; ref: string | null };
 
@@ -111,6 +141,11 @@ export function admitEconomicObservations(raw: unknown, knowledgeCutoff: string)
   for (const o of admitted) {
     if (!ownedValid(OBSERVATION_SPEC, o) || !amountValid((o as EconomicObservation).amount) || (o as EconomicObservation).supersedes.includes((o as EconomicObservation).observationId)) {
       issues.push({ code: "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_INVALID", ref: isPlainObject(o) && typeof o.observationId === "string" ? o.observationId : null });
+      continue;
+    }
+    // F006: an amount the canonical money arithmetic cannot hold exactly is rejected, never rounded.
+    if (!amountWithinMoneyPrecision((o as EconomicObservation).amount)) {
+      issues.push({ code: "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_PRECISION_UNSUPPORTED", ref: (o as EconomicObservation).observationId });
       continue;
     }
     const obs = withCanonicalInstants(o as EconomicObservation, INSTANT_FIELDS);
@@ -187,6 +222,11 @@ export function computeNetValue(form: EconomicValueForm, resolutions: readonly E
   if (currencies.length !== 1) return { state: "VALUE_UNKNOWN", reasonCodes: [`CATTLE_RECOMMENDATION_VALUE_CURRENCY_MIXED:${currencies.sort(compareStrings).join(",")}`] };
   const currency = currencies[0];
   if (!(COMPUTABLE_CURRENCIES as readonly string[]).includes(currency)) return { state: "VALUE_UNKNOWN", reasonCodes: [`CATTLE_RECOMMENDATION_VALUE_CURRENCY_NOT_COMPUTABLE:${currency}`] };
+  // F006: Σ of N terms each below 10^k needs at most k + digits(N − 1) integer digits; if the exact result could exceed
+  // the canonical arithmetic's precision, the value is unknown (fail closed) — never a rounded amount.
+  const widths = all.map((o) => amountDigitWidth(o.amount));
+  const bound = Math.max(...widths.map((w) => w.integer)) + (all.length <= 1 ? 0 : String(all.length - 1).length) + Math.max(...widths.map((w) => w.fraction));
+  if (bound > MONEY_ARITHMETIC_PRECISION) return { state: "VALUE_UNKNOWN", reasonCodes: [`CATTLE_RECOMMENDATION_VALUE_PRECISION_UNSUPPORTED:${bound}>${MONEY_ARITHMETIC_PRECISION}`] };
   const money = (o: EconomicObservation): MoneyAmount => createMoneyAmount(o.amount, currency as CurrencyCode);
   let total = zeroMoney(currency as CurrencyCode);
   for (const o of benefit as EconomicObservation[]) total = addMoney(total, money(o));

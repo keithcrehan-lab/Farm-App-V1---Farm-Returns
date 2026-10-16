@@ -2678,3 +2678,45 @@ describe("C8 audit 2026-10-16T170605Z — F007: every C4 latest-weight state is 
   });
 });
 
+describe("C8 strict audit 2026-10-16T180756Z — F010: outcome and action identities reconciled on every reader path, absent proposals included", () => {
+  const readers = [
+    ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
+    ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
+    ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+  ] as const;
+  const refingerprint = (p: Record<string, unknown>) => {
+    const { fingerprint: _p, generatedAt: _g, ...content } = p;
+    void _p;
+    void _g;
+    return { ...p, fingerprint: computeCattleFingerprint("CATTLE_EVIDENCE_PACK", content, hash) } as Record<string, unknown>;
+  };
+  const actionable = () => structuredClone(recOf(run(favourable({ actions: registry([SELL()]) }))).pack) as unknown as Record<string, unknown>;
+  const nothing = () => structuredClone(recOf(run({ weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] }, actions: registry([action("SYNTH-X", { trigger: { kind: "WEIGHT_MISSING_OR_STALE", staleAfter: null } })]) })).pack) as unknown as Record<string, unknown>;
+
+  it("exact reproduction and class: contradictory outcome / proposal / actionable identities are unreadable by every reader", () => {
+    expect(actionable().outcome).toBe("ACTIONABLE");
+    expect(nothing().outcome).toBe("NO_RECOMMENDATION");
+    const cases: [string, () => Record<string, unknown>][] = [
+      ["ACTIONABLE with proposedActionId null (the audit's pack)", () => ({ ...actionable(), proposedActionId: null })],
+      ["ACTIONABLE with proposal and actionable id both null", () => ({ ...actionable(), proposedActionId: null, actionableActionId: null })],
+      ["ACTIONABLE with actionableActionId null", () => ({ ...actionable(), actionableActionId: null })],
+      ["ACTIONABLE with another actionableActionId", () => ({ ...actionable(), actionableActionId: "SYNTH-OTHER" })],
+      ["NO_RECOMMENDATION naming a proposal", () => ({ ...nothing(), proposedActionId: "SYNTH-OTHER" })],
+      ["NO_RECOMMENDATION naming an actionable id", () => ({ ...nothing(), actionableActionId: "SYNTH-OTHER" })],
+      ["no proposal but BLOCKED", () => ({ ...nothing(), outcome: "BLOCKED" })],
+      ["no proposal but INSUFFICIENT_EVIDENCE", () => ({ ...nothing(), outcome: "INSUFFICIENT_EVIDENCE" })],
+    ];
+    for (const [label, make] of cases) {
+      const forged = refingerprint(make());
+      for (const [name, read] of readers) expect(read(forged), `${label} / ${name}`).toBeNull();
+    }
+  });
+
+  it("controls: genuine ACTIONABLE and NO_RECOMMENDATION packs stay readable by every reader", () => {
+    for (const [label, pack] of [["ACTIONABLE", actionable()], ["NO_RECOMMENDATION", nothing()]] as const) {
+      for (const [name, read] of readers) expect(read(pack), `${label} / ${name}`).not.toBeNull();
+    }
+    expect(cattle.deriveRecommendationRecord(nothing() as never)).toMatchObject({ actionable: false, recommendedAction: null, outcome: "NO_RECOMMENDATION" });
+  });
+});
+

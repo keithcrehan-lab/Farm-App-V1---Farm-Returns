@@ -4730,8 +4730,10 @@ record to equal the one its pack derives. The three public pack readers (`readPa
 (only a SUPPORTED effect states one and names its model; only a KNOWN value carries a canonical
 `money.ts` amount, a currency and sorted observations; NOT_EVALUATED names no model; benefit claim and gate
 state in vocabulary; selectability exactly C8's rule) and ONE pack-outcome reconciliation rule
-(`packOutcomeReconciled`, audit F010): the pack is ACTIONABLE exactly when its proposed action is
-selectable, a non-selectable proposal has gates not clear, and a proposal never yields NO_RECOMMENDATION;
+(`packOutcomeReconciled`, audit F010), applied on every reader path including an absent proposal: no
+proposal is exactly NO_RECOMMENDATION with no actionable id; `actionableActionId` is the proposal exactly
+when ACTIONABLE; the pack is ACTIONABLE exactly when its proposed action is selectable, a non-selectable
+proposal has gates not clear, and a proposal never yields NO_RECOMMENDATION;
 anything malformed reads as `null`, never a throw or a bare cast.
 
 **Record and explanation.** `RecommendationRecord` (information class RECOMMENDATION): recommended

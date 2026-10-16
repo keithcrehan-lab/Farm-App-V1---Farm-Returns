@@ -122,10 +122,18 @@ function canonicalPack(pack: unknown): RecommendationEvidencePack | null {
  * (the engine's choice), so the pack is ACTIONABLE exactly when its proposed action is selectable, a non-selectable
  * proposal has gates not clear, and a proposal never yields NO_RECOMMENDATION.
  */
-export function packOutcomeReconciled(outcome: string, selectable: boolean, gates: "CLEAR" | "NOT_CLEAR"): boolean {
-  if ((outcome === "ACTIONABLE") !== selectable) return false;
-  if (!selectable && gates !== "NOT_CLEAR") return false;
-  return outcome !== "NO_RECOMMENDATION";
+export function packOutcomeReconciled(
+  pack: Pick<RecommendationEvidencePack, "outcome" | "proposedActionId" | "actionableActionId">,
+  proposal: { selectable: boolean; gates: "CLEAR" | "NOT_CLEAR" } | null,
+): boolean {
+  // Identities on EVERY path, including an absent proposal (audit F010 of 2026-10-16T180756Z): no proposal is exactly
+  // NO_RECOMMENDATION with nothing actionable; the actionable id is the proposal exactly when ACTIONABLE.
+  if (pack.proposedActionId === null) return proposal === null && pack.outcome === "NO_RECOMMENDATION" && pack.actionableActionId === null;
+  if (proposal === null) return false;
+  if (pack.actionableActionId !== (pack.outcome === "ACTIONABLE" ? pack.proposedActionId : null)) return false;
+  if ((pack.outcome === "ACTIONABLE") !== proposal.selectable) return false;
+  if (!proposal.selectable && proposal.gates !== "NOT_CLEAR") return false;
+  return pack.outcome !== "NO_RECOMMENDATION";
 }
 
 /** The proposed action's decision evidence, read from the pack alone; `null` when the pack does not carry it or is not canonical. */
@@ -139,10 +147,11 @@ function packDecision(pack: RecommendationEvidencePack): PackDecision | null {
   if (parts.some((p) => !(RECOMMENDATION_CONTEXT_PARTS as readonly string[]).includes(p))) return null;
   const missingContextParts = (parts as RecommendationContextPart[]).sort((a, b) => RECOMMENDATION_CONTEXT_PARTS.indexOf(a) - RECOMMENDATION_CONTEXT_PARTS.indexOf(b));
   const none = { effectBasis: "NONE", valueBasis: "NONE", priorityBasis: "NONE" } as const;
+  const steps = pack.calculationSteps.filter((s) => s.formula === CANDIDATE_STEP_FORMULA && s.description === candidateStepDescription(PROPOSED_LABEL));
   if (pack.proposedActionId === null) {
+    if (steps.length > 0 || !packOutcomeReconciled(pack, null)) return null;
     return { recommendedAction: null, triggerReasons: [], effect: null, value: null, evidence: { type: "NONE", strength: "NONE", ...none }, missingContextParts };
   }
-  const steps = pack.calculationSteps.filter((s) => s.formula === CANDIDATE_STEP_FORMULA && s.description === candidateStepDescription(PROPOSED_LABEL));
   if (steps.length !== 1) return null;
   const i = steps[0].inputs;
   const tier = i.tier as RecommendationPriorityTier;
@@ -155,7 +164,7 @@ function packDecision(pack: RecommendationEvidencePack): PackDecision | null {
   if (!(BENEFIT_CLAIMS as readonly unknown[]).includes(i.benefitClaim) || (i.gates !== "CLEAR" && i.gates !== "NOT_CLEAR") || typeof i.selectable !== "boolean") return null;
   // Selectability is exactly C8's rule: gates clear, triggered, eligible and an effect not refuted.
   if (i.selectable !== (i.gates === "CLEAR" && trigger !== null && trigger.state === "TRIGGERED" && eligibility.state === "ELIGIBLE" && effect.state !== "EFFECT_NOT_SUPPORTED")) return null;
-  if (!packOutcomeReconciled(pack.outcome, i.selectable, i.gates)) return null;
+  if (!packOutcomeReconciled(pack, { selectable: i.selectable, gates: i.gates })) return null;
   const candidate = pack.candidateActions.find((c) => c.actionId === pack.proposedActionId);
   if (i.actionId !== pack.proposedActionId || typeof i.actionKind !== "string" || !RECOMMENDATION_PRIORITY_TIERS.includes(tier) || trigger === null || effect === null || value === null || candidate === undefined) {
     return null;

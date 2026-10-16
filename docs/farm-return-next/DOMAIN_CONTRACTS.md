@@ -4545,7 +4545,9 @@ keeps it a non-actionable candidate even when the other resolved negative (trigg
 **Status / evidence precedence (per candidate, first match).** REQUIRED context part not supplied
 (trigger, eligibility, evidence requirement or prerequisite source) ⇒ NOT_EVALUATED gate
 `CATTLE_RECOMMENDATION_REQUIRES:<PART>` > trigger over unresolved predecessor states ⇒
-`CATTLE_RECOMMENDATION_TRIGGER_UNRESOLVED:<KIND>_<STATE>` > goal unresolved ⇒
+`CATTLE_RECOMMENDATION_TRIGGER_UNRESOLVED:<KIND>_<STATE>` (every C4 latest-weight state is translated
+explicitly before staleness: `EVIDENCE_CONFLICT` / `UNSUPPORTED` ⇒ `..._UNRESOLVED:WEIGHT_<STATE>`, audit
+F007 of 2026-10-16T170605Z) > goal unresolved ⇒
 `CATTLE_RECOMMENDATION_GOAL_UNRESOLVED:<status>` > trigger / eligibility resolved negative ⇒ not a
 candidate > any prerequisite gate (C2 / C3 / C7 projection record, or a named gate id) not PASS /
 NOT_APPLICABLE, or absent ⇒ NOT_CLEAR, and effect and value are **not evaluated** (favourability never

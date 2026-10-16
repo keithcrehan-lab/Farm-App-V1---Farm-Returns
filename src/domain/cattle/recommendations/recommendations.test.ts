@@ -2647,3 +2647,34 @@ describe("C8 economic provenance — projections of the one canonical object; in
   });
 });
 
+describe("C8 audit 2026-10-16T170605Z — F007: every C4 latest-weight state is translated explicitly; unresolved weight evidence stays UNRESOLVED", () => {
+  const at = "2026-04-10T00:00:00Z";
+  const conflicting = { observations: [weightObs("w-1", at), { ...weightObs("w-2", at), weight: { value: 450, unit: "KILOGRAM" } }] };
+  const unsupported = { observations: [{ ...weightObs("w-1", at), weight: { value: 900, unit: "POUND" } }] };
+  const ONE_DAY = { amount: 1, unit: "DAY" };
+
+  it("exact reproductions: conflicting same-instant weights and an unsupported POUND weight — with or without a staleness policy — are INSUFFICIENT_EVIDENCE, never excluded or actionable", () => {
+    for (const [label, weights] of [["conflict", conflicting], ["unsupported", unsupported]] as const) {
+      for (const staleAfter of [null, ONE_DAY]) {
+        const rec = recOf(run({ weights, actions: defaultOnly("RECORD_WEIGHT", { trigger: { kind: "WEIGHT_MISSING_OR_STALE", staleAfter } }) }));
+        const name = `${label} / staleAfter ${JSON.stringify(staleAfter)}`;
+        expect(rec.context.weights, name).toMatchObject({ state: "SUPPLIED", latest: { state: label === "conflict" ? "EVIDENCE_CONFLICT" : "UNSUPPORTED" } });
+        expect(rec.record.outcome, name).toBe("INSUFFICIENT_EVIDENCE");
+        expect(rec.notCandidates, name).toEqual([]);
+        expect(rec.candidates[0], name).toMatchObject({ trigger: { state: "UNRESOLVED" }, selectable: false });
+        expect(rec.candidates[0].trigger.reasonCodes, name).toContain(`CATTLE_RECOMMENDATION_TRIGGER_UNRESOLVED:WEIGHT_${label === "conflict" ? "EVIDENCE_CONFLICT" : "UNSUPPORTED"}`);
+        expect(verifyStored(rec), name).toEqual({ valid: true });
+      }
+    }
+  });
+
+  it("controls: KNOWN and NONE keep their meaning (KNOWN fresh ⇒ excluded; KNOWN stale ⇒ triggered; no weight in view ⇒ triggered)", () => {
+    const known = { observations: [weightObs("w-1", at)] };
+    expect(outcomeOf(run({ weights: known, actions: defaultOnly("RECORD_WEIGHT", { trigger: { kind: "WEIGHT_MISSING_OR_STALE", staleAfter: null } }) }))).toBe("NO_RECOMMENDATION");
+    const stale = recOf(run({ weights: known, actions: defaultOnly("RECORD_WEIGHT", { trigger: { kind: "WEIGHT_MISSING_OR_STALE", staleAfter: ONE_DAY } }) }));
+    expect(stale.candidates[0].trigger.state).toBe("TRIGGERED");
+    const none = recOf(run({ weights: { observations: [] }, actions: defaultOnly("RECORD_WEIGHT", { trigger: { kind: "WEIGHT_MISSING_OR_STALE", staleAfter: null } }) }));
+    expect(none.candidates[0].trigger).toMatchObject({ state: "TRIGGERED", reasonCodes: ["CATTLE_RECOMMENDATION_TRIGGER_NO_WEIGHT_IN_VIEW"] });
+  });
+});
+

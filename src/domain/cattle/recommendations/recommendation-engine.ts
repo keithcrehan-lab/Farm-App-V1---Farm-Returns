@@ -79,6 +79,7 @@ import type { CattleInputItem } from "../information";
 import { compareStrings, sameFingerprint, sortedUnique, type CattleHash } from "../integrity";
 import { addObligationOffset, toCanonicalPlainData, type ObligationState } from "../regulatory";
 import type { WithdrawalGateState } from "../health";
+import type { LatestWeightState } from "../weights";
 import type { GoalProjectionStatus } from "../goals";
 import type { ProgrammeOccurrenceState } from "../programmes";
 import { compareSourceVersionRefs, type SourceVersionRef } from "../source";
@@ -175,7 +176,11 @@ function triggerOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): 
     case "WEIGHT_MISSING_OR_STALE": {
       if (ctx.weights.state !== "SUPPLIED") return { state: "UNRESOLVED", reasons: [requires("WEIGHTS")] };
       const latest = ctx.weights.latest;
-      if (latest.state === "NONE") return { state: "YES", reasons: ["CATTLE_RECOMMENDATION_TRIGGER_NO_WEIGHT_IN_VIEW"] };
+      // Every C4 latest-weight state is translated explicitly BEFORE staleness (audit F007 of 2026-10-16T170605Z):
+      // conflicting or unsupported weight evidence stays UNRESOLVED — never a resolved NOT_MET or a stale YES.
+      const meaning = WEIGHT_STATE_MEANING[latest.state as LatestWeightState];
+      if (meaning === undefined || meaning === "UNRESOLVED") return { state: "UNRESOLVED", reasons: [`CATTLE_RECOMMENDATION_TRIGGER_UNRESOLVED:WEIGHT_${latest.state}`] };
+      if (meaning === "ABSENT") return { state: "YES", reasons: ["CATTLE_RECOMMENDATION_TRIGGER_NO_WEIGHT_IN_VIEW"] };
       if (t.staleAfter !== null && latest.observedAt !== null) {
         const staleAt = addObligationOffset(latest.observedAt, t.staleAfter);
         if (staleAt === null) return { state: "UNRESOLVED", reasons: ["CATTLE_RECOMMENDATION_TRIGGER_STALENESS_UNREPRESENTABLE"] };
@@ -222,6 +227,14 @@ function triggerOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): 
  * silent NO_RECOMMENDATION. Exhaustive translation tables over the frozen
  * vocabularies; an unlisted state is treated as unresolved (fail closed).
  */
+/** C4 latest-weight state → its meaning for a weight trigger (exhaustive: a new C4 state fails to compile). */
+const WEIGHT_STATE_MEANING: Readonly<Record<LatestWeightState, "KNOWN" | "ABSENT" | "UNRESOLVED">> = {
+  KNOWN: "KNOWN",
+  NONE: "ABSENT",
+  EVIDENCE_CONFLICT: "UNRESOLVED",
+  UNSUPPORTED: "UNRESOLVED",
+};
+
 const UNRESOLVED_OBLIGATION_STATES: Readonly<Record<ObligationState, boolean>> = {
   NOT_APPLICABLE: false,
   UPCOMING: false,

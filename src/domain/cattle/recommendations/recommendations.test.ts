@@ -1322,7 +1322,7 @@ describe("C8 remediation — model content binding, gate identity, ranking prove
       const label = c.actionId === rec.pack.proposedActionId ? "proposed action" : c.actionId;
       expect(rec.pack.calculationSteps.some((s) => s.formula === rec.pack.calculationSteps[0].formula && s.description.includes(label)), `${c.actionId} gate step`).toBe(true);
       if (c.value.state !== "VALUE_KNOWN") continue;
-      const step = rec.pack.calculationSteps.find((s) => s.output === c.value.amount && s.description.startsWith("Economic value") && s.description.includes(label));
+      const step = rec.pack.calculationSteps.find((s) => s.output === c.value.amount && s.description.startsWith("Economic valuation") && s.description.includes(label));
       expect(step?.rule, c.actionId).toBeTruthy();
       expect(ruleIds, c.actionId).toContain(step!.rule!.ruleId);
       for (const id of c.value.observationIds) expect(inputRefs, `${c.actionId}:${id}`).toContain(id);
@@ -2218,8 +2218,8 @@ describe("C8 architecture decision 2026-10-16 (Option 1) — authoritative verif
       ["goal types swapped", (c) => void (c.goals.activeGoalTypes = ["SALE"])],
       ["goal snapshot names another animal", (c) => void (c.goals.snapshot.subject.animalId = B)],
       ["goals not supplied", (c) => void (c.goals = { state: "NOT_SUPPLIED" })],
-      ["cost observation negative", (c) => void (c.economics.find((e: Ctx) => e.valueKey === "SYNTH-KEY-COST").observation.amount = "-250.5")],
-      ["cost observation re-priced", (c) => void (c.economics.find((e: Ctx) => e.valueKey === "SYNTH-KEY-COST").observation.amount = "1.5")],
+      ["cost observation negative", (c) => void (c.economics.find((e: Ctx) => e.valueKey === "SYNTH-KEY-COST").observations[0].amount = "-250.5")],
+      ["cost observation re-priced", (c) => void (c.economics.find((e: Ctx) => e.valueKey === "SYNTH-KEY-COST").observations[0].amount = "1.5")],
       ["effect statement changed without its binding", (c) => {
         for (const m of [c.models.records.find((x: Ctx) => x.role === "EFFECT"), effectEval(c).model]) m.expectedEffect = "SYNTH another effect";
       }],
@@ -2265,15 +2265,16 @@ describe("C8 architecture decision 2026-10-16 (Option 1) — authoritative verif
     };
     it("competing corrections spanning effectiveAt yield a one-candidate CONFLICT that verifies after storage; a normal two-candidate CONFLICT verifies too", () => {
       const one = conflictOf([PRICE, BASE, cost("o-c1", "260", "2026-04-05T00:00:00Z", "2026-04-06T00:00:00Z", ["o-c0"]), cost("o-c2", "270", "2026-05-01T00:00:00Z", "2026-05-02T00:00:00Z", ["o-c0"])]);
-      expect(one.resolution).toMatchObject({ state: "CONFLICT", observation: null, candidateObservationIds: ["o-c1"] });
+      expect(one.resolution.resolution).toMatchObject({ state: "CONFLICT", boundObservationId: null, candidateObservationIds: ["o-c1"] });
       expect(verifyStored(structuredClone(one.rec))).toEqual({ valid: true });
       const two = conflictOf([PRICE, BASE, cost("o-c1", "260", "2026-04-05T00:00:00Z", "2026-04-06T00:00:00Z", ["o-c0"]), cost("o-c2", "270", "2026-04-07T00:00:00Z", "2026-04-08T00:00:00Z", ["o-c0"])]);
-      expect(two.resolution).toMatchObject({ state: "CONFLICT", candidateObservationIds: ["o-c1", "o-c2"] });
+      expect(two.resolution.resolution).toMatchObject({ state: "CONFLICT", candidateObservationIds: ["o-c1", "o-c2"] });
       expect(verifyStored(structuredClone(two.rec))).toEqual({ valid: true });
       for (const [label, edit] of [
-        ["no candidates", (x: Ctx) => void (x.candidateObservationIds = [])],
-        ["duplicated candidate", (x: Ctx) => void (x.candidateObservationIds = ["o-c1", "o-c1"])],
-        ["an observation bound", (x: Ctx) => void (x.observation = structuredClone(PRICE))],
+        ["no candidates", (x: Ctx) => void (x.resolution.candidateObservationIds = [])],
+        ["duplicated candidate", (x: Ctx) => void (x.resolution.candidateObservationIds = ["o-c1", "o-c1"])],
+        ["an observation bound", (x: Ctx) => void (x.resolution.boundObservationId = "o-c1")],
+        ["a closure observation dropped", (x: Ctx) => void x.observations.pop()],
       ] as const) {
         const forged = forgeContext(two.rec, (c) => edit(c.economics.find((e: Ctx) => e.valueKey === "SYNTH-KEY-COST")));
         if (forged === null) continue; // the engine itself refuses the edited context — nothing to store
@@ -2421,7 +2422,7 @@ describe("C8 audit 2026-10-16T144944Z — F003: an unsuccessful valuation keeps 
   const PRICE = econObs("o-price", "SYNTH-KEY-PRICE", "1000.00");
   const COST = econObs("o-cost", "SYNTH-KEY-COST", "250.5");
   const valuationStep = (rec: CattleRecommendation, label = "proposed action") =>
-    (rec.pack.calculationSteps as unknown as Step[]).find((s) => s.description === `Economic value of the ${label} not computable from bound observations`);
+    (rec.pack.calculationSteps as unknown as Step[]).find((s) => s.description === `Economic valuation of the ${label}`);
   const economicInputRefs = (rec: CattleRecommendation) => rec.pack.inputs.filter((i) => i.inputKey.startsWith("cattle.recommendation.economic.")).map((i) => i.provenance.ref).sort();
 
   it("exact reproduction: mixed currencies — VALUE_UNKNOWN, yet both observations, their resolutions and the price source are in the pack", () => {
@@ -2432,8 +2433,9 @@ describe("C8 audit 2026-10-16T144944Z — F003: an unsuccessful valuation keeps 
     expect(rec.pack.sourceRefs).toContainEqual(PRICE_SOURCE);
     const step = valuationStep(rec)!;
     expect(step.output).toBe("VALUE_UNKNOWN");
-    expect(JSON.parse(step.inputs["benefit:SYNTH-KEY-PRICE"] as string)).toMatchObject({ state: "KNOWN", observationId: "o-price", amount: "1000.00", currency: "EUR" });
-    expect(JSON.parse(step.inputs["cost:SYNTH-KEY-COST"] as string)).toMatchObject({ state: "KNOWN", observationId: "o-cost", amount: "250.5", currency: "GBP" });
+    // Each key's input is its complete canonical evidence: the closure in full and the resolution derived from it.
+    expect(JSON.parse(step.inputs["benefit:SYNTH-KEY-PRICE"] as string)).toMatchObject({ resolution: { state: "KNOWN", boundObservationId: "o-price" }, observations: [{ observationId: "o-price", amount: "1000.00", currency: "EUR" }] });
+    expect(JSON.parse(step.inputs["cost:SYNTH-KEY-COST"] as string)).toMatchObject({ resolution: { state: "KNOWN", boundObservationId: "o-cost" }, observations: [{ observationId: "o-cost", amount: "250.5", currency: "GBP" }] });
     expect(verifyStored(rec)).toEqual({ valid: true });
   });
 
@@ -2441,7 +2443,7 @@ describe("C8 audit 2026-10-16T144944Z — F003: an unsuccessful valuation keeps 
     const cases: [string, unknown[], string[], Record<string, string>][] = [
       ["currency not computable", [{ ...PRICE, currency: "GBP" }, { ...COST, currency: "GBP" }], ["o-cost", "o-price"], { "benefit:SYNTH-KEY-PRICE": "KNOWN", "cost:SYNTH-KEY-COST": "KNOWN" }],
       ["a key unknown", [PRICE], ["o-price"], { "benefit:SYNTH-KEY-PRICE": "KNOWN", "cost:SYNTH-KEY-COST": "UNKNOWN" }],
-      ["a key in conflict", [PRICE, econObs("o-c0", "SYNTH-KEY-COST", "250.5"), econObs("o-c1", "SYNTH-KEY-COST", "260", { supersedes: ["o-c0"] }), econObs("o-c2", "SYNTH-KEY-COST", "270", { supersedes: ["o-c0"] })], ["o-price"], { "benefit:SYNTH-KEY-PRICE": "KNOWN", "cost:SYNTH-KEY-COST": "CONFLICT" }],
+      ["a key in conflict", [PRICE, econObs("o-c0", "SYNTH-KEY-COST", "250.5"), econObs("o-c1", "SYNTH-KEY-COST", "260", { supersedes: ["o-c0"] }), econObs("o-c2", "SYNTH-KEY-COST", "270", { supersedes: ["o-c0"] })], ["o-c0", "o-c1", "o-c2", "o-price"], { "benefit:SYNTH-KEY-PRICE": "KNOWN", "cost:SYNTH-KEY-COST": "CONFLICT" }],
       ["precision unsupported", [{ ...PRICE, amount: "1".repeat(19) + ".5" }, { ...COST, amount: "0.25" }], ["o-cost", "o-price"], { "benefit:SYNTH-KEY-PRICE": "KNOWN", "cost:SYNTH-KEY-COST": "KNOWN" }],
     ];
     for (const [label, observations, refs, states] of cases) {
@@ -2450,8 +2452,13 @@ describe("C8 audit 2026-10-16T144944Z — F003: an unsuccessful valuation keeps 
       expect(economicInputRefs(rec), label).toEqual(refs);
       const step = valuationStep(rec);
       expect(step, label).toBeDefined();
-      for (const [k, state] of Object.entries(states)) expect(JSON.parse(step!.inputs[k] as string).state, `${label} / ${k}`).toBe(state);
-      if (label === "a key in conflict") expect(JSON.parse(step!.inputs["cost:SYNTH-KEY-COST"] as string).candidateObservationIds, label).toEqual(["o-c1", "o-c2"]);
+      for (const [k, state] of Object.entries(states)) expect(JSON.parse(step!.inputs[k] as string).resolution.state, `${label} / ${k}`).toBe(state);
+      if (label === "a key in conflict") {
+        const cost = JSON.parse(step!.inputs["cost:SYNTH-KEY-COST"] as string);
+        expect(cost.resolution.candidateObservationIds, label).toEqual(["o-c1", "o-c2"]);
+        expect(cost.resolution.competitions, label).toEqual([{ targetId: "o-c0", terminalIds: ["o-c1", "o-c2"] }]);
+        expect(cost.observations.map((x: { observationId: string }) => x.observationId), label).toEqual(["o-c0", "o-c1", "o-c2"]);
+      }
       expect(verifyStored(rec), label).toEqual({ valid: true });
     }
     // Alternatives keep theirs too (not only the proposal).
@@ -2464,6 +2471,179 @@ describe("C8 audit 2026-10-16T144944Z — F003: an unsuccessful valuation keeps 
     expect(failing.candidates[0].value.state).toBe("VALUE_UNKNOWN");
     expect(valuationStep(failing)).toBeUndefined();
     expect(economicInputRefs(failing)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C8 economic-provenance redesign (human architecture decision 2026-10-16): every economic fact is a projection of
+// one canonical evidence object holding, per relevant value key, the resolver's COMPLETE consulted closure (every
+// admitted observation of the key known by the cutoff). Written test-first against d524dc6.
+// ---------------------------------------------------------------------------
+
+describe("C8 economic provenance — metamorphic closure matrix (every consulted observation, every field)", () => {
+  type Obs = Record<string, unknown> & { observationId: string; valueKey: string; amount: string; currency: string; observedAt: string; receivedAt: string; source: unknown; supersedes: string[] };
+  const OTHER_SOURCE = { sourceId: "SYNTH-SRC-PRICE-2", version: "v1", contentFingerprint: computeSourceContentFingerprint({ text: "another synthetic price list" }, hash) };
+  const KEYS = ["SYNTH-KEY-PRICE", "SYNTH-KEY-COST"];
+  const o = (id: string, key: string, amount: string, observedAt: string, receivedAt: string, extra: Record<string, unknown> = {}): Obs =>
+    econObs(id, key, amount, { observedAt, receivedAt, ...extra }) as Obs;
+  const PRICE = o("o-price", "SYNTH-KEY-PRICE", "1000.00", "2026-04-01T00:00:00Z", "2026-04-02T00:00:00Z");
+  const C0 = o("o-c0", "SYNTH-KEY-COST", "250.5", "2026-04-01T00:00:00Z", "2026-04-02T00:00:00Z");
+  const SELL_B = action("SYNTH-SELL-B", { tier: cattle.RECOMMENDATION_PRIORITY_TIERS[cattle.RECOMMENDATION_PRIORITY_TIERS.length - 1], effectModelRef: EFFECT_REF, economicModelRef: ECON_REF });
+  const FAILING_MODELS = allModels([effectModel(), econModel(["SYNTH-KEY-PRICE"], ["SYNTH-KEY-COST"], modelRule("SYNTH-RULE-ECONOMIC", MODEL_FAIL))]);
+  interface Scenario {
+    name: string;
+    observations: Obs[];
+    actions?: unknown;
+    models?: unknown;
+    attempted: boolean;
+  }
+  const SCENARIOS: Scenario[] = [
+    { name: "KNOWN with superseded ancestors", observations: [PRICE, C0, o("o-c1", "SYNTH-KEY-COST", "260", "2026-04-05T00:00:00Z", "2026-04-06T00:00:00Z", { supersedes: ["o-c0"] })], attempted: true },
+    { name: "UNKNOWN, every observation after the evaluation time", observations: [PRICE, o("o-c", "SYNTH-KEY-COST", "250.5", "2026-05-01T00:00:00Z", "2026-05-02T00:00:00Z")], attempted: true },
+    { name: "UNKNOWN by an out-of-view correction", observations: [PRICE, C0, o("o-c1", "SYNTH-KEY-COST", "260", "2026-05-01T00:00:00Z", "2026-05-02T00:00:00Z", { supersedes: ["o-c0"] })], attempted: true },
+    {
+      name: "multi-candidate conflict",
+      observations: [PRICE, C0, o("o-c1", "SYNTH-KEY-COST", "260", "2026-04-05T00:00:00Z", "2026-04-06T00:00:00Z", { supersedes: ["o-c0"] }), o("o-c2", "SYNTH-KEY-COST", "270", "2026-04-07T00:00:00Z", "2026-04-08T00:00:00Z", { supersedes: ["o-c0"], source: OTHER_SOURCE })],
+      attempted: true,
+    },
+    {
+      name: "one-candidate conflict (competitor out of view)",
+      observations: [PRICE, C0, o("o-c1", "SYNTH-KEY-COST", "260", "2026-04-05T00:00:00Z", "2026-04-06T00:00:00Z", { supersedes: ["o-c0"] }), o("o-c2", "SYNTH-KEY-COST", "270", "2026-05-01T00:00:00Z", "2026-05-02T00:00:00Z", { supersedes: ["o-c0"], source: OTHER_SOURCE })],
+      attempted: true,
+    },
+    { name: "mixed currency", observations: [PRICE, { ...C0, currency: "GBP" }], attempted: true },
+    { name: "unsupported currency", observations: [{ ...PRICE, currency: "GBP" }, { ...C0, currency: "GBP" }], attempted: true },
+    { name: "over-precision", observations: [{ ...PRICE, amount: "1".repeat(19) + ".5" }, { ...C0, amount: "0.25" }], attempted: true },
+    { name: "alternative candidates", observations: [PRICE, C0], actions: registry([SELL(), SELL_B]), attempted: true },
+    { name: "economic model failed (valuation not attempted)", observations: [PRICE, C0], models: FAILING_MODELS, attempted: false },
+  ];
+  const runScenario = (s: Scenario, observations: Obs[]) => {
+    const request = requestOf(favourable({ observations, actions: s.actions ?? registry([SELL()]), ...(s.models === undefined ? {} : { models: s.models }) }));
+    const r = recommendCattle(request, hash, TRUSTED);
+    return { request, rec: r.ok ? r.result.animals[0] : null };
+  };
+  const shift = (t: string, ms: number) => new Date(Date.parse(t) + ms).toISOString().replace(".000Z", "Z");
+  /** Every decision-relevant mutation of one observation (each kept admissible where the field allows). */
+  const mutations = (x: Obs, all: Obs[]): [string, Obs][] => {
+    const out: [string, Obs][] = [
+      ["amount", { ...x, amount: x.amount === "777" ? "778" : "777" }],
+      ["currency", { ...x, currency: x.currency === "EUR" ? "GBP" : "EUR" }],
+      ["observedAt", { ...x, observedAt: shift(x.observedAt, 86_400_000) }],
+      ["receivedAt (inside the cutoff)", { ...x, receivedAt: shift(x.receivedAt, 3_600_000) }],
+      ["source", { ...x, source: rawIdentityKeyOf(x.source) === rawIdentityKeyOf(OTHER_SOURCE) ? PRICE_SOURCE : OTHER_SOURCE }],
+    ];
+    if (x.supersedes.length > 0) out.push(["supersedes removed", { ...x, supersedes: [] }]);
+    else {
+      const target = all.find((y) => y.valueKey === x.valueKey && y.observationId !== x.observationId && !y.supersedes.includes(x.observationId));
+      if (target !== undefined) out.push([`supersedes ${target.observationId} added`, { ...x, supersedes: [target.observationId] }]);
+    }
+    return out;
+  };
+  const rawIdentityKeyOf = (v: unknown) => JSON.stringify(v);
+  const closureOf = (s: Scenario) => s.observations.filter((x) => KEYS.includes(x.valueKey) && Date.parse(x.receivedAt) <= Date.parse(CUTOFF));
+
+  for (const s of SCENARIOS) {
+    it(`${s.name}: every field of every consulted observation binds the context, pack and recommendation, and fails authoritative verification`, () => {
+      const base = runScenario(s, s.observations);
+      expect(base.rec, "baseline evaluates").not.toBeNull();
+      const stored = structuredClone(base.rec!);
+      expect(verifyCattleRecommendation(stored, base.request, hash, TRUSTED)).toEqual({ valid: true });
+      const failures: string[] = [];
+      for (const x of closureOf(s)) {
+        for (const [field, changed] of mutations(x, s.observations)) {
+          const label = `${x.observationId}.${field}`;
+          const m = runScenario(s, s.observations.map((y) => (y.observationId === x.observationId ? changed : y)));
+          if (verifyCattleRecommendation(structuredClone(stored), m.request, hash, TRUSTED).valid) failures.push(`${label}: verification still valid`);
+          if (m.rec === null) continue; // the changed request fails closed — nothing reproduced, verification failed above
+          if (m.rec.context.fingerprint.digest === stored.context.fingerprint.digest) failures.push(`${label}: context fingerprint unchanged`);
+          if (m.rec.pack.fingerprint.digest === stored.pack.fingerprint.digest) failures.push(`${label}: pack fingerprint unchanged`);
+          if (m.rec.fingerprint.digest === stored.fingerprint.digest) failures.push(`${label}: recommendation fingerprint unchanged`);
+        }
+      }
+      expect(failures).toEqual([]);
+    }, 60_000);
+  }
+
+  it("pack completeness: every attempted valuation carries its keys' complete closure as pack inputs and sources", () => {
+    const failures: string[] = [];
+    for (const s of SCENARIOS.filter((x) => x.attempted)) {
+      const rec = runScenario(s, s.observations).rec!;
+      const refs = new Set(rec.pack.inputs.filter((i) => i.inputKey.startsWith("cattle.recommendation.economic.")).map((i) => i.provenance.ref));
+      for (const x of closureOf(s)) {
+        if (!refs.has(x.observationId)) failures.push(`${s.name}: ${x.observationId} not a pack input`);
+        if (!rec.pack.sourceRefs.some((r) => rawIdentityKeyOf(r) === rawIdentityKeyOf(x.source))) failures.push(`${s.name}: ${x.observationId} source not in the pack`);
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("inverse boundary: observations outside the consulted closure (an irrelevant key; received after the cutoff) never change any fingerprint", () => {
+    const s = SCENARIOS[0];
+    const IRRELEVANT = o("o-irrelevant", "SYNTH-KEY-IRRELEVANT", "5", "2026-04-01T00:00:00Z", "2026-04-02T00:00:00Z");
+    const LATE = o("o-late", "SYNTH-KEY-COST", "9", "2026-04-03T00:00:00Z", "2026-07-01T00:00:00Z");
+    const base = runScenario(s, [...s.observations, IRRELEVANT, LATE]);
+    const stored = structuredClone(base.rec!);
+    for (const outside of [IRRELEVANT, LATE]) {
+      for (const [field, changed] of mutations(outside, []).filter(([f]) => !f.startsWith("receivedAt"))) {
+        const label = `${outside.observationId}.${field}`;
+        const m = runScenario(s, [...s.observations, IRRELEVANT, LATE].map((y) => (y.observationId === outside.observationId ? changed : y)));
+        expect(m.rec!.fingerprint, label).toEqual(stored.fingerprint);
+        expect(m.rec!.context.fingerprint, label).toEqual(stored.context.fingerprint);
+        expect(m.rec!.pack.fingerprint, label).toEqual(stored.pack.fingerprint);
+        expect(verifyCattleRecommendation(structuredClone(stored), m.request, hash, TRUSTED), label).toEqual({ valid: true });
+      }
+    }
+  });
+});
+
+describe("C8 economic provenance — projections of the one canonical object; integrity re-resolves its own evidence", () => {
+  const PRICE = econObs("o-price", "SYNTH-KEY-PRICE", "1000.00");
+  const C0 = econObs("o-c0", "SYNTH-KEY-COST", "250.5", { observedAt: "2026-04-01T00:00:00Z", receivedAt: "2026-04-02T00:00:00Z" });
+  const C1 = econObs("o-c1", "SYNTH-KEY-COST", "260", { observedAt: "2026-04-05T00:00:00Z", receivedAt: "2026-04-06T00:00:00Z", supersedes: ["o-c0"] });
+  const C2 = econObs("o-c2", "SYNTH-KEY-COST", "270", { observedAt: "2026-05-01T00:00:00Z", receivedAt: "2026-05-02T00:00:00Z", supersedes: ["o-c0"] });
+  type Step = { description: string; inputs: Record<string, unknown> };
+
+  it("every economic fact in the pack and the candidate is an exact projection of the context's canonical key evidence", () => {
+    for (const observations of [[PRICE, C0, C1], [PRICE, C0, C1, C2], [PRICE, { ...C0, currency: "GBP" }]]) {
+      const rec = recOf(run(favourable({ observations, actions: registry([SELL()]) })));
+      const step = (rec.pack.calculationSteps as unknown as Step[]).find((s) => s.description === "Economic valuation of the proposed action")!;
+      for (const e of rec.context.economics) {
+        const role = e.valueKey === "SYNTH-KEY-PRICE" ? "benefit" : "cost";
+        expect(JSON.parse(step.inputs[`${role}:${e.valueKey}`] as string)).toEqual(e); // the canonical object itself, never a summary
+      }
+      const closureIds = rec.context.economics.flatMap((e) => e.observations.map((x) => x.observationId)).sort();
+      expect(rec.pack.inputs.filter((i) => i.inputKey.startsWith("cattle.recommendation.economic.")).map((i) => i.provenance.ref).sort()).toEqual(closureIds); // exactly the closure
+      const outcome = JSON.parse(step.inputs.outcome as string);
+      const v = rec.candidates[0].value;
+      expect(v.state).toBe(outcome.state);
+      if (v.state === "VALUE_KNOWN") expect([v.amount, v.currency]).toEqual([outcome.amount, outcome.currency]);
+      else expect(v.reasonCodes).toEqual(outcome.reasonCodes);
+    }
+  });
+
+  it("integrity: a stored key's resolution must be exactly what the resolver derives from its stored closure", () => {
+    const rec = recOf(run(favourable({ observations: [PRICE, C0, C1, C2], actions: registry([SELL()]) })));
+    const reseal = (edit: (e: Record<string, any>) => void) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      const r = structuredClone(rec) as unknown as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+      edit(r.context.economics.find((e: { valueKey: string }) => e.valueKey === "SYNTH-KEY-COST"));
+      const { fingerprint: _c, ...ctx } = r.context;
+      void _c;
+      r.context = { ...ctx, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", ctx, hash) };
+      const { fingerprint: _f, ...body } = r;
+      void _f;
+      return { ...body, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_RECORD", body, hash) } as unknown as CattleRecommendation;
+    };
+    expect(cattle.checkCattleRecommendationIntegrity(reseal(() => {}), hash)).toEqual({ intact: true, authoritative: false });
+    const edits: [string, (e: Record<string, any>) => void][] = [ // eslint-disable-line @typescript-eslint/no-explicit-any
+      ["state forged KNOWN", (e) => void Object.assign(e.resolution, { state: "KNOWN", boundObservationId: "o-c1", candidateObservationIds: [] })],
+      ["competition dropped", (e) => void (e.resolution.competitions = [])],
+      ["closure observation dropped", (e) => void e.observations.splice(0, 1)],
+      ["closure reordered", (e) => void e.observations.reverse()],
+      ["closure observation of another key", (e) => void (e.observations[0].valueKey = "SYNTH-KEY-PRICE")],
+    ];
+    for (const [label, edit] of edits) {
+      expect(cattle.checkCattleRecommendationIntegrity(reseal(edit), hash), label).toMatchObject({ intact: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_ECONOMICS_INCONSISTENT" });
+    }
   });
 });
 

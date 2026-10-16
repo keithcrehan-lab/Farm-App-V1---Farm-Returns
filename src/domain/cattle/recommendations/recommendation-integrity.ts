@@ -33,7 +33,7 @@ import {
 } from "../../assessment-integrity";
 import type { CattleHash } from "../integrity";
 
-export const CATTLE_RECOMMENDATION_PAYLOAD_VERSION = 1;
+export const CATTLE_RECOMMENDATION_PAYLOAD_VERSION = 2;
 
 export type CattleRecommendationFingerprintKind =
   | "CATTLE_RECOMMENDATION_CONTEXT"

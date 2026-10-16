@@ -24,8 +24,9 @@ import { PRODUCTION_GOAL_TYPES } from "../goals";
 import { PROGRAMME_CLASSIFICATIONS, PROGRAMME_OCCURRENCE_STATES } from "../programmes";
 import { C3_WITHDRAWAL_GATE_STATES } from "../programmes/programme-consumed";
 import { rawIdentityKey } from "../health/health-input";
+import { compareStrings } from "../integrity";
 import { BENEFIT_CLAIMS, CANDIDATE_ACTION_DEFINITION_SPEC, RECOMMENDATION_GATE_SOURCES, RECOMMENDATION_PRIORITY_TIERS } from "./candidate-actions";
-import { OBSERVATION_SPEC } from "./economic-context";
+import { OBSERVATION_SPEC, resolveKeyEvidence } from "./economic-context";
 import { C4_LATEST_WEIGHT_STATES, C6_GOAL_STATUSES, C6_ROUTING_STATES, C6_SNAPSHOT } from "./recommendation-consumed";
 import { EVIDENCE_PACK, RULE_EVALUATION_RECORD, SOURCE_VERSION_REF, exactValid, type ExactSpec } from "./recommendation-exact";
 import { CANDIDATE_STEP_FORMULA, EFFECT_SPEC, ELIGIBILITY_SPEC, PROPOSED_LABEL, TRIGGER_SPEC, VALUE_SPEC, alternativeLabel, candidateStepDescription } from "./recommendation-explanation";
@@ -96,7 +97,18 @@ const CONTEXT = object({
       },
     }),
   ),
-  economics: arrayOf(object({ valueKey: ref, state: oneOf(["KNOWN", "UNKNOWN", "CONFLICT"]), observation: nullable(owned(OBSERVATION_SPEC)), candidateObservationIds: arrayOf(ref) })),
+  economics: arrayOf(
+    object({
+      valueKey: ref,
+      observations: arrayOf(owned(OBSERVATION_SPEC)),
+      resolution: object({
+        state: oneOf(["KNOWN", "UNKNOWN", "CONFLICT"]),
+        boundObservationId: nullable(ref),
+        candidateObservationIds: arrayOf(ref),
+        competitions: arrayOf(object({ targetId: ref, terminalIds: arrayOf(ref) })),
+      }),
+    }),
+  ),
   fingerprint,
 });
 
@@ -153,6 +165,13 @@ export function storedRecommendationIssue(stored: CattleRecommendation): string 
     return "CATTLE_RECOMMENDATION_STORED_TIMES_INCONSISTENT";
   }
   if (ctx.evaluationDate !== utcCalendarDateOf(canonicalObligationInstant(ctx.effectiveAt) as string) || pack.evaluationDate !== ctx.evaluationDate) return "CATTLE_RECOMMENDATION_STORED_EVALUATION_DATE_INCONSISTENT";
+  // C8's own canonical economic evidence: each key's stored closure is sorted and unique, and its stored resolution is
+  // exactly what the one resolver derives from that closure (C8 re-checking its own object, no predecessor rule).
+  for (const e of ctx.economics) {
+    const ids = e.observations.map((o) => o.observationId);
+    const resolved = resolveKeyEvidence(e.valueKey, e.observations, ctx.effectiveAt, ctx.knowledgeCutoff);
+    if (ids.some((id, i) => i > 0 && compareStrings(ids[i - 1], id) >= 0) || resolved === null || key(resolved) !== key(e.resolution)) return "CATTLE_RECOMMENDATION_STORED_ECONOMICS_INCONSISTENT";
+  }
   // Candidates, exclusions and ties ↔ the pack's own decision steps (the pack is the single source).
   const steps = pack.calculationSteps;
   const ranking = steps.at(-1);

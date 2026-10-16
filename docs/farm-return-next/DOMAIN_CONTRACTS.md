@@ -4448,7 +4448,7 @@ canonicalisation changes. `livestock.ts` economic functions (`calculateFinishing
 |---|---|
 | `candidate-actions.ts` | `CandidateActionDefinition` (`actionKind` unique per registry, `recordedAt` knowledge time, `description`, `tier` ∈ `RECOMMENDATION_PRIORITY_TIERS`, `benefitClaim` `NONE` (no model may be named) \| `MODELLED`, `applicableGoalTypes` (`null` = goal-independent), `trigger` (closed vocabulary below), `prerequisites {sources ⊆ C2_OBLIGATION/C3_WITHDRAWAL/C7_PROGRAMME, gateRuleIds}`, `evidenceRequirements` (context parts), `effectModelRef` / `economicModelRef` `{modelId, version} \| null`, `assumptions`, `limitations`); `CandidateActionRegistry {registryId, version, definitions}`; `DEFAULT_CANDIDATE_ACTION_REGISTRY` (frozen). Admission is module-internal |
 | `recommendation-models.ts` | `RecommendationModelRecord` (`modelId`, `version`, `recordedAt`, `role` `EFFECT` \| `ECONOMIC`, `rule` C0 `CattleRuleVersion` — ADVISORY, no applicability, no required inputs —, `expectedEffect` (EFFECT only, opaque statement), `value {form: NET_OF_BOUND_OBSERVATIONS, benefitKeys, costKeys}` (ECONOMIC only)); `ModelEvaluation`. Admission / evaluation module-internal |
-| `economic-context.ts` | `EconomicObservation` (`observationId`, `valueKey`, `amount` canonical non-negative decimal string, `currency` explicit code, `observedAt` valid time, `receivedAt` knowledge time, `source` `SourceVersionRef`, `supersedes`); `EconomicValueResolution` `KNOWN` / `UNKNOWN` / `CONFLICT`; `COMPUTABLE_CURRENCIES` (`EUR`, compile-checked to `money.ts` `CurrencyCode`) |
+| `economic-context.ts` | `EconomicObservation` (`observationId`, `valueKey`, `amount` canonical non-negative decimal string, `currency` explicit code, `observedAt` valid time, `receivedAt` knowledge time, `source` `SourceVersionRef`, `supersedes`); `EconomicKeyEvidence` (per relevant key: the complete consulted closure + `EconomicKeyResolution` `KNOWN` / `UNKNOWN` / `CONFLICT`, bound id, in-view candidates, competitions); `resolveKeyEvidence`; `EconomicValuation` / `computeEconomicValuation`; the projections `candidateValueOf`, `valuationStepInputs`, `valuationInputItems`, `valuationSourceRefs`; `COMPUTABLE_CURRENCIES` (`EUR`, compile-checked to `money.ts` `CurrencyCode`) |
 | `recommendation-consumed.ts` | THE consumed-field schema (CAT-INV-028) for every C1–C7 output C8 reads (`RECOMMENDATION_CONSUMED_SURFACES`); owned-record shape check (no undeclared field). Module-internal |
 | `recommendation-exact.ts` | Exact consumed contracts for every C0 record C8 CARRIES: `RULE_EVALUATION_RECORD`, `EVIDENCE_PACK`, `exact` / `exactValid`, `CarriedRuleEvaluation`; `C0_EXACTNESS` compile-time completeness against the frozen C0 types. Module-internal |
 | `evaluation-context.ts` | THE construction boundary: `buildEvaluationContexts`, `sealEvaluationContext`; `RecommendationTrustedInputs`. Module-internal except the trusted-input type |
@@ -4642,6 +4642,30 @@ differing currencies are never combined or compared (no exchange-rate observatio
 only `EUR` (the `money.ts` currency) computes. Ranking compares canonical unrounded values; money
 equality is amount + currency + the bound observations used (recorded per value).
 
+**Economic provenance — one canonical evidence object (human architecture decision 2026-10-16;
+closes the F003 economic-provenance family).** INVARIANT: every economic fact C8 derives is a pure
+function of one canonical, fingerprinted evidence object, and everything downstream projects from it —
+nothing re-collects or reconstructs economic evidence. (1) Per relevant value key, `EconomicKeyEvidence`
+holds the resolver's COMPLETE consulted closure — every admitted observation of the key known by the
+cutoff, in full, sorted by id: superseded ancestors, records observed after `effectiveAt`, out-of-view
+corrections and competitors included — and the resolution derived from that closure alone by the one
+resolver `resolveKeyEvidence` (C2 `resolveBitemporalRecords`; state, bound observation id, in-view
+candidate ids, every correction competition). The sealed context stores these objects
+(`context.economics`), so the context fingerprint binds every observation that could affect a
+resolution. (2) Per candidate, `computeEconomicValuation` derives `EconomicValuation` from the key
+evidence only: model, value form, each key's role (a reference into the key evidence), outcome
+(`VALUE_KNOWN` amount + currency, or `VALUE_UNKNOWN` reasons — unknown / conflicting key, mixed or
+non-computable currency, unsupported precision), the observations summed, and the complete consulted
+evidence (the union of its keys' closures). (3) Projections, each a single function: the candidate value
+(`candidateValueOf` — read by ranking, the candidate step, the record and the explanation); the pack's
+valuation step (`valuationStepInputs`); the pack's economic inputs (`valuationInputItems`) and source
+references (`valuationSourceRefs`). A valuation never attempted (economic model not PASS, gates not
+clear) adds nothing to the pack; its keys' evidence is still bound in the context. Observations of
+irrelevant keys or received after the cutoff are outside every closure and change no fingerprint.
+Integrity re-resolves each stored key from its stored closure and requires the stored resolution
+exactly (`..._STORED_ECONOMICS_INCONSISTENT`); authoritative verification reproduces the whole object.
+Recommendation payload version 2 (the context's economics shape changed; C8 had not shipped).
+
 **Selection and ranking (total, stable).** Selectable candidates first, by tier
 (SAFETY_LEGAL_WELFARE → AVOID_MATERIAL_LOSS → EXPECTED_NET_RETURN → VALUE_OF_INFORMATION), then within a
 tier `VALUE_KNOWN` before `VALUE_UNKNOWN` (unknown never zero, never best), known values exactly and
@@ -4669,12 +4693,10 @@ output = the state), then the CANDIDATE step (`Candidate <label>`: action id / k
 effect — including the effect model's statement — and value), then one MODEL step per consulted model
 (`<Effect | Economic> model ["<id>","<version>"] of the <label>`: role, identity, content fingerprint,
 effect statement / value form, the model rule's assumptions and limitations; `rule` = the model's C0
-rule version), then the value step — when known, the bound observations and the net amount; when the
-economic model PASSed but the value stayed unknown (unknown / conflicting key, mixed or non-computable
-currency, unsupported precision), `Economic value of the <label> not computable from bound observations`
-with every key's resolution (state, bound observation, competing candidate ids), and every consulted
-observation also enters the pack inputs with its source (audit F003 of 2026-10-16T144944Z; the value
-itself stays VALUE_UNKNOWN with no amount); then the registered actions not considered
+rule version), then — whenever a valuation was attempted (economic model PASS, gates clear), in EVERY
+outcome — `Economic valuation of the <label>`, the single serialization of the canonical valuation (model,
+form, outcome, observations summed) and each key's complete canonical evidence; then the registered
+actions not considered
 (trigger / eligibility resolved negative, with reasons per action kind); then ranking (rank order, each
 candidate's ranking basis — selectable, tier with basis `REGISTRY_DECLARED_UNREVIEWED`, value — and
 every recorded tie). Decision provenance (CAT-INV-021): every candidate's gates, every exclusion,

@@ -30,7 +30,15 @@ export {
   type RecommendationModelRef,
   type RecommendationPriorityTier,
 } from "./candidate-actions";
-export { COMPUTABLE_CURRENCIES, type EconomicObservation, type EconomicValueResolution, type EconomicValueState } from "./economic-context";
+export {
+  COMPUTABLE_CURRENCIES,
+  type EconomicCompetition,
+  type EconomicKeyEvidence,
+  type EconomicKeyResolution,
+  type EconomicObservation,
+  type EconomicValuation,
+  type EconomicValueState,
+} from "./economic-context";
 export {
   ECONOMIC_VALUE_FORMS,
   RECOMMENDATION_MODEL_ROLES,

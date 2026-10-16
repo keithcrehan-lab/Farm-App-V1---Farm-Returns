@@ -8,7 +8,7 @@ import type { AnimalLedger } from "../animal-ledger";
 import type { RecommendationEvidencePack, RecommendationOutcome, HardGateOutcome } from "../evidence-pack";
 import type { SourceVersionRef } from "../source";
 import type { CandidateActionRegistry, RecommendationContextPart, RecommendationGateSource, RecommendationModelRef, RecommendationPriorityTier, BenefitClaim } from "./candidate-actions";
-import type { EconomicValueResolution } from "./economic-context";
+import type { EconomicKeyEvidence } from "./economic-context";
 import type { AdmittedModelCatalogue, ModelEvaluation } from "./recommendation-models";
 import type { CATTLE_RECOMMENDATION_PAYLOAD_VERSION } from "./recommendation-integrity";
 import type { ConsumedGoalSnapshot } from "./recommendation-consumed";
@@ -154,7 +154,7 @@ export interface CattleEvaluationContext {
   /** Each referenced, admitted model evaluated once through C0 at `evaluationDate` (sorted by model id, version). */
   modelEvaluations: { modelId: string; version: string; evaluation: ModelEvaluation }[];
   /** Resolutions of every value key a referenced economic model names. */
-  economics: EconomicValueResolution[];
+  economics: EconomicKeyEvidence[];
   fingerprint: AssessmentFingerprint;
 }
 

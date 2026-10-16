@@ -53,7 +53,7 @@ import { canonicalObligationInstant, evaluateHerdObligations, projectObligationH
 import type { SourceVersionRef } from "../source";
 import { buildWeightReadContract } from "../weights";
 import { admitCandidateActionRegistry, type CandidateActionRegistry, type RecommendationModelRef } from "./candidate-actions";
-import { admitEconomicObservations, resolveEconomicValues, type EconomicObservation } from "./economic-context";
+import { admitEconomicObservations, economicKeyEvidence, type EconomicObservation } from "./economic-context";
 import { admitRecommendationModels, evaluateRecommendationModel, relevantModelCatalogue, type AdmittedModelCatalogue } from "./recommendation-models";
 import { RULE_EVALUATION_RECORD, exact, type CarriedRuleEvaluation } from "./recommendation-exact";
 import { CATTLE_RECOMMENDATION_PAYLOAD_VERSION, computeRecommendationFingerprint } from "./recommendation-integrity";
@@ -494,7 +494,10 @@ export function buildEvaluationContexts(
   const composed = composeAnimals(read.read, trusted, hash);
   if (!composed.ok) return composed;
   const { effectiveAt, knowledgeCutoff } = read.read;
-  const economics = resolveEconomicValues(owned.owned.observations, owned.owned.valueKeys, effectiveAt, knowledgeCutoff);
+  // The canonical economic evidence: each relevant key's complete closure and its resolution (admission has already
+  // rejected every invalid supersession link, so a key that cannot be resolved here fails closed).
+  const economics = economicKeyEvidence(owned.owned.observations, owned.owned.valueKeys, effectiveAt, knowledgeCutoff);
+  if (economics === null) return { ok: false, issues: [issue("CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_SUPERSESSION_INVALID")] };
   // Models take no animal input: each referenced model is evaluated once, through C0, at the context's evaluation date.
   const evaluationDate = utcCalendarDateOf(effectiveAt);
   const modelEvaluations = owned.owned.models.records.map((m) => ({

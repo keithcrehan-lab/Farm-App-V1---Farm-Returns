@@ -2381,3 +2381,38 @@ describe("C8 audit 2026-10-16T125252Z — F011: set-valued C8-owned fields are c
   });
 });
 
+describe("C8 audit 2026-10-16T135236Z — F007: a missing named prerequisite gate is required evidence, resolved before exclusion", () => {
+  const known = { weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] } };
+  const notMet = { kind: "WEIGHT_MISSING_OR_STALE", staleAfter: null };
+  const absent = { sources: [], gateRuleIds: ["SYNTH-RULE-NAMED-ABSENT"] };
+
+  it("exact reproduction: RECORD_WEIGHT with a known weight and an absent named gate is INSUFFICIENT_EVIDENCE, never excluded", () => {
+    const rec = recOf(run({ ...known, actions: defaultOnly("RECORD_WEIGHT", { prerequisites: absent }) }));
+    expect(rec.record.outcome).toBe("INSUFFICIENT_EVIDENCE");
+    expect(rec.notCandidates).toEqual([]);
+    expect(rec.candidates[0]).toMatchObject({ trigger: { state: "NOT_MET" }, selectable: false, gates: { state: "NOT_CLEAR" } });
+    expect(rec.candidates[0].gates.checks).toContainEqual({ ruleId: "SYNTH-RULE-NAMED-ABSENT", state: "NOT_EVALUATED", source: "CONTEXT", satisfied: false });
+    // The same with an UNCONDITIONAL trigger — the audit's comparison — gives the same outcome.
+    expect(outcomeOf(run({ ...known, actions: defaultOnly("RECORD_WEIGHT", { prerequisites: absent, trigger: { kind: "UNCONDITIONAL" } }) }))).toBe("INSUFFICIENT_EVIDENCE");
+    expect(verifyStored(rec)).toEqual({ valid: true });
+  });
+
+  it("negative trigger and negative eligibility never mask an absent named gate; a present named gate lets a resolved negative exclude", () => {
+    const cases: [string, Rec, Run][] = [
+      ["trigger NO × named gate absent", { trigger: notMet, prerequisites: absent }, known],
+      ["eligibility NO × named gate absent", { applicableGoalTypes: ["SALE"], trigger: { kind: "UNCONDITIONAL" }, prerequisites: absent }, { goals: goals([goalDecl("g-fin")]) }],
+      ["trigger NO × named gate absent alongside a supplied source", { trigger: notMet, prerequisites: { sources: ["C3_WITHDRAWAL"], gateRuleIds: ["SYNTH-RULE-NAMED-ABSENT"] } }, { ...known, health: health(CLEAR_RECORDS) }],
+    ];
+    for (const [label, patch, o] of cases) {
+      const rec = recOf(run({ ...o, actions: registry([action("SYNTH-X", patch)]) }));
+      expect(rec.record.outcome, label).toBe("INSUFFICIENT_EVIDENCE");
+      expect(rec.notCandidates, label).toEqual([]);
+      expect(rec.candidates[0].selectable, label).toBe(false);
+    }
+    // Positive control: the named gate IS projected (C2 supplied) — a resolved negative trigger excludes.
+    const present = recOf(run({ ...known, obligations: obligations({ evidence: [fulfilment()] }), actions: registry([action("SYNTH-X", { trigger: notMet, prerequisites: { sources: [], gateRuleIds: [OBL_RULE] } })]) }));
+    expect(present.record.outcome).toBe("NO_RECOMMENDATION");
+    expect(present.notCandidates.map((n) => n.actionKind)).toEqual(["SYNTH-X"]);
+  });
+});
+

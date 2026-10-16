@@ -4537,8 +4537,9 @@ production; a supplied registry may declare it with `PROGRAMME_ACTION_STATE` and
 
 **Required evidence before exclusion (audit F007).** A definition is excluded as "not a candidate"
 (trigger / eligibility resolved negative) only when nothing it requires is unresolved: any required
-context part not supplied (evidence requirement or prerequisite gate source) or any unresolved trigger /
-eligibility keeps it a non-actionable candidate even when the other resolved negative (trigger state
+context part not supplied (evidence requirement or prerequisite gate source), any named prerequisite gate
+found in no supplied source (audit F007 of 2026-10-16T135236Z) or any unresolved trigger / eligibility
+keeps it a non-actionable candidate even when the other resolved negative (trigger state
 `NOT_MET` / eligibility `NOT_ELIGIBLE` recorded; never selectable; INSUFFICIENT_EVIDENCE when proposed).
 
 **Status / evidence precedence (per candidate, first match).** REQUIRED context part not supplied

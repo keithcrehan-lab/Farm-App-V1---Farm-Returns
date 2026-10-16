@@ -318,6 +318,26 @@ function byRuleIdentity<T extends { record: CarriedRuleEvaluation }>(entries: re
   return { unique, ambiguous: ambiguous.sort(compareStrings) };
 }
 
+/** A definition's named gates, each looked up in EVERY supplied source (never first match); `missing` = found in none. */
+function namedGates(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { consulted: { record: CarriedRuleEvaluation; source: RecommendationGateSource }[]; sourceRefs: SourceVersionRef[]; missing: string[] } {
+  const consulted: { record: CarriedRuleEvaluation; source: RecommendationGateSource }[] = [];
+  const sourceRefs: SourceVersionRef[] = [];
+  const missing: string[] = [];
+  for (const ruleId of d.prerequisites.gateRuleIds) {
+    let found = false;
+    for (const source of GATE_SOURCES) {
+      const g = gateRecords(ctx, source);
+      const hits = g === null ? [] : g.gates.filter((x) => x.requestedRuleId === ruleId);
+      if (g === null || hits.length === 0) continue;
+      for (const r of hits) consulted.push({ record: r, source });
+      sourceRefs.push(...g.sourceRefs, ...hits.flatMap((r) => r.sourceChecks.map((c) => c.bound)));
+      found = true;
+    }
+    if (!found) missing.push(ruleId);
+  }
+  return { consulted, sourceRefs, missing };
+}
+
 function foldGates(d: CandidateActionDefinition, ctx: CattleEvaluationContext, unresolved: readonly string[]): { ok: true; fold: GateFold } | { ok: false; ambiguous: string[] } {
   const consulted: { record: CarriedRuleEvaluation; source: RecommendationGateSource }[] = [];
   const sourceRefs: SourceVersionRef[] = [];
@@ -331,20 +351,10 @@ function foldGates(d: CandidateActionDefinition, ctx: CattleEvaluationContext, u
     for (const r of g.gates) consulted.push({ record: r, source });
     sourceRefs.push(...g.sourceRefs, ...g.gates.flatMap((r) => r.sourceChecks.map((c) => c.bound)));
   }
-  // A named gate is looked up in EVERY supplied source (never first match).
-  const missingNamed: string[] = [];
-  for (const ruleId of d.prerequisites.gateRuleIds) {
-    let found = false;
-    for (const source of GATE_SOURCES) {
-      const g = gateRecords(ctx, source);
-      const hits = g === null ? [] : g.gates.filter((x) => x.requestedRuleId === ruleId);
-      if (g === null || hits.length === 0) continue;
-      for (const r of hits) consulted.push({ record: r, source });
-      sourceRefs.push(...g.sourceRefs, ...hits.flatMap((r) => r.sourceChecks.map((c) => c.bound)));
-      found = true;
-    }
-    if (!found) missingNamed.push(ruleId);
-  }
+  const named = namedGates(d, ctx);
+  consulted.push(...named.consulted);
+  sourceRefs.push(...named.sourceRefs);
+  const missingNamed = named.missing;
   // Identical copies from several sources are one gate, labelled by the fixed source order (input-order independent).
   consulted.sort((a, b) => GATE_SOURCES.indexOf(a.source) - GATE_SOURCES.indexOf(b.source));
   const { unique, ambiguous } = byRuleIdentity(consulted);
@@ -534,9 +544,10 @@ export function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHa
     // Precedence (a / a' / b before c; CAT-INV-009 / 022 — audit F007): a definition is excluded as "not a candidate"
     // only when NOTHING it requires is unresolved. Any required context part not supplied (evidence requirement or
     // prerequisite gate source) or any unresolved trigger / eligibility keeps it a non-actionable candidate, even when
-    // the other of trigger / eligibility resolved negative — required evidence is resolved before exclusion.
+    // the other of trigger / eligibility resolved negative — required evidence is resolved before exclusion. A named
+    // prerequisite gate found in no supplied source is required evidence too (audit F007 of 2026-10-16T135236Z).
     const requiredMissing = [...d.evidenceRequirements, ...d.prerequisites.sources.map((s) => GATE_SOURCE_PART[s])].filter((part) => !partSupplied(ctx, part));
-    const anyUnresolved = trigger.state === "UNRESOLVED" || eligibility.state === "UNRESOLVED" || requiredMissing.length > 0;
+    const anyUnresolved = trigger.state === "UNRESOLVED" || eligibility.state === "UNRESOLVED" || requiredMissing.length > 0 || namedGates(d, ctx).missing.length > 0;
     if (!anyUnresolved && (trigger.state === "NO" || eligibility.state === "NO")) {
       notCandidates.push({ actionKind: d.actionKind, reasonCodes: sortedUnique([...(trigger.state === "NO" ? trigger.reasons : []), ...(eligibility.state === "NO" ? eligibility.reasons : [])]) });
       continue;

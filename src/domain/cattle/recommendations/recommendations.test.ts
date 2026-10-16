@@ -1951,8 +1951,8 @@ describe("C8 audit 2026-10-15T233648Z — F005 family closed by replay: a stored
     void _p;
     void _g;
     const pack = { ...(r.pack as RecommendationEvidencePack), fingerprint: computeCattleFingerprint("CATTLE_EVIDENCE_PACK", content, hash) };
-    const record = cattle.deriveRecommendationRecord(pack);
-    expect(record).not.toBeNull();
+    // A malformed decision field makes the pack unreadable (audit F010): the forgery then keeps the old record.
+    const record = cattle.deriveRecommendationRecord(pack) ?? r.record;
     const { fingerprint: _f, ...body } = { ...r, pack, record } as Record<string, unknown>;
     void _f;
     return { ...body, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_RECORD", body, hash) } as unknown as CattleRecommendation;
@@ -1969,11 +1969,18 @@ describe("C8 audit 2026-10-15T233648Z — F005 family closed by replay: a stored
     const r = stored();
     expect((r.candidates as Cand[])[0].value).toMatchObject({ state: "VALUE_KNOWN", amount: "749.50" });
     setAmount(r, "NaN");
-    expect(verifyCattleRecommendation(forge(r), hash, TRUSTED)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPLAY_MISMATCH" });
+    // Since audit F010 a non-canonical amount makes the pack decision unreadable — rejected before replay is reached.
+    expect(cattle.readPackDecision(forge(r).pack)).toBeNull();
+    expect(verifyCattleRecommendation(forge(r), hash, TRUSTED)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_RECORD_PACK_INCONSISTENT" });
   });
 
   it("class: any forged decision amount — malformed or well-formed — is rejected by replay", () => {
-    for (const amount of ["NaN", "Infinity", "", "1e3", "abc", "749.5", "750.50", "-749.50", "0"]) {
+    for (const amount of ["NaN", "Infinity", "", "1e3", "abc", "-0"]) {
+      const r = stored();
+      setAmount(r, amount);
+      expect(verifyCattleRecommendation(forge(r), hash, TRUSTED), amount).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_RECORD_PACK_INCONSISTENT" });
+    }
+    for (const amount of ["749.5", "750.50", "-749.50", "0"]) {
       const r = stored();
       setAmount(r, amount);
       expect(verifyCattleRecommendation(forge(r), hash, TRUSTED), amount).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPLAY_MISMATCH" });
@@ -2207,6 +2214,97 @@ describe("C8 audit 2026-10-16T094305Z — F010: the public pack readers validate
     ];
     for (const [label, p] of packs) for (const [name, read] of readers) expect(() => read(p), `${label} / ${name}`).not.toThrow();
     for (const [label, p] of packs) for (const [name, read] of readers) expect(read(p), `${label} / ${name}`).toBeNull();
+  });
+});
+
+describe("C8 audit 2026-10-16T104117Z — F005: stored context bindings; F010: every decision field and its semantics", () => {
+  type Step = { formula: string; inputs: Record<string, unknown> };
+  const resealContext = (r: Record<string, unknown>): CattleRecommendation => {
+    const { fingerprint: _c, ...ctx } = r.context as Record<string, unknown>;
+    void _c;
+    const out = { ...r, context: { ...ctx, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", ctx, hash) } } as Record<string, unknown>;
+    const { fingerprint: _f, ...body } = out;
+    void _f;
+    return { ...body, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_RECORD", body, hash) } as unknown as CattleRecommendation;
+  };
+  type Goals = { status: string; activeGoalTypes: string[]; snapshot: { status: string; subject: { animalId: string }; effectiveAt: string; knowledgeCutoff: string } };
+  const withGoals = () =>
+    structuredClone(recOf(run(favourable({ actions: registry([SELL()]), goals: goals([goalDecl("g-fin")]), weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] } })))) as unknown as Record<string, unknown>;
+  const goalsOf = (r: Record<string, unknown>) => (r.context as { goals: Goals }).goals;
+
+  it("exact reproduction: a stored goal status contradicting its snapshot, or a snapshot naming another animal, is rejected before replay", () => {
+    expect(goalsOf(withGoals())).toMatchObject({ status: "ACTIVE", snapshot: { status: "ACTIVE" }, activeGoalTypes: ["FINISHING"] });
+    expect(verifyCattleRecommendation(resealContext(withGoals()), hash, TRUSTED).valid).toBe(true);
+    const edits: [string, (g: Goals, r: Record<string, unknown>) => void][] = [
+      ["status NONE, snapshot ACTIVE", (g) => void (g.status = "NONE")],
+      ["snapshot status NONE, status ACTIVE", (g) => void (g.snapshot.status = "NONE")],
+      ["snapshot names another animal", (g) => void (g.snapshot.subject.animalId = B)],
+      ["snapshot at another effectiveAt", (g) => void (g.snapshot.effectiveAt = "2026-04-01T00:00:00Z")],
+      ["snapshot at another knowledge cutoff", (g) => void (g.snapshot.knowledgeCutoff = LATER)],
+      ["active goal types duplicated", (g) => void g.activeGoalTypes.push("FINISHING")],
+      ["latest weight observed after effectiveAt", (_g, r) => void ((r.context as { weights: { latest: { observedAt: string } } }).weights.latest.observedAt = "2026-05-01T00:00:00Z")],
+    ];
+    for (const [label, edit] of edits) {
+      const r = withGoals();
+      edit(goalsOf(r), r);
+      expect(verifyCattleRecommendation(resealContext(r), hash, TRUSTED), label).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_CONTEXT_BINDING_INCONSISTENT" });
+    }
+  });
+
+  const readers = [
+    ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
+    ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
+    ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+  ] as const;
+  const refingerprint = (p: Record<string, unknown>) => {
+    const { fingerprint: _p, generatedAt: _g, ...content } = p;
+    void _p;
+    void _g;
+    return { ...p, fingerprint: computeCattleFingerprint("CATTLE_EVIDENCE_PACK", content, hash) };
+  };
+  const pack = () => structuredClone(recOf(run(favourable({ actions: registry([SELL()]) }))).pack) as unknown as Record<string, unknown>;
+  const proposed = (p: Record<string, unknown>) => (p.calculationSteps as Step[]).find((s) => s.formula === CANDIDATE_STEP_FORMULA && s.inputs.actionId === p.proposedActionId)!;
+  const patchJson = (field: string, patch: Record<string, unknown>) => (p: Record<string, unknown>) => {
+    const s = proposed(p);
+    s.inputs[field] = JSON.stringify({ ...JSON.parse(s.inputs[field] as string), ...patch });
+  };
+
+  it("exact reproductions: eligibility `{}` and a VALUE_KNOWN amount `NaN` are unreadable by every reader", () => {
+    const p0 = pack();
+    expect(JSON.parse(proposed(p0).inputs.value as string)).toMatchObject({ state: "VALUE_KNOWN" });
+    for (const [label, edit] of [["eligibility {}", (p: Record<string, unknown>) => void (proposed(p).inputs.eligibility = "{}")], ["amount NaN", patchJson("value", { amount: "NaN" })]] as const) {
+      const p = pack();
+      edit(p);
+      const forged = refingerprint(p);
+      expect(cattle.verifyRecommendationEvidencePack(forged as never, hash).valid, label).toBe(true);
+      for (const [name, read] of readers) expect(read(forged), `${label} / ${name}`).toBeNull();
+    }
+  });
+
+  it("class: every decision field, money format and state-dependent null rule is enforced by every reader", () => {
+    const edits: [string, (p: Record<string, unknown>) => void][] = [
+      ["eligibility unknown state", patchJson("eligibility", { state: "SYNTH" })],
+      ["eligibility reasonCodes missing", (p) => void (proposed(p).inputs.eligibility = JSON.stringify({ state: "ELIGIBLE" }))],
+      ...["Infinity", "1e3", "-0", "", "01.5", " 1"].map((amount): [string, (p: Record<string, unknown>) => void] => [`amount ${JSON.stringify(amount)}`, patchJson("value", { amount })]),
+      ["KNOWN value without currency", patchJson("value", { currency: null })],
+      ["KNOWN value without model", patchJson("value", { model: null })],
+      ["KNOWN value without observations", patchJson("value", { observationIds: [] })],
+      ["KNOWN value with unsorted observations", patchJson("value", { observationIds: ["o-price", "o-cost"] })],
+      ["UNKNOWN value carrying an amount", patchJson("value", { state: "VALUE_UNKNOWN" })],
+      ["NOT_EVALUATED value naming a model", patchJson("value", { state: "NOT_EVALUATED", amount: null, currency: null, observationIds: [] })],
+      ["SUPPORTED effect without a statement", patchJson("effect", { expectedEffect: null })],
+      ["SUPPORTED effect without a model", patchJson("effect", { model: null })],
+      ["UNKNOWN effect carrying a statement", patchJson("effect", { state: "EFFECT_UNKNOWN" })],
+      ["selectable flipped", (p) => void (proposed(p).inputs.selectable = !proposed(p).inputs.selectable)],
+      ["benefit claim outside the vocabulary", (p) => void (proposed(p).inputs.benefitClaim = "SYNTH")],
+      ["gate state outside the vocabulary", (p) => void (proposed(p).inputs.gates = "SYNTH")],
+    ];
+    for (const [label, edit] of edits) {
+      const p = pack();
+      edit(p);
+      const forged = refingerprint(p);
+      for (const [name, read] of readers) expect(read(forged), `${label} / ${name}`).toBeNull();
+    }
   });
 });
 

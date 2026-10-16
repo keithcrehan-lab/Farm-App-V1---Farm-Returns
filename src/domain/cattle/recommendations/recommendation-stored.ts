@@ -239,7 +239,27 @@ export function storedRecommendationIssue(stored: CattleRecommendation, hash: Ca
   for (const [i, tie] of stored.ties.entries()) {
     if (ranking.inputs[`tie:${String(i + 1).padStart(4, "0")}`] !== JSON.stringify({ actionIds: tie.actionIds, brokenBy: tie.brokenBy })) return "CATTLE_RECOMMENDATION_STORED_TIES_INCONSISTENT";
   }
-  return storedOwnedContextIssue(ctx, hash, implementations);
+  return storedContextBindingIssue(ctx) ?? storedOwnedContextIssue(ctx, hash, implementations);
+}
+
+/**
+ * The identity / time / duplicated-state bindings C8 itself establishes INSIDE a stored context when it composes
+ * it (`evaluation-context.ts`; audit 2026-10-16T104117Z F005): each copied view equals what it was copied from,
+ * names this animal and sits at the context's one viewpoint (CAT-INV-015). Owner semantics are not restated.
+ */
+export function storedContextBindingIssue(ctx: CattleEvaluationContext): string | null {
+  const bad = "CATTLE_RECOMMENDATION_STORED_CONTEXT_BINDING_INCONSISTENT";
+  const sortedUniqueText = (xs: readonly string[]) => xs.every((x, i) => i === 0 || compareStrings(xs[i - 1], x) < 0);
+  const g = ctx.goals;
+  if (g.state === "SUPPLIED") {
+    const s = g.snapshot;
+    if (s.subject.kind !== "ANIMAL" || (s.subject as { animalId: string }).animalId !== ctx.animalId) return bad;
+    if (!sameInstant(s.effectiveAt, ctx.effectiveAt) || !sameInstant(s.knowledgeCutoff, ctx.knowledgeCutoff)) return bad;
+    if (g.status !== s.status || !sortedUniqueText(g.activeGoalTypes)) return bad;
+  }
+  const w = ctx.weights;
+  if (w.state === "SUPPLIED" && w.latest.observedAt !== null && compareInstants(w.latest.observedAt, ctx.effectiveAt) > 0) return bad;
+  return null;
 }
 
 /**

@@ -17,9 +17,10 @@
  */
 
 import type { RecommendationEvidencePack } from "../evidence-pack";
-import { sortedUnique } from "../integrity";
+import { compareStrings, sortedUnique } from "../integrity";
 import { toCanonicalPlainData } from "../regulatory";
-import { RECOMMENDATION_CONTEXT_PARTS, RECOMMENDATION_PRIORITY_TIERS, type RecommendationContextPart, type RecommendationPriorityTier } from "./candidate-actions";
+import { createMoneyAmount } from "../../money";
+import { BENEFIT_CLAIMS, RECOMMENDATION_CONTEXT_PARTS, RECOMMENDATION_PRIORITY_TIERS, type RecommendationContextPart, type RecommendationPriorityTier } from "./candidate-actions";
 import type { CandidateEffect, CandidateValue, RecommendationRecord } from "./recommendation-contracts";
 import { EVIDENCE_PACK, exactValid, type CarriedRuleEvaluation, type ExactSpec } from "./recommendation-exact";
 import { approvalEvidenced } from "./recommendation-models";
@@ -55,6 +56,33 @@ export const VALUE_SPEC: ExactSpec = {
     reasonCodes,
   },
 };
+
+/** A canonical money amount (`money.ts` `createMoneyAmount`): no NaN / Infinity / exponent / "-0". */
+function moneyAmount(amount: string): boolean {
+  try {
+    createMoneyAmount(amount, "EUR");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The state-dependent semantics C8 itself gives an effect / value (`effectOf` / `valueOf`; audit F010): only a
+ * SUPPORTED effect states one and names its model; only a KNOWN value carries a canonical amount, a currency
+ * and its observations; NOT_EVALUATED names no model.
+ */
+export function effectSemanticsValid(e: CandidateEffect): boolean {
+  if (e.state === "EFFECT_SUPPORTED") return e.model !== null && e.expectedEffect !== null;
+  return e.expectedEffect === null && (e.state !== "NOT_EVALUATED" || e.model === null);
+}
+export function valueSemanticsValid(v: CandidateValue): boolean {
+  const ids = v.observationIds;
+  if (v.state === "VALUE_KNOWN") {
+    return v.model !== null && v.amount !== null && v.currency !== null && moneyAmount(v.amount) && ids.length > 0 && ids.every((x, i) => i === 0 || compareStrings(ids[i - 1], x) < 0);
+  }
+  return v.amount === null && v.currency === null && ids.length === 0 && (v.state !== "NOT_EVALUATED" || v.model === null);
+}
 
 /** A JSON-carried decision field, `null` unless it parses AND matches its exact shape (never a bare cast). */
 function parse<T>(value: unknown, spec: ExactSpec): T | null {
@@ -106,9 +134,15 @@ function packDecision(pack: RecommendationEvidencePack): PackDecision | null {
   if (steps.length !== 1) return null;
   const i = steps[0].inputs;
   const tier = i.tier as RecommendationPriorityTier;
+  // Every decision field the step carries is validated (audit F010), including those the record does not show.
   const trigger = parse<{ state: string; reasonCodes: string[] }>(i.trigger, TRIGGER_SPEC);
+  const eligibility = parse<{ state: string; reasonCodes: string[] }>(i.eligibility, ELIGIBILITY_SPEC);
   const effect = parse<CandidateEffect>(i.effect, EFFECT_SPEC);
   const value = parse<CandidateValue>(i.value, VALUE_SPEC);
+  if (eligibility === null || effect === null || value === null || !effectSemanticsValid(effect) || !valueSemanticsValid(value)) return null;
+  if (!(BENEFIT_CLAIMS as readonly unknown[]).includes(i.benefitClaim) || (i.gates !== "CLEAR" && i.gates !== "NOT_CLEAR") || typeof i.selectable !== "boolean") return null;
+  // Selectability is exactly C8's rule: gates clear, triggered, eligible and an effect not refuted.
+  if (i.selectable !== (i.gates === "CLEAR" && trigger !== null && trigger.state === "TRIGGERED" && eligibility.state === "ELIGIBLE" && effect.state !== "EFFECT_NOT_SUPPORTED")) return null;
   const candidate = pack.candidateActions.find((c) => c.actionId === pack.proposedActionId);
   if (i.actionId !== pack.proposedActionId || typeof i.actionKind !== "string" || !RECOMMENDATION_PRIORITY_TIERS.includes(tier) || trigger === null || effect === null || value === null || candidate === undefined) {
     return null;

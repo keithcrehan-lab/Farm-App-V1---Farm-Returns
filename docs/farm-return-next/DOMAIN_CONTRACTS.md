@@ -4695,8 +4695,11 @@ assumptions / limitations, tagged `CATTLE_RECOMMENDATION_MODEL_ASSUMPTION:` /
 record to equal the one its pack derives. The three public pack readers (`readPackDecision`,
 `renderRecommendationExplanation`, `deriveRecommendationRecord`) treat their pack as untrusted (audits F009
 / F010): canonical plain data first, then the exact C0 pack shape, then every JSON-carried decision field
-(trigger, eligibility, effect, value) against its exact shape; anything malformed reads as `null`, never a
-throw or a bare cast.
+(trigger, eligibility, effect, value) against its exact shape, then C8's own state-dependent semantics
+(only a SUPPORTED effect states one and names its model; only a KNOWN value carries a canonical
+`money.ts` amount, a currency and sorted observations; NOT_EVALUATED names no model; benefit claim and gate
+state in vocabulary; selectability exactly C8's rule); anything malformed reads as `null`, never a throw or
+a bare cast.
 
 **Record and explanation.** `RecommendationRecord` (information class RECOMMENDATION): recommended
 action, outcome / `actionable` (true only for C0 ACTIONABLE), structured reason codes, deterministic
@@ -4738,7 +4741,11 @@ checks, selectability, effect, value) ↔ the pack's candidate, gate-check and r
 EVALUATION_DATE | CANDIDATES | EXCLUSIONS | TIES>_...`). The stored context's predecessor-derived
 views are checked against the owners' frozen vocabularies and formats (C2 obligation states, C3
 withdrawal-gate states, C4 latest-weight state and `observedAt` instant, C6 goal status / goal types /
-routing state, C7 classification and occurrence states). The C8-OWNED context parts are validated
+routing state, C7 classification and occurrence states), and the bindings C8 establishes inside the
+context when composing it are re-checked (`storedContextBindingIssue`; audit 2026-10-16T104117Z): the
+goal snapshot names this animal at the context's viewpoint and the copied goal status equals its
+snapshot's; active goal types are sorted and unique; the latest weight is not observed after `effectiveAt`
+(`..._STORED_CONTEXT_BINDING_INCONSISTENT`). The C8-OWNED context parts are validated
 semantically before replay (`storedOwnedContextIssue`; audit 2026-10-16T064728Z): the registry, models,
 reviews, sources and each bound economic observation are re-admitted through C8's own admission at the
 context's cutoff and must equal what admission yields (amount format and sign, money precision, times,

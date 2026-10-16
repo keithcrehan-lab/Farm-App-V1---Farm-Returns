@@ -225,15 +225,26 @@ function admit(records: unknown[], knowledgeTime: (r: unknown) => string | null,
   return out;
 }
 
+const sortedTextSet = (v: unknown): unknown => (Array.isArray(v) && v.every((x) => typeof x === "string") ? [...(v as string[])].sort(compareStrings) : v);
+
+/** A model record with its value-form key sets in canonical (sorted) order; anything malformed is left for validation. */
+function canonicalKeySets(r: unknown): unknown {
+  if (!isPlainObject(r) || !isPlainObject(r.value)) return r;
+  return { ...r, value: { ...r.value, benefitKeys: sortedTextSet(r.value.benefitKeys), costKeys: sortedTextSet(r.value.costKeys) } };
+}
+
 export function admitRecommendationModels(raw: unknown, knowledgeCutoff: string): { ok: true; catalogue: AdmittedModelCatalogue } | { ok: false; issues: Issue[] } {
   if (!isPlainObject(raw) || Object.keys(raw).length !== 3 || !Array.isArray(raw.records) || !Array.isArray(raw.reviews) || !Array.isArray(raw.sources)) {
     return { ok: false, issues: [{ code: "CATTLE_RECOMMENDATION_MODELS_INVALID", ref: null }] };
   }
   const issues: Issue[] = [];
-  const records = admit(raw.records, (r) => (isPlainObject(r) ? canonicalObligationInstant(r.recordedAt) : null), knowledgeCutoff, "CATTLE_RECOMMENDATION_MODEL_UNREADABLE_KNOWLEDGE_TIME", issues);
+  const admittedRecords = admit(raw.records, (r) => (isPlainObject(r) ? canonicalObligationInstant(r.recordedAt) : null), knowledgeCutoff, "CATTLE_RECOMMENDATION_MODEL_UNREADABLE_KNOWLEDGE_TIME", issues);
   const reviews = admit(raw.reviews, (r) => (isPlainObject(r) ? canonicalObligationInstant(r.reviewedAt) : null), knowledgeCutoff, "CATTLE_RECOMMENDATION_MODEL_REVIEW_INVALID", issues);
   const sources = admit(raw.sources, (r) => (isPlainObject(r) ? laterOf(r.retrievedAt, r.checkedAt) : null), knowledgeCutoff, "CATTLE_RECOMMENDATION_MODEL_SOURCE_INVALID", issues);
 
+  // Benefit / cost keys are SETS (the content binding fingerprints them sorted): canonicalised at admission, so key
+  // order never changes identity, the context, the pack or the recommendation fingerprint (audit F011).
+  const records = admittedRecords.map(canonicalKeySets);
   // Identity before validity among admitted model records (invalid copies included).
   const byIdentity = new Map<string, string>();
   for (const r of records) {

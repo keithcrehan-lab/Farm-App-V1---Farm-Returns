@@ -2339,3 +2339,45 @@ describe("C8 architecture decision 2026-10-16 (Option 1) — authoritative verif
   });
 });
 
+describe("C8 audit 2026-10-16T125252Z — F011: set-valued C8-owned fields are canonical; their order never changes identity", () => {
+  const KEYS = ["SYNTH-KEY-PRICE", "SYNTH-KEY-BONUS"];
+  const OBS = [econObs("o-price", "SYNTH-KEY-PRICE", "1000.00"), econObs("o-bonus", "SYNTH-KEY-BONUS", "2"), econObs("o-cost", "SYNTH-KEY-COST", "250.5"), econObs("o-fee", "SYNTH-KEY-FEE", "1")];
+  const modelsWith = (benefit: string[], cost: string[]) => allModels([effectModel(), econModel(benefit, cost)]);
+  const def = (o: { sources: string[]; evidence: string[]; goalTypes: string[]; assumptions: string[] }) =>
+    SELL(o.sources, { evidenceRequirements: o.evidence, applicableGoalTypes: o.goalTypes, assumptions: o.assumptions });
+  const A_ORDER = { sources: ["C3_WITHDRAWAL", "C2_OBLIGATION"], evidence: ["WEIGHTS", "HEALTH"], goalTypes: ["SALE", "FINISHING"], assumptions: ["synthetic b", "synthetic a"] };
+  const B_ORDER = { sources: ["C2_OBLIGATION", "C3_WITHDRAWAL"], evidence: ["HEALTH", "WEIGHTS"], goalTypes: ["FINISHING", "SALE"], assumptions: ["synthetic a", "synthetic b"] };
+  const scenario = (benefit: string[], cost: string[], order: typeof A_ORDER): Run =>
+    favourable({
+      models: modelsWith(benefit, cost),
+      observations: OBS,
+      actions: registry([def(order)]),
+      health: health(CLEAR_RECORDS),
+      obligations: obligations({ evidence: [fulfilment()] }),
+      goals: goals([goalDecl("g-fin")]),
+      weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] },
+    });
+
+  it("exact reproduction and class: permuted model key sets and registry set fields give identical complete fingerprints, and verify against each other's request", () => {
+    const original = ok(run(scenario(KEYS, ["SYNTH-KEY-COST", "SYNTH-KEY-FEE"], A_ORDER)));
+    const rec = original.animals[0];
+    expect(rec.candidates[0].value).toMatchObject({ state: "VALUE_KNOWN", amount: "750.50" });
+    const permutations: [string, Run][] = [
+      ["benefit keys reversed (the audit's case)", scenario([...KEYS].reverse(), ["SYNTH-KEY-COST", "SYNTH-KEY-FEE"], A_ORDER)],
+      ["cost keys reversed", scenario(KEYS, ["SYNTH-KEY-FEE", "SYNTH-KEY-COST"], A_ORDER)],
+      ["every registry set field reordered", scenario(KEYS, ["SYNTH-KEY-COST", "SYNTH-KEY-FEE"], B_ORDER)],
+      ["everything reordered", scenario([...KEYS].reverse(), ["SYNTH-KEY-FEE", "SYNTH-KEY-COST"], B_ORDER)],
+    ];
+    for (const [label, o] of permutations) {
+      const request = requestOf(o);
+      const permuted = ok(recommendCattle(request, hash, TRUSTED));
+      expect(permuted.fingerprint, label).toEqual(original.fingerprint);
+      expect(permuted.animals[0].fingerprint, label).toEqual(rec.fingerprint);
+      expect(permuted.animals[0].context.fingerprint, label).toEqual(rec.context.fingerprint);
+      expect(permuted.animals[0].pack.fingerprint, label).toEqual(rec.pack.fingerprint);
+      // Authoritative verification of the stored original against the equivalent, reordered request.
+      expect(verifyCattleRecommendation(structuredClone(rec), request, hash, TRUSTED), label).toEqual({ valid: true });
+    }
+  });
+});
+

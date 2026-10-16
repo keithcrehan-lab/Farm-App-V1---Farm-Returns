@@ -175,6 +175,22 @@ export type RegistryAdmission =
  * first, identity before validity, then validation of every admitted
  * definition. Returns the admitted definitions sorted by action kind.
  */
+const sortedTextSet = (v: unknown): unknown => (Array.isArray(v) && v.every((x) => typeof x === "string") ? [...(v as string[])].sort(compareStrings) : v);
+
+/** A definition with every set-valued field (goal types, trigger state lists, prerequisites, evidence requirements, assumptions, limitations) sorted. */
+function canonicalSets(d: unknown): unknown {
+  if (!isPlainObject(d)) return d;
+  const out: Record<string, unknown> = { ...d };
+  for (const k of ["applicableGoalTypes", "evidenceRequirements", "assumptions", "limitations"]) if (Object.hasOwn(d, k)) out[k] = sortedTextSet(d[k]);
+  if (isPlainObject(d.prerequisites)) out.prerequisites = { ...d.prerequisites, sources: sortedTextSet(d.prerequisites.sources), gateRuleIds: sortedTextSet(d.prerequisites.gateRuleIds) };
+  if (isPlainObject(d.trigger)) {
+    const t: Record<string, unknown> = { ...d.trigger };
+    for (const k of ["states", "statuses", "classifications", "actionKinds"]) if (Object.hasOwn(d.trigger, k)) t[k] = sortedTextSet(d.trigger[k]);
+    out.trigger = t;
+  }
+  return out;
+}
+
 export function admitCandidateActionRegistry(raw: unknown, knowledgeCutoff: string): RegistryAdmission {
   if (!isPlainObject(raw) || !Array.isArray(raw.definitions) || !ownedValid(REGISTRY_HEADER, { registryId: raw.registryId, version: raw.version }) || Object.keys(raw).some((k) => !REGISTRY_FIELDS.includes(k))) {
     return { ok: false, issues: [{ code: "CATTLE_RECOMMENDATION_REGISTRY_INVALID", ref: null }] };
@@ -190,6 +206,8 @@ export function admitCandidateActionRegistry(raw: unknown, knowledgeCutoff: stri
     if (compareInstants(recordedAt, knowledgeCutoff) > 0) continue; // provably later: invisible, never validated
     admitted.push(d);
   }
+  // Set-valued fields are canonicalised at admission (audit F011): their order never changes identity or any fingerprint.
+  admitted.splice(0, admitted.length, ...admitted.map(canonicalSets));
   // Identity before validity: one action kind, one content (invalid copies included).
   const byKind = new Map<string, string>();
   for (const d of admitted) {

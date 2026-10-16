@@ -4731,10 +4731,19 @@ context ↔ pack target scope ↔ snapshot ref); both canonical times, the pack'
 evaluation date; candidates (rank, description, tier, claim, trigger, eligibility, gate state and
 checks, selectability, effect, value) ↔ the pack's candidate, gate-check and ranking steps; exclusions
 ↔ the exclusion step; ties ↔ the ranking step (`..._STORED_<STRUCTURE | ANIMAL | SNAPSHOT | TIMES |
-EVALUATION_DATE | CANDIDATES | EXCLUSIONS | TIES>_...`). A re-sealed edit is therefore rejected whenever it
-is malformed or inconsistent. Limitation: a fully consistent forgery (every part rebuilt and every
-fingerprint recomputed) is indistinguishable by inspection — reproduction over the same canonical
-evidence is the authenticity check. Change detection only, not
+EVALUATION_DATE | CANDIDATES | EXCLUSIONS | TIES>_...`). The stored context's predecessor-derived
+views are checked against the owners' frozen vocabularies and formats (C2 obligation states, C3
+withdrawal-gate states, C4 latest-weight state and `observedAt` instant, C6 goal status / goal types /
+routing state, C7 classification and occurrence states). **Replay (human architecture decision
+2026-10-15; audit F005 family, 2026-10-15T233648Z).** Every decision field is derived from the sealed
+context, so after the context fingerprint verifies, `verifyCattleRecommendation` re-runs the C8 engine over
+the validated stored context and requires the result to equal the stored recommendation exactly
+(`CATTLE_RECOMMENDATION_REPLAY_MISMATCH` otherwise). Any edited candidate, exclusion, tie, pack step,
+amount or record — even with the pack and record rebuilt and every fingerprint recomputed — is rejected;
+completeness never depends on a field-by-field decision check. A re-sealed edit is therefore rejected
+whenever it is malformed or inconsistent. Limitation: a context consistent with itself but not with the
+canonical evidence it claims (every part rebuilt and every fingerprint recomputed) is indistinguishable
+by inspection — reproduction over the same canonical evidence is the authenticity check. Change detection only, not
 signatures. Reproduction = re-running over the same canonical evidence at the same times; a later
 correction or late record never alters the recommendation reproduced at an earlier cutoff.
 

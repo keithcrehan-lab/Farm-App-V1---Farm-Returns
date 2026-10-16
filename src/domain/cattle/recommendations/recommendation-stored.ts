@@ -17,16 +17,26 @@
  *    ↔ snapshot ref), both canonical times and the evaluation date (record ↔
  *    context ↔ pack), and the candidates, exclusions and ties ↔ the pack's own
  *    decision steps.
- * A fully consistent forgery (every part rebuilt and re-sealed) cannot be told
- * from an original by inspection — reproduction over the same canonical
- * evidence is the authenticity check (documented limitation).
+ * The stored CONTEXT is the untrusted input; every decision field derived from
+ * it (candidates, exclusions, ties, pack, record) is then established by
+ * REPLAY (`verifyCattleRecommendation`, human architecture decision
+ * 2026-10-15, audit F005 family): the C8 engine is re-run over the validated
+ * stored context and the result must equal the stored recommendation exactly,
+ * so no field-by-field decision check is relied upon for completeness.
+ * A context consistent with itself but not with the canonical evidence it
+ * claims (every part rebuilt and re-sealed) cannot be told from an original
+ * by inspection — reproduction over the same canonical evidence is the
+ * authenticity check (documented limitation).
  */
 
-import { canonicalObligationInstant, utcCalendarDateOf } from "../regulatory";
+import { OBLIGATION_STATES, canonicalObligationInstant, utcCalendarDateOf } from "../regulatory";
+import { PRODUCTION_GOAL_TYPES } from "../goals";
+import { PROGRAMME_CLASSIFICATIONS, PROGRAMME_OCCURRENCE_STATES } from "../programmes";
+import { C3_WITHDRAWAL_GATE_STATES } from "../programmes/programme-consumed";
 import { rawIdentityKey } from "../health/health-input";
 import { BENEFIT_CLAIMS, CANDIDATE_ACTION_DEFINITION_SPEC, RECOMMENDATION_GATE_SOURCES, RECOMMENDATION_PRIORITY_TIERS } from "./candidate-actions";
 import { OBSERVATION_SPEC } from "./economic-context";
-import { C6_SNAPSHOT } from "./recommendation-consumed";
+import { C4_LATEST_WEIGHT_STATES, C6_GOAL_STATUSES, C6_ROUTING_STATES, C6_SNAPSHOT } from "./recommendation-consumed";
 import { EVIDENCE_PACK, RULE_EVALUATION_RECORD, SOURCE_VERSION_REF, exactValid, type ExactSpec } from "./recommendation-exact";
 import { CANDIDATE_STEP_FORMULA, PROPOSED_LABEL, alternativeLabel, candidateStepDescription } from "./recommendation-explanation";
 import { CATTLE_RECOMMENDATION_PAYLOAD_VERSION } from "./recommendation-integrity";
@@ -59,28 +69,28 @@ const CONTEXT = object({
   knowledgeCutoff: instant,
   evaluationDate: date,
   animal: object({ snapshotFingerprint: fingerprint }),
-  obligations: part({ recordFingerprints: arrayOf(fingerprint), records: arrayOf(object({ obligationId: ref, occurrenceId: nullable(text), state: text })), gates: GATES }),
+  obligations: part({ recordFingerprints: arrayOf(fingerprint), records: arrayOf(object({ obligationId: ref, occurrenceId: nullable(text), state: oneOf(OBLIGATION_STATES) })), gates: GATES }),
   health: part({
     timelineFingerprint: fingerprint,
     medicineLedgerFingerprint: fingerprint,
     withdrawalGateFingerprint: fingerprint,
-    withdrawal: arrayOf(object({ foodProduct: text, state: text })),
+    withdrawal: arrayOf(object({ foodProduct: text, state: oneOf(C3_WITHDRAWAL_GATE_STATES) })),
     gates: GATES,
     sourceRefs: SOURCES,
   }),
-  weights: part({ contractFingerprint: fingerprint, seriesFingerprint: fingerprint, latest: object({ state: text, observedAt: nullable(text) }) }),
+  weights: part({ contractFingerprint: fingerprint, seriesFingerprint: fingerprint, latest: object({ state: oneOf(C4_LATEST_WEIGHT_STATES), observedAt: nullable(instant) }) }),
   performance: part({ evaluationFingerprint: fingerprint, animalFingerprint: fingerprint }),
   goals: part({
-    status: text,
-    activeGoalTypes: arrayOf(text),
+    status: oneOf(C6_GOAL_STATUSES),
+    activeGoalTypes: arrayOf(oneOf(PRODUCTION_GOAL_TYPES)),
     snapshot: owned(C6_SNAPSHOT),
-    routingState: text,
+    routingState: oneOf(C6_ROUTING_STATES),
     routingFingerprint: fingerprint,
     targetApplicabilityFingerprint: nullable(fingerprint),
   }),
   programmes: part({
     animalStatusFingerprints: arrayOf(fingerprint),
-    occurrences: arrayOf(object({ programmeId: ref, classification: text, actionId: nullable(text), actionKind: nullable(text), occurrenceId: nullable(text), state: text })),
+    occurrences: arrayOf(object({ programmeId: ref, classification: oneOf(PROGRAMME_CLASSIFICATIONS), actionId: nullable(text), actionKind: nullable(text), occurrenceId: nullable(text), state: oneOf(PROGRAMME_OCCURRENCE_STATES) })),
     gates: GATES,
     sourceRefs: SOURCES,
   }),

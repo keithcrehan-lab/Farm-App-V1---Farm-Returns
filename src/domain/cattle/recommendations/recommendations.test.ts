@@ -104,6 +104,9 @@ import * as cattleExact from "./recommendation-exact";
 import * as cattleModels from "./recommendation-models";
 import * as cattleEconomic from "./economic-context";
 import { computeRecommendationFingerprint } from "./recommendation-integrity";
+import { computeCattleFingerprint } from "../integrity";
+import { CANDIDATE_STEP_FORMULA } from "./recommendation-explanation";
+import type { RecommendationEvidencePack } from "../evidence-pack";
 
 type Rec = Record<string, unknown>;
 
@@ -1880,5 +1883,64 @@ describe("C8 audit 2026-10-15T210448Z — F005: re-sealed stored recommendations
     const off = recOf(run({ ...known, actions: registry([action("SYNTH-X", { trigger: notMet })]) }));
     expect(off.record.outcome).toBe("NO_RECOMMENDATION");
     expect(off.notCandidates.map((n) => n.actionKind)).toEqual(["SYNTH-X"]);
+  });
+});
+
+describe("C8 audit 2026-10-15T233648Z — F005 family closed by replay: a stored recommendation must equal the engine's output over its own validated context", () => {
+  type Cand = { actionId: string; value: { state: string; amount: string | null } };
+  type Step = { formula: string; description: string; inputs: Record<string, unknown> };
+  const stored = () => structuredClone(recOf(run(favourable({ actions: registry([SELL()]) })))) as unknown as Record<string, unknown>;
+  /** The full attack: edit, rewrite the pack's own candidate step, re-fingerprint the C0 pack, re-derive the record, re-seal the outer record. */
+  const forge = (r: Record<string, unknown>): CattleRecommendation => {
+    const { fingerprint: _p, generatedAt: _g, ...content } = r.pack as RecommendationEvidencePack;
+    void _p;
+    void _g;
+    const pack = { ...(r.pack as RecommendationEvidencePack), fingerprint: computeCattleFingerprint("CATTLE_EVIDENCE_PACK", content, hash) };
+    const record = cattle.deriveRecommendationRecord(pack);
+    expect(record).not.toBeNull();
+    const { fingerprint: _f, ...body } = { ...r, pack, record } as Record<string, unknown>;
+    void _f;
+    return { ...body, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_RECORD", body, hash) } as unknown as CattleRecommendation;
+  };
+  const setAmount = (r: Record<string, unknown>, amount: string) => {
+    const c = (r.candidates as Cand[])[0];
+    c.value.amount = amount;
+    const step = (r.pack as { calculationSteps: Step[] }).calculationSteps.find((s) => s.formula === CANDIDATE_STEP_FORMULA && s.inputs.actionId === c.actionId)!;
+    step.inputs.value = JSON.stringify(c.value);
+  };
+
+  it("exact reproduction: a known amount forged to NaN (pack step rebuilt, pack and record re-fingerprinted) is rejected by replay", () => {
+    expect(verifyCattleRecommendation(forge(stored()), hash).valid).toBe(true); // forging an unedited record is a no-op
+    const r = stored();
+    expect((r.candidates as Cand[])[0].value).toMatchObject({ state: "VALUE_KNOWN", amount: "749.50" });
+    setAmount(r, "NaN");
+    expect(verifyCattleRecommendation(forge(r), hash)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPLAY_MISMATCH" });
+  });
+
+  it("class: any forged decision amount — malformed or well-formed — is rejected by replay", () => {
+    for (const amount of ["NaN", "Infinity", "", "1e3", "abc", "749.5", "750.50", "-749.50", "0"]) {
+      const r = stored();
+      setAmount(r, amount);
+      expect(verifyCattleRecommendation(forge(r), hash), amount).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPLAY_MISMATCH" });
+    }
+  });
+
+  it("exact reproduction: invalid context vocabularies and timestamps are rejected even when the context is re-fingerprinted", () => {
+    const withWeights = () => structuredClone(recOf(run(favourable({ actions: registry([SELL()]), weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] } })))) as unknown as Record<string, unknown>;
+    const resealContext = (r: Record<string, unknown>) => {
+      const { fingerprint: _c, ...ctx } = r.context as Record<string, unknown>;
+      void _c;
+      r.context = { ...ctx, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", ctx, hash) };
+    };
+    const edits: [string, (ctx: { weights: { latest: { state: string; observedAt: string | null } } }) => void][] = [
+      ["weight state outside the C4 vocabulary", (c) => void (c.weights.latest.state = "SYNTH_STATE")],
+      ["weight observedAt not an instant", (c) => void (c.weights.latest.observedAt = "not-a-time")],
+    ];
+    for (const [label, edit] of edits) {
+      const r = withWeights();
+      edit(r.context as never);
+      resealContext(r);
+      expect(verifyCattleRecommendation(forge(r), hash), label).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_STRUCTURE_MALFORMED" });
+    }
   });
 });

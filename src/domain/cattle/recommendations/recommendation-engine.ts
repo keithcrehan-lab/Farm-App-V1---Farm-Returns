@@ -887,8 +887,9 @@ export function recommendCattle(request: unknown, hash: CattleHash, trusted: Rec
 }
 
 /**
- * Verifies a stored recommendation: its C0 pack (C0
- * `verifyRecommendationEvidencePack`), its sealed-context fingerprint and its
+ * Verifies a stored recommendation: its complete stored structure, its C0
+ * pack (C0 `verifyRecommendationEvidencePack`), its sealed-context
+ * fingerprint, an exact REPLAY of the engine over the stored context, and its
  * record fingerprint. Never repairs. A matching fingerprint is change
  * detection, not authenticity; reproduction requires re-running
  * `recommendCattle` over the same canonical evidence at the same times.
@@ -929,6 +930,13 @@ function verifyStored(recommendation: CattleRecommendation, hash: CattleHash): F
   const { fingerprint: contextFingerprint, ...contextBody } = context;
   const c = verifyRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", contextBody, contextFingerprint as AssessmentFingerprint, hash);
   if (!c.valid) return c;
+  // Replay (human architecture decision 2026-10-15, audit F005 family): every decision field is derived from the
+  // validated stored context, so the stored recommendation must be exactly what the engine produces over it. Any
+  // edited decision field — candidates, exclusions, ties, pack steps, amounts, record — fails here, re-sealed or not.
+  const replayed = recommendForContext(deepFreezeAnimalValue(structuredClone(context)), hash);
+  if (!replayed.ok || rawIdentityKey(replayed.recommendation) !== rawIdentityKey(recommendation)) {
+    return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPLAY_MISMATCH", detail: "the stored recommendation is not the one the C8 engine produces over its own sealed context" };
+  }
   const { fingerprint, ...body } = recommendation;
   return verifyRecommendationFingerprint("CATTLE_RECOMMENDATION_RECORD", body, fingerprint, hash);
 }

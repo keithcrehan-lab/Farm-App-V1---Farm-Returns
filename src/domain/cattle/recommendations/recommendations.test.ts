@@ -1944,3 +1944,58 @@ describe("C8 audit 2026-10-15T233648Z — F005 family closed by replay: a stored
     }
   });
 });
+
+describe("C8 audit 2026-10-16T064728Z — the stored context's C8-owned parts are validated before replay", () => {
+  type Obs = { amount: string; observedAt: string; receivedAt: string; valueKey: string };
+  type Econ = { valueKey: string; state: string; observation: Obs | null };
+  type Model = { role: string; expectedEffect: string | null };
+  type Ctx = { economics: Econ[]; models: { records: Model[]; reviews: unknown[] }; modelEvaluations: { evaluation: { state: string; model: Model; ruleEvaluation: { reviews: { state: string }[]; sourceChecks: { status: string }[] } } }[]; actions: { definitions: { tier: string; actionKind: string }[] } };
+  const stored = () => structuredClone(recOf(run(favourable({ actions: registry([SELL()]) })))) as unknown as Record<string, unknown>;
+  /** Re-fingerprints the edited context, then the outer record (the audit's attack on the context). */
+  const resealContext = (r: Record<string, unknown>): CattleRecommendation => {
+    const { fingerprint: _c, ...ctx } = r.context as Record<string, unknown>;
+    void _c;
+    const out = { ...r, context: { ...ctx, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", ctx, hash) } } as Record<string, unknown>;
+    const { fingerprint: _f, ...body } = out;
+    void _f;
+    return { ...body, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_RECORD", body, hash) } as unknown as CattleRecommendation;
+  };
+  const cost = (c: Ctx) => c.economics.find((e) => e.valueKey === "SYNTH-KEY-COST")!.observation!;
+  const effect = (c: Ctx) => [c.models.records.find((m) => m.role === "EFFECT")!, c.modelEvaluations.find((e) => e.evaluation.state === "EVALUATED" && e.evaluation.model.role === "EFFECT")!.evaluation.model];
+
+  it("exact reproductions: a negative stored cost observation and an effect statement changed without its content binding are rejected", () => {
+    expect(verifyCattleRecommendation(resealContext(stored()), hash).valid).toBe(true); // re-sealing an unedited context is a no-op
+    const neg = stored();
+    cost(neg.context as Ctx).amount = "-250.5";
+    expect(verifyCattleRecommendation(resealContext(neg), hash)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_ECONOMICS_INVALID" });
+    const eff = stored();
+    for (const m of effect(eff.context as Ctx)) m.expectedEffect = "SYNTH a different effect";
+    expect(verifyCattleRecommendation(resealContext(eff), hash)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_MODEL_EVALUATION_INVALID" });
+  });
+
+  it("class: C8-owned context semantics — observations, model approval / source evidence, registry and value keys — are re-admitted, never trusted", () => {
+    const edits: [string, (c: Ctx) => void][] = [
+      ["observation amount over the money precision", (c) => void (cost(c).amount = "1".repeat(25))],
+      ["observation amount malformed", (c) => void (cost(c).amount = "NaN")],
+      ["observation observed after effectiveAt", (c) => void (cost(c).observedAt = LATER)],
+      ["observation received after the knowledge cutoff", (c) => void (cost(c).receivedAt = LATER)],
+      ["observation bound to another value key", (c) => void (cost(c).valueKey = "SYNTH-KEY-PRICE")],
+      ["KNOWN resolution without its observation", (c) => void (c.economics[0].observation = null)],
+      ["economic value key dropped", (c) => void c.economics.pop()],
+      ["model reviews removed (approval no longer evidenced)", (c) => void (c.models.reviews = [])],
+      ["carried review forged to REJECTED", (c) => void (c.modelEvaluations[0].evaluation.ruleEvaluation.reviews[0].state = "REJECTED")],
+      ["carried source check forged", (c) => void (c.modelEvaluations[0].evaluation.ruleEvaluation.sourceChecks[0].status = "SUPERSEDED")],
+      ["model evaluation removed", (c) => void c.modelEvaluations.pop()],
+      ["registry definition duplicated", (c) => void c.actions.definitions.push(structuredClone(c.actions.definitions[0]))],
+    ];
+    for (const [label, edit] of edits) {
+      const r = stored();
+      edit(r.context as Ctx);
+      // Rejected by context validation itself — never left to replay, which would reproduce an invalid context faithfully.
+      const v = verifyCattleRecommendation(resealContext(r), hash);
+      expect(v.valid, label).toBe(false);
+      expect(v.valid ? null : v.reasonCode, label).toMatch(/^CATTLE_RECOMMENDATION_STORED_(STRUCTURE_MALFORMED|REGISTRY_INVALID|MODELS_INVALID|MODEL_EVALUATION_INVALID|ECONOMICS_INVALID)$/);
+    }
+  });
+});
+

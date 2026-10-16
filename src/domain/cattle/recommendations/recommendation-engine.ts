@@ -902,7 +902,7 @@ export function verifyCattleRecommendation(recommendation: CattleRecommendation,
   // re-sealed edit (fingerprints recomputed) is still rejected when malformed or inconsistent (audit F005).
   let issue: string | null;
   try {
-    issue = storedRecommendationIssue(recommendation);
+    issue = storedRecommendationIssue(recommendation, hash);
   } catch {
     issue = "CATTLE_RECOMMENDATION_MALFORMED";
   }

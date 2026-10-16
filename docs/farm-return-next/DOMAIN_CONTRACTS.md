@@ -4734,7 +4734,18 @@ checks, selectability, effect, value) ↔ the pack's candidate, gate-check and r
 EVALUATION_DATE | CANDIDATES | EXCLUSIONS | TIES>_...`). The stored context's predecessor-derived
 views are checked against the owners' frozen vocabularies and formats (C2 obligation states, C3
 withdrawal-gate states, C4 latest-weight state and `observedAt` instant, C6 goal status / goal types /
-routing state, C7 classification and occurrence states). **Replay (human architecture decision
+routing state, C7 classification and occurrence states). The C8-OWNED context parts are validated
+semantically before replay (`storedOwnedContextIssue`; audit 2026-10-16T064728Z): the registry, models,
+reviews, sources and each bound economic observation are re-admitted through C8's own admission at the
+context's cutoff and must equal what admission yields (amount format and sign, money precision, times,
+value-key binding; the value keys are exactly those the catalogue's economic models name); each model
+evaluation is bound to its admitted model — content-binding marker, D1 eligibility, and the C0 fields C0's
+own exported functions derive without the implementation (rule ref and fingerprint, classification, gate
+role, evaluation date, `evaluateRuleReviews` dimensions over the stored reviews, `checkSourceBinding`
+over the stored sources), with approval evidenced for a PASS
+(`..._STORED_<REGISTRY | MODELS | MODEL_EVALUATION | ECONOMICS>_INVALID`). The model predicate's own
+PASS / FAIL needs the trusted implementation and is not re-derived from a stored record (limitation).
+**Replay (human architecture decision
 2026-10-15; audit F005 family, 2026-10-15T233648Z).** Every decision field is derived from the sealed
 context, so after the context fingerprint verifies, `verifyCattleRecommendation` re-runs the C8 engine over
 the validated stored context and requires the result to equal the stored recommendation exactly

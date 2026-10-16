@@ -21,7 +21,7 @@ import { sortedUnique } from "../integrity";
 import { toCanonicalPlainData } from "../regulatory";
 import { RECOMMENDATION_CONTEXT_PARTS, RECOMMENDATION_PRIORITY_TIERS, type RecommendationContextPart, type RecommendationPriorityTier } from "./candidate-actions";
 import type { CandidateEffect, CandidateValue, RecommendationRecord } from "./recommendation-contracts";
-import type { CarriedRuleEvaluation } from "./recommendation-exact";
+import { EVIDENCE_PACK, exactValid, type CarriedRuleEvaluation, type ExactSpec } from "./recommendation-exact";
 import { approvalEvidenced } from "./recommendation-models";
 
 /** Calculation-step vocabulary shared by the writer (the engine) and this reader. */
@@ -35,13 +35,37 @@ export const modelStepDescription = (role: "EFFECT" | "ECONOMIC", modelId: strin
   `${role === "EFFECT" ? "Effect" : "Economic"} model ${JSON.stringify([modelId, version])} of the ${label}`;
 export const CONTEXT_PART_UNCERTAINTY = "CATTLE_RECOMMENDATION_CONTEXT_PART_NOT_SUPPLIED:";
 
-function parse<T>(value: unknown): T | null {
+// The exact shapes of the C8 decision fields a candidate step carries as JSON (shared with the stored-record spec).
+const reasonCodes: ExactSpec = { t: "array", of: { t: "text" } };
+const modelRef: ExactSpec = { t: "nullable", of: { t: "object", fields: { modelId: { t: "ref" }, version: { t: "ref" } } } };
+export const TRIGGER_SPEC: ExactSpec = { t: "object", fields: { state: { t: "enum", values: ["TRIGGERED", "UNRESOLVED", "NOT_MET"] }, reasonCodes } };
+export const ELIGIBILITY_SPEC: ExactSpec = { t: "object", fields: { state: { t: "enum", values: ["ELIGIBLE", "UNRESOLVED", "NOT_ELIGIBLE"] }, reasonCodes } };
+export const EFFECT_SPEC: ExactSpec = {
+  t: "object",
+  fields: { state: { t: "enum", values: ["EFFECT_SUPPORTED", "EFFECT_NOT_SUPPORTED", "EFFECT_UNKNOWN", "NOT_EVALUATED"] }, model: modelRef, expectedEffect: { t: "nullable", of: { t: "text" } }, reasonCodes },
+};
+export const VALUE_SPEC: ExactSpec = {
+  t: "object",
+  fields: {
+    state: { t: "enum", values: ["VALUE_KNOWN", "VALUE_UNKNOWN", "NOT_EVALUATED"] },
+    model: modelRef,
+    amount: { t: "nullable", of: { t: "text" } },
+    currency: { t: "nullable", of: { t: "text" } },
+    observationIds: { t: "array", of: { t: "text" } },
+    reasonCodes,
+  },
+};
+
+/** A JSON-carried decision field, `null` unless it parses AND matches its exact shape (never a bare cast). */
+function parse<T>(value: unknown, spec: ExactSpec): T | null {
   if (typeof value !== "string") return null;
+  let parsed: unknown;
   try {
-    return JSON.parse(value) as T;
+    parsed = JSON.parse(value);
   } catch {
     return null;
   }
+  return exactValid(spec, parsed) ? (parsed as T) : null;
 }
 
 export interface PackDecision {
@@ -60,7 +84,8 @@ export interface PackDecision {
  */
 function canonicalPack(pack: unknown): RecommendationEvidencePack | null {
   const canonical = toCanonicalPlainData(pack);
-  return canonical.ok && canonical.value !== null && typeof canonical.value === "object" ? (canonical.value as RecommendationEvidencePack) : null;
+  // ...and must be a complete, exact C0 pack (audit F010): a missing or wrong-typed field fails closed, never throws.
+  return canonical.ok && exactValid(EVIDENCE_PACK, canonical.value) ? (canonical.value as RecommendationEvidencePack) : null;
 }
 
 /** The proposed action's decision evidence, read from the pack alone; `null` when the pack does not carry it or is not canonical. */
@@ -81,9 +106,9 @@ function packDecision(pack: RecommendationEvidencePack): PackDecision | null {
   if (steps.length !== 1) return null;
   const i = steps[0].inputs;
   const tier = i.tier as RecommendationPriorityTier;
-  const trigger = parse<{ state: string; reasonCodes: string[] }>(i.trigger);
-  const effect = parse<CandidateEffect>(i.effect);
-  const value = parse<CandidateValue>(i.value);
+  const trigger = parse<{ state: string; reasonCodes: string[] }>(i.trigger, TRIGGER_SPEC);
+  const effect = parse<CandidateEffect>(i.effect, EFFECT_SPEC);
+  const value = parse<CandidateValue>(i.value, VALUE_SPEC);
   const candidate = pack.candidateActions.find((c) => c.actionId === pack.proposedActionId);
   if (i.actionId !== pack.proposedActionId || typeof i.actionKind !== "string" || !RECOMMENDATION_PRIORITY_TIERS.includes(tier) || trigger === null || effect === null || value === null || candidate === undefined) {
     return null;

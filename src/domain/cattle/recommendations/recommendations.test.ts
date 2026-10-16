@@ -2154,3 +2154,59 @@ describe("C8 audit 2026-10-16T074615Z — F005: stored model evaluations are re-
   });
 });
 
+describe("C8 audit 2026-10-16T094305Z — F010: the public pack readers validate the pack and every parsed decision field", () => {
+  type Step = { formula: string; inputs: Record<string, unknown> };
+  const readers = [
+    ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
+    ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
+    ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+  ] as const;
+  const pack = () => structuredClone(recOf(run(favourable({ actions: registry([SELL()]) }))).pack) as unknown as Record<string, unknown>;
+  /** Re-fingerprints the edited pack so C0 `verifyRecommendationEvidencePack` accepts it (the audit's attack). */
+  const refingerprint = (p: Record<string, unknown>) => {
+    const { fingerprint: _p, generatedAt: _g, ...content } = p;
+    void _p;
+    void _g;
+    return { ...p, fingerprint: computeCattleFingerprint("CATTLE_EVIDENCE_PACK", content, hash) };
+  };
+  const proposedStep = (p: Record<string, unknown>) => (p.calculationSteps as Step[]).find((s) => s.formula === CANDIDATE_STEP_FORMULA && s.inputs.actionId === p.proposedActionId)!;
+
+  it("exact reproduction: a C0-verified pack whose candidate trigger is `{}` is unreadable by every reader — null, never a throw", () => {
+    const p = pack();
+    for (const [name, read] of readers) expect(read(p), name).not.toBeNull(); // positive control
+    proposedStep(p).inputs.trigger = "{}";
+    const forged = refingerprint(p);
+    expect(cattle.verifyRecommendationEvidencePack(forged as never, hash).valid).toBe(true); // the C0 pack itself verifies
+    for (const [name, read] of readers) expect(read(forged), name).toBeNull();
+  });
+
+  it("class: malformed packs and syntactically valid JSON of the wrong shape fail closed in every reader", () => {
+    const fieldEdits: [string, string, string][] = [
+      ["trigger without reasonCodes", "trigger", JSON.stringify({ state: "TRIGGERED" })],
+      ["trigger reasonCodes a string", "trigger", JSON.stringify({ state: "TRIGGERED", reasonCodes: "SYNTH" })],
+      ["trigger unknown state", "trigger", JSON.stringify({ state: "SYNTH", reasonCodes: [] })],
+      ["trigger an array", "trigger", "[]"],
+      ["effect missing fields", "effect", JSON.stringify({ state: "EFFECT_SUPPORTED" })],
+      ["effect extra field", "effect", JSON.stringify({ state: "EFFECT_UNKNOWN", model: null, expectedEffect: null, reasonCodes: [], extra: 1 })],
+      ["value amount a number", "value", JSON.stringify({ state: "VALUE_KNOWN", model: null, amount: 749.5, currency: "EUR", observationIds: [], reasonCodes: [] })],
+      ["value null", "value", "null"],
+      ["value not JSON", "value", "{"],
+    ];
+    for (const [label, field, json] of fieldEdits) {
+      const p = pack();
+      proposedStep(p).inputs[field] = json;
+      const forged = refingerprint(p);
+      for (const [name, read] of readers) expect(read(forged), `${label} / ${name}`).toBeNull();
+    }
+    const packs: [string, unknown][] = [
+      ["{}", {}],
+      ["null", null],
+      ["calculationSteps missing", (() => { const p = pack(); delete p.calculationSteps; return p; })()],
+      ["uncertainties a string", { ...pack(), uncertainties: "SYNTH" }],
+      ["candidateActions null", { ...pack(), candidateActions: null }],
+    ];
+    for (const [label, p] of packs) for (const [name, read] of readers) expect(() => read(p), `${label} / ${name}`).not.toThrow();
+    for (const [label, p] of packs) for (const [name, read] of readers) expect(read(p), `${label} / ${name}`).toBeNull();
+  });
+});
+

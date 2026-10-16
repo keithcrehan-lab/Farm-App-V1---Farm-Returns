@@ -50,7 +50,7 @@ import { BENEFIT_CLAIMS, CANDIDATE_ACTION_DEFINITION_SPEC, RECOMMENDATION_GATE_S
 import { OBSERVATION_SPEC, admitEconomicObservations } from "./economic-context";
 import { C4_LATEST_WEIGHT_STATES, C6_GOAL_STATUSES, C6_ROUTING_STATES, C6_SNAPSHOT } from "./recommendation-consumed";
 import { EVIDENCE_PACK, RULE_EVALUATION_RECORD, SOURCE_VERSION_REF, exactValid, type ExactSpec } from "./recommendation-exact";
-import { CANDIDATE_STEP_FORMULA, PROPOSED_LABEL, alternativeLabel, candidateStepDescription } from "./recommendation-explanation";
+import { CANDIDATE_STEP_FORMULA, EFFECT_SPEC, ELIGIBILITY_SPEC, PROPOSED_LABEL, TRIGGER_SPEC, VALUE_SPEC, alternativeLabel, candidateStepDescription } from "./recommendation-explanation";
 import { CATTLE_RECOMMENDATION_PAYLOAD_VERSION } from "./recommendation-integrity";
 import { MODEL_SPEC, REVIEW_SPEC, SOURCE_SPEC, admitRecommendationModels, evaluateRecommendationModel, relevantModelCatalogue } from "./recommendation-models";
 import type { CattleEvaluationContext, CattleRecommendation } from "./recommendation-contracts";
@@ -72,7 +72,6 @@ const part = (fields: Record<string, ExactSpec>): ExactSpec => ({ t: "tagged", t
 
 const GATES = arrayOf(RULE_EVALUATION_RECORD as ExactSpec);
 const SOURCES = arrayOf(SOURCE_VERSION_REF as ExactSpec);
-const MODEL_REF = object({ modelId: ref, version: ref });
 
 const CONTEXT = object({
   recommendationPayloadVersion: literal(CATTLE_RECOMMENDATION_PAYLOAD_VERSION),
@@ -129,18 +128,11 @@ const CANDIDATE = object({
   description: text,
   tier: oneOf(RECOMMENDATION_PRIORITY_TIERS),
   benefitClaim: oneOf(BENEFIT_CLAIMS),
-  trigger: object({ state: oneOf(["TRIGGERED", "UNRESOLVED", "NOT_MET"]), reasonCodes: arrayOf(text) }),
-  eligibility: object({ state: oneOf(["ELIGIBLE", "UNRESOLVED", "NOT_ELIGIBLE"]), reasonCodes: arrayOf(text) }),
+  trigger: TRIGGER_SPEC,
+  eligibility: ELIGIBILITY_SPEC,
   gates: object({ state: oneOf(["CLEAR", "NOT_CLEAR"]), checks: arrayOf(object({ ruleId: text, state: text, source: oneOf([...RECOMMENDATION_GATE_SOURCES, "CONTEXT", "UNRESOLVED_EVIDENCE"]), satisfied: bool })) }),
-  effect: object({ state: oneOf(["EFFECT_SUPPORTED", "EFFECT_NOT_SUPPORTED", "EFFECT_UNKNOWN", "NOT_EVALUATED"]), model: nullable(MODEL_REF), expectedEffect: nullable(text), reasonCodes: arrayOf(text) }),
-  value: object({
-    state: oneOf(["VALUE_KNOWN", "VALUE_UNKNOWN", "NOT_EVALUATED"]),
-    model: nullable(MODEL_REF),
-    amount: nullable(text),
-    currency: nullable(text),
-    observationIds: arrayOf(text),
-    reasonCodes: arrayOf(text),
-  }),
+  effect: EFFECT_SPEC,
+  value: VALUE_SPEC,
   selectable: bool,
   rank: int,
 });

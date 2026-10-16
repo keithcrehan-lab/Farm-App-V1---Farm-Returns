@@ -4692,7 +4692,11 @@ Evidence labels are recovered through the pack's own model steps and C0 rule eva
 proposal's consulted models' rule assumptions and limitations are in the pack's (and so the record's)
 assumptions / limitations, tagged `CATTLE_RECOMMENDATION_MODEL_ASSUMPTION:` /
 `..._MODEL_LIMITATION:["<id>","<version>"]:<text>`. `verifyCattleRecommendation` requires the stored
-record to equal the one its pack derives.
+record to equal the one its pack derives. The three public pack readers (`readPackDecision`,
+`renderRecommendationExplanation`, `deriveRecommendationRecord`) treat their pack as untrusted (audits F009
+/ F010): canonical plain data first, then the exact C0 pack shape, then every JSON-carried decision field
+(trigger, eligibility, effect, value) against its exact shape; anything malformed reads as `null`, never a
+throw or a bare cast.
 
 **Record and explanation.** `RecommendationRecord` (information class RECOMMENDATION): recommended
 action, outcome / `actionable` (true only for C0 ACTIONABLE), structured reason codes, deterministic

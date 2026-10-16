@@ -116,6 +116,18 @@ function canonicalPack(pack: unknown): RecommendationEvidencePack | null {
   return canonical.ok && exactValid(EVIDENCE_PACK, canonical.value) ? (canonical.value as RecommendationEvidencePack) : null;
 }
 
+/**
+ * THE pack-outcome reconciliation rule (audit F010 of 2026-10-16T114308Z), applied by the one reader every public
+ * export goes through: a proposal is the first selectable candidate, or else a candidate whose gates are not clear
+ * (the engine's choice), so the pack is ACTIONABLE exactly when its proposed action is selectable, a non-selectable
+ * proposal has gates not clear, and a proposal never yields NO_RECOMMENDATION.
+ */
+export function packOutcomeReconciled(outcome: string, selectable: boolean, gates: "CLEAR" | "NOT_CLEAR"): boolean {
+  if ((outcome === "ACTIONABLE") !== selectable) return false;
+  if (!selectable && gates !== "NOT_CLEAR") return false;
+  return outcome !== "NO_RECOMMENDATION";
+}
+
 /** The proposed action's decision evidence, read from the pack alone; `null` when the pack does not carry it or is not canonical. */
 export function readPackDecision(pack: RecommendationEvidencePack): PackDecision | null {
   const p = canonicalPack(pack);
@@ -143,6 +155,7 @@ function packDecision(pack: RecommendationEvidencePack): PackDecision | null {
   if (!(BENEFIT_CLAIMS as readonly unknown[]).includes(i.benefitClaim) || (i.gates !== "CLEAR" && i.gates !== "NOT_CLEAR") || typeof i.selectable !== "boolean") return null;
   // Selectability is exactly C8's rule: gates clear, triggered, eligible and an effect not refuted.
   if (i.selectable !== (i.gates === "CLEAR" && trigger !== null && trigger.state === "TRIGGERED" && eligibility.state === "ELIGIBLE" && effect.state !== "EFFECT_NOT_SUPPORTED")) return null;
+  if (!packOutcomeReconciled(pack.outcome, i.selectable, i.gates)) return null;
   const candidate = pack.candidateActions.find((c) => c.actionId === pack.proposedActionId);
   if (i.actionId !== pack.proposedActionId || typeof i.actionKind !== "string" || !RECOMMENDATION_PRIORITY_TIERS.includes(tier) || trigger === null || effect === null || value === null || candidate === undefined) {
     return null;

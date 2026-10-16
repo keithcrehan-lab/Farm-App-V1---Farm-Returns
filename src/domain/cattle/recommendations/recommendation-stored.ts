@@ -1,42 +1,22 @@
 /**
- * Cattle C8 — validation of a STORED / RELOADED recommendation (CAT-INV-028
- * as clarified 2026-10-15: a persisted, deserialised record crosses a genuine
- * trust boundary; audit F005 of 2026-10-15T210448Z).
+ * Cattle C8 — INTEGRITY of a STORED / RELOADED recommendation (CAT-INV-028:
+ * a persisted, deserialised record crosses a genuine trust boundary).
  *
- * Fingerprints are change detection, not authenticity: a stored
- * recommendation re-sealed after editing (fingerprints recomputed) must still
- * be rejected when it is malformed or internally inconsistent. Before any
- * fingerprint is accepted, `storedRecommendationIssue` therefore checks:
- * 1. the COMPLETE stored structure — every field of `CattleRecommendation`,
- *    its sealed context (every part, the admitted registry / models /
- *    observations through their owned-record specs, model evaluations,
- *    economic resolutions), candidates, non-candidates, ties and the exact C0
- *    pack — with runtime types, vocabularies, formats and no undeclared field;
- * 2. the identity / time / version relationships C8 itself establishes:
- *    payload versions, animal identity (record ↔ context ↔ pack target scope
- *    ↔ snapshot ref), both canonical times and the evaluation date (record ↔
- *    context ↔ pack), and the candidates, exclusions and ties ↔ the pack's own
- *    decision steps;
- * 3. the SEMANTICS of the C8-owned context parts (`storedOwnedContextIssue`,
- *    audit 2026-10-16T064728Z): the registry, models, reviews, sources and
- *    economic observations are re-admitted through C8's own admission at the
- *    context's cutoff and must be exactly what admission yields; every model
- *    evaluation is RE-RUN through the authoritative path
- *    (`evaluateRecommendationModel` → C0 `evaluateCattleRule`) with the
- *    trusted implementation registry and must equal the stored evaluation
- *    exactly (human architecture decision 2026-10-16, audit F005 of
- *    2026-10-16T074615Z). Without that registry a context carrying model
- *    evaluations fails closed — never structural-only verification.
- * The stored CONTEXT is the untrusted input; every decision field derived from
- * it (candidates, exclusions, ties, pack, record) is then established by
- * REPLAY (`verifyCattleRecommendation`, human architecture decision
- * 2026-10-15, audit F005 family): the C8 engine is re-run over the validated
- * stored context and the result must equal the stored recommendation exactly,
- * so no field-by-field decision check is relied upon for completeness.
- * A context consistent with itself but not with the canonical evidence it
- * claims (every part rebuilt and re-sealed) cannot be told from an original
- * by inspection — reproduction over the same canonical evidence is the
- * authenticity check (documented limitation).
+ * `storedRecommendationIssue` checks the COMPLETE stored structure (every
+ * field, the sealed context with every part, candidates, non-candidates, ties
+ * and the exact C0 pack — runtime types, vocabularies, formats, no undeclared
+ * field) and the identity / time / version relationships C8 itself
+ * establishes (payload versions; animal identity record ↔ context ↔ pack
+ * target scope ↔ snapshot ref; both canonical times and the evaluation date;
+ * candidates, exclusions and ties ↔ the pack's own decision steps).
+ *
+ * This is INTEGRITY ONLY (`checkCattleRecommendationIntegrity`): it never
+ * establishes that a recommendation is scientifically, semantically or
+ * decision-valid. The stored context's cut-down C1–C7 views cannot be proven
+ * valid by inspection, and C8 does not restate any predecessor's rules to try
+ * (human architecture decision 2026-10-16, Option 1). Authoritative
+ * verification is FULL REPRODUCTION from the original request through the
+ * owning engines (`verifyCattleRecommendation`).
  */
 
 import { OBLIGATION_STATES, canonicalObligationInstant, utcCalendarDateOf } from "../regulatory";
@@ -44,16 +24,14 @@ import { PRODUCTION_GOAL_TYPES } from "../goals";
 import { PROGRAMME_CLASSIFICATIONS, PROGRAMME_OCCURRENCE_STATES } from "../programmes";
 import { C3_WITHDRAWAL_GATE_STATES } from "../programmes/programme-consumed";
 import { rawIdentityKey } from "../health/health-input";
-import { compareInstants } from "../animal-ledger";
-import { compareStrings, type CattleHash } from "../integrity";
-import { BENEFIT_CLAIMS, CANDIDATE_ACTION_DEFINITION_SPEC, RECOMMENDATION_GATE_SOURCES, RECOMMENDATION_PRIORITY_TIERS, admitCandidateActionRegistry, type RecommendationModelRef } from "./candidate-actions";
-import { OBSERVATION_SPEC, admitEconomicObservations } from "./economic-context";
+import { BENEFIT_CLAIMS, CANDIDATE_ACTION_DEFINITION_SPEC, RECOMMENDATION_GATE_SOURCES, RECOMMENDATION_PRIORITY_TIERS } from "./candidate-actions";
+import { OBSERVATION_SPEC } from "./economic-context";
 import { C4_LATEST_WEIGHT_STATES, C6_GOAL_STATUSES, C6_ROUTING_STATES, C6_SNAPSHOT } from "./recommendation-consumed";
 import { EVIDENCE_PACK, RULE_EVALUATION_RECORD, SOURCE_VERSION_REF, exactValid, type ExactSpec } from "./recommendation-exact";
 import { CANDIDATE_STEP_FORMULA, EFFECT_SPEC, ELIGIBILITY_SPEC, PROPOSED_LABEL, TRIGGER_SPEC, VALUE_SPEC, alternativeLabel, candidateStepDescription } from "./recommendation-explanation";
 import { CATTLE_RECOMMENDATION_PAYLOAD_VERSION } from "./recommendation-integrity";
-import { MODEL_SPEC, REVIEW_SPEC, SOURCE_SPEC, admitRecommendationModels, evaluateRecommendationModel, relevantModelCatalogue } from "./recommendation-models";
-import type { CattleEvaluationContext, CattleRecommendation } from "./recommendation-contracts";
+import { MODEL_SPEC, REVIEW_SPEC, SOURCE_SPEC } from "./recommendation-models";
+import type { CattleRecommendation } from "./recommendation-contracts";
 
 const text = { t: "text" } as const;
 const ref = { t: "ref" } as const;
@@ -139,7 +117,7 @@ const CANDIDATE = object({
 
 /**
  * The complete stored structure EXCEPT the record, whose structure is established by equality with the record
- * the pack derives (`verifyCattleRecommendation`); here the record only has to be a plain object.
+ * the pack derives (`checkCattleRecommendationIntegrity`); here the record only has to be a plain object.
  */
 export const STORED_RECOMMENDATION: ExactSpec = object({
   recommendationPayloadVersion: literal(CATTLE_RECOMMENDATION_PAYLOAD_VERSION),
@@ -162,7 +140,7 @@ const sameInstant = (a: string, b: string) => canonicalObligationInstant(a) !== 
  * identity / time / version relationship C8 establishes holds; otherwise the
  * first violated check (a deterministic reason code).
  */
-export function storedRecommendationIssue(stored: CattleRecommendation, hash: CattleHash, implementations: unknown): string | null {
+export function storedRecommendationIssue(stored: CattleRecommendation): string | null {
   const raw = stored as unknown as Record<string, unknown>;
   const { record, ...rest } = raw;
   if (record === null || typeof record !== "object" || Array.isArray(record)) return "CATTLE_RECOMMENDATION_STORED_RECORD_MALFORMED";
@@ -239,76 +217,6 @@ export function storedRecommendationIssue(stored: CattleRecommendation, hash: Ca
   for (const [i, tie] of stored.ties.entries()) {
     if (ranking.inputs[`tie:${String(i + 1).padStart(4, "0")}`] !== JSON.stringify({ actionIds: tie.actionIds, brokenBy: tie.brokenBy })) return "CATTLE_RECOMMENDATION_STORED_TIES_INCONSISTENT";
   }
-  return storedContextBindingIssue(ctx) ?? storedOwnedContextIssue(ctx, hash, implementations);
-}
-
-/**
- * The identity / time / duplicated-state bindings C8 itself establishes INSIDE a stored context when it composes
- * it (`evaluation-context.ts`; audit 2026-10-16T104117Z F005): each copied view equals what it was copied from,
- * names this animal and sits at the context's one viewpoint (CAT-INV-015). Owner semantics are not restated.
- */
-export function storedContextBindingIssue(ctx: CattleEvaluationContext): string | null {
-  const bad = "CATTLE_RECOMMENDATION_STORED_CONTEXT_BINDING_INCONSISTENT";
-  const sortedUniqueText = (xs: readonly string[]) => xs.every((x, i) => i === 0 || compareStrings(xs[i - 1], x) < 0);
-  const g = ctx.goals;
-  if (g.state === "SUPPLIED") {
-    const s = g.snapshot;
-    if (s.subject.kind !== "ANIMAL" || (s.subject as { animalId: string }).animalId !== ctx.animalId) return bad;
-    if (!sameInstant(s.effectiveAt, ctx.effectiveAt) || !sameInstant(s.knowledgeCutoff, ctx.knowledgeCutoff)) return bad;
-    if (g.status !== s.status || !sortedUniqueText(g.activeGoalTypes)) return bad;
-  }
-  const w = ctx.weights;
-  if (w.state === "SUPPLIED" && w.latest.observedAt !== null && compareInstants(w.latest.observedAt, ctx.effectiveAt) > 0) return bad;
   return null;
 }
 
-/**
- * The C8-owned parts of a stored context are what C8's own admission yields
- * at the context's cutoff (re-admission is idempotent on admitted data), and
- * each model evaluation is exactly what the authoritative evaluation path
- * yields over the admitted catalogue at the context's evaluation date, with
- * the trusted implementation registry (C8 restates none of C0's rule
- * validity, effective-window, implementation-binding or predicate logic).
- * Replay then derives every decision field from this validated context.
- */
-export function storedOwnedContextIssue(ctx: CattleEvaluationContext, hash: CattleHash, implementations: unknown): string | null {
-  const registry = admitCandidateActionRegistry(ctx.actions, ctx.knowledgeCutoff);
-  if (!registry.ok || key(registry.registry) !== key(ctx.actions)) return "CATTLE_RECOMMENDATION_STORED_REGISTRY_INVALID";
-  const refs = ctx.actions.definitions.flatMap((d) => [d.effectModelRef, d.economicModelRef].filter((r): r is RecommendationModelRef => r !== null));
-  const models = admitRecommendationModels(ctx.models, ctx.knowledgeCutoff);
-  if (!models.ok || key(relevantModelCatalogue(models.catalogue, refs)) !== key(ctx.models)) return "CATTLE_RECOMMENDATION_STORED_MODELS_INVALID";
-  // One evaluation per catalogue model, in catalogue order, each bound to its admitted model.
-  if (ctx.modelEvaluations.length !== ctx.models.records.length) return "CATTLE_RECOMMENDATION_STORED_MODEL_EVALUATION_INVALID";
-  if (ctx.modelEvaluations.length > 0 && implementations === undefined) return "CATTLE_RECOMMENDATION_STORED_MODEL_VERIFICATION_REGISTRY_REQUIRED";
-  for (const [i, e] of ctx.modelEvaluations.entries()) {
-    const m = ctx.models.records[i];
-    if (e.modelId !== m.modelId || e.version !== m.version) return "CATTLE_RECOMMENDATION_STORED_MODEL_EVALUATION_INVALID";
-    let authoritative: unknown;
-    try {
-      authoritative = evaluateRecommendationModel({ modelId: m.modelId, version: m.version }, m.role, ctx.models, implementations, ctx.evaluationDate, hash);
-    } catch {
-      return "CATTLE_RECOMMENDATION_STORED_MODEL_EVALUATION_INVALID";
-    }
-    if (key(authoritative) !== key(e.evaluation)) return "CATTLE_RECOMMENDATION_STORED_MODEL_EVALUATION_INVALID";
-  }
-  // Economic resolutions: exactly the value keys the catalogue's economic models name; each bound observation re-admitted.
-  const valueKeys = [...new Set(ctx.models.records.flatMap((m) => (m.role === "ECONOMIC" && m.value !== null ? [...m.value.benefitKeys, ...m.value.costKeys] : [])))].sort(compareStrings);
-  if (key(ctx.economics.map((x) => x.valueKey)) !== key(valueKeys)) return "CATTLE_RECOMMENDATION_STORED_ECONOMICS_INVALID";
-  for (const x of ctx.economics) {
-    const ids = x.candidateObservationIds;
-    if (x.state === "UNKNOWN" && (x.observation !== null || ids.length > 0)) return "CATTLE_RECOMMENDATION_STORED_ECONOMICS_INVALID";
-    // CONFLICT (`resolveEconomicValues`): the in-view live observations of a key that competes — one is legitimate
-    // when the competing corrections fall on opposite sides of effectiveAt (audit F008); never empty.
-    if (x.state === "CONFLICT" && (x.observation !== null || ids.length < 1 || key(ids) !== key([...new Set(ids)].sort(compareStrings)))) return "CATTLE_RECOMMENDATION_STORED_ECONOMICS_INVALID";
-    if (x.state !== "KNOWN") continue;
-    const o = x.observation;
-    if (o === null || ids.length > 0 || o.valueKey !== x.valueKey || compareInstants(o.observedAt, ctx.effectiveAt) > 0) return "CATTLE_RECOMMENDATION_STORED_ECONOMICS_INVALID";
-    // Admission of the observation itself (amount, precision, currency, times, knowledge cutoff); its supersession
-    // links name records outside the stored context, so they are checked for form only.
-    const bare = { ...o, supersedes: [] };
-    const admitted = admitEconomicObservations({ observations: [bare] }, ctx.knowledgeCutoff);
-    if (!admitted.ok || admitted.observations.length !== 1 || key(admitted.observations[0]) !== key(bare)) return "CATTLE_RECOMMENDATION_STORED_ECONOMICS_INVALID";
-    if (o.supersedes.includes(o.observationId) || key(o.supersedes) !== key([...new Set(o.supersedes)].sort(compareStrings))) return "CATTLE_RECOMMENDATION_STORED_ECONOMICS_INVALID";
-  }
-  return null;
-}

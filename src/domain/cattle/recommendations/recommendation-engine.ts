@@ -523,8 +523,8 @@ function uniqueRefs(refs: SourceVersionRef[]): SourceVersionRef[] {
   return [...refs].sort(compareSourceVersionRefs).filter((r, i, a) => i === 0 || compareSourceVersionRefs(a[i - 1], r) !== 0);
 }
 
-/** Evaluates one sealed context. Reads nothing but `ctx`. */
-function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { ok: true; recommendation: CattleRecommendation } | { ok: false; issues: RecommendationIssue[] } {
+/** Evaluates one sealed context. Reads nothing but `ctx`. Exported for the integrity replay only — never authoritative. */
+export function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHash): { ok: true; recommendation: CattleRecommendation } | { ok: false; issues: RecommendationIssue[] } {
   const missingContextParts = RECOMMENDATION_CONTEXT_PARTS.filter((p) => !partSupplied(ctx, p));
   const working: Working[] = [];
   const notCandidates: NotCandidate[] = [];
@@ -886,40 +886,77 @@ export function recommendCattle(request: unknown, hash: CattleHash, trusted: Rec
   return deepFreezeAnimalValue({ ok: true, result });
 }
 
-/**
- * Verifies a stored recommendation: its complete stored structure, its C0
- * pack (C0 `verifyRecommendationEvidencePack`), its sealed-context
- * fingerprint, an exact REPLAY of the engine over the stored context, and its
- * record fingerprint. Every stored model evaluation is re-run through the
- * authoritative C0 path with `trusted` (the same trusted registry
- * `recommendCattle` takes); a recommendation carrying model evaluations
- * fails closed without it. Never repairs. A matching fingerprint is change
- * detection, not authenticity; reproduction requires re-running
- * `recommendCattle` over the same canonical evidence at the same times.
- */
+/** The result of an INTEGRITY-ONLY check — never a verified recommendation (`authoritative` is always false). */
+export type CattleRecommendationIntegrityResult =
+  | { intact: true; authoritative: false }
+  | { intact: false; authoritative: false; reasonCode: string; detail: string };
 
-export function verifyCattleRecommendation(stored: CattleRecommendation, hash: CattleHash, trusted: RecommendationTrustedInputs = {}): FingerprintVerificationResult {
-  // A stored recommendation is reloaded data (a genuine trust boundary, CAT-INV-028): the canonical boundary runs
-  // first (CAT-INV-001 — a getter is never invoked) and only its detached copy is validated and replayed
-  // (CAT-INV-002, audit F009); anything it cannot verify is invalid — never a thrown error.
+/**
+ * INTEGRITY ONLY: canonical plain data, the complete stored structure, the C0
+ * pack (`verifyRecommendationEvidencePack`), record ↔ pack derivation, an
+ * exact replay of the C8 engine over the stored context, and both
+ * fingerprints. A matching result is change detection and internal
+ * consistency — it does NOT establish that the recommendation is
+ * scientifically, semantically or decision-valid (the stored context's
+ * C1–C7 views cannot be proven valid by inspection). Use
+ * `verifyCattleRecommendation` for authoritative verification.
+ */
+export function checkCattleRecommendationIntegrity(stored: CattleRecommendation, hash: CattleHash): CattleRecommendationIntegrityResult {
+  const r = integrityOf(stored, hash);
+  return r.ok ? { intact: true, authoritative: false } : { intact: false, authoritative: false, reasonCode: r.reasonCode, detail: r.detail };
+}
+
+/**
+ * AUTHORITATIVE verification by FULL REPRODUCTION (human architecture
+ * decision 2026-10-16, Option 1): the stored recommendation's integrity is
+ * checked, then `recommendCattle` is re-run over the ORIGINAL request with the
+ * same trusted dependencies — every C1–C7 view is re-derived by its owning
+ * frozen engine and every model by C0 — and the reproduced recommendation for
+ * the same animal must equal the stored one exactly. C8 restates no
+ * predecessor rule. Fails closed without the request, when reproduction
+ * fails, or on any difference. Never repairs.
+ */
+export function verifyCattleRecommendation(stored: CattleRecommendation, request: unknown, hash: CattleHash, trusted: RecommendationTrustedInputs = {}): FingerprintVerificationResult {
+  const integrity = integrityOf(stored, hash);
+  if (!integrity.ok) return { valid: false, reasonCode: integrity.reasonCode, detail: integrity.detail };
+  if (request === undefined || request === null) {
+    return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_VERIFICATION_REQUEST_REQUIRED", detail: "authoritative verification reproduces the recommendation from its original request; none was supplied" };
+  }
+  let reproduced: CattleRecommendationOutcomeResult;
+  try {
+    reproduced = recommendCattle(request, hash, trusted);
+  } catch {
+    return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_FAILED", detail: "the original request could not be re-evaluated" };
+  }
+  if (!reproduced.ok) {
+    return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_FAILED", detail: `the original request does not reproduce a recommendation: ${reproduced.issues.map((i) => i.code).join(", ")}` };
+  }
+  const same = reproduced.result.animals.find((a) => a.animalId === integrity.recommendation.animalId);
+  if (same === undefined || rawIdentityKey(same) !== rawIdentityKey(integrity.recommendation)) {
+    return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_MISMATCH", detail: "the stored recommendation is not the one its original request reproduces" };
+  }
+  return { valid: true };
+}
+
+/** The integrity checks, over the canonical detached copy only (CAT-INV-001/002; a getter is never invoked). */
+function integrityOf(stored: unknown, hash: CattleHash): { ok: true; recommendation: CattleRecommendation } | { ok: false; reasonCode: string; detail: string } {
   const canonical = toCanonicalPlainData(stored);
-  if (!canonical.ok) return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_NON_CANONICAL_INPUT", detail: `the stored recommendation is not canonical plain data at ${canonical.path}` };
+  if (!canonical.ok) return { ok: false, reasonCode: "CATTLE_RECOMMENDATION_NON_CANONICAL_INPUT", detail: `the stored recommendation is not canonical plain data at ${canonical.path}` };
   const recommendation = canonical.value as CattleRecommendation;
-  // Complete structure and every identity / time / version relationship BEFORE any fingerprint is accepted: a
-  // re-sealed edit (fingerprints recomputed) is still rejected when malformed or inconsistent (audit F005).
   let issue: string | null;
   try {
-    issue = storedRecommendationIssue(recommendation, hash, trusted.obligationImplementations);
+    issue = storedRecommendationIssue(recommendation);
   } catch {
     issue = "CATTLE_RECOMMENDATION_MALFORMED";
   }
-  if (issue !== null) return { valid: false, reasonCode: issue, detail: "the stored recommendation is malformed or internally inconsistent" };
-  const malformed: FingerprintVerificationResult = { valid: false, reasonCode: "CATTLE_RECOMMENDATION_MALFORMED", detail: "the stored recommendation is not a well-formed C8 recommendation" };
+  if (issue !== null) return { ok: false, reasonCode: issue, detail: "the stored recommendation is malformed or internally inconsistent" };
+  let r: FingerprintVerificationResult;
   try {
-    return verifyStored(recommendation, hash);
+    r = verifyStored(recommendation, hash);
   } catch {
-    return malformed;
+    r = { valid: false, reasonCode: "CATTLE_RECOMMENDATION_MALFORMED", detail: "the stored recommendation is not a well-formed C8 recommendation" };
   }
+  return r.valid ? { ok: true, recommendation } : { ok: false, reasonCode: r.reasonCode ?? "CATTLE_RECOMMENDATION_MALFORMED", detail: r.detail ?? "" };
 }
 
 function verifyStored(recommendation: CattleRecommendation, hash: CattleHash): FingerprintVerificationResult {
@@ -937,9 +974,8 @@ function verifyStored(recommendation: CattleRecommendation, hash: CattleHash): F
   const { fingerprint: contextFingerprint, ...contextBody } = context;
   const c = verifyRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", contextBody, contextFingerprint as AssessmentFingerprint, hash);
   if (!c.valid) return c;
-  // Replay (human architecture decision 2026-10-15, audit F005 family): every decision field is derived from the
-  // validated stored context, so the stored recommendation must be exactly what the engine produces over it. Any
-  // edited decision field — candidates, exclusions, ties, pack steps, amounts, record — fails here, re-sealed or not.
+  // Replay (internal consistency): every decision field is derived from the stored context, so the stored
+  // recommendation must be exactly what the engine produces over it. This proves consistency, not validity.
   const replayed = recommendForContext(deepFreezeAnimalValue(structuredClone(context)), hash);
   if (!replayed.ok || rawIdentityKey(replayed.recommendation) !== rawIdentityKey(recommendation)) {
     return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPLAY_MISMATCH", detail: "the stored recommendation is not the one the C8 engine produces over its own sealed context" };

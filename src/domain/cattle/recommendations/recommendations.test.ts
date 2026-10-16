@@ -104,6 +104,7 @@ import * as cattleExact from "./recommendation-exact";
 import * as cattleModels from "./recommendation-models";
 import * as cattleEconomic from "./economic-context";
 import { computeRecommendationFingerprint } from "./recommendation-integrity";
+import { recommendForContext } from "./recommendation-engine";
 import { computeCattleFingerprint } from "../integrity";
 import { CANDIDATE_STEP_FORMULA } from "./recommendation-explanation";
 import type { RecommendationEvidencePack } from "../evidence-pack";
@@ -377,7 +378,26 @@ function requestOf(o: Run = {}): Rec {
     actions: o.actions ?? DEFAULT_CANDIDATE_ACTION_REGISTRY,
   };
 }
-const run = (o: Run = {}) => recommendCattle(requestOf(o), hash, TRUSTED);
+/** The original request of every recommendation the tests produce, keyed by its pack id (survives context re-sealing). */
+const REQUESTS = new Map<string, Rec>();
+const run = (o: Run = {}) => {
+  const request = requestOf(o);
+  const r = recommendCattle(request, hash, TRUSTED);
+  if (r.ok) for (const a of r.result.animals) REQUESTS.set(a.pack.recommendationId, request);
+  return r;
+};
+/** Reads data properties only (never a getter — the F009 tests count getter invocations). */
+const dataOf = (o: unknown, k: string): unknown => {
+  if (o === null || typeof o !== "object") return undefined;
+  const d = Object.getOwnPropertyDescriptor(o, k);
+  return d !== undefined && "value" in d ? d.value : undefined;
+};
+const requestFor = (rec: unknown): Rec | undefined => {
+  const id = dataOf(dataOf(rec, "pack"), "recommendationId");
+  return typeof id === "string" ? REQUESTS.get(id) : undefined;
+};
+/** Authoritative verification against the recommendation's original request (full reproduction). */
+const verifyStored = (rec: unknown, trusted: Parameters<typeof verifyCattleRecommendation>[3] = TRUSTED) => verifyCattleRecommendation(rec as CattleRecommendation, requestFor(rec), hash, trusted);
 function ok(r: CattleRecommendationOutcomeResult) {
   if (!r.ok) throw new Error(JSON.stringify(r.issues));
   return r.result;
@@ -728,16 +748,16 @@ describe("C8 test 7 — packs verify and reproduce", () => {
   it("the C0 pack and the C8 record verify; tampering is detected", () => {
     const rec = recOf(run(base));
     expect(cattle.verifyRecommendationEvidencePack(rec.pack, hash)).toEqual({ valid: true });
-    expect(verifyCattleRecommendation(rec, hash, TRUSTED)).toEqual({ valid: true });
+    expect(verifyStored(rec)).toEqual({ valid: true });
     const tampered = structuredClone(rec) as CattleRecommendation;
     tampered.record.outcome = "BLOCKED";
-    expect(verifyCattleRecommendation(tampered, hash, TRUSTED).valid).toBe(false);
+    expect(verifyStored(tampered).valid).toBe(false);
     const packTampered = structuredClone(rec) as CattleRecommendation;
     packTampered.pack.outcome = "BLOCKED";
-    expect(verifyCattleRecommendation(packTampered, hash, TRUSTED).valid).toBe(false);
+    expect(verifyStored(packTampered).valid).toBe(false);
     const contextTampered = structuredClone(rec) as CattleRecommendation;
     contextTampered.context.economics = [];
-    expect(verifyCattleRecommendation(contextTampered, hash, TRUSTED).valid).toBe(false);
+    expect(verifyStored(contextTampered).valid).toBe(false);
   });
 
   it("identical inputs ⇒ identical fingerprints; semantically equivalent inputs keep them; material changes change them", () => {
@@ -996,11 +1016,11 @@ describe("C8 canonical boundary, field policy and one viewpoint", () => {
 
     it("F009: a getter on a valid stored recommendation is rejected and never invoked", () => {
       const rec = stored();
-      expect(verifyCattleRecommendation(rec, hash, TRUSTED)).toEqual({ valid: true });
+      expect(verifyStored(rec)).toEqual({ valid: true });
       let reads = 0;
       const pack = rec.pack;
       Object.defineProperty(rec, "pack", { enumerable: true, get: () => (reads++, pack) });
-      expect(verifyCattleRecommendation(rec, hash, TRUSTED)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_NON_CANONICAL_INPUT" });
+      expect(verifyStored(rec)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_NON_CANONICAL_INPUT" });
       expect(reads).toBe(0);
     });
 
@@ -1012,7 +1032,7 @@ describe("C8 canonical boundary, field policy and one viewpoint", () => {
           const [target, key] = site(rec);
           taint(target, key, (target as Rec)[key], () => reads++);
           const label = `${taintName}@${siteName}`;
-          expect(verifyCattleRecommendation(rec, hash, TRUSTED), label).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_NON_CANONICAL_INPUT" });
+          expect(verifyStored(rec), label).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_NON_CANONICAL_INPUT" });
           if (siteName.startsWith("pack")) {
             expect(cattle.readPackDecision(rec.pack), label).toBeNull();
             expect(cattle.renderRecommendationExplanation(rec.pack), label).toBeNull();
@@ -1023,7 +1043,7 @@ describe("C8 canonical boundary, field policy and one viewpoint", () => {
       }
       // Positive control: the untainted copy still verifies and reads.
       const clean = stored();
-      expect(verifyCattleRecommendation(clean, hash, TRUSTED)).toEqual({ valid: true });
+      expect(verifyStored(clean)).toEqual({ valid: true });
       expect(cattle.deriveRecommendationRecord(clean.pack)).toEqual(clean.record);
     });
   });
@@ -1319,7 +1339,7 @@ describe("C8 remediation — model content binding, gate identity, ranking prove
     expect(rec.pack.calculationSteps.find((s) => s.description.includes("alternative") && s.output === "250.5")?.rule?.ruleId).toBe("SYNTH-ALT-RULE");
     expect(rec.pack.inputs.map((i) => i.provenance.ref)).toEqual(expect.arrayContaining(["o-SYNTH-ALT", "o-SYNTH-WIN"]));
     expect(rec.record.outcome).toBe("ACTIONABLE");
-    expect(verifyCattleRecommendation(rec, hash, TRUSTED).valid).toBe(true);
+    expect(verifyStored(rec).valid).toBe(true);
     expectRankingEvidence(rec);
   });
 
@@ -1468,7 +1488,7 @@ describe("C8 repair A — shared C0 protocol shape at the in-process seams (CAT-
     const gate = (rec.context.obligations as { gates: unknown[] }).gates[0];
     expect(cattleExact.exactValid(cattleExact.RULE_EVALUATION_RECORD, gate)).toBe(true);
     expect(cattleExact.exactValid(cattleExact.EVIDENCE_PACK, rec.pack)).toBe(true);
-    expect(verifyCattleRecommendation(rec, hash, TRUSTED).valid).toBe(true);
+    expect(verifyStored(rec).valid).toBe(true);
   });
 });
 
@@ -1669,14 +1689,14 @@ describe("C8 repair B — complete decision provenance (F003 / R1, R6)", () => {
 describe("C8 bounded repair — genuine trust boundary: a stored / reloaded recommendation (CAT-INV-028)", () => {
   it("every mutation of a stored recommendation (record, pack, context, candidates — every level) is rejected by verification", () => {
     const rec = recOf(run(favourable({ actions: registry([SELL(["C2_OBLIGATION", "C3_WITHDRAWAL"]), action("SYNTH-OTHER")]), obligations: obligations({ evidence: [fulfilment()] }), health: health(CLEAR_RECORDS) })));
-    expect(verifyCattleRecommendation(rec, hash, TRUSTED).valid).toBe(true);
+    expect(verifyStored(rec).valid).toBe(true);
     const isMap = (path: string[]) => path.length === 4 && path[0] === "pack" && path[1] === "calculationSteps" && path[3] === "inputs";
     const matrix = realMutations(rec, isMap);
     expect(matrix.length).toBeGreaterThan(500);
     for (const m of matrix) {
       const copy = structuredClone(rec) as unknown as Record<string, unknown>;
       m.mutate(copy);
-      expect(verifyCattleRecommendation(copy as unknown as CattleRecommendation, hash, TRUSTED).valid, m.label).toBe(false);
+      expect(verifyStored(copy as unknown as CattleRecommendation).valid, m.label).toBe(false);
     }
   });
 
@@ -1684,7 +1704,7 @@ describe("C8 bounded repair — genuine trust boundary: a stored / reloaded reco
     const rec = recOf(run(favourable({ actions: registry([SELL()]) })));
     const copy = structuredClone(rec) as unknown as { pack: Record<string, unknown> };
     copy.pack.synthUndeclared = "SYNTH";
-    expect(verifyCattleRecommendation(copy as unknown as CattleRecommendation, hash, TRUSTED)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_STRUCTURE_MALFORMED" });
+    expect(verifyStored(copy as unknown as CattleRecommendation)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_STRUCTURE_MALFORMED" });
   });
 
   it("F005 disposition: owner-specific value constraints of a frozen in-process engine are the owner's — C8 neither restates them nor relies on them", () => {
@@ -1756,7 +1776,7 @@ describe("C8 bounded repair — F003: the evidence pack is the single source of 
     const rec = recOf(run(SELL_RUN()));
     const tampered = structuredClone(rec) as unknown as { record: { explanation: string; evidence: { effectBasis: string } } };
     tampered.record.explanation += " SYNTH claim not in the pack.";
-    expect(verifyCattleRecommendation(tampered as unknown as CattleRecommendation, hash, TRUSTED).valid).toBe(false);
+    expect(verifyStored(tampered as unknown as CattleRecommendation).valid).toBe(false);
   });
 });
 
@@ -1830,7 +1850,7 @@ describe("C8 audit 2026-10-15T210448Z — F005: re-sealed stored recommendations
 
   it("F005 exact reproduction: animal id, invalid time, wrong-typed candidates and an unknown payload version are rejected even when re-sealed", () => {
     const base = stored();
-    expect(verifyCattleRecommendation(reseal(base), hash, TRUSTED).valid).toBe(true); // re-sealing an unedited record is a no-op
+    expect(verifyStored(reseal(base)).valid).toBe(true); // re-sealing an unedited record is a no-op
     const edits: [string, (r: Record<string, unknown>) => void][] = [
       ["animalId → another animal", (r) => void (r.animalId = B)],
       ["effectiveAt → INVALID", (r) => void (r.effectiveAt = "INVALID")],
@@ -1840,7 +1860,7 @@ describe("C8 audit 2026-10-15T210448Z — F005: re-sealed stored recommendations
     for (const [label, edit] of edits) {
       const r = stored();
       edit(r);
-      expect(verifyCattleRecommendation(reseal(r), hash, TRUSTED).valid, label).toBe(false);
+      expect(verifyStored(reseal(r)).valid, label).toBe(false);
     }
   });
 
@@ -1852,7 +1872,7 @@ describe("C8 audit 2026-10-15T210448Z — F005: re-sealed stored recommendations
     for (const m of matrix) {
       const r = stored();
       m.mutate(r);
-      expect(verifyCattleRecommendation(reseal(r), hash, TRUSTED).valid, m.label).toBe(false);
+      expect(verifyStored(reseal(r)).valid, m.label).toBe(false);
     }
     // Well-typed but inconsistent edits (re-sealed): times, ranks, decision fields, exclusions, ties.
     const semantic: [string, (r: Record<string, unknown>) => void][] = [
@@ -1868,7 +1888,7 @@ describe("C8 audit 2026-10-15T210448Z — F005: re-sealed stored recommendations
     for (const [label, edit] of semantic) {
       const r = stored();
       edit(r);
-      expect(verifyCattleRecommendation(reseal(r), hash, TRUSTED).valid, label).toBe(false);
+      expect(verifyStored(reseal(r)).valid, label).toBe(false);
     }
   }, 60_000);
 
@@ -1877,7 +1897,7 @@ describe("C8 audit 2026-10-15T210448Z — F005: re-sealed stored recommendations
     const gated = (r.candidates as { gates: { checks: { state: string }[] } }[]).find((c) => c.gates.checks.some((g) => g.state === "FAIL"))!;
     expect(gated).toBeDefined();
     gated.gates.checks = [];
-    expect(verifyCattleRecommendation(reseal(r), hash, TRUSTED)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_CANDIDATES_INCONSISTENT" });
+    expect(verifyStored(reseal(r))).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_CANDIDATES_INCONSISTENT" });
   });
 
   it("class: stored gate-check and exclusion collections must equal the pack's bidirectionally (deletion, duplication, substitution)", () => {
@@ -1898,7 +1918,7 @@ describe("C8 audit 2026-10-15T210448Z — F005: re-sealed stored recommendations
     for (const [label, edit] of edits) {
       const r = stored();
       edit(r);
-      expect(verifyCattleRecommendation(reseal(r), hash, TRUSTED).valid, label).toBe(false);
+      expect(verifyStored(reseal(r)).valid, label).toBe(false);
     }
   });
 
@@ -1965,25 +1985,25 @@ describe("C8 audit 2026-10-15T233648Z — F005 family closed by replay: a stored
   };
 
   it("exact reproduction: a known amount forged to NaN (pack step rebuilt, pack and record re-fingerprinted) is rejected by replay", () => {
-    expect(verifyCattleRecommendation(forge(stored()), hash, TRUSTED).valid).toBe(true); // forging an unedited record is a no-op
+    expect(verifyStored(forge(stored())).valid).toBe(true); // forging an unedited record is a no-op
     const r = stored();
     expect((r.candidates as Cand[])[0].value).toMatchObject({ state: "VALUE_KNOWN", amount: "749.50" });
     setAmount(r, "NaN");
     // Since audit F010 a non-canonical amount makes the pack decision unreadable — rejected before replay is reached.
     expect(cattle.readPackDecision(forge(r).pack)).toBeNull();
-    expect(verifyCattleRecommendation(forge(r), hash, TRUSTED)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_RECORD_PACK_INCONSISTENT" });
+    expect(verifyStored(forge(r))).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_RECORD_PACK_INCONSISTENT" });
   });
 
   it("class: any forged decision amount — malformed or well-formed — is rejected by replay", () => {
     for (const amount of ["NaN", "Infinity", "", "1e3", "abc", "-0"]) {
       const r = stored();
       setAmount(r, amount);
-      expect(verifyCattleRecommendation(forge(r), hash, TRUSTED), amount).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_RECORD_PACK_INCONSISTENT" });
+      expect(verifyStored(forge(r)), amount).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_RECORD_PACK_INCONSISTENT" });
     }
     for (const amount of ["749.5", "750.50", "-749.50", "0"]) {
       const r = stored();
       setAmount(r, amount);
-      expect(verifyCattleRecommendation(forge(r), hash, TRUSTED), amount).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPLAY_MISMATCH" });
+      expect(verifyStored(forge(r)), amount).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPLAY_MISMATCH" });
     }
   });
 
@@ -2002,162 +2022,8 @@ describe("C8 audit 2026-10-15T233648Z — F005 family closed by replay: a stored
       const r = withWeights();
       edit(r.context as never);
       resealContext(r);
-      expect(verifyCattleRecommendation(forge(r), hash, TRUSTED), label).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_STRUCTURE_MALFORMED" });
+      expect(verifyStored(forge(r)), label).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_STRUCTURE_MALFORMED" });
     }
-  });
-});
-
-describe("C8 audit 2026-10-16T064728Z — the stored context's C8-owned parts are validated before replay", () => {
-  type Obs = { amount: string; observedAt: string; receivedAt: string; valueKey: string };
-  type Econ = { valueKey: string; state: string; observation: Obs | null };
-  type Model = { role: string; expectedEffect: string | null };
-  type Ctx = { economics: Econ[]; models: { records: Model[]; reviews: unknown[] }; modelEvaluations: { evaluation: { state: string; model: Model; ruleEvaluation: { reviews: { state: string }[]; sourceChecks: { status: string }[] } } }[]; actions: { definitions: { tier: string; actionKind: string }[] } };
-  const stored = () => structuredClone(recOf(run(favourable({ actions: registry([SELL()]) })))) as unknown as Record<string, unknown>;
-  /** Re-fingerprints the edited context, then the outer record (the audit's attack on the context). */
-  const resealContext = (r: Record<string, unknown>): CattleRecommendation => {
-    const { fingerprint: _c, ...ctx } = r.context as Record<string, unknown>;
-    void _c;
-    const out = { ...r, context: { ...ctx, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", ctx, hash) } } as Record<string, unknown>;
-    const { fingerprint: _f, ...body } = out;
-    void _f;
-    return { ...body, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_RECORD", body, hash) } as unknown as CattleRecommendation;
-  };
-  const cost = (c: Ctx) => c.economics.find((e) => e.valueKey === "SYNTH-KEY-COST")!.observation!;
-  const effect = (c: Ctx) => [c.models.records.find((m) => m.role === "EFFECT")!, c.modelEvaluations.find((e) => e.evaluation.state === "EVALUATED" && e.evaluation.model.role === "EFFECT")!.evaluation.model];
-
-  it("exact reproductions: a negative stored cost observation and an effect statement changed without its content binding are rejected", () => {
-    expect(verifyCattleRecommendation(resealContext(stored()), hash, TRUSTED).valid).toBe(true); // re-sealing an unedited context is a no-op
-    const neg = stored();
-    cost(neg.context as Ctx).amount = "-250.5";
-    expect(verifyCattleRecommendation(resealContext(neg), hash, TRUSTED)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_ECONOMICS_INVALID" });
-    const eff = stored();
-    for (const m of effect(eff.context as Ctx)) m.expectedEffect = "SYNTH a different effect";
-    expect(verifyCattleRecommendation(resealContext(eff), hash, TRUSTED)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_MODEL_EVALUATION_INVALID" });
-  });
-
-  it("class: C8-owned context semantics — observations, model approval / source evidence, registry and value keys — are re-admitted, never trusted", () => {
-    const edits: [string, (c: Ctx) => void][] = [
-      ["observation amount over the money precision", (c) => void (cost(c).amount = "1".repeat(25))],
-      ["observation amount malformed", (c) => void (cost(c).amount = "NaN")],
-      ["observation observed after effectiveAt", (c) => void (cost(c).observedAt = LATER)],
-      ["observation received after the knowledge cutoff", (c) => void (cost(c).receivedAt = LATER)],
-      ["observation bound to another value key", (c) => void (cost(c).valueKey = "SYNTH-KEY-PRICE")],
-      ["KNOWN resolution without its observation", (c) => void (c.economics[0].observation = null)],
-      ["economic value key dropped", (c) => void c.economics.pop()],
-      ["model reviews removed (approval no longer evidenced)", (c) => void (c.models.reviews = [])],
-      ["carried review forged to REJECTED", (c) => void (c.modelEvaluations[0].evaluation.ruleEvaluation.reviews[0].state = "REJECTED")],
-      ["carried source check forged", (c) => void (c.modelEvaluations[0].evaluation.ruleEvaluation.sourceChecks[0].status = "SUPERSEDED")],
-      ["model evaluation removed", (c) => void c.modelEvaluations.pop()],
-      ["registry definition duplicated", (c) => void c.actions.definitions.push(structuredClone(c.actions.definitions[0]))],
-    ];
-    for (const [label, edit] of edits) {
-      const r = stored();
-      edit(r.context as Ctx);
-      // Rejected by context validation itself — never left to replay, which would reproduce an invalid context faithfully.
-      const v = verifyCattleRecommendation(resealContext(r), hash, TRUSTED);
-      expect(v.valid, label).toBe(false);
-      expect(v.valid ? null : v.reasonCode, label).toMatch(/^CATTLE_RECOMMENDATION_STORED_(STRUCTURE_MALFORMED|REGISTRY_INVALID|MODELS_INVALID|MODEL_EVALUATION_INVALID|ECONOMICS_INVALID)$/);
-    }
-  });
-});
-
-describe("C8 audit 2026-10-16T074615Z — F005: stored model evaluations are re-run through the authoritative C0 path; F008: conflict cardinality", () => {
-  type RuleEval = { state: string; reasonCodes: string[] };
-  type Ctx = { modelEvaluations: { modelId: string; evaluation: { state: string; ruleEvaluation: RuleEval } }[]; economics: { valueKey: string; state: string; observation: unknown; candidateObservationIds: string[] }[] };
-  const resealContext = (r: Record<string, unknown>): CattleRecommendation => {
-    const { fingerprint: _c, ...ctx } = r.context as Record<string, unknown>;
-    void _c;
-    const out = { ...r, context: { ...ctx, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", ctx, hash) } } as Record<string, unknown>;
-    const { fingerprint: _f, ...body } = out;
-    void _f;
-    return { ...body, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_RECORD", body, hash) } as unknown as CattleRecommendation;
-  };
-  const withEffectRule = (rule: CattleRuleVersion) => {
-    const models = allModels([effectModel(rule), econModel(["SYNTH-KEY-PRICE"], ["SYNTH-KEY-COST"])]);
-    return structuredClone(recOf(run(favourable({ models, actions: registry([SELL()]) })))) as unknown as Record<string, unknown>;
-  };
-  const effectEval = (r: Record<string, unknown>) => (r.context as Ctx).modelEvaluations.find((e) => e.modelId === "SYNTH-MODEL-EFFECT")!.evaluation;
-  const NOT_YET_EFFECTIVE = modelRule("SYNTH-RULE-EFFECT", MODEL_PASS, { effectiveFrom: "2026-05-01" });
-  const LOGIC_MISMATCH = modelRule("SYNTH-RULE-EFFECT", MODEL_PASS, { implementation: { ...bindTo(MODEL_PASS), logicFingerprint: bindTo(MODEL_FAIL).logicFingerprint } });
-  const PREDICATE_FAIL = modelRule("SYNTH-RULE-EFFECT", MODEL_FAIL);
-
-  it("fails closed: a model-bearing stored recommendation never verifies without the trusted registry; one without models does", () => {
-    const rec = recOf(run(favourable({ actions: registry([SELL()]) })));
-    expect(rec.context.modelEvaluations.length).toBeGreaterThan(0);
-    expect(verifyCattleRecommendation(rec, hash, TRUSTED)).toEqual({ valid: true });
-    expect(verifyCattleRecommendation(rec, hash)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_MODEL_VERIFICATION_REGISTRY_REQUIRED" });
-    expect(verifyCattleRecommendation(rec, hash, {})).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_MODEL_VERIFICATION_REGISTRY_REQUIRED" });
-    // A registry that lacks the model's implementation is authoritative too: the stored EVALUATED record no longer matches.
-    const other = { obligationImplementations: createObligationImplementationRegistry([OBL_IMPL]) };
-    expect(verifyCattleRecommendation(rec, hash, other)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_MODEL_EVALUATION_INVALID" });
-    const plain = recOf(run({ weights: { observations: [] } }));
-    expect(plain.context.modelEvaluations).toEqual([]);
-    expect(verifyCattleRecommendation(plain, hash)).toEqual({ valid: true });
-  });
-
-  it("exact reproductions: UNSUPPORTED (rule not yet effective; implementation logic mismatch) forged to PASS and re-sealed is rejected by the authoritative re-run", () => {
-    for (const [label, rule] of [["rule not in effect", NOT_YET_EFFECTIVE], ["implementation logic fingerprint mismatch", LOGIC_MISMATCH]] as const) {
-      const r = withEffectRule(rule);
-      expect(effectEval(r).ruleEvaluation.state, label).toBe("UNSUPPORTED");
-      expect(verifyCattleRecommendation(resealContext(r), hash, TRUSTED).valid, label).toBe(true); // untouched: verifies
-      effectEval(r).ruleEvaluation.state = "PASS";
-      effectEval(r).ruleEvaluation.reasonCodes = [];
-      expect(verifyCattleRecommendation(resealContext(r), hash, TRUSTED), label).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_MODEL_EVALUATION_INVALID" });
-    }
-  });
-
-  it("class: every forged model-evaluation state, predicate result, availability or supporting field is rejected by the authoritative re-run", () => {
-    const edits: [string, CattleRuleVersion, (e: { state: string; ruleEvaluation: RuleEval } & Record<string, unknown>) => void][] = [];
-    for (const [name, rule] of [["not effective", NOT_YET_EFFECTIVE], ["logic mismatch", LOGIC_MISMATCH], ["predicate FAIL", PREDICATE_FAIL], ["approved PASS", EFFECT_RULE]] as const) {
-      for (const state of ["PASS", "FAIL", "UNSUPPORTED", "REVIEW_REQUIRED", "NOT_APPLICABLE"]) edits.push([`${name}: state → ${state}`, rule, (e) => void (e.ruleEvaluation.state = state)]);
-      edits.push([`${name}: reason codes forged`, rule, (e) => void (e.ruleEvaluation.reasonCodes = ["SYNTH"])]);
-      edits.push([`${name}: evaluation made UNAVAILABLE`, rule, (e) => {
-        for (const k of Object.keys(e)) delete e[k];
-        Object.assign(e, { state: "UNAVAILABLE", reasonCodes: ["SYNTH"] });
-      }]);
-    }
-    for (const [label, rule, edit] of edits) {
-      const r = withEffectRule(rule);
-      const before = JSON.stringify(effectEval(r));
-      edit(effectEval(r) as never);
-      if (JSON.stringify(effectEval(r)) === before) continue; // not a mutation (the state already had that value)
-      expect(verifyCattleRecommendation(resealContext(r), hash, TRUSTED), label).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_MODEL_EVALUATION_INVALID" });
-    }
-  });
-
-  describe("F008 — economic conflict cardinality follows the resolver", () => {
-    const cost = (id: string, amount: string, observedAt: string, receivedAt: string, supersedes: string[] = []) => econObs(id, "SYNTH-KEY-COST", amount, { observedAt, receivedAt, supersedes });
-    const PRICE = econObs("o-price", "SYNTH-KEY-PRICE", "1000.00");
-    const BASE = cost("o-c0", "250.5", "2026-04-01T00:00:00Z", "2026-04-02T00:00:00Z");
-    const conflictOf = (observations: unknown[]) => {
-      const rec = recOf(run(favourable({ observations, actions: registry([SELL()]) })));
-      return { rec, resolution: rec.context.economics.find((e) => e.valueKey === "SYNTH-KEY-COST")! };
-    };
-
-    it("exact reproduction: competing corrections spanning effectiveAt yield a one-candidate CONFLICT that verifies after storage", () => {
-      const { rec, resolution } = conflictOf([PRICE, BASE, cost("o-c1", "260", "2026-04-05T00:00:00Z", "2026-04-06T00:00:00Z", ["o-c0"]), cost("o-c2", "270", "2026-05-01T00:00:00Z", "2026-05-02T00:00:00Z", ["o-c0"])]);
-      expect(resolution).toMatchObject({ state: "CONFLICT", observation: null, candidateObservationIds: ["o-c1"] });
-      expect(verifyCattleRecommendation(structuredClone(rec), hash, TRUSTED)).toEqual({ valid: true });
-    });
-
-    it("normal multi-candidate CONFLICT verifies; empty, duplicated or observation-bearing CONFLICT structures are rejected", () => {
-      const { rec, resolution } = conflictOf([PRICE, BASE, cost("o-c1", "260", "2026-04-05T00:00:00Z", "2026-04-06T00:00:00Z", ["o-c0"]), cost("o-c2", "270", "2026-04-07T00:00:00Z", "2026-04-08T00:00:00Z", ["o-c0"])]);
-      expect(resolution).toMatchObject({ state: "CONFLICT", candidateObservationIds: ["o-c1", "o-c2"] });
-      expect(verifyCattleRecommendation(structuredClone(rec), hash, TRUSTED)).toEqual({ valid: true });
-      const edits: [string, (x: Ctx["economics"][number]) => void][] = [
-        ["no candidates", (x) => void (x.candidateObservationIds = [])],
-        ["duplicated candidate", (x) => void (x.candidateObservationIds = ["o-c1", "o-c1"])],
-        ["unsorted candidates", (x) => void (x.candidateObservationIds = ["o-c2", "o-c1"])],
-        ["an observation bound", (x) => void (x.observation = structuredClone(PRICE))],
-      ];
-      for (const [label, edit] of edits) {
-        const r = structuredClone(rec) as unknown as Record<string, unknown>;
-        edit((r.context as Ctx).economics.find((e) => e.valueKey === "SYNTH-KEY-COST")!);
-        const v = verifyCattleRecommendation(resealContext(r), hash, TRUSTED);
-        expect(v.valid, label).toBe(false);
-        expect(v.valid ? null : v.reasonCode, label).toMatch(/^CATTLE_RECOMMENDATION_STORED_(STRUCTURE_MALFORMED|ECONOMICS_INVALID)$/);
-      }
-    });
   });
 });
 
@@ -2217,40 +2083,8 @@ describe("C8 audit 2026-10-16T094305Z — F010: the public pack readers validate
   });
 });
 
-describe("C8 audit 2026-10-16T104117Z — F005: stored context bindings; F010: every decision field and its semantics", () => {
+describe("C8 audit 2026-10-16T104117Z — F010: every decision field and its semantics", () => {
   type Step = { formula: string; inputs: Record<string, unknown> };
-  const resealContext = (r: Record<string, unknown>): CattleRecommendation => {
-    const { fingerprint: _c, ...ctx } = r.context as Record<string, unknown>;
-    void _c;
-    const out = { ...r, context: { ...ctx, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", ctx, hash) } } as Record<string, unknown>;
-    const { fingerprint: _f, ...body } = out;
-    void _f;
-    return { ...body, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_RECORD", body, hash) } as unknown as CattleRecommendation;
-  };
-  type Goals = { status: string; activeGoalTypes: string[]; snapshot: { status: string; subject: { animalId: string }; effectiveAt: string; knowledgeCutoff: string } };
-  const withGoals = () =>
-    structuredClone(recOf(run(favourable({ actions: registry([SELL()]), goals: goals([goalDecl("g-fin")]), weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] } })))) as unknown as Record<string, unknown>;
-  const goalsOf = (r: Record<string, unknown>) => (r.context as { goals: Goals }).goals;
-
-  it("exact reproduction: a stored goal status contradicting its snapshot, or a snapshot naming another animal, is rejected before replay", () => {
-    expect(goalsOf(withGoals())).toMatchObject({ status: "ACTIVE", snapshot: { status: "ACTIVE" }, activeGoalTypes: ["FINISHING"] });
-    expect(verifyCattleRecommendation(resealContext(withGoals()), hash, TRUSTED).valid).toBe(true);
-    const edits: [string, (g: Goals, r: Record<string, unknown>) => void][] = [
-      ["status NONE, snapshot ACTIVE", (g) => void (g.status = "NONE")],
-      ["snapshot status NONE, status ACTIVE", (g) => void (g.snapshot.status = "NONE")],
-      ["snapshot names another animal", (g) => void (g.snapshot.subject.animalId = B)],
-      ["snapshot at another effectiveAt", (g) => void (g.snapshot.effectiveAt = "2026-04-01T00:00:00Z")],
-      ["snapshot at another knowledge cutoff", (g) => void (g.snapshot.knowledgeCutoff = LATER)],
-      ["active goal types duplicated", (g) => void g.activeGoalTypes.push("FINISHING")],
-      ["latest weight observed after effectiveAt", (_g, r) => void ((r.context as { weights: { latest: { observedAt: string } } }).weights.latest.observedAt = "2026-05-01T00:00:00Z")],
-    ];
-    for (const [label, edit] of edits) {
-      const r = withGoals();
-      edit(goalsOf(r), r);
-      expect(verifyCattleRecommendation(resealContext(r), hash, TRUSTED), label).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_STORED_CONTEXT_BINDING_INCONSISTENT" });
-    }
-  });
-
   const readers = [
     ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
     ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
@@ -2305,6 +2139,203 @@ describe("C8 audit 2026-10-16T104117Z — F005: stored context bindings; F010: e
       const forged = refingerprint(p);
       for (const [name, read] of readers) expect(read(forged), `${label} / ${name}`).toBeNull();
     }
+  });
+});
+
+describe("C8 architecture decision 2026-10-16 (Option 1) — authoritative verification is FULL REPRODUCTION; audit 2026-10-16T114308Z F005 / F010", () => {
+  type Ctx = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  /**
+   * The strongest forgery of a stored context: edit it, re-seal its fingerprint and REBUILD every decision field,
+   * the pack and the record through the C8 engine over it — internally consistent by construction. Only
+   * reproduction from the original request through the owning engines can tell it from an original.
+   */
+  const forgeContext = (rec: CattleRecommendation, edit: (ctx: Ctx) => void): CattleRecommendation | null => {
+    const ctx = structuredClone(rec.context) as unknown as Ctx;
+    edit(ctx);
+    const { fingerprint: _c, ...body } = ctx;
+    void _c;
+    const sealed = { ...body, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", body, hash) };
+    try {
+      const r = recommendForContext(sealed as never, hash);
+      return r.ok ? (structuredClone(r.recommendation) as CattleRecommendation) : null;
+    } catch {
+      return null;
+    }
+  };
+  const authoritative = (forged: CattleRecommendation, original: CattleRecommendation, trusted: Parameters<typeof verifyCattleRecommendation>[3] = TRUSTED) => verifyCattleRecommendation(forged, requestFor(original), hash, trusted);
+  /** Every edit is caught by reproduction: integrity alone still passes, so no C8-side rule decided it. */
+  const expectReproductionCatches = (label: string, original: CattleRecommendation, edit: (ctx: Ctx) => void) => {
+    const forged = forgeContext(original, edit);
+    expect(forged, `${label}: the engine rebuilds a consistent forgery`).not.toBeNull();
+    expect(cattle.checkCattleRecommendationIntegrity(forged!, hash), label).toEqual({ intact: true, authoritative: false });
+    expect(authoritative(forged!, original), label).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_MISMATCH" });
+  };
+  const weighed = () => recOf(run(favourable({ actions: registry([SELL()]), goals: goals([goalDecl("g-fin")]), weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] } })));
+  const NOT_YET_EFFECTIVE = modelRule("SYNTH-RULE-EFFECT", MODEL_PASS, { effectiveFrom: "2026-05-01" });
+  const LOGIC_MISMATCH = modelRule("SYNTH-RULE-EFFECT", MODEL_PASS, { implementation: { ...bindTo(MODEL_PASS), logicFingerprint: bindTo(MODEL_FAIL).logicFingerprint } });
+  const withEffectRule = (rule: CattleRuleVersion) => recOf(run(favourable({ models: allModels([effectModel(rule), econModel(["SYNTH-KEY-PRICE"], ["SYNTH-KEY-COST"])]), actions: registry([SELL()]) })));
+  const effectEval = (c: Ctx) => c.modelEvaluations.find((e: Ctx) => e.modelId === "SYNTH-MODEL-EFFECT").evaluation;
+
+  it("the API: originals verify only by reproduction; integrity is a separate, explicitly non-authoritative result", () => {
+    const rec = weighed();
+    expect(verifyCattleRecommendation(rec, requestFor(rec), hash, TRUSTED)).toEqual({ valid: true });
+    expect(cattle.checkCattleRecommendationIntegrity(rec, hash)).toEqual({ intact: true, authoritative: false });
+    expect(Object.hasOwn(cattle.checkCattleRecommendationIntegrity(rec, hash), "valid")).toBe(false); // never confusable with verification
+    for (const missing of [undefined, null]) {
+      expect(verifyCattleRecommendation(rec, missing, hash, TRUSTED)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_VERIFICATION_REQUEST_REQUIRED" });
+    }
+    // Another request (a later cutoff) is not this recommendation's original: it never reproduces it.
+    expect(verifyCattleRecommendation(rec, { ...requestFor(rec), query: { effectiveAt: EFFECTIVE, knowledgeCutoff: LATER } }, hash, TRUSTED)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_MISMATCH" });
+    // A request that cannot be evaluated fails closed.
+    expect(verifyCattleRecommendation(rec, { query: null }, hash, TRUSTED)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_FAILED" });
+  });
+
+  it("fails closed without the trusted dependencies the original evaluation used", () => {
+    const rec = recOf(run(favourable({ actions: registry([SELL()]) })));
+    expect(rec.context.modelEvaluations.length).toBeGreaterThan(0);
+    expect(authoritative(rec, rec)).toEqual({ valid: true });
+    expect(authoritative(rec, rec, {}).valid).toBe(false);
+    expect(authoritative(rec, rec, { obligationImplementations: createObligationImplementationRegistry([OBL_IMPL]) }).valid).toBe(false);
+    const withObligations = recOf(run({ obligations: obligations({ evidence: [fulfilment()] }) }));
+    expect(authoritative(withObligations, withObligations)).toEqual({ valid: true });
+    expect(authoritative(withObligations, withObligations, {})).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_FAILED" });
+  });
+
+  it("audit F005 exact reproduction: latest weight KNOWN → NONE keeping its observation date, rebuilt and re-sealed, is rejected by reproduction (C4's rule, enforced by C4)", () => {
+    const rec = weighed();
+    expect(rec.context.weights).toMatchObject({ state: "SUPPLIED", latest: { state: "KNOWN" } });
+    expectReproductionCatches("weight KNOWN → NONE", rec, (c) => void (c.weights.latest.state = "NONE"));
+  });
+
+  it("class: re-sealed, rebuilt tampering of every C1–C7-derived view and every C8-owned context part is rejected by reproduction", () => {
+    const base = weighed();
+    const edits: [string, (c: Ctx) => void][] = [
+      ["weight observedAt moved", (c) => void (c.weights.latest.observedAt = "2026-04-01T00:00:00Z")],
+      ["weight state EVIDENCE_CONFLICT", (c) => void (c.weights.latest.state = "EVIDENCE_CONFLICT")],
+      ["weights not supplied", (c) => void (c.weights = { state: "NOT_SUPPLIED" })],
+      ["goal status NONE (snapshot ACTIVE)", (c) => void (c.goals.status = "NONE")],
+      ["goal status and snapshot NONE", (c) => void ((c.goals.status = "NONE"), (c.goals.snapshot.status = "NONE"))],
+      ["goal types swapped", (c) => void (c.goals.activeGoalTypes = ["SALE"])],
+      ["goal snapshot names another animal", (c) => void (c.goals.snapshot.subject.animalId = B)],
+      ["goals not supplied", (c) => void (c.goals = { state: "NOT_SUPPLIED" })],
+      ["cost observation negative", (c) => void (c.economics.find((e: Ctx) => e.valueKey === "SYNTH-KEY-COST").observation.amount = "-250.5")],
+      ["cost observation re-priced", (c) => void (c.economics.find((e: Ctx) => e.valueKey === "SYNTH-KEY-COST").observation.amount = "1.5")],
+      ["effect statement changed without its binding", (c) => {
+        for (const m of [c.models.records.find((x: Ctx) => x.role === "EFFECT"), effectEval(c).model]) m.expectedEffect = "SYNTH another effect";
+      }],
+      ["model reviews removed", (c) => void (c.models.reviews = [])],
+      ["model evaluation made UNAVAILABLE", (c) => void (c.modelEvaluations.find((e: Ctx) => e.modelId === "SYNTH-MODEL-EFFECT").evaluation = { state: "UNAVAILABLE", reasonCodes: ["SYNTH"] })],
+      ["registry definition tier raised", (c) => void (c.actions.definitions[0].tier = cattle.RECOMMENDATION_PRIORITY_TIERS[0])],
+    ];
+    for (const [label, edit] of edits) expectReproductionCatches(label, base, edit);
+    // Health / obligations / programmes views (C3 / C2 / C7), each from its own engine's output.
+    const healthy = recOf(run(favourable({ actions: registry([SELL(["C3_WITHDRAWAL"])]), health: health(IN_WITHDRAWAL_RECORDS) })));
+    expect(healthy.context.health).toMatchObject({ state: "SUPPLIED" });
+    expectReproductionCatches("withdrawal state forged CLEAR", healthy, (c) => void c.health.withdrawal.forEach((w: Ctx) => (w.state = "CLEAR")));
+    expectReproductionCatches("withdrawal gate forged PASS", healthy, (c) => void c.health.gates.forEach((g: Ctx) => ((g.state = "PASS"), (g.reasonCodes = []))));
+    const obliged = recOf(run({ obligations: obligations() }));
+    expect(obliged.context.obligations).toMatchObject({ state: "SUPPLIED" });
+    expectReproductionCatches("obligation record state forged", obliged, (c) => void c.obligations.records.forEach((x: Ctx) => (x.state = x.state === "SATISFIED" ? "OVERDUE" : "SATISFIED")));
+    expectReproductionCatches("obligation gate forged PASS", obliged, (c) => void c.obligations.gates.forEach((g: Ctx) => ((g.state = "PASS"), (g.reasonCodes = []))));
+    const programmed = recOf(run({ programmes: programmes(), obligations: obligations() }));
+    expect(programmed.context.programmes).toMatchObject({ state: "SUPPLIED" });
+    expectReproductionCatches("programmes not supplied", programmed, (c) => void (c.programmes = { state: "NOT_SUPPLIED" }));
+  });
+
+  it("C0 model evaluations: UNSUPPORTED (not yet effective; implementation logic mismatch) forged to PASS, rebuilt and re-sealed, is rejected by reproduction", () => {
+    for (const [label, rule] of [["rule not in effect", NOT_YET_EFFECTIVE], ["implementation logic fingerprint mismatch", LOGIC_MISMATCH]] as const) {
+      const rec = withEffectRule(rule);
+      expect(effectEval(rec.context as unknown as Ctx).ruleEvaluation.state, label).toBe("UNSUPPORTED");
+      expect(authoritative(rec, rec), label).toEqual({ valid: true });
+      expectReproductionCatches(`${label}: UNSUPPORTED → PASS`, rec, (c) => {
+        const r = effectEval(c).ruleEvaluation;
+        r.state = "PASS";
+        r.reasonCodes = [];
+      });
+    }
+  });
+
+  describe("F008 — economic conflict cardinality follows the resolver (round trip through reproduction)", () => {
+    const cost = (id: string, amount: string, observedAt: string, receivedAt: string, supersedes: string[] = []) => econObs(id, "SYNTH-KEY-COST", amount, { observedAt, receivedAt, supersedes });
+    const PRICE = econObs("o-price", "SYNTH-KEY-PRICE", "1000.00");
+    const BASE = cost("o-c0", "250.5", "2026-04-01T00:00:00Z", "2026-04-02T00:00:00Z");
+    const conflictOf = (observations: unknown[]) => {
+      const rec = recOf(run(favourable({ observations, actions: registry([SELL()]) })));
+      return { rec, resolution: rec.context.economics.find((e) => e.valueKey === "SYNTH-KEY-COST")! };
+    };
+    it("competing corrections spanning effectiveAt yield a one-candidate CONFLICT that verifies after storage; a normal two-candidate CONFLICT verifies too", () => {
+      const one = conflictOf([PRICE, BASE, cost("o-c1", "260", "2026-04-05T00:00:00Z", "2026-04-06T00:00:00Z", ["o-c0"]), cost("o-c2", "270", "2026-05-01T00:00:00Z", "2026-05-02T00:00:00Z", ["o-c0"])]);
+      expect(one.resolution).toMatchObject({ state: "CONFLICT", observation: null, candidateObservationIds: ["o-c1"] });
+      expect(verifyStored(structuredClone(one.rec))).toEqual({ valid: true });
+      const two = conflictOf([PRICE, BASE, cost("o-c1", "260", "2026-04-05T00:00:00Z", "2026-04-06T00:00:00Z", ["o-c0"]), cost("o-c2", "270", "2026-04-07T00:00:00Z", "2026-04-08T00:00:00Z", ["o-c0"])]);
+      expect(two.resolution).toMatchObject({ state: "CONFLICT", candidateObservationIds: ["o-c1", "o-c2"] });
+      expect(verifyStored(structuredClone(two.rec))).toEqual({ valid: true });
+      for (const [label, edit] of [
+        ["no candidates", (x: Ctx) => void (x.candidateObservationIds = [])],
+        ["duplicated candidate", (x: Ctx) => void (x.candidateObservationIds = ["o-c1", "o-c1"])],
+        ["an observation bound", (x: Ctx) => void (x.observation = structuredClone(PRICE))],
+      ] as const) {
+        const forged = forgeContext(two.rec, (c) => edit(c.economics.find((e: Ctx) => e.valueKey === "SYNTH-KEY-COST")));
+        if (forged === null) continue; // the engine itself refuses the edited context — nothing to store
+        expect(authoritative(forged, two.rec).valid, label).toBe(false);
+      }
+    });
+  });
+
+  describe("F010 — one pack-outcome reconciliation rule for every reader", () => {
+    type Step = { formula: string; inputs: Record<string, unknown> };
+    const readers = [
+      ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
+      ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
+      ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+    ] as const;
+    const refingerprint = (p: Record<string, unknown>) => {
+      const { fingerprint: _p, generatedAt: _g, ...content } = p;
+      void _p;
+      void _g;
+      return { ...p, fingerprint: computeCattleFingerprint("CATTLE_EVIDENCE_PACK", content, hash) } as Record<string, unknown>;
+    };
+    const packOf = (rec: CattleRecommendation) => structuredClone(rec.pack) as unknown as Record<string, unknown>;
+    const proposed = (p: Record<string, unknown>) => (p.calculationSteps as Step[]).find((s) => s.formula === CANDIDATE_STEP_FORMULA && s.inputs.actionId === p.proposedActionId)!;
+    const actionable = () => recOf(run(favourable({ actions: registry([SELL()]) })));
+
+    it("exact reproduction and class: an ACTIONABLE pack whose proposal is unresolved, not clear or non-selectable is unreadable by every reader", () => {
+      expect(actionable().record.outcome).toBe("ACTIONABLE");
+      const edits: [string, (s: Step) => void][] = [
+        ["unresolved, not clear, non-selectable (the audit's pack)", (s) => {
+          s.inputs.trigger = JSON.stringify({ state: "UNRESOLVED", reasonCodes: ["SYNTH"] });
+          s.inputs.gates = "NOT_CLEAR";
+          s.inputs.selectable = false;
+        }],
+        ["not clear and non-selectable", (s) => void ((s.inputs.gates = "NOT_CLEAR"), (s.inputs.selectable = false))],
+        ["clear but non-selectable (eligibility refuted)", (s) => {
+          s.inputs.eligibility = JSON.stringify({ state: "NOT_ELIGIBLE", reasonCodes: ["SYNTH"] });
+          s.inputs.selectable = false;
+        }],
+      ];
+      for (const [label, edit] of edits) {
+        const p = packOf(actionable());
+        edit(proposed(p));
+        const forged = refingerprint(p);
+        expect(cattle.verifyRecommendationEvidencePack(forged as never, hash).valid, label).toBe(true);
+        expect(forged.outcome, label).toBe("ACTIONABLE");
+        for (const [name, read] of readers) expect(read(forged), `${label} / ${name}`).toBeNull();
+      }
+    });
+
+    it("legitimate outcomes stay readable: ACTIONABLE, INSUFFICIENT_EVIDENCE with an unresolved proposal, BLOCKED and NO_RECOMMENDATION", () => {
+      const cases: [string, CattleRecommendation][] = [
+        ["ACTIONABLE", actionable()],
+        ["INSUFFICIENT_EVIDENCE", recOf(run({ weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] }, actions: defaultOnly("RECORD_WEIGHT", { evidenceRequirements: ["PERFORMANCE"] }) }))],
+        ["BLOCKED", recOf(run(favourable({ actions: registry([SELL(["C3_WITHDRAWAL"])]), health: health(IN_WITHDRAWAL_RECORDS) })))],
+        ["NO_RECOMMENDATION", recOf(run({ weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] }, actions: registry([action("SYNTH-X", { trigger: { kind: "WEIGHT_MISSING_OR_STALE", staleAfter: null } })]) }))],
+      ];
+      for (const [label, rec] of cases) {
+        expect(rec.record.outcome, label).toBe(label);
+        for (const [name, read] of readers) expect(read(rec.pack), `${label} / ${name}`).not.toBeNull();
+        expect(verifyStored(rec), label).toEqual({ valid: true });
+      }
+    });
   });
 });
 

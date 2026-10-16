@@ -45,5 +45,11 @@ export {
 export type { RecommendationTrustedInputs } from "./evaluation-context";
 export type * from "./recommendation-contracts";
 export { deriveRecommendationRecord, readPackDecision, renderRecommendationExplanation, type PackDecision } from "./recommendation-explanation";
-export { CATTLE_RECOMMENDATION_ENGINE_VERSION, recommendCattle, verifyCattleRecommendation } from "./recommendation-engine";
+export {
+  CATTLE_RECOMMENDATION_ENGINE_VERSION,
+  checkCattleRecommendationIntegrity,
+  recommendCattle,
+  verifyCattleRecommendation,
+  type CattleRecommendationIntegrityResult,
+} from "./recommendation-engine";
 export * from "./recommendation-integrity";

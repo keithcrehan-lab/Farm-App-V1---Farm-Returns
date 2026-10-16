@@ -4452,7 +4452,7 @@ canonicalisation changes. `livestock.ts` economic functions (`calculateFinishing
 | `recommendation-consumed.ts` | THE consumed-field schema (CAT-INV-028) for every C1–C7 output C8 reads (`RECOMMENDATION_CONSUMED_SURFACES`); owned-record shape check (no undeclared field). Module-internal |
 | `recommendation-exact.ts` | Exact consumed contracts for every C0 record C8 CARRIES: `RULE_EVALUATION_RECORD`, `EVIDENCE_PACK`, `exact` / `exactValid`, `CarriedRuleEvaluation`; `C0_EXACTNESS` compile-time completeness against the frozen C0 types. Module-internal |
 | `evaluation-context.ts` | THE construction boundary: `buildEvaluationContexts`, `sealEvaluationContext`; `RecommendationTrustedInputs`. Module-internal except the trusted-input type |
-| `recommendation-engine.ts` | `recommendCattle(request, hash, trusted)` → `CattleRecommendationResult`; `verifyCattleRecommendation(recommendation, hash, trusted)`; `CATTLE_RECOMMENDATION_ENGINE_VERSION` |
+| `recommendation-engine.ts` | `recommendCattle(request, hash, trusted)` → `CattleRecommendationResult`; `verifyCattleRecommendation(recommendation, request, hash, trusted)` (authoritative, by reproduction); `checkCattleRecommendationIntegrity(recommendation, hash)` (integrity only); `CATTLE_RECOMMENDATION_ENGINE_VERSION` |
 | `recommendation-explanation.ts` | `renderRecommendationExplanation` (fixed template over pack / record fields) |
 | `recommendation-contracts.ts` | request, `CattleEvaluationContext`, candidate, record and herd types (types only) |
 | `recommendation-integrity.ts` | `computeRecommendationFingerprint` / `verifyRecommendationFingerprint`, `CATTLE_RECOMMENDATION_PAYLOAD_VERSION` |
@@ -4574,7 +4574,8 @@ arbitrary predecessor-specific domain constraints purely to survive mutation of 
 directly from a frozen in-process engine.
 **Fault model (audit and tests).** In scope: the canonical request (external input); a stored /
 reloaded recommendation (`verifyCattleRecommendation` — every field at every level is untrusted, it is
-checked structurally first, and anything it cannot verify is invalid, never a thrown error); C8-owned
+checked structurally first and then reproduced from its original request; anything it cannot verify is
+invalid, never a thrown error); C8-owned
 records (registry, models, observations, the recommendation); the shared C0 protocol shape of records
 returned by frozen in-process engines (required presence, runtime type, no undeclared field); fields
 whose correctness C8 independently owns or relies upon. Out of scope: arbitrary post-return corruption
@@ -4691,15 +4692,17 @@ record or explanation shows — including an effect model's statement — is in 
 Evidence labels are recovered through the pack's own model steps and C0 rule evaluations. The
 proposal's consulted models' rule assumptions and limitations are in the pack's (and so the record's)
 assumptions / limitations, tagged `CATTLE_RECOMMENDATION_MODEL_ASSUMPTION:` /
-`..._MODEL_LIMITATION:["<id>","<version>"]:<text>`. `verifyCattleRecommendation` requires the stored
+`..._MODEL_LIMITATION:["<id>","<version>"]:<text>`. The integrity check requires the stored
 record to equal the one its pack derives. The three public pack readers (`readPackDecision`,
 `renderRecommendationExplanation`, `deriveRecommendationRecord`) treat their pack as untrusted (audits F009
 / F010): canonical plain data first, then the exact C0 pack shape, then every JSON-carried decision field
 (trigger, eligibility, effect, value) against its exact shape, then C8's own state-dependent semantics
 (only a SUPPORTED effect states one and names its model; only a KNOWN value carries a canonical
 `money.ts` amount, a currency and sorted observations; NOT_EVALUATED names no model; benefit claim and gate
-state in vocabulary; selectability exactly C8's rule); anything malformed reads as `null`, never a throw or
-a bare cast.
+state in vocabulary; selectability exactly C8's rule) and ONE pack-outcome reconciliation rule
+(`packOutcomeReconciled`, audit F010): the pack is ACTIONABLE exactly when its proposed action is
+selectable, a non-selectable proposal has gates not clear, and a proposal never yields NO_RECOMMENDATION;
+anything malformed reads as `null`, never a throw or a bare cast.
 
 **Record and explanation.** `RecommendationRecord` (information class RECOMMENDATION): recommended
 action, outcome / `actionable` (true only for C0 ACTIONABLE), structured reason codes, deterministic
@@ -4724,54 +4727,34 @@ economic resolutions (canonical instant spellings in admitted copies). `CATTLE_R
 binds the context, candidates, non-candidates, ties, pack and record; `CATTLE_RECOMMENDATION_HERD` binds
 the times, per-animal record fingerprints and the ordering. Input order, key order and equivalent instant
 spellings do not change them; any material input, cutoff, effective time, registry version, tier, model
-or observation does. `verifyCattleRecommendation` re-verifies the C0 pack, the context and record
-fingerprints, the exact C0 pack contract of the stored pack and record = `deriveRecommendationRecord(pack)`
+or observation does. `checkCattleRecommendationIntegrity` (and so `verifyCattleRecommendation` before it
+reproduces) re-verifies the C0 pack, the context and record fingerprints, the exact C0 pack contract of the stored pack and record = `deriveRecommendationRecord(pack)`
 with the pack ↔ context identity link; a malformed stored recommendation is invalid
 (`CATTLE_RECOMMENDATION_MALFORMED` / `..._PACK_MALFORMED`), never a thrown error; never repairs.
-**Stored recommendations (genuine trust boundary; audit F005 of 2026-10-15T210448Z).** Before any
-fingerprint is accepted, `storedRecommendationIssue` (`recommendation-stored.ts`) checks the COMPLETE
-stored structure (`STORED_RECOMMENDATION`: every field, the sealed context with every part, the admitted
-registry / models / reviews / sources / observations through their owned-record specs, model
-evaluations, economic resolutions, candidates, non-candidates, ties and the exact C0 pack; the record
-by derivation) and every relationship C8 establishes: payload versions; animal identity (record ↔
-context ↔ pack target scope ↔ snapshot ref); both canonical times, the pack's `knownAt` and the
-evaluation date; candidates (rank, description, tier, claim, trigger, eligibility, gate state and
-checks, selectability, effect, value) ↔ the pack's candidate, gate-check and ranking steps; exclusions
-↔ the exclusion step; ties ↔ the ranking step (`..._STORED_<STRUCTURE | ANIMAL | SNAPSHOT | TIMES |
-EVALUATION_DATE | CANDIDATES | EXCLUSIONS | TIES>_...`). The stored context's predecessor-derived
-views are checked against the owners' frozen vocabularies and formats (C2 obligation states, C3
-withdrawal-gate states, C4 latest-weight state and `observedAt` instant, C6 goal status / goal types /
-routing state, C7 classification and occurrence states), and the bindings C8 establishes inside the
-context when composing it are re-checked (`storedContextBindingIssue`; audit 2026-10-16T104117Z): the
-goal snapshot names this animal at the context's viewpoint and the copied goal status equals its
-snapshot's; active goal types are sorted and unique; the latest weight is not observed after `effectiveAt`
-(`..._STORED_CONTEXT_BINDING_INCONSISTENT`). The C8-OWNED context parts are validated
-semantically before replay (`storedOwnedContextIssue`; audit 2026-10-16T064728Z): the registry, models,
-reviews, sources and each bound economic observation are re-admitted through C8's own admission at the
-context's cutoff and must equal what admission yields (amount format and sign, money precision, times,
-value-key binding; the value keys are exactly those the catalogue's economic models name; a CONFLICT
-names at least one sorted, unique candidate — one is legitimate when competing corrections fall on
-opposite sides of `effectiveAt`, audit F008). **Authoritative model verification (human architecture
-decision 2026-10-16; audit F005 of 2026-10-16T074615Z).** `verifyCattleRecommendation(recommendation,
-hash, trusted)` takes the same trusted registry as `recommendCattle`; every stored model evaluation is
-re-run through the authoritative path (`evaluateRecommendationModel` → C0 `evaluateCattleRule`) over the
-admitted catalogue at the context's evaluation date and must equal the stored evaluation exactly — C8
-restates none of C0's rule-validity, effective-window, implementation-binding or predicate logic. A
-stored recommendation carrying model evaluations FAILS CLOSED without the registry
-(`..._STORED_MODEL_VERIFICATION_REGISTRY_REQUIRED`), never structural-only verification
-(`..._STORED_<REGISTRY | MODELS | MODEL_EVALUATION | ECONOMICS>_INVALID`).
-**Replay (human architecture decision
-2026-10-15; audit F005 family, 2026-10-15T233648Z).** Every decision field is derived from the sealed
-context, so after the context fingerprint verifies, `verifyCattleRecommendation` re-runs the C8 engine over
-the validated stored context and requires the result to equal the stored recommendation exactly
-(`CATTLE_RECOMMENDATION_REPLAY_MISMATCH` otherwise). Any edited candidate, exclusion, tie, pack step,
-amount or record — even with the pack and record rebuilt and every fingerprint recomputed — is rejected;
-completeness never depends on a field-by-field decision check. A re-sealed edit is therefore rejected
-whenever it is malformed or inconsistent. Limitation: a context consistent with itself but not with the
-canonical evidence it claims (every part rebuilt and every fingerprint recomputed) is indistinguishable
-by inspection — reproduction over the same canonical evidence is the authenticity check. Change detection only, not
-signatures. Reproduction = re-running over the same canonical evidence at the same times; a later
-correction or late record never alters the recommendation reproduced at an earlier cutoff.
+**Stored recommendations — authoritative verification is FULL REPRODUCTION (human architecture decision
+2026-10-16, Option 1; supersedes the earlier context-validation and replay-as-authority repairs for the
+F005 family).** A stored recommendation crosses a genuine trust boundary (CAT-INV-028), and its sealed
+context's cut-down C1–C7 views cannot be proven valid by inspection; C8 therefore restates no
+predecessor rule to try. `verifyCattleRecommendation(recommendation, request, hash, trusted)` — the ONLY
+authoritative verification — (1) runs the integrity checks below, (2) re-runs `recommendCattle` over the
+ORIGINAL request with the same trusted dependencies, so every C1–C7 view is re-derived by its owning
+frozen engine and every model evaluation by C0, (3) selects the reproduced recommendation for the same
+animal and (4) requires it to equal the stored recommendation exactly. It fails closed without the
+request (`CATTLE_RECOMMENDATION_VERIFICATION_REQUEST_REQUIRED`), when the request does not reproduce a
+recommendation — including missing trusted dependencies (`..._REPRODUCTION_FAILED`) — and on any
+difference (`..._REPRODUCTION_MISMATCH`). Callers must keep the original request with the stored
+recommendation. **Integrity only.** `checkCattleRecommendationIntegrity(recommendation, hash)` returns
+`{ intact, authoritative: false }` — never `valid` — and confirms only: canonical plain data (CAT-INV-001
+/ 002; a getter is never invoked); the complete stored structure (`STORED_RECOMMENDATION`: every field
+and part, with vocabularies and formats, no undeclared field) and the relationships C8 establishes
+(payload versions; animal identity record ↔ context ↔ pack target scope ↔ snapshot ref; times and
+evaluation date; candidates, exclusions and ties ↔ the pack's own decision steps —
+`..._STORED_<STRUCTURE | ANIMAL | SNAPSHOT | TIMES | EVALUATION_DATE | CANDIDATES | EXCLUSIONS |
+TIES>_...`); the C0 pack (`verifyRecommendationEvidencePack`); the record the pack derives; an exact
+replay of the C8 engine over the stored context (`..._REPLAY_MISMATCH`); both fingerprints. It does NOT
+establish that a recommendation is scientifically, semantically or decision-valid. Fingerprints are
+change detection, not signatures; a later correction or late record never alters the recommendation
+reproduced at an earlier cutoff.
 
 **Known limitations.** No production model, effect or economic content ships, so with the default
 registry every expected outcome is `EFFECT_UNKNOWN` / `VALUE_UNKNOWN`. Model rules receive no animal

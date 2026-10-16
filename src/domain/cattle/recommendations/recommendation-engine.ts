@@ -890,19 +890,22 @@ export function recommendCattle(request: unknown, hash: CattleHash, trusted: Rec
  * Verifies a stored recommendation: its complete stored structure, its C0
  * pack (C0 `verifyRecommendationEvidencePack`), its sealed-context
  * fingerprint, an exact REPLAY of the engine over the stored context, and its
- * record fingerprint. Never repairs. A matching fingerprint is change
+ * record fingerprint. Every stored model evaluation is re-run through the
+ * authoritative C0 path with `trusted` (the same trusted registry
+ * `recommendCattle` takes); a recommendation carrying model evaluations
+ * fails closed without it. Never repairs. A matching fingerprint is change
  * detection, not authenticity; reproduction requires re-running
  * `recommendCattle` over the same canonical evidence at the same times.
  */
 
-export function verifyCattleRecommendation(recommendation: CattleRecommendation, hash: CattleHash): FingerprintVerificationResult {
+export function verifyCattleRecommendation(recommendation: CattleRecommendation, hash: CattleHash, trusted: RecommendationTrustedInputs = {}): FingerprintVerificationResult {
   // A stored recommendation is reloaded data (a genuine trust boundary, CAT-INV-028): it is checked structurally
   // before anything in it is read, and anything it cannot verify is invalid — never a thrown error.
   // Complete structure and every identity / time / version relationship BEFORE any fingerprint is accepted: a
   // re-sealed edit (fingerprints recomputed) is still rejected when malformed or inconsistent (audit F005).
   let issue: string | null;
   try {
-    issue = storedRecommendationIssue(recommendation, hash);
+    issue = storedRecommendationIssue(recommendation, hash, trusted.obligationImplementations);
   } catch {
     issue = "CATTLE_RECOMMENDATION_MALFORMED";
   }

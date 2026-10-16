@@ -4452,7 +4452,7 @@ canonicalisation changes. `livestock.ts` economic functions (`calculateFinishing
 | `recommendation-consumed.ts` | THE consumed-field schema (CAT-INV-028) for every C1–C7 output C8 reads (`RECOMMENDATION_CONSUMED_SURFACES`); owned-record shape check (no undeclared field). Module-internal |
 | `recommendation-exact.ts` | Exact consumed contracts for every C0 record C8 CARRIES: `RULE_EVALUATION_RECORD`, `EVIDENCE_PACK`, `exact` / `exactValid`, `CarriedRuleEvaluation`; `C0_EXACTNESS` compile-time completeness against the frozen C0 types. Module-internal |
 | `evaluation-context.ts` | THE construction boundary: `buildEvaluationContexts`, `sealEvaluationContext`; `RecommendationTrustedInputs`. Module-internal except the trusted-input type |
-| `recommendation-engine.ts` | `recommendCattle(request, hash, trusted)` → `CattleRecommendationResult`; `verifyCattleRecommendation`; `CATTLE_RECOMMENDATION_ENGINE_VERSION` |
+| `recommendation-engine.ts` | `recommendCattle(request, hash, trusted)` → `CattleRecommendationResult`; `verifyCattleRecommendation(recommendation, hash, trusted)`; `CATTLE_RECOMMENDATION_ENGINE_VERSION` |
 | `recommendation-explanation.ts` | `renderRecommendationExplanation` (fixed template over pack / record fields) |
 | `recommendation-contracts.ts` | request, `CattleEvaluationContext`, candidate, record and herd types (types only) |
 | `recommendation-integrity.ts` | `computeRecommendationFingerprint` / `verifyRecommendationFingerprint`, `CATTLE_RECOMMENDATION_PAYLOAD_VERSION` |
@@ -4738,13 +4738,17 @@ routing state, C7 classification and occurrence states). The C8-OWNED context pa
 semantically before replay (`storedOwnedContextIssue`; audit 2026-10-16T064728Z): the registry, models,
 reviews, sources and each bound economic observation are re-admitted through C8's own admission at the
 context's cutoff and must equal what admission yields (amount format and sign, money precision, times,
-value-key binding; the value keys are exactly those the catalogue's economic models name); each model
-evaluation is bound to its admitted model — content-binding marker, D1 eligibility, and the C0 fields C0's
-own exported functions derive without the implementation (rule ref and fingerprint, classification, gate
-role, evaluation date, `evaluateRuleReviews` dimensions over the stored reviews, `checkSourceBinding`
-over the stored sources), with approval evidenced for a PASS
-(`..._STORED_<REGISTRY | MODELS | MODEL_EVALUATION | ECONOMICS>_INVALID`). The model predicate's own
-PASS / FAIL needs the trusted implementation and is not re-derived from a stored record (limitation).
+value-key binding; the value keys are exactly those the catalogue's economic models name; a CONFLICT
+names at least one sorted, unique candidate — one is legitimate when competing corrections fall on
+opposite sides of `effectiveAt`, audit F008). **Authoritative model verification (human architecture
+decision 2026-10-16; audit F005 of 2026-10-16T074615Z).** `verifyCattleRecommendation(recommendation,
+hash, trusted)` takes the same trusted registry as `recommendCattle`; every stored model evaluation is
+re-run through the authoritative path (`evaluateRecommendationModel` → C0 `evaluateCattleRule`) over the
+admitted catalogue at the context's evaluation date and must equal the stored evaluation exactly — C8
+restates none of C0's rule-validity, effective-window, implementation-binding or predicate logic. A
+stored recommendation carrying model evaluations FAILS CLOSED without the registry
+(`..._STORED_MODEL_VERIFICATION_REGISTRY_REQUIRED`), never structural-only verification
+(`..._STORED_<REGISTRY | MODELS | MODEL_EVALUATION | ECONOMICS>_INVALID`).
 **Replay (human architecture decision
 2026-10-15; audit F005 family, 2026-10-15T233648Z).** Every decision field is derived from the sealed
 context, so after the context fingerprint verifies, `verifyCattleRecommendation` re-runs the C8 engine over

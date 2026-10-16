@@ -405,12 +405,29 @@ function effectOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): {
   return { effect: { state: "EFFECT_UNKNOWN", model: ref, expectedEffect: null, reasonCodes: [`CATTLE_RECOMMENDATION_EFFECT_MODEL_${s}`] }, record: m.ruleEvaluation, consulted };
 }
 
-function valueOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { value: CandidateValue; record: CarriedRuleEvaluation | null; consulted: ConsultedModel | null; observations: { key: string; role: "benefit" | "cost"; amount: string; currency: string; observationId: string; source: SourceVersionRef; receivedAt: string }[] } {
+interface ValueObservation {
+  key: string;
+  role: "benefit" | "cost";
+  amount: string;
+  currency: string;
+  observationId: string;
+  source: SourceVersionRef;
+  receivedAt: string;
+}
+/** One value key's resolution as consulted by an unsuccessful valuation (null = the key has no resolution). */
+interface ValueResolution {
+  key: string;
+  role: "benefit" | "cost";
+  resolution: CattleEvaluationContext["economics"][number] | null;
+}
+
+function valueOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { value: CandidateValue; record: CarriedRuleEvaluation | null; consulted: ConsultedModel | null; observations: ValueObservation[]; resolutions: ValueResolution[] | null } {
   const unknown = (model: RecommendationModelRef | null, reasonCodes: string[], consulted: ConsultedModel | null = null) => ({
     value: { state: "VALUE_UNKNOWN" as const, model, amount: null, currency: null, observationIds: [], reasonCodes },
     record: consulted?.record ?? null,
     consulted,
-    observations: [],
+    observations: [] as ValueObservation[],
+    resolutions: null as ValueResolution[] | null,
   });
   const ref = d.economicModelRef;
   if (ref === null) return unknown(null, ["CATTLE_RECOMMENDATION_NO_ECONOMIC_MODEL"]);
@@ -420,7 +437,17 @@ function valueOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { 
   const consulted = { model: m.model, record: m.ruleEvaluation };
   if (m.ruleEvaluation.state !== "PASS") return unknown(ref, [`CATTLE_RECOMMENDATION_ECONOMIC_MODEL_${m.ruleEvaluation.state}`], consulted);
   const v = computeNetValue(m.model.value, ctx.economics);
-  if (v.state === "VALUE_UNKNOWN") return unknown(ref, v.reasonCodes, consulted);
+  if (v.state === "VALUE_UNKNOWN") {
+    // An unsuccessful valuation keeps its evidence (audit F003 of 2026-10-16T144944Z): every key's resolution and every
+    // bound observation it consulted, with their sources — the value itself stays unknown (no amount, no ids).
+    const form = m.model.value;
+    const roles = [...form.benefitKeys.map((key) => ({ key, role: "benefit" as const })), ...form.costKeys.map((key) => ({ key, role: "cost" as const }))];
+    const resolutions = roles.map(({ key, role }) => ({ key, role, resolution: ctx.economics.find((e) => e.valueKey === key) ?? null }));
+    const observations = resolutions.flatMap(({ key, role, resolution: x }) =>
+      x !== null && x.observation !== null ? [{ key, role, amount: x.observation.amount, currency: x.observation.currency, observationId: x.observation.observationId, source: x.observation.source, receivedAt: x.observation.receivedAt }] : [],
+    );
+    return { ...unknown(ref, v.reasonCodes, consulted), observations, resolutions };
+  }
   const observations = [
     ...v.benefit.map((o) => ({ key: o.valueKey, role: "benefit" as const, amount: o.amount, currency: o.currency, observationId: o.observationId, source: o.source, receivedAt: o.receivedAt })),
     ...v.cost.map((o) => ({ key: o.valueKey, role: "cost" as const, amount: o.amount, currency: o.currency, observationId: o.observationId, source: o.source, receivedAt: o.receivedAt })),
@@ -430,6 +457,7 @@ function valueOf(d: CandidateActionDefinition, ctx: CattleEvaluationContext): { 
     record: m.ruleEvaluation,
     consulted,
     observations,
+    resolutions: null,
   };
 }
 
@@ -444,7 +472,9 @@ interface Working {
   valueRecord: CarriedRuleEvaluation | null;
   /** The models consulted for this candidate (written to the pack as model steps). */
   consultedModels: { role: "EFFECT" | "ECONOMIC"; consulted: ConsultedModel }[];
-  valueObservations: ReturnType<typeof valueOf>["observations"];
+  valueObservations: ValueObservation[];
+  /** Set only for a valuation attempted after an economic model PASS that stayed unknown (its consulted evidence). */
+  valueResolutions: ValueResolution[] | null;
   triggerReasons: string[];
 }
 
@@ -558,7 +588,7 @@ export function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHa
     const gates = folded.fold;
     const clear = gates.state === "CLEAR";
     const effect = clear ? effectOf(d, ctx) : { effect: NOT_EVALUATED_EFFECT, record: null, consulted: null };
-    const value = clear ? valueOf(d, ctx) : { value: NOT_EVALUATED_VALUE, record: null, consulted: null, observations: [] };
+    const value = clear ? valueOf(d, ctx) : { value: NOT_EVALUATED_VALUE, record: null, consulted: null, observations: [], resolutions: null };
     working.push({
       candidate: {
         actionId: actionIdOf(d.actionKind, ctx.animalId),
@@ -581,6 +611,7 @@ export function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHa
         ...(value.consulted === null ? [] : [{ role: "ECONOMIC" as const, consulted: value.consulted }]),
       ],
       valueObservations: value.observations,
+      valueResolutions: value.resolutions,
       triggerReasons: trigger.reasons,
     });
   }
@@ -699,6 +730,26 @@ export function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHa
         inputs: Object.fromEntries(w.valueObservations.map((o) => [`${o.role}:${o.key}:${o.observationId}`, `${o.amount} ${o.currency}`])),
         output: v.amount,
         unit: v.currency,
+        rounding: null,
+        rule: w.valueRecord?.rule ?? null,
+      });
+    } else if (w.valueResolutions !== null) {
+      steps.push({
+        sequence: steps.length + 1,
+        description: `Economic value of the ${label} not computable from bound observations`,
+        formula: VALUE_FORMULA,
+        inputs: Object.fromEntries(
+          w.valueResolutions.map(({ key, role, resolution: x }) => [
+            `${role}:${key}`,
+            JSON.stringify(
+              x === null
+                ? { state: "UNKNOWN", observationId: null, amount: null, currency: null, candidateObservationIds: [] }
+                : { state: x.state, observationId: x.observation?.observationId ?? null, amount: x.observation?.amount ?? null, currency: x.observation?.currency ?? null, candidateObservationIds: x.candidateObservationIds },
+            ),
+          ]),
+        ),
+        output: v.state,
+        unit: null,
         rounding: null,
         rule: w.valueRecord?.rule ?? null,
       });

@@ -4669,7 +4669,12 @@ output = the state), then the CANDIDATE step (`Candidate <label>`: action id / k
 effect — including the effect model's statement — and value), then one MODEL step per consulted model
 (`<Effect | Economic> model ["<id>","<version>"] of the <label>`: role, identity, content fingerprint,
 effect statement / value form, the model rule's assumptions and limitations; `rule` = the model's C0
-rule version), then the value step (when known); then the registered actions not considered
+rule version), then the value step — when known, the bound observations and the net amount; when the
+economic model PASSed but the value stayed unknown (unknown / conflicting key, mixed or non-computable
+currency, unsupported precision), `Economic value of the <label> not computable from bound observations`
+with every key's resolution (state, bound observation, competing candidate ids), and every consulted
+observation also enters the pack inputs with its source (audit F003 of 2026-10-16T144944Z; the value
+itself stays VALUE_UNKNOWN with no amount); then the registered actions not considered
 (trigger / eligibility resolved negative, with reasons per action kind); then ranking (rank order, each
 candidate's ranking basis — selectable, tier with basis `REGISTRY_DECLARED_UNREVIEWED`, value — and
 every recorded tie). Decision provenance (CAT-INV-021): every candidate's gates, every exclusion,

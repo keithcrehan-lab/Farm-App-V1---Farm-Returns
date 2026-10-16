@@ -2416,3 +2416,54 @@ describe("C8 audit 2026-10-16T135236Z — F007: a missing named prerequisite gat
   });
 });
 
+describe("C8 audit 2026-10-16T144944Z — F003: an unsuccessful valuation keeps every consulted economic observation, resolution and source", () => {
+  type Step = { description: string; inputs: Record<string, unknown>; output: unknown };
+  const PRICE = econObs("o-price", "SYNTH-KEY-PRICE", "1000.00");
+  const COST = econObs("o-cost", "SYNTH-KEY-COST", "250.5");
+  const valuationStep = (rec: CattleRecommendation, label = "proposed action") =>
+    (rec.pack.calculationSteps as unknown as Step[]).find((s) => s.description === `Economic value of the ${label} not computable from bound observations`);
+  const economicInputRefs = (rec: CattleRecommendation) => rec.pack.inputs.filter((i) => i.inputKey.startsWith("cattle.recommendation.economic.")).map((i) => i.provenance.ref).sort();
+
+  it("exact reproduction: mixed currencies — VALUE_UNKNOWN, yet both observations, their resolutions and the price source are in the pack", () => {
+    const rec = recOf(run(favourable({ observations: [PRICE, { ...COST, currency: "GBP" }], actions: registry([SELL()]) })));
+    expect(rec.candidates[0].value).toMatchObject({ state: "VALUE_UNKNOWN", amount: null, currency: null, observationIds: [] });
+    expect(rec.candidates[0].value.reasonCodes).toEqual(["CATTLE_RECOMMENDATION_VALUE_CURRENCY_MIXED:EUR,GBP"]);
+    expect(economicInputRefs(rec)).toEqual(["o-cost", "o-price"]);
+    expect(rec.pack.sourceRefs).toContainEqual(PRICE_SOURCE);
+    const step = valuationStep(rec)!;
+    expect(step.output).toBe("VALUE_UNKNOWN");
+    expect(JSON.parse(step.inputs["benefit:SYNTH-KEY-PRICE"] as string)).toMatchObject({ state: "KNOWN", observationId: "o-price", amount: "1000.00", currency: "EUR" });
+    expect(JSON.parse(step.inputs["cost:SYNTH-KEY-COST"] as string)).toMatchObject({ state: "KNOWN", observationId: "o-cost", amount: "250.5", currency: "GBP" });
+    expect(verifyStored(rec)).toEqual({ valid: true });
+  });
+
+  it("class: every unsuccessful-valuation cause keeps its consulted evidence; a valuation never attempted adds none", () => {
+    const cases: [string, unknown[], string[], Record<string, string>][] = [
+      ["currency not computable", [{ ...PRICE, currency: "GBP" }, { ...COST, currency: "GBP" }], ["o-cost", "o-price"], { "benefit:SYNTH-KEY-PRICE": "KNOWN", "cost:SYNTH-KEY-COST": "KNOWN" }],
+      ["a key unknown", [PRICE], ["o-price"], { "benefit:SYNTH-KEY-PRICE": "KNOWN", "cost:SYNTH-KEY-COST": "UNKNOWN" }],
+      ["a key in conflict", [PRICE, econObs("o-c0", "SYNTH-KEY-COST", "250.5"), econObs("o-c1", "SYNTH-KEY-COST", "260", { supersedes: ["o-c0"] }), econObs("o-c2", "SYNTH-KEY-COST", "270", { supersedes: ["o-c0"] })], ["o-price"], { "benefit:SYNTH-KEY-PRICE": "KNOWN", "cost:SYNTH-KEY-COST": "CONFLICT" }],
+      ["precision unsupported", [{ ...PRICE, amount: "1".repeat(19) + ".5" }, { ...COST, amount: "0.25" }], ["o-cost", "o-price"], { "benefit:SYNTH-KEY-PRICE": "KNOWN", "cost:SYNTH-KEY-COST": "KNOWN" }],
+    ];
+    for (const [label, observations, refs, states] of cases) {
+      const rec = recOf(run(favourable({ observations, actions: registry([SELL()]) })));
+      expect(rec.candidates[0].value.state, label).toBe("VALUE_UNKNOWN");
+      expect(economicInputRefs(rec), label).toEqual(refs);
+      const step = valuationStep(rec);
+      expect(step, label).toBeDefined();
+      for (const [k, state] of Object.entries(states)) expect(JSON.parse(step!.inputs[k] as string).state, `${label} / ${k}`).toBe(state);
+      if (label === "a key in conflict") expect(JSON.parse(step!.inputs["cost:SYNTH-KEY-COST"] as string).candidateObservationIds, label).toEqual(["o-c1", "o-c2"]);
+      expect(verifyStored(rec), label).toEqual({ valid: true });
+    }
+    // Alternatives keep theirs too (not only the proposal).
+    const two = recOf(run(favourable({ observations: [PRICE, { ...COST, currency: "GBP" }], actions: registry([SELL(), action("SYNTH-OTHER")]) })));
+    const alt = two.candidates.find((c) => c.actionKind === "SYNTH-SELL")!;
+    const altLabel = alt.actionId === two.pack.proposedActionId ? "proposed action" : `alternative ${alt.actionId}`;
+    expect(valuationStep(two, altLabel), "alternative").toBeDefined();
+    // The economic model not PASS: no valuation was attempted, so nothing was consulted.
+    const failing = recOf(run(favourable({ models: allModels([effectModel(), econModel(["SYNTH-KEY-PRICE"], ["SYNTH-KEY-COST"], modelRule("SYNTH-RULE-ECONOMIC", MODEL_FAIL))]), actions: registry([SELL()]) })));
+    expect(failing.candidates[0].value.state).toBe("VALUE_UNKNOWN");
+    expect(valuationStep(failing)).toBeUndefined();
+    expect(economicInputRefs(failing)).toEqual([]);
+  });
+});
+

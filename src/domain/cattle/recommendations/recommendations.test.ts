@@ -973,6 +973,61 @@ describe("C8 canonical boundary, field policy and one viewpoint", () => {
     expect(codes(recommendCattle(requestOf({ ledgers: ledgerGetter }), hash, TRUSTED))).toEqual(["CATTLE_RECOMMENDATION_NON_CANONICAL_INPUT"]);
   });
 
+  describe("F009: stored-recommendation verification and the public pack readers run the canonical boundary first", () => {
+    const stored = () =>
+      structuredClone(
+        recOf(run(favourable({ actions: registry([SELL(["C3_WITHDRAWAL"])]), health: health(CLEAR_RECORDS), goals: goals([goalDecl("g-fin")]), weights: { observations: [weightObs("w-1", "2026-04-01T00:00:00Z")] } }))),
+      ) as CattleRecommendation;
+    type Taint = (target: object, key: string, value: unknown, onRead: () => void) => void;
+    const taints: Record<string, Taint> = {
+      getter: (t, k, v, onRead) => Object.defineProperty(t, k, { enumerable: true, configurable: true, get: () => (onRead(), v) }),
+      hidden: (t, k, v) => Object.defineProperty(t, k, { enumerable: false, configurable: true, writable: true, value: v }),
+      symbol: (t) => Object.defineProperty(t, Symbol("SYNTH-hidden"), { enumerable: true, value: 1 }),
+    };
+    // Every level a reader touches: the recommendation, its record, pack, context, and nested pack / context arrays.
+    const sites: Record<string, (r: CattleRecommendation) => [object, string]> = {
+      recommendation: (r) => [r, "pack"],
+      record: (r) => [r.record, "outcome"],
+      pack: (r) => [r.pack, "calculationSteps"],
+      packStep: (r) => [r.pack.calculationSteps[0], "inputs"],
+      context: (r) => [r.context, "fingerprint"],
+      fingerprint: (r) => [r.fingerprint, "digest"],
+    };
+
+    it("F009: a getter on a valid stored recommendation is rejected and never invoked", () => {
+      const rec = stored();
+      expect(verifyCattleRecommendation(rec, hash, TRUSTED)).toEqual({ valid: true });
+      let reads = 0;
+      const pack = rec.pack;
+      Object.defineProperty(rec, "pack", { enumerable: true, get: () => (reads++, pack) });
+      expect(verifyCattleRecommendation(rec, hash, TRUSTED)).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_NON_CANONICAL_INPUT" });
+      expect(reads).toBe(0);
+    });
+
+    it("F009 class: every taint kind at every reachable site fails closed for the verifier and each pack reader; getters stay uninvoked", () => {
+      for (const [taintName, taint] of Object.entries(taints)) {
+        for (const [siteName, site] of Object.entries(sites)) {
+          let reads = 0;
+          const rec = stored();
+          const [target, key] = site(rec);
+          taint(target, key, (target as Rec)[key], () => reads++);
+          const label = `${taintName}@${siteName}`;
+          expect(verifyCattleRecommendation(rec, hash, TRUSTED), label).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_NON_CANONICAL_INPUT" });
+          if (siteName.startsWith("pack")) {
+            expect(cattle.readPackDecision(rec.pack), label).toBeNull();
+            expect(cattle.renderRecommendationExplanation(rec.pack), label).toBeNull();
+            expect(cattle.deriveRecommendationRecord(rec.pack), label).toBeNull();
+          }
+          expect(reads, label).toBe(0);
+        }
+      }
+      // Positive control: the untainted copy still verifies and reads.
+      const clean = stored();
+      expect(verifyCattleRecommendation(clean, hash, TRUSTED)).toEqual({ valid: true });
+      expect(cattle.deriveRecommendationRecord(clean.pack)).toEqual(clean.record);
+    });
+  });
+
   it("field-presence policy: a missing field, an extra field or `undefined` fails closed; performance needs weights", () => {
     const { goals: _g, ...missing } = requestOf();
     void _g;

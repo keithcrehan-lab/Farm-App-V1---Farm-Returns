@@ -77,7 +77,7 @@ import { deepFreezeAnimalValue, compareInstants } from "../animal-ledger";
 import { buildRecommendationEvidencePack, verifyRecommendationEvidencePack, type CandidateAction, type EvidencePackCalculationStep, type RecommendationEvidencePack, type RejectedAlternative } from "../evidence-pack";
 import type { CattleInputItem } from "../information";
 import { compareStrings, sameFingerprint, sortedUnique, type CattleHash } from "../integrity";
-import { addObligationOffset, type ObligationState } from "../regulatory";
+import { addObligationOffset, toCanonicalPlainData, type ObligationState } from "../regulatory";
 import type { WithdrawalGateState } from "../health";
 import type { GoalProjectionStatus } from "../goals";
 import type { ProgrammeOccurrenceState } from "../programmes";
@@ -898,9 +898,13 @@ export function recommendCattle(request: unknown, hash: CattleHash, trusted: Rec
  * `recommendCattle` over the same canonical evidence at the same times.
  */
 
-export function verifyCattleRecommendation(recommendation: CattleRecommendation, hash: CattleHash, trusted: RecommendationTrustedInputs = {}): FingerprintVerificationResult {
-  // A stored recommendation is reloaded data (a genuine trust boundary, CAT-INV-028): it is checked structurally
-  // before anything in it is read, and anything it cannot verify is invalid — never a thrown error.
+export function verifyCattleRecommendation(stored: CattleRecommendation, hash: CattleHash, trusted: RecommendationTrustedInputs = {}): FingerprintVerificationResult {
+  // A stored recommendation is reloaded data (a genuine trust boundary, CAT-INV-028): the canonical boundary runs
+  // first (CAT-INV-001 — a getter is never invoked) and only its detached copy is validated and replayed
+  // (CAT-INV-002, audit F009); anything it cannot verify is invalid — never a thrown error.
+  const canonical = toCanonicalPlainData(stored);
+  if (!canonical.ok) return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_NON_CANONICAL_INPUT", detail: `the stored recommendation is not canonical plain data at ${canonical.path}` };
+  const recommendation = canonical.value as CattleRecommendation;
   // Complete structure and every identity / time / version relationship BEFORE any fingerprint is accepted: a
   // re-sealed edit (fingerprints recomputed) is still rejected when malformed or inconsistent (audit F005).
   let issue: string | null;

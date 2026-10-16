@@ -18,6 +18,7 @@
 
 import type { RecommendationEvidencePack } from "../evidence-pack";
 import { sortedUnique } from "../integrity";
+import { toCanonicalPlainData } from "../regulatory";
 import { RECOMMENDATION_CONTEXT_PARTS, RECOMMENDATION_PRIORITY_TIERS, type RecommendationContextPart, type RecommendationPriorityTier } from "./candidate-actions";
 import type { CandidateEffect, CandidateValue, RecommendationRecord } from "./recommendation-contracts";
 import type { CarriedRuleEvaluation } from "./recommendation-exact";
@@ -52,8 +53,23 @@ export interface PackDecision {
   missingContextParts: RecommendationContextPart[];
 }
 
-/** The proposed action's decision evidence, read from the pack alone; `null` when the pack does not carry it. */
+/**
+ * The public readers take a caller pack across a trust boundary: it is checked with
+ * `toCanonicalPlainData` first (CAT-INV-001; a getter is never invoked) and only the
+ * detached copy is read (CAT-INV-002). Non-canonical ⇒ `null` (fail closed).
+ */
+function canonicalPack(pack: unknown): RecommendationEvidencePack | null {
+  const canonical = toCanonicalPlainData(pack);
+  return canonical.ok && canonical.value !== null && typeof canonical.value === "object" ? (canonical.value as RecommendationEvidencePack) : null;
+}
+
+/** The proposed action's decision evidence, read from the pack alone; `null` when the pack does not carry it or is not canonical. */
 export function readPackDecision(pack: RecommendationEvidencePack): PackDecision | null {
+  const p = canonicalPack(pack);
+  return p === null ? null : packDecision(p);
+}
+
+function packDecision(pack: RecommendationEvidencePack): PackDecision | null {
   const parts = pack.uncertainties.filter((u) => u.startsWith(CONTEXT_PART_UNCERTAINTY)).map((u) => u.slice(CONTEXT_PART_UNCERTAINTY.length));
   if (parts.some((p) => !(RECOMMENDATION_CONTEXT_PARTS as readonly string[]).includes(p))) return null;
   const missingContextParts = (parts as RecommendationContextPart[]).sort((a, b) => RECOMMENDATION_CONTEXT_PARTS.indexOf(a) - RECOMMENDATION_CONTEXT_PARTS.indexOf(b));
@@ -105,9 +121,14 @@ export function readPackDecision(pack: RecommendationEvidencePack): PackDecision
   };
 }
 
-/** The deterministic explanation, rendered from the pack alone (`null` when the pack does not carry the decision evidence). */
+/** The deterministic explanation, rendered from the pack alone (`null` when the pack does not carry the decision evidence or is not canonical). */
 export function renderRecommendationExplanation(pack: RecommendationEvidencePack): string | null {
-  const d = readPackDecision(pack);
+  const p = canonicalPack(pack);
+  return p === null ? null : renderExplanation(p);
+}
+
+function renderExplanation(pack: RecommendationEvidencePack): string | null {
+  const d = packDecision(pack);
   if (d === null) return null;
   const a = d.recommendedAction;
   const gates = pack.hardGateOutcomes.length === 0 ? "none" : pack.hardGateOutcomes.map((g) => `${g.ruleId}=${g.state}`).join(", ");
@@ -136,10 +157,15 @@ function regulatoryState(pack: RecommendationEvidencePack): RecommendationRecord
   return "GATES_SATISFIED";
 }
 
-/** The decision record, derived from the pack alone (`null` ⇒ the pack does not carry the decision evidence). */
+/** The decision record, derived from the pack alone (`null` ⇒ the pack does not carry the decision evidence or is not canonical). */
 export function deriveRecommendationRecord(pack: RecommendationEvidencePack): RecommendationRecord | null {
-  const d = readPackDecision(pack);
-  const explanation = renderRecommendationExplanation(pack);
+  const p = canonicalPack(pack);
+  return p === null ? null : deriveRecord(p);
+}
+
+function deriveRecord(pack: RecommendationEvidencePack): RecommendationRecord | null {
+  const d = packDecision(pack);
+  const explanation = renderExplanation(pack);
   if (d === null || explanation === null) return null;
   const a = d.recommendedAction;
   return {

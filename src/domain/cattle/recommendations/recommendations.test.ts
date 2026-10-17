@@ -1763,12 +1763,23 @@ describe("C8 bounded repair — F003: the evidence pack is the single source of 
     expect(cattle.deriveRecommendationRecord(stripped)).toBeNull();
     // The statement shown is the one IN the pack: change it there and the explanation follows.
     const effect = JSON.parse(steps[candidateIdx].inputs.effect as string);
-    const edited = { ...rec.pack, calculationSteps: steps.map((s, i) => (i === candidateIdx ? { ...s, inputs: { ...s.inputs, effect: JSON.stringify({ ...effect, expectedEffect: "SYNTH statement only in this pack" }) } } : s)) };
+    // (Since audit F010 of 2026-10-17 the candidate's statement must equal its effect model step's, so both are edited.)
+    const edited = {
+      ...rec.pack,
+      calculationSteps: steps.map((s, i) =>
+        i === candidateIdx
+          ? { ...s, inputs: { ...s.inputs, effect: JSON.stringify({ ...effect, expectedEffect: "SYNTH statement only in this pack" }) } }
+          : s.description.startsWith("Effect model")
+            ? { ...s, inputs: { ...s.inputs, expectedEffect: JSON.stringify("SYNTH statement only in this pack") } }
+            : s,
+      ),
+    };
     expect(cattle.renderRecommendationExplanation(edited)).toContain("SYNTH statement only in this pack");
     expect(cattle.renderRecommendationExplanation(edited)).not.toContain("SYNTH asserted effect");
-    // An approval label needs the model's rule evaluation reachable through the pack's own model step.
+    // A supported effect needs its model's own step in the pack: without it the claim is unsupported and the pack is
+    // unreadable (audit F010 of 2026-10-17 — stricter than the earlier downgrade of the approval label).
     const noModelStep = { ...rec.pack, calculationSteps: steps.filter((s) => !s.description.startsWith("Effect model")) };
-    expect(cattle.deriveRecommendationRecord(noModelStep)?.evidence.effectBasis).toBe("NONE");
+    expect(cattle.deriveRecommendationRecord(noModelStep)).toBeNull();
     expect(rec.record.evidence.effectBasis).toBe("SCIENTIFICALLY_APPROVED_EFFECT_MODEL");
   });
 
@@ -2003,7 +2014,10 @@ describe("C8 audit 2026-10-15T233648Z — F005 family closed by replay: a stored
     for (const amount of ["749.5", "750.50", "-749.50", "0"]) {
       const r = stored();
       setAmount(r, amount);
-      expect(verifyStored(forge(r)), amount).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPLAY_MISMATCH" });
+      // Since audit F010 of 2026-10-17 the reader already refuses an amount its valuation step does not carry; replay is the backstop.
+      const v = verifyStored(forge(r));
+      expect(v.valid, amount).toBe(false);
+      expect(v.valid ? null : v.reasonCode, amount).toMatch(/^CATTLE_RECOMMENDATION_(RECORD_PACK_INCONSISTENT|REPLAY_MISMATCH)$/);
     }
   });
 
@@ -2749,6 +2763,83 @@ describe("C8 audit 2026-10-16T230804Z — F010: a known value's currency must be
       for (const [name, read] of readers) expect(read(forged), `${JSON.stringify(currency)} / ${name}`).toBeNull();
     }
     for (const [name, read] of readers) expect(read(withCurrency("EUR")), `EUR / ${name}`).not.toBeNull();
+  });
+});
+
+describe("C8 audit 2026-10-17T000348Z — F010: a candidate's effect and value claims are readable only when the pack's own steps carry them", () => {
+  type Step = { formula: string; description: string; inputs: Record<string, unknown>; output: unknown };
+  const readers = [
+    ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
+    ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
+    ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+  ] as const;
+  const refingerprint = (p: Record<string, unknown>) => {
+    const { fingerprint: _p, generatedAt: _g, ...content } = p;
+    void _p;
+    void _g;
+    return { ...p, fingerprint: computeCattleFingerprint("CATTLE_EVIDENCE_PACK", content, hash) } as Record<string, unknown>;
+  };
+  const packOf = (rec: CattleRecommendation) => structuredClone(rec.pack) as unknown as Record<string, unknown>;
+  const proposed = (p: Record<string, unknown>) => (p.calculationSteps as Step[]).find((s) => s.formula === CANDIDATE_STEP_FORMULA && s.inputs.actionId === p.proposedActionId)!;
+  const SUPPORTED = { state: "EFFECT_SUPPORTED", model: { modelId: "SYNTH-MODEL-EFFECT", version: "v1" }, expectedEffect: "SYNTH asserted effect", reasonCodes: ["CATTLE_RECOMMENDATION_EFFECT_MODEL_PASS"] };
+  const KNOWN_999 = { state: "VALUE_KNOWN", model: { modelId: "SYNTH-MODEL-ECONOMIC", version: "v1" }, amount: "999", currency: "EUR", observationIds: ["o-x"], reasonCodes: ["CATTLE_RECOMMENDATION_ECONOMIC_MODEL_PASS"] };
+  const expectUnreadable = (label: string, pack: Record<string, unknown>) => {
+    const forged = refingerprint(pack);
+    expect(cattle.verifyRecommendationEvidencePack(forged as never, hash).valid, label).toBe(true);
+    for (const [name, read] of readers) expect(read(forged), `${label} / ${name}`).toBeNull();
+  };
+
+  it("exact reproductions: RECORD_WEIGHT (benefit claim NONE) given a supported effect and a known 999 EUR value, with clear or unresolved gates, is unreadable", () => {
+    const clear = recOf(run({ weights: { observations: [] }, actions: defaultOnly("RECORD_WEIGHT") }));
+    const blocked = recOf(run({ actions: defaultOnly("RECORD_WEIGHT", { evidenceRequirements: ["HEALTH"] }) }));
+    expect(proposed(packOf(clear)).inputs).toMatchObject({ benefitClaim: "NONE", gates: "CLEAR" });
+    expect(proposed(packOf(blocked)).inputs).toMatchObject({ benefitClaim: "NONE", gates: "NOT_CLEAR" });
+    for (const [label, rec] of [["gates clear", clear], ["gate unresolved", blocked]] as const) {
+      const p = packOf(rec);
+      Object.assign(proposed(p).inputs, { effect: JSON.stringify(SUPPORTED), value: JSON.stringify(KNOWN_999) });
+      expectUnreadable(label, p);
+    }
+  });
+
+  it("class: every unsupported cross-field claim is unreadable; genuine packs of every outcome stay readable", () => {
+    const sell = () => recOf(run(favourable({ actions: registry([SELL()]) })));
+    const step = (p: Record<string, unknown>, prefix: string) => (p.calculationSteps as Step[]).find((s) => s.description.startsWith(prefix))!;
+    const patchJson = (field: string, patch: Record<string, unknown>) => (p: Record<string, unknown>) => {
+      const s = proposed(p);
+      s.inputs[field] = JSON.stringify({ ...JSON.parse(s.inputs[field] as string), ...patch });
+    };
+    /** Removes steps and renumbers the rest (C0 requires a contiguous sequence), so only the claim is unsupported. */
+    const removeSteps = (p: Record<string, unknown>, prefix: string) => {
+      p.calculationSteps = (p.calculationSteps as (Step & { sequence: number })[]).filter((s) => !s.description.startsWith(prefix)).map((s, i) => ({ ...s, sequence: i + 1 }));
+    };
+    const edits: [string, (p: Record<string, unknown>) => void][] = [
+      ["known amount not the valuation step's", patchJson("value", { amount: "1.00" })],
+      ["known value's observations not the valuation step's", patchJson("value", { observationIds: ["o-cost"] })],
+      ["valuation step removed", (p) => removeSteps(p, "Economic valuation")],
+      ["economic model step removed", (p) => removeSteps(p, "Economic model")],
+      ["economic model step says FAIL", (p) => void (step(p, "Economic model").output = "FAIL")],
+      ["effect model step removed", (p) => removeSteps(p, "Effect model")],
+      ["effect model step says FAIL for a supported effect", (p) => void (step(p, "Effect model").output = "FAIL")],
+      ["effect statement not the model step's", patchJson("effect", { expectedEffect: "SYNTH another statement" })],
+      ["gates clear but effect / value not evaluated", (p) => {
+        patchJson("effect", { state: "NOT_EVALUATED", model: null, expectedEffect: null, reasonCodes: ["SYNTH"] })(p);
+        patchJson("value", { state: "NOT_EVALUATED", model: null, amount: null, currency: null, observationIds: [], reasonCodes: ["SYNTH"] })(p);
+      }],
+      ["benefit claim NONE with models", (p) => void (proposed(p).inputs.benefitClaim = "NONE")],
+    ];
+    for (const [label, edit] of edits) {
+      const p = packOf(sell());
+      edit(p);
+      expectUnreadable(label, p);
+    }
+    const controls: [string, CattleRecommendation][] = [
+      ["ACTIONABLE (modelled)", sell()],
+      ["ACTIONABLE (data gap)", recOf(run({ weights: { observations: [] }, actions: defaultOnly("RECORD_WEIGHT") }))],
+      ["INSUFFICIENT_EVIDENCE", recOf(run({ actions: defaultOnly("RECORD_WEIGHT", { evidenceRequirements: ["HEALTH"] }) }))],
+      ["BLOCKED", recOf(run(favourable({ actions: registry([SELL(["C3_WITHDRAWAL"])]), health: health(IN_WITHDRAWAL_RECORDS) })))],
+      ["value unknown", recOf(run(favourable({ observations: [], actions: registry([SELL()]) })))],
+    ];
+    for (const [label, rec] of controls) for (const [name, read] of readers) expect(read(rec.pack), `${label} / ${name}`).not.toBeNull();
   });
 });
 

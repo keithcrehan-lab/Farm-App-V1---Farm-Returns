@@ -4730,7 +4730,12 @@ record to equal the one its pack derives. The three public pack readers (`readPa
 (only a SUPPORTED effect states one and names its model; only a KNOWN value carries a canonical
 `money.ts` amount, a currency C8 computes (`COMPUTABLE_CURRENCIES`; audit F010 of 2026-10-16T230804Z) and
 sorted observations; NOT_EVALUATED names no model; benefit claim and gate
-state in vocabulary; selectability exactly C8's rule) and ONE pack-outcome reconciliation rule
+state in vocabulary; selectability exactly C8's rule) and ONE claim-support rule (`claimsSupported`, audit F010 of
+2026-10-17T000348Z): a candidate's claims are readable only when the pack's own steps carry them, as the engine
+writes them — gates not clear ⇔ effect and value NOT_EVALUATED; benefit claim NONE consults no model; a
+SUPPORTED / NOT_SUPPORTED effect is its effect-model step's PASS / FAIL with the same statement; a KNOWN value is
+its economic-model step's PASS and its `Economic valuation of the <label>` step's outcome, model and summed
+observations — and ONE pack-outcome reconciliation rule
 (`packOutcomeReconciled`, audit F010), applied on every reader path including an absent proposal: no
 proposal is exactly NO_RECOMMENDATION with no actionable id; `actionableActionId` is the proposal exactly
 when ACTIONABLE; the pack is ACTIONABLE exactly when its proposed action is selectable, a non-selectable

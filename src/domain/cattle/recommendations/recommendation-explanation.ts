@@ -30,12 +30,14 @@ import { approvalEvidenced } from "./recommendation-models";
 export const CANDIDATE_STEP_FORMULA =
   "one candidate action: identity, registry-declared tier and benefit claim, trigger / eligibility, gate state, selectability, effect (with the effect model's statement) and value";
 export const MODEL_STEP_FORMULA = "one consulted registered model: role, identity, content fingerprint, effect statement / value form, assumptions and limitations; rule = the model's C0 rule version";
+export const VALUE_FORMULA = "NET_OF_BOUND_OBSERVATIONS: sum(benefit observations) - sum(cost observations), exact decimal (money.ts), one currency";
 export const PROPOSED_LABEL = "proposed action";
 export const alternativeLabel = (actionId: string) => `alternative ${actionId}`;
 export const candidateStepDescription = (label: string) => `Candidate ${label}`;
 export const modelStepDescription = (role: "EFFECT" | "ECONOMIC", modelId: string, version: string, label: string) =>
   `${role === "EFFECT" ? "Effect" : "Economic"} model ${JSON.stringify([modelId, version])} of the ${label}`;
 export const CONTEXT_PART_UNCERTAINTY = "CATTLE_RECOMMENDATION_CONTEXT_PART_NOT_SUPPLIED:";
+export const valuationStepDescription = (label: string) => `Economic valuation of the ${label}`;
 
 // The exact shapes of the C8 decision fields a candidate step carries as JSON (shared with the stored-record spec).
 const reasonCodes: ExactSpec = { t: "array", of: { t: "text" } };
@@ -142,6 +144,34 @@ export function packOutcomeReconciled(
   return pack.outcome !== "NO_RECOMMENDATION";
 }
 
+/**
+ * THE claim-support rule (audit F010 of 2026-10-17T000348Z): a candidate's effect and value claims are accepted only
+ * when the pack's own evidence steps carry them, exactly as the engine writes them — gates not clear ⇔ effect and
+ * value NOT_EVALUATED; a benefit claim NONE consults no model; a SUPPORTED / NOT_SUPPORTED effect is its effect
+ * model step's PASS / FAIL with the same statement; a KNOWN value is its economic model step's PASS and its
+ * valuation step's outcome and summed observations. A claim no step supports is never readable.
+ */
+export function claimsSupported(pack: RecommendationEvidencePack, label: string, benefitClaim: unknown, gates: "CLEAR" | "NOT_CLEAR", effect: CandidateEffect, value: CandidateValue): boolean {
+  const notEvaluated = effect.state === "NOT_EVALUATED";
+  if (notEvaluated !== (value.state === "NOT_EVALUATED") || notEvaluated !== (gates === "NOT_CLEAR")) return false;
+  if (benefitClaim === "NONE" && (effect.model !== null || value.model !== null)) return false;
+  const modelStep = (role: "EFFECT" | "ECONOMIC", ref: CandidateEffect["model"]) =>
+    ref === null ? undefined : pack.calculationSteps.find((s) => s.formula === MODEL_STEP_FORMULA && s.description === modelStepDescription(role, ref.modelId, ref.version, label));
+  if (effect.state === "EFFECT_SUPPORTED" || effect.state === "EFFECT_NOT_SUPPORTED") {
+    const s = modelStep("EFFECT", effect.model);
+    if (s === undefined || s.output !== (effect.state === "EFFECT_SUPPORTED" ? "PASS" : "FAIL")) return false;
+    if (effect.state === "EFFECT_SUPPORTED" && s.inputs.expectedEffect !== JSON.stringify(effect.expectedEffect)) return false;
+  }
+  if (value.state === "VALUE_KNOWN") {
+    const s = modelStep("ECONOMIC", value.model);
+    const v = pack.calculationSteps.find((x) => x.formula === VALUE_FORMULA && x.description === valuationStepDescription(label));
+    if (s === undefined || s.output !== "PASS" || v === undefined) return false;
+    if (v.inputs.outcome !== JSON.stringify({ state: "VALUE_KNOWN", amount: value.amount, currency: value.currency })) return false;
+    if (v.inputs.usedObservationIds !== JSON.stringify(value.observationIds) || v.inputs.model !== JSON.stringify(value.model)) return false;
+  }
+  return true;
+}
+
 /** The proposed action's decision evidence, read from the pack alone; `null` when the pack does not carry it or is not canonical. */
 export function readPackDecision(pack: RecommendationEvidencePack): PackDecision | null {
   const p = canonicalPack(pack);
@@ -171,6 +201,7 @@ function packDecision(pack: RecommendationEvidencePack): PackDecision | null {
   // Selectability is exactly C8's rule: gates clear, triggered, eligible and an effect not refuted.
   if (i.selectable !== (i.gates === "CLEAR" && trigger !== null && trigger.state === "TRIGGERED" && eligibility.state === "ELIGIBLE" && effect.state !== "EFFECT_NOT_SUPPORTED")) return null;
   if (!packOutcomeReconciled(pack, { selectable: i.selectable, gates: i.gates })) return null;
+  if (!claimsSupported(pack, PROPOSED_LABEL, i.benefitClaim, i.gates, effect, value)) return null;
   const candidate = pack.candidateActions.find((c) => c.actionId === pack.proposedActionId);
   if (i.actionId !== pack.proposedActionId || typeof i.actionKind !== "string" || !RECOMMENDATION_PRIORITY_TIERS.includes(tier) || trigger === null || effect === null || value === null || candidate === undefined) {
     return null;

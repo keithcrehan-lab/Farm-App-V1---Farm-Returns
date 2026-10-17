@@ -96,7 +96,18 @@ import {
 import { candidateValueOf, compareKnownValues, computeEconomicValuation, valuationInputItems, valuationSourceRefs, valuationStepInputs, type EconomicValuation } from "./economic-context";
 import { buildEvaluationContexts, type RecommendationTrustedInputs } from "./evaluation-context";
 import { CATTLE_RECOMMENDATION_PAYLOAD_VERSION, computeRecommendationFingerprint, verifyRecommendationFingerprint } from "./recommendation-integrity";
-import { CANDIDATE_STEP_FORMULA, CONTEXT_PART_UNCERTAINTY, MODEL_STEP_FORMULA, PROPOSED_LABEL, alternativeLabel, candidateStepDescription, deriveRecommendationRecord, modelStepDescription } from "./recommendation-explanation";
+import {
+  CANDIDATE_STEP_FORMULA,
+  CONTEXT_PART_UNCERTAINTY,
+  MODEL_STEP_FORMULA,
+  PROPOSED_LABEL,
+  VALUE_FORMULA,
+  alternativeLabel,
+  candidateStepDescription,
+  deriveRecommendationRecord,
+  modelStepDescription,
+  valuationStepDescription,
+} from "./recommendation-explanation";
 import { computeRecommendationModelContentFingerprint, type ModelEvaluation, type RecommendationModelRecord } from "./recommendation-models";
 import { EVIDENCE_PACK, exact, exactValid, type CarriedRuleEvaluation } from "./recommendation-exact";
 import { storedRecommendationIssue } from "./recommendation-stored";
@@ -121,7 +132,6 @@ export const CATTLE_RECOMMENDATION_ENGINE_VERSION = "cattle-recommendation-engin
 const RANKING_FORMULA =
   "selectable first; tier SAFETY_LEGAL_WELFARE > AVOID_MATERIAL_LOSS > EXPECTED_NET_RETURN > VALUE_OF_INFORMATION; within a tier VALUE_KNOWN (exact, same currency, higher first) before VALUE_UNKNOWN; then action identity; non-actionable after, by tier then identity";
 const GATE_FORMULA = "CLEAR iff every prerequisite gate is PASS or NOT_APPLICABLE and every required context part is supplied";
-const VALUE_FORMULA = "NET_OF_BOUND_OBSERVATIONS: sum(benefit observations) - sum(cost observations), exact decimal (money.ts), one currency";
 const GATE_CHECK_FORMULA =
   "one consulted prerequisite gate of a candidate: C0 state (or NOT_EVALUATED for a generated gate), its rule version, rule fingerprint, reasons and source checks; controls the C0 outcome only for the proposed action";
 const EXCLUSION_FORMULA = "registered actions not considered: trigger or eligibility resolved negative over KNOWN predecessor states (reason codes per action kind)";
@@ -700,7 +710,7 @@ export function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHa
     if (valuation !== null) {
       steps.push({
         sequence: steps.length + 1,
-        description: `Economic valuation of the ${label}`,
+        description: valuationStepDescription(label),
         formula: VALUE_FORMULA,
         inputs: valuationStepInputs(valuation, ctx.economics),
         output: valuation.outcome.state === "VALUE_KNOWN" ? valuation.outcome.amount : valuation.outcome.state,

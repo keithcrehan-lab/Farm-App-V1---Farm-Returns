@@ -56,6 +56,15 @@ evidence, so don't trust it or ask for it. Assess the code itself.
   that would fail without the fix.
 - **Safety:** no secrets, no push/deploy/prod paths, no settings or hook
   tampering.
+- **Trust boundaries (cattle campaign, CAT-INV-028 as clarified
+  2026-10-15):** attack genuine untrusted boundaries (external / imported
+  input, persisted or reloaded records — including re-sealed ones —,
+  serialised artefacts) and the phase's own invariants aggressively. Do not
+  report, as a defect of the consuming phase, arbitrary post-return
+  corruption of an owner-specific domain value in an output returned
+  in-process by an approved frozen predecessor engine; the owner phase owns
+  that invariant. Structural presence and shared cross-engine protocol shape
+  remain in scope.
 
 ## Severity
 

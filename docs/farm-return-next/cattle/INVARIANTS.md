@@ -396,6 +396,28 @@ domain data until the consuming phase validates the fields it consumes
   neither needed nor permitted; schema validation of consumed fields remains.
 - **Origin:** C7 findings F003 / F007; binding for C7 and every later phase
   (C8 preflight).
+- **Trust boundaries and contract ownership (campaign-level clarification;
+  human architecture decision 2026-10-15, C8; binding for C8 and every later
+  phase).** Validation must follow trust boundaries and contract ownership. Data entering the system across an external, persisted, imported, deserialised, user-controlled or otherwise untrusted boundary is untrusted and must be validated before use. An output returned directly in-process by an approved frozen engine is trusted to satisfy that engine's published domain contract. A downstream engine is not responsible for reimplementing every owner-specific invariant already guaranteed by a frozen predecessor. Therefore each phase owns its own domain invariants (C2
+  owns C2's, C3 owns C3's, C7 owns C7's, C8 owns C8's). A consuming phase must
+  continue to validate: its own inputs and outputs; genuine external /
+  persistence / deserialisation boundaries; required structural presence;
+  identity / reference consistency it itself relies upon; shared cross-engine
+  protocol invariants owned by the architecture (e.g. the C0 rule-evaluation
+  record and evidence-pack shape). It must not duplicate arbitrary
+  predecessor-specific domain constraints purely to survive mutation of an
+  object returned directly from a frozen in-process engine. Where this
+  clarification and the bullets above differ for outputs returned in-process
+  by approved frozen engines, this clarification governs.
+- **Fault model (audits and tests).** In scope: external / imported inputs;
+  persisted or reloaded records (a re-sealed stored record must still be
+  rejected when malformed or inconsistent); serialised artefacts crossing a
+  trust boundary; phase-owned records; shared cross-engine protocol
+  invariants; fields whose correctness the phase independently owns or relies
+  upon. Out of scope: arbitrary post-return corruption of an approved frozen
+  in-process engine's owner-specific domain values (C8 audit F005 disposition,
+  2026-10-15: a C2 rule version of 0, or C3's contractually null `rule`
+  replaced by an object, are not valid C8 faults).
 
 ## Interactions (no contradictions)
 

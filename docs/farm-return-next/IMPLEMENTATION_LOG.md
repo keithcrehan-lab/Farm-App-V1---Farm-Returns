@@ -712,3 +712,14 @@ registered as cattle campaign phase C8P1 between C8 and C9 (brief
 audits, strict freeze and closure. `BUILD_STATE.json.contracts_frozen` is `false` from this
 registration until a docs-only commit after C8P1's closure sets it back to `true`; no
 parallel worktree task may rely on the Plan contract meanwhile. No code changes in this entry.
+
+## Plan contract change closed — Cattle campaign phase C8P1 (2026-10-17)
+
+Contract-change protocol (DOMAIN_CONTRACTS.md), step 4 close: C8P1 (Plan Compatibility Amendment)
+froze at 9480f22 (closure b4e5440) on a clean standard audit (audit-20261017T205554Z-1423290734,
+0/0/0/0) and a clean strict whole-phase audit (audit-20261017T205750Z-2430244256, 0/0/0/0), with
+the phase verify and the full quality gate passing. The additive Plan contract — `SubjectType`
+`CATTLE_ANIMAL` / `CATTLE_GROUP`, `FARM_RETURN` reasons `OBLIGATION` / `RECOMMENDATION` /
+`COMPOSITE`, tier `ROUTINE_MANAGEMENT` (last) and hard-deadline authority `VERSIONED_SOURCE` — is
+now part of the frozen Plan contract; `BUILD_STATE.json.contracts_frozen` is set back to `true`.
+Docs only.

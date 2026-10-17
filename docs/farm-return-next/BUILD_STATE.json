@@ -3,7 +3,7 @@
   "baseline_tag": "v1-baseline-2026-08-29",
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
-  "contracts_frozen": false,
+  "contracts_frozen": true,
   "schema_version": 2,
   "current_checkpoint": "campaign-c-slurry-science-freeze",
   "checkpoint_status": "ai_adjudicated_expert_validation_pending",

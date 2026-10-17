@@ -123,6 +123,11 @@ type Issue = { code: EconomicIssueCode; ref: string | null };
 
 const INSTANT_FIELDS = ["observedAt", "receivedAt"];
 
+function canonicalSupersedes(o: unknown): unknown {
+  if (!isPlainObject(o) || !Array.isArray(o.supersedes) || !o.supersedes.every((x) => typeof x === "string")) return o;
+  return { ...o, supersedes: [...new Set(o.supersedes as string[])].sort(compareStrings) };
+}
+
 /** Admits, de-duplicates and validates the economic observations known by `knowledgeCutoff`; any defect fails closed. */
 export function admitEconomicObservations(raw: unknown, knowledgeCutoff: string): { ok: true; observations: EconomicObservation[] } | { ok: false; issues: Issue[] } {
   if (!isPlainObject(raw) || Object.keys(raw).length !== 1 || !Array.isArray(raw.observations)) {
@@ -136,6 +141,9 @@ export function admitEconomicObservations(raw: unknown, knowledgeCutoff: string)
     if (receivedAt === null) issues.push({ code: "CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_UNREADABLE_KNOWLEDGE_TIME", ref: id });
     else if (compareInstants(receivedAt, knowledgeCutoff) <= 0) admitted.push(o);
   }
+  // `supersedes` is a SET: canonicalised (sorted, unique) BEFORE identity, so an equivalent retry listing it in another
+  // order is idempotent (audit F011 of 2026-10-17T064642Z); anything malformed is left for validation to reject.
+  admitted.splice(0, admitted.length, ...admitted.map(canonicalSupersedes));
   const byId = new Map<string, string>();
   for (const o of admitted) {
     if (!isPlainObject(o) || typeof o.observationId !== "string") continue;

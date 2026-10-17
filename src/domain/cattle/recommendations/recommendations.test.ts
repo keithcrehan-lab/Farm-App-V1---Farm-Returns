@@ -3030,3 +3030,40 @@ describe("C8 trust boundary — public decision content only through readVerifie
   });
 });
 
+describe("C8 audit 2026-10-17T064642Z — F011: an observation's supersedes set is canonical before identity; equivalent retries are idempotent", () => {
+  const PRICE = econObs("o-price", "SYNTH-KEY-PRICE", "1000.00");
+  const A = econObs("SYNTH-a", "SYNTH-KEY-COST", "250.5", { observedAt: "2026-04-01T00:00:00Z", receivedAt: "2026-04-02T00:00:00Z" });
+  const B = econObs("SYNTH-b", "SYNTH-KEY-COST", "250.5", { observedAt: "2026-04-01T00:00:00Z", receivedAt: "2026-04-02T00:00:00Z" });
+  const corr = (supersedes: unknown[], o: Record<string, unknown> = {}) => econObs("o-corr", "SYNTH-KEY-COST", "260", { observedAt: "2026-04-05T00:00:00Z", receivedAt: "2026-04-06T00:00:00Z", supersedes, ...o });
+  const evaluate = (observations: unknown[]) => {
+    const request = requestOf(favourable({ observations, actions: registry([SELL()]) }));
+    return { request, r: recommendCattle(request, hash, TRUSTED) };
+  };
+
+  it("exact reproduction and class: retries listing supersedes in any order or with repeats are one record; the result and verification are unchanged", () => {
+    const single = evaluate([PRICE, A, B, corr(["SYNTH-a", "SYNTH-b"])]);
+    expect(single.r.ok).toBe(true);
+    const base = ok(single.r);
+    expect(base.animals[0].context.economics.find((e) => e.valueKey === "SYNTH-KEY-COST")!.resolution).toMatchObject({ state: "KNOWN", boundObservationId: "o-corr" });
+    const retries: [string, unknown[]][] = [
+      ["both orders together (the audit's case)", [PRICE, A, B, corr(["SYNTH-a", "SYNTH-b"]), corr(["SYNTH-b", "SYNTH-a"])]],
+      ["reversed alone", [PRICE, A, B, corr(["SYNTH-b", "SYNTH-a"])]],
+      ["a repeated entry", [PRICE, A, B, corr(["SYNTH-a", "SYNTH-b", "SYNTH-a"]), corr(["SYNTH-b", "SYNTH-a"])]],
+    ];
+    for (const [label, observations] of retries) {
+      const m = evaluate(observations);
+      expect(m.r.ok, label).toBe(true);
+      expect(ok(m.r).fingerprint, label).toEqual(base.fingerprint);
+      expect(ok(m.r).animals[0], label).toEqual(base.animals[0]);
+      expect(verifyCattleRecommendation(structuredClone(base.animals[0]), m.request, hash, TRUSTED), label).toEqual({ valid: true });
+      expect(cattle.readVerifiedCattleRecommendation(structuredClone(base.animals[0]), m.request, hash, TRUSTED).ok, label).toBe(true);
+    }
+  });
+
+  it("controls: a genuinely different duplicate and a malformed supersedes set still fail closed", () => {
+    expect(codes(evaluate([PRICE, A, B, corr(["SYNTH-a", "SYNTH-b"]), corr(["SYNTH-b", "SYNTH-a"], { amount: "999" })]).r)).toContain("CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_DUPLICATE_DIFFERENT_CONTENT");
+    expect(codes(evaluate([PRICE, A, B, corr(["SYNTH-a", 5])]).r)).toContain("CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_INVALID");
+    expect(codes(evaluate([PRICE, A, B, corr(["SYNTH-a", "SYNTH-a"].concat(["o-corr"]))]).r)).toContain("CATTLE_RECOMMENDATION_ECONOMIC_OBSERVATION_INVALID");
+  });
+});
+

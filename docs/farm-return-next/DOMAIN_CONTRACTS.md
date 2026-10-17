@@ -4775,8 +4775,8 @@ economic resolutions (canonical instant spellings in admitted copies). `CATTLE_R
 binds the context, candidates, non-candidates, ties, pack and record; `CATTLE_RECOMMENDATION_HERD` binds
 the times, per-animal record fingerprints and the ordering. Input order, key order, the order of any
 set-valued C8-owned field (model benefit / cost keys; a definition's goal types, trigger state lists,
-prerequisites, evidence requirements, assumptions and limitations — canonicalised at admission, audit
-F011) and equivalent instant spellings do not change them; any material input, cutoff, effective time, registry version, tier, model
+prerequisites, evidence requirements, assumptions and limitations; an economic observation's `supersedes` —
+canonicalised at admission before identity, audits F011) and equivalent instant spellings do not change them; any material input, cutoff, effective time, registry version, tier, model
 or observation does. `checkCattleRecommendationIntegrity` (and so `verifyCattleRecommendation` before it
 reproduces) re-verifies the C0 pack, the context and record fingerprints, the exact C0 pack contract of the stored pack and record = `deriveRecommendationRecord(pack)`
 with the pack ↔ context identity link; a malformed stored recommendation is invalid

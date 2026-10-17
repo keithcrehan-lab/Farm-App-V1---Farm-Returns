@@ -1,6 +1,6 @@
 # Cattle C9 — Plan Interface
 
-Predecessor: C8 (frozen by the campaign receipt `receipts/C8.json`)
+Predecessor: C8P1 — Plan Compatibility Amendment (frozen by the campaign receipt `receipts/C8P1.json`), which follows C8 (`receipts/C8.json`)
 Phase directory (new): `src/domain/cattle/plan-interface/`
 Verify command: `npx vitest run src/domain/cattle src/tooling/cattle-conformance src/domain/plan --maxWorkers=1 && npm run typecheck && npm run lint`
 

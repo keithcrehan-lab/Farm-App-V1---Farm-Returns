@@ -686,3 +686,17 @@ not started, and nothing has been migrated, pushed or deployed.
   - The C3–C9 verify commands now also run the conformance kit.
   - `cattle/index.md` was added to the C3–C10 contracts.
   - CAMPAIGN.md and the cattle skill point to the shared area.
+
+## Plan contract change opened — Cattle campaign phase C8P1 (2026-10-17)
+
+Contract-change protocol (DOMAIN_CONTRACTS.md), steps 3–4. Human architecture decision
+2026-10-17: the Plan kernel contract gains the smallest additive extension C9 needs to
+represent cattle work truthfully — `SubjectType` `CATTLE_ANIMAL` / `CATTLE_GROUP`
+(`src/domain/subject.ts`), `FARM_RETURN` creation reasons `OBLIGATION` / `RECOMMENDATION` /
+`COMPOSITE` (`plan/job.ts`), priority tier `ROUTINE_MANAGEMENT` ordered last
+(`plan/priority.ts`) and hard-deadline authority `VERSIONED_SOURCE` (`plan/timing.ts`). It is
+registered as cattle campaign phase C8P1 between C8 and C9 (brief
+`.agent/campaigns/cattle-engine-v1/C8P1_BRIEF.md`) and goes through the campaign's build,
+audits, strict freeze and closure. `BUILD_STATE.json.contracts_frozen` is `false` from this
+registration until a docs-only commit after C8P1's closure sets it back to `true`; no
+parallel worktree task may rely on the Plan contract meanwhile. No code changes in this entry.

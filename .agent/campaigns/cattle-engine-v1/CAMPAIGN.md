@@ -165,6 +165,9 @@ Selected herd/animal vaccination and health programmes driven by applicable prog
 ### C8 — Recommendation Engine
 Generate candidate actions, hard-gate them, handle uncertainty/insufficient evidence, select supported next actions and emit immutable Recommendation Evidence Packs.
 
+### C8P1 — Plan Compatibility Amendment (C8P)
+Smallest truthful, additive Plan kernel contract extension C9 needs (human architecture decision 2026-10-17): cattle subject types, obligation / recommendation / composite creation reasons, a conservative routine-management priority tier and a versioned-source hard-deadline authority. No cattle or C9 code; built, audited, frozen and closed before C9 starts.
+
 ### C9 — Plan Interface
 Expose cattle obligations, recommendations, target scopes, windows and completion evidence to the frozen Plan kernel without duplicating cattle truth.
 

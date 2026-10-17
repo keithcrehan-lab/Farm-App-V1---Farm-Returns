@@ -184,7 +184,7 @@
       "closure": "docs-commit",
       "build_state_key": "c8_plan_compatibility_amendment",
       "scope_guard": ["src/domain/plan/cattle-compatibility.test.ts"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "src/domain/subject.ts", "src/domain/subject.test.ts", "src/domain/plan/job.ts", "src/domain/plan/priority.ts", "src/domain/plan/timing.ts"],
+      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "src/domain/subject.ts", "src/domain/subject.test.ts", "src/domain/plan/job.ts", "src/domain/plan/priority.ts", "src/domain/plan/timing.ts", "src/domain/plan/farmer-order.test.ts"],
       "policy": {"medium_rounds": 2, "high_rounds": 2, "attempts_per_signature": 2}
     },
     {

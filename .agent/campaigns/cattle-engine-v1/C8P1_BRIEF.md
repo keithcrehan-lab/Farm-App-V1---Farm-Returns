@@ -26,7 +26,7 @@ Make the Plan kernel able to state, truthfully:
 2. **Creation source** (`src/domain/plan/job.ts`): add `FARM_RETURN` reasons `OBLIGATION`, `RECOMMENDATION` and `COMPOSITE`, as an additional union member so the existing member is not edited. Document: `OBLIGATION` — work derived from an obligation owned by a canonical domain; `RECOMMENDATION` — work proposed by a Farm Return system recommendation that no adviser has approved (never `ADVISER_APPROVED`); `COMPOSITE` — work supported by more than one distinct Farm Return origin, whose individual origins are retained by the producer (the creation source does not carry them; `supportingReasons` and the producer's own canonical object do). Existing `ROUTINE`, `SEASONAL`, `DATA_GAP` and `PROGRAMME` meanings are unchanged.
 3. **Priority** (`src/domain/plan/priority.ts`): add tier `ROUTINE_MANAGEMENT` — normal farm-management work that should be planned but for which the authoritative evidence establishes none of a hard legal/compliance obligation, avoidance of material loss, expected net return or an information-gathering objective. Position: LAST (after `INFORMATION_VALUE`), so it never outranks a tier with an evidenced objective and the relative order of the four existing tiers is unchanged. Document the position and why.
 4. **Hard-deadline authority** (`src/domain/plan/timing.ts`): add a `HardDeadlineAuthority` variant `{ kind: "VERSIONED_SOURCE"; sourceId: string; version: string; contentFingerprint: AssessmentFingerprint }` — a Plan-owned structural reference with the same fields as the cattle C0 `SourceVersionRef`, binding the canonical source identity, version and content fingerprint the deadline originates from. `hardDeadline()` accepts it unchanged. It must not be used for a derived evaluation record.
-5. **Tests** in the new `src/domain/plan/cattle-compatibility.test.ts` (and, only where a test must enumerate every subject type, `src/domain/subject.test.ts`).
+5. **Tests** in the new `src/domain/plan/cattle-compatibility.test.ts` (and, only where a test must enumerate every subject type, `src/domain/subject.test.ts`). The one existing expectation that must change is the exhaustive tier list in `src/domain/plan/farmer-order.test.ts` ("orders the four tiers with hard obligations first"): it lists the four original tiers in their existing order followed by `ROUTINE_MANAGEMENT` as the fifth and last tier (human decision 2026-10-17); nothing else in that file changes and no other farmer-order behaviour is weakened.
 6. `docs/farm-return-next/DOMAIN_CONTRACTS.md`: append one section "Plan compatibility amendment (C8P1, cattle campaign)" at the end of the file listing exactly what was added and its semantics. Never edit an existing line.
 
 ## Out of scope
@@ -44,13 +44,13 @@ Write these first and show they fail before the production change.
 4. `COMPOSITE` semantics: documented meaning; a COMPOSITE job keeps every supporting reason it was given.
 5. `ROUTINE_MANAGEMENT` orders after `INFORMATION_VALUE` in `systemPriorityRank` / `compareSystemPriority`; the four existing tiers keep their relative order and ranks.
 6. A `VERSIONED_SOURCE` hard deadline round-trips through `hardDeadline()` and `createPlanJob` with its source id, version and fingerprint intact; `hardDeadline()` still rejects an invalid due instant.
-7. Existing Plan inputs remain valid and every existing Plan test passes unchanged.
+7. Existing Plan inputs remain valid and every existing Plan test passes unchanged, except the exhaustive tier-list assertion in `farmer-order.test.ts`, which gains `ROUTINE_MANAGEMENT` as its fifth and last entry; a regression test pins the four original tiers' ranks 0–3 and relative order.
 8. Dedup identity (`planJobIdentityKey`) is unchanged for existing inputs.
 
 ## Acceptance criteria
 
 - Additions exactly as in Scope; nothing else in Plan changes; no cattle file changes; Plan imports no cattle module.
-- Every existing Plan and subject test passes unchanged; the new tests pass; verify passes; full quality gate passes.
+- Every existing Plan and subject test passes unchanged except that one exhaustive tier-list assertion; the new tests pass; verify passes; full quality gate passes.
 - DOMAIN_CONTRACTS.md section appended; strict full-phase audit CRITICAL=0 HIGH=0 MEDIUM=0.
 
 ## Stop conditions

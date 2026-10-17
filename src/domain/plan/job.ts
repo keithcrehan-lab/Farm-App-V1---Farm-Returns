@@ -25,8 +25,21 @@ import { normaliseSubjects, scopeIdentityKey, type TargetScope } from "./scope";
 import { canTransitionStatus, type PlanJobStatus, type StatusTransitionCause } from "./status";
 import type { PlanTiming } from "./timing";
 
+/**
+ * The second `FARM_RETURN` member (C8P1 Plan compatibility amendment) adds
+ * reasons without editing the first:
+ * - `OBLIGATION` — work derived from an obligation owned by a canonical
+ *   domain.
+ * - `RECOMMENDATION` — work proposed by a Farm Return system recommendation
+ *   that no adviser has approved (never `ADVISER_APPROVED`).
+ * - `COMPOSITE` — work supported by more than one distinct Farm Return
+ *   origin. The creation source does not carry the individual origins; the
+ *   producer retains them (`supportingReasons` and its own canonical object).
+ * `ROUTINE`, `SEASONAL`, `DATA_GAP` and `PROGRAMME` are unchanged.
+ */
 export type PlanCreationSource =
   | { kind: "FARM_RETURN"; reason: "ROUTINE" | "SEASONAL" | "DATA_GAP" | "PROGRAMME" }
+  | { kind: "FARM_RETURN"; reason: "OBLIGATION" | "RECOMMENDATION" | "COMPOSITE" }
   | { kind: "ADVISER_APPROVED"; recommendationRef: string }
   | { kind: "FARMER_MANUAL" }
   | { kind: "FOLLOW_ON"; sourceJobId: string };

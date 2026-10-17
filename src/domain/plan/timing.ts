@@ -9,6 +9,7 @@
  * value is defined in this module.
  */
 
+import type { AssessmentFingerprint } from "../assessment-integrity";
 import { isValidIsoUtcDateTime } from "../iso-datetime";
 import type { SourceId } from "../source-register";
 
@@ -22,10 +23,19 @@ export interface RecommendedWindow {
   basis: string;
 }
 
+/**
+ * `VERSIONED_SOURCE` (C8P1 Plan compatibility amendment): a Plan-owned
+ * structural reference with the same fields as the cattle C0
+ * `SourceVersionRef`, binding the canonical source identity, version and
+ * content fingerprint the deadline originates from. It is not a V1
+ * registered source (`REGISTERED_SOURCE`), a farmer commitment or a
+ * canonical record, and must not be used for a derived evaluation record.
+ */
 export type HardDeadlineAuthority =
   | { kind: "REGISTERED_SOURCE"; sourceId: SourceId }
   | { kind: "FARMER_CONFIRMED_COMMITMENT"; description: string }
-  | { kind: "CANONICAL_RECORD"; recordId: string; recordKind: string };
+  | { kind: "CANONICAL_RECORD"; recordId: string; recordKind: string }
+  | { kind: "VERSIONED_SOURCE"; sourceId: string; version: string; contentFingerprint: AssessmentFingerprint };
 
 export interface HardDeadline {
   kind: "HARD_DEADLINE";

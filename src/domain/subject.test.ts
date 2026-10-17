@@ -28,7 +28,7 @@ describe("isSameSubject", () => {
 
 describe("SUBJECT_TYPE_NOTES", () => {
   it("documents every SubjectType, so a future variant can't be added without a note explaining its real backing entity", () => {
-    const types: SubjectType[] = ["FARM", "FIELD", "ANIMAL", "ANIMAL_GROUP", "MACHINE", "BUILDING", "INPUT", "STORAGE"];
+    const types: SubjectType[] = ["FARM", "FIELD", "ANIMAL", "ANIMAL_GROUP", "CATTLE_ANIMAL", "CATTLE_GROUP", "MACHINE", "BUILDING", "INPUT", "STORAGE"];
     for (const type of types) {
       expect(SUBJECT_TYPE_NOTES[type]).toBeTruthy();
     }

@@ -9,12 +9,22 @@
  */
 
 /** Highest first: hard legal/compliance/welfare obligations, then avoiding
- * material loss, then expected net return, then high-value information. */
+ * material loss, then expected net return, then high-value information,
+ * then routine management.
+ *
+ * `ROUTINE_MANAGEMENT` (C8P1 Plan compatibility amendment): normal
+ * farm-management work that should be planned but for which the
+ * authoritative evidence establishes none of a hard legal/compliance
+ * obligation, avoidance of material loss, expected net return or an
+ * information-gathering objective. It is LAST so it never outranks a tier
+ * with an evidenced objective, and appending it leaves the ranks (0–3) and
+ * relative order of the four original tiers unchanged. */
 export const SYSTEM_PRIORITY_TIERS = [
   "HARD_OBLIGATION",
   "AVOID_MATERIAL_LOSS",
   "EXPECTED_NET_RETURN",
   "INFORMATION_VALUE",
+  "ROUTINE_MANAGEMENT",
 ] as const;
 
 export type SystemPriorityTier = (typeof SYSTEM_PRIORITY_TIERS)[number];

@@ -10,7 +10,7 @@ const high = { tier: "HARD_OBLIGATION" as const, basis: "t" };
 
 describe("system priority", () => {
   it("orders the four tiers with hard obligations first", () => {
-    expect(SYSTEM_PRIORITY_TIERS).toEqual(["HARD_OBLIGATION", "AVOID_MATERIAL_LOSS", "EXPECTED_NET_RETURN", "INFORMATION_VALUE"]);
+    expect(SYSTEM_PRIORITY_TIERS).toEqual(["HARD_OBLIGATION", "AVOID_MATERIAL_LOSS", "EXPECTED_NET_RETURN", "INFORMATION_VALUE", "ROUTINE_MANAGEMENT"]);
     expect(compareSystemPriority(high, low)).toBeLessThan(0);
   });
 });

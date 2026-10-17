@@ -39,6 +39,8 @@ export type SubjectType =
   | "FIELD"
   | "ANIMAL"
   | "ANIMAL_GROUP"
+  | "CATTLE_ANIMAL"
+  | "CATTLE_GROUP"
   | "MACHINE"
   | "BUILDING"
   | "INPUT"
@@ -59,6 +61,15 @@ export type SubjectType =
  *   `LivestockGroup.goal`; no separate `AnimalGroup` type was introduced
  *   for Checkpoint 1.5, see `docs/farm-return-next/
  *   CHECKPOINT_1_5_ARCHITECTURE.md`'s own reasoning).
+ * - `CATTLE_ANIMAL` — a cattle C1 canonical `FarmReturnAnimalId`
+ *   (`src/domain/cattle/animal-ledger.ts`). NOT `IndividualAnimal.id`
+ *   (`ANIMAL`) and not interchangeable with it: the two id spaces are
+ *   different identities, and a `SubjectRef` of one type never equals one
+ *   of the other even when the id strings match (`isSameSubject` compares
+ *   type). Added by the C8P1 Plan compatibility amendment.
+ * - `CATTLE_GROUP` — a cattle C1 `MANAGEMENT_GROUP` value (the canonical
+ *   animal snapshot's management-group attribute). NOT `LivestockGroup.id`
+ *   (`ANIMAL_GROUP`) and not interchangeable with it. Added by C8P1.
  * - `BUILDING` — `src/domain/types.ts`'s `Housing` is the closest existing
  *   entity (a shed), not a 1:1 rename target — a future `BUILDING`
  *   subject may resolve to a `Housing` id, or to a genuinely different
@@ -76,6 +87,10 @@ export const SUBJECT_TYPE_NOTES: Record<SubjectType, string> = {
   FIELD: "Field (src/domain/types.ts)",
   ANIMAL: "IndividualAnimal (src/domain/types.ts)",
   ANIMAL_GROUP: "LivestockGroup (src/domain/types.ts) — already the AnimalGroup anchor",
+  CATTLE_ANIMAL:
+    "cattle C1 FarmReturnAnimalId (src/domain/cattle/animal-ledger.ts) — not IndividualAnimal.id (ANIMAL) and not interchangeable with it",
+  CATTLE_GROUP:
+    "cattle C1 MANAGEMENT_GROUP value (src/domain/cattle/animal-snapshot.ts) — not LivestockGroup.id (ANIMAL_GROUP) and not interchangeable with it",
   BUILDING: "Housing (src/domain/types.ts) is the closest existing entity, not a guaranteed 1:1 match",
   MACHINE: "no backing entity yet",
   INPUT: "no backing entity yet",

@@ -1,31 +1,22 @@
 {
   "schema_version": 1,
-  "task_id": "cattle-c8-recommendation-engine-20261015",
-  "title": "Cattle C8 - Recommendation Engine",
-  "base_sha": "c3aa26d84906b33bebfe8b8cc664804151cf55d2",
+  "task_id": "cattle-c8p1-plan-compatibility-amendment-20261017",
+  "title": "Cattle C8P1 - Plan Compatibility Amendment",
+  "base_sha": "b66a31809c01f61db23f42f140aee124e6dd31ea",
   "domains": [
     "ui",
-    "agent-harness",
+    "plan",
     "cattle"
   ],
   "expected_changed_files": [
-    "docs/farm-return-next/cattle/index.md",
-    "docs/farm-return-next/cattle/INVARIANTS.md",
-    "docs/farm-return-next/cattle/PHASE_INTERFACES.md",
-    "docs/farm-return-next/cattle/ARCHITECTURE.md",
-    "src/tooling/cattle-conformance",
-    "src/domain/cattle",
-    "docs/farm-return-next/cattle/VERIFICATION.md",
-    ".agent/campaigns/cattle-engine-v1/C7_ARCHITECTURE_REVIEW.md",
-    "src/domain/livestock.ts",
-    ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
-    ".agent/skills/cattle-evidence-rules.md",
     "docs/farm-return-next/DOMAIN_CONTRACTS.md",
-    "src/domain/cattle/index.ts",
-    "src/domain",
-    "src/lib/farm-data",
-    "src/domain/types.ts",
-    "docs/farm-return-next/cattle/FINGERPRINTS.md"
+    "src/domain/cattle",
+    "src/domain/subject.ts",
+    "src/domain/plan/job.ts",
+    "src/domain/plan/priority.ts",
+    "src/domain/plan/timing.ts",
+    "src/domain/subject.test.ts",
+    "src/domain/plan/farmer-order.test.ts"
   ],
   "contracts": [
     "AGENTS.md",
@@ -33,8 +24,7 @@
     ".agent/PRODUCT_RULES.md",
     ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
     ".agent/campaigns/cattle-engine-v1/AUTONOMY.md",
-    ".agent/skills/cattle-evidence-rules.md",
-    "docs/farm-return-next/cattle/index.md",
+    ".agent/skills/plan-domain.md",
     "docs/farm-return-next/DOMAIN_CONTRACTS.md"
   ],
   "evidence": [
@@ -47,6 +37,7 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
+    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

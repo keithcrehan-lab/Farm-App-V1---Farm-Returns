@@ -4836,3 +4836,38 @@ behaviour; a decision-provenance oracle checks that every decision in a record a
 treatment / dose / product / timing choice or legal interpretation; no AI / LLM narrative; no Plan job
 creation (C9) or UI (C10); no persistence, schema, migration, network, connector or clock; no change to
 C0–C7, `livestock.ts`, `money.ts` or any frozen contract.
+
+## Plan compatibility amendment (C8P1, cattle campaign)
+
+Additive Plan kernel contract change (human architecture decision 2026-10-17, C9 pre-build and blocker
+reviews B2–B6) so C9 can represent cattle work without coercing cattle concepts into Plan concepts that
+mean something else. Nothing existing is renamed, removed or changes meaning; Plan imports no
+`src/domain/cattle/` module. Pinned by `src/domain/plan/cattle-compatibility.test.ts`.
+
+- **`SubjectType`** (`src/domain/subject.ts`) gains `CATTLE_ANIMAL` (id = cattle C1 `FarmReturnAnimalId`)
+  and `CATTLE_GROUP` (id = cattle C1 `MANAGEMENT_GROUP` value), each with a `SUBJECT_TYPE_NOTES` entry.
+  Neither is the V1 `IndividualAnimal.id` / `LivestockGroup.id` (`ANIMAL` / `ANIMAL_GROUP`) nor
+  interchangeable with them; refs of different types with the same id are different subjects
+  (`isSameSubject`, `subjectKey`, `normaliseSubjects`, `scopeIdentityKey`, `planJobIdentityKey`).
+- **`PlanCreationSource`** (`src/domain/plan/job.ts`) gains an additional union member
+  `{ kind: "FARM_RETURN"; reason: "OBLIGATION" | "RECOMMENDATION" | "COMPOSITE" }`. `OBLIGATION` — work
+  derived from an obligation owned by a canonical domain. `RECOMMENDATION` — work proposed by a Farm
+  Return system recommendation that no adviser has approved (never `ADVISER_APPROVED`). `COMPOSITE` —
+  work supported by more than one distinct Farm Return origin; the creation source does not carry the
+  origins, the producer retains them (`supportingReasons` and its own canonical object). `ROUTINE`,
+  `SEASONAL`, `DATA_GAP`, `PROGRAMME` unchanged; `JOB_CREATED` carries the source unchanged.
+- **`SYSTEM_PRIORITY_TIERS`** (`src/domain/plan/priority.ts`) gains `ROUTINE_MANAGEMENT` as the fifth and
+  LAST tier (rank 4): normal farm-management work to be planned for which the authoritative evidence
+  establishes none of a hard legal/compliance obligation, avoidance of material loss, expected net return
+  or an information-gathering objective. Last so it never outranks a tier with an evidenced objective;
+  the four original tiers keep ranks 0–3 and their relative order.
+- **`HardDeadlineAuthority`** (`src/domain/plan/timing.ts`) gains
+  `{ kind: "VERSIONED_SOURCE"; sourceId: string; version: string; contentFingerprint: AssessmentFingerprint }`
+  — a Plan-owned structural reference with the same fields as cattle C0 `SourceVersionRef`
+  (`AssessmentFingerprint` from the shared `assessment-integrity.ts`), binding the canonical source
+  identity, version and content fingerprint a deadline originates from. `hardDeadline()` accepts it
+  unchanged (still rejects an invalid due instant). Never used for a derived evaluation record.
+
+**Exclusions.** No C9 adapter or cattle → Plan mapping; no cattle file change; no change to existing Plan
+behaviour, readiness, completion, scope resolution, audit events or routes; `REGISTERED_SOURCE`,
+`ADVISER_APPROVED`, `ANIMAL`, `ANIMAL_GROUP` and the existing tiers keep their meaning.

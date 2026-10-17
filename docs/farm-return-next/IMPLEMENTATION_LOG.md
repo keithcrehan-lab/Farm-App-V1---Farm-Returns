@@ -5,6 +5,18 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Cattle Engine v1, C8 close-out — Recommendation Engine — frozen at 29234af (2026-10-17)
+
+C8 (task `cattle-c8-recommendation-engine-20261015`, base `c3aa26d`) is **frozen at `29234afe1ba034227bb0cadf6b10cef6b2960208`** by `scripts/agent-campaign-run`. This is the
+functional freeze SHA; the documentation commit recording it is not.
+
+- Strict full-phase audit `audit-20261017T115031Z-4216432885.md` over `c3aa26d..29234af`: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0.
+- Automatic remediation: 2 Medium round(s), 2 High round(s): F005 (MEDIUM, audit-20261015T224053Z-3771286038.md): Stored verification accepts deleted gate checks — sig 42e7c1c6718c29a7; F009 (MEDIUM, audit-20261016T084518Z-2633281737.md): Stored verifier skips the canonical input boundary — sig 6b01da929d9aa8d6; F002 (HIGH, audit-20261015T134819Z-2849804748.md): Generated gate collisions still bypass missing evidence — sig 96e3f4ab7d89b94a; F003 (HIGH, audit-20261015T124205Z-2735279885.md): Evidence packs omit provenance used to rank alternatives — sig c9661c00826e0861; F001 (HIGH, audit-20261015T124205Z-2735279885.md): Model claims escape version-bound approval — sig ce2d574bc7bc2832; F002 (HIGH, audit-20261015T124205Z-2735279885.md): Gate identifier collisions discard failing constraints — sig f7df492148f06dd7.
+- Outstanding Low (recorded, not fixed): none.
+- Verification at `29234af`: phase verify and full suite (`scripts/quality-gate.sh`) passed.
+- Receipt `.agent/campaigns/cattle-engine-v1/receipts/C8.json` (fingerprint `d6f583512c55c34d`). Migrations: none. Frozen contracts: ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md. Nothing pushed or deployed.
+- C9 **not started**.
+
 ## Cattle Engine v1, C7 close-out — Veterinary Health-Programme Engine — frozen at a5726a2 (2026-10-14)
 
 C7 (task `cattle-c7-veterinary-health-programme-engine-20261013`, base `fea84ae`) is **frozen at `a5726a2f7600d9a2b0f18b932e5786ad39cee3ec`** by `scripts/agent-campaign-run`. This is the

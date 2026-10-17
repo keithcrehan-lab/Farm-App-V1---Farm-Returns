@@ -1,0 +1,525 @@
+{
+  "receipt_schema_version": 1,
+  "origin": "campaign",
+  "campaign_id": "cattle-engine-v1",
+  "phase_id": "C8",
+  "phase_title": "Recommendation Engine",
+  "phase_order": 8,
+  "task_id": "cattle-c8-recommendation-engine-20261015",
+  "phase_base_sha": "c3aa26d84906b33bebfe8b8cc664804151cf55d2",
+  "functional_freeze_sha": "29234afe1ba034227bb0cadf6b10cef6b2960208",
+  "frozen_at": "2026-10-17T12:47:58Z",
+  "brief": ".agent/campaigns/cattle-engine-v1/C8_BRIEF.md",
+  "brief_sha256": "b119fccdd8fff8b73f5198eaf0c933119607e1da4b01acd1dcf3777c80332a1c",
+  "contracts": [
+    {
+      "path": "AGENTS.md",
+      "blob_at_freeze": "c608fb74479ed5ef58544105aee90d6fa07ce918"
+    },
+    {
+      "path": ".agent/AUDIT_RULES.md",
+      "blob_at_freeze": "0e64825c7f1d61e54e0abd5c873ee3d34498024e"
+    },
+    {
+      "path": ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
+      "blob_at_freeze": "dac8e1a71fe7d5d5f2405996acf0e8670dbe91d3"
+    },
+    {
+      "path": ".agent/campaigns/cattle-engine-v1/AUTONOMY.md",
+      "blob_at_freeze": "51102b7229f13aea2e8db752f16b7a96f3b13a4f"
+    },
+    {
+      "path": ".agent/skills/cattle-evidence-rules.md",
+      "blob_at_freeze": "34103147824c01008e92dba49531ff406294fce7"
+    },
+    {
+      "path": "docs/farm-return-next/cattle/index.md",
+      "blob_at_freeze": "ed787671c170f51492d718821dfe439bfdfc1108"
+    },
+    {
+      "path": "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+      "blob_at_freeze": "192ec258f2ecdaad9224f615af67777e3a8e9589"
+    }
+  ],
+  "verify_command": "npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint",
+  "verification": [
+    {
+      "name": "phase_verify",
+      "cmd": "npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint",
+      "head": "29234afe1ba034227bb0cadf6b10cef6b2960208",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C8-freeze-phase_verify-20261017T115754388569Z.log"
+    },
+    {
+      "name": "full_suite",
+      "cmd": "bash scripts/quality-gate.sh",
+      "head": "29234afe1ba034227bb0cadf6b10cef6b2960208",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C8-freeze-full_suite-20261017T115929168307Z.log"
+    }
+  ],
+  "strict_audit": {
+    "artifact": ".agent/campaigns/cattle-engine-v1/audits/audit-20261017T115031Z-4216432885.md",
+    "original": ".agent/history/audit-20261017T115031Z-4216432885.md",
+    "sha256": "353b55f433a853e3a920f433cc60bb5d39c56054ff993245e5a128003d32cb74",
+    "range": "c3aa26d84906b33bebfe8b8cc664804151cf55d2..29234afe1ba034227bb0cadf6b10cef6b2960208",
+    "counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "tier": "strict"
+  },
+  "audits": [
+    {
+      "tier": "standard",
+      "artifact": "audit-20261015T124205Z-2735279885.md",
+      "head": "d6c198129144e03f7228754cd6947860231b9801",
+      "counts": {
+        "critical": 0,
+        "high": 3,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261015T134819Z-2849804748.md",
+      "head": "72250ec69227fb6cc0bfdbf7d1835ed481ba7384",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261015T173955Z-3313967283.md",
+      "head": "977c3ed86c27214f84a9b285ee5361cfbe527c78",
+      "counts": {
+        "critical": 0,
+        "high": 3,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261015T194252Z-2020922219.md",
+      "head": "dc6e0a734ca0748f82d29d0c142c4b9bd24da286",
+      "counts": {
+        "critical": 0,
+        "high": 3,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261015T210448Z-835813531.md",
+      "head": "58c7948d2c67d5990aa5cf699027dbecc4096cba",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261015T224053Z-3771286038.md",
+      "head": "d231bd17b35e921fab9d3c50fd017f41fac80222",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261015T233648Z-2139688561.md",
+      "head": "4e11d93febc994722daad75a4c563af28671880d",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T064728Z-2582259562.md",
+      "head": "30dbd8b2740e12b5a4cf85e01f3f9d8792868477",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T074615Z-651270596.md",
+      "head": "d69a3e7632b8b702e9a17fd9a276b28c2768af0a",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T084518Z-2633281737.md",
+      "head": "84c4354561195f548174ed058df64fbef63758b0",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T094305Z-2869853913.md",
+      "head": "9e4c563c60a7d51ad033542e6bd8eacb2932a684",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T104117Z-4058979196.md",
+      "head": "d5d9dac62412d0c7f2579406ce556e869c875018",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T114308Z-1064389572.md",
+      "head": "7e629699792960fb9e81709fc60dc68b3753e04a",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T125252Z-314403994.md",
+      "head": "e8dc652795f1bf05acbccc00b68354080a34d0d7",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T135236Z-77325691.md",
+      "head": "998f1c845f1651a61e818169a14deb7a283c7bcb",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T144944Z-2111123006.md",
+      "head": "01847dcb8081bbcd65966c0c1d7ebbd2704c4cf7",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T155351Z-2787669351.md",
+      "head": "d524dc6f25fce0f62259efc7bef88aa4aab87c1a",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T170605Z-4175163717.md",
+      "head": "8f171c9f1f1628d39bab2c3cb4e1f53a37196e6f",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T180355Z-2086134147.md",
+      "head": "19acbac91c4a5dd1ef6cda1c517ab113595c272b",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261016T180756Z-2472310264.md",
+      "head": "19acbac91c4a5dd1ef6cda1c517ab113595c272b",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261016T230804Z-4243880308.md",
+      "head": "c17f99a172dcd78e1d536fa66b0977e4bc499b6b",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261017T000348Z-2704094276.md",
+      "head": "f86c5d7046b0dc7045f6eccf8dc1cf093a106091",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261017T010211Z-3389799750.md",
+      "head": "56d32666c60d5dff5d71423914a45c633ca72314",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261017T015824Z-826840396.md",
+      "head": "48a0df5a65c3d36f37a47f269e7125599e144e7a",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261017T064642Z-4257552184.md",
+      "head": "31a1b750d97333565d9edff71cd6c926db76b1e8",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261017T074415Z-2803829203.md",
+      "head": "f13affc619a4ea577a254e4f1bd7e363fdb35e60",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261017T084129Z-1335845853.md",
+      "head": "29234afe1ba034227bb0cadf6b10cef6b2960208",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261017T115031Z-4216432885.md",
+      "head": "29234afe1ba034227bb0cadf6b10cef6b2960208",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    }
+  ],
+  "remediation": {
+    "medium_rounds": 2,
+    "high_rounds": 2,
+    "rounds": [
+      {
+        "n": 1,
+        "tier": "standard",
+        "audit": "audit-20261015T124205Z-2735279885.md",
+        "ids": [
+          "F001",
+          "F002",
+          "F003"
+        ],
+        "severities": [
+          "HIGH"
+        ],
+        "fix_commit": "72250ec69227fb6cc0bfdbf7d1835ed481ba7384"
+      },
+      {
+        "n": 2,
+        "tier": "standard",
+        "audit": "audit-20261015T224053Z-3771286038.md",
+        "ids": [
+          "F005"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "4e11d93febc994722daad75a4c563af28671880d"
+      },
+      {
+        "n": 3,
+        "tier": "standard",
+        "audit": "audit-20261016T084518Z-2633281737.md",
+        "ids": [
+          "F009"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "9e4c563c60a7d51ad033542e6bd8eacb2932a684"
+      }
+    ]
+  },
+  "finding_signatures": {
+    "42e7c1c6718c29a7": {
+      "severity": "MEDIUM",
+      "title": "Stored verification accepts deleted gate checks",
+      "file": "src/domain/cattle/recommendations/recommendation-stored.ts",
+      "attempts": 1,
+      "ids": [
+        "F005@audit-20261015T224053Z-3771286038.md"
+      ]
+    },
+    "6b01da929d9aa8d6": {
+      "severity": "MEDIUM",
+      "title": "Stored verifier skips the canonical input boundary",
+      "file": "src/domain/cattle/recommendations/recommendation-engine.ts",
+      "attempts": 1,
+      "ids": [
+        "F009@audit-20261016T084518Z-2633281737.md"
+      ]
+    },
+    "96e3f4ab7d89b94a": {
+      "severity": "HIGH",
+      "title": "Generated gate collisions still bypass missing evidence",
+      "file": "src/domain/cattle/recommendations/recommendation-engine.ts",
+      "attempts": 1,
+      "ids": [
+        "F002@audit-20261015T134819Z-2849804748.md"
+      ]
+    },
+    "c9661c00826e0861": {
+      "severity": "HIGH",
+      "title": "Evidence packs omit provenance used to rank alternatives",
+      "file": "src/domain/cattle/recommendations/recommendation-engine.ts",
+      "attempts": 1,
+      "ids": [
+        "F003@audit-20261015T124205Z-2735279885.md"
+      ]
+    },
+    "ce2d574bc7bc2832": {
+      "severity": "HIGH",
+      "title": "Model claims escape version-bound approval",
+      "file": "src/domain/cattle/recommendations/recommendation-models.ts",
+      "attempts": 1,
+      "ids": [
+        "F001@audit-20261015T124205Z-2735279885.md"
+      ]
+    },
+    "f7df492148f06dd7": {
+      "severity": "HIGH",
+      "title": "Gate identifier collisions discard failing constraints",
+      "file": "src/domain/cattle/recommendations/recommendation-engine.ts",
+      "attempts": 1,
+      "ids": [
+        "F002@audit-20261015T124205Z-2735279885.md"
+      ]
+    }
+  },
+  "outstanding_low_findings": [],
+  "migration_status": "NONE",
+  "frozen_contract_status": "ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md",
+  "human_gate_status": "NONE",
+  "pushed_or_deployed": false,
+  "predecessor": "C7",
+  "predecessor_receipt_fingerprint": "412e3eaa5eb64bd23a65648cfd5cba175bc5e95b779202ab74b09bbbdb6ec976",
+  "policy": {
+    "medium_rounds": 2,
+    "high_rounds": 2,
+    "attempts_per_signature": 2
+  },
+  "receipt_fingerprint": "d6f583512c55c34d1eb4b538db65751a5a09cc7645a4ec0d4d274716895766d7"
+}

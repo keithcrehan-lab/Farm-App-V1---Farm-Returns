@@ -311,8 +311,8 @@
       "next_phase": "C3 NOT_STARTED"
     },
     "campaign_progress": {
-      "last_frozen_phase": "C7",
-      "next_phase": "C8",
+      "last_frozen_phase": "C8",
+      "next_phase": "C9",
       "next_phase_status": "NOT_STARTED",
       "updated_by": "scripts/agent-campaign-run"
     },
@@ -419,6 +419,28 @@
       "receipt_fingerprint": "412e3eaa5eb64bd23a65648cfd5cba175bc5e95b779202ab74b09bbbdb6ec976",
       "closed_by": "scripts/agent-campaign-run",
       "next_phase": "C8 NOT_STARTED"
+    },
+    "c8_recommendation_engine": {
+      "status": "FROZEN_COMPLETE_IN_CODE",
+      "task": "cattle-c8-recommendation-engine-20261015",
+      "base_sha": "c3aa26d84906b33bebfe8b8cc664804151cf55d2",
+      "final_audited_sha": "29234afe1ba034227bb0cadf6b10cef6b2960208",
+      "final_audit": ".agent/campaigns/cattle-engine-v1/audits/audit-20261017T115031Z-4216432885.md",
+      "final_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0",
+      "remediated_findings": [
+        "F005 (MEDIUM, audit-20261015T224053Z-3771286038.md): Stored verification accepts deleted gate checks — sig 42e7c1c6718c29a7",
+        "F009 (MEDIUM, audit-20261016T084518Z-2633281737.md): Stored verifier skips the canonical input boundary — sig 6b01da929d9aa8d6",
+        "F002 (HIGH, audit-20261015T134819Z-2849804748.md): Generated gate collisions still bypass missing evidence — sig 96e3f4ab7d89b94a",
+        "F003 (HIGH, audit-20261015T124205Z-2735279885.md): Evidence packs omit provenance used to rank alternatives — sig c9661c00826e0861",
+        "F001 (HIGH, audit-20261015T124205Z-2735279885.md): Model claims escape version-bound approval — sig ce2d574bc7bc2832",
+        "F002 (HIGH, audit-20261015T124205Z-2735279885.md): Gate identifier collisions discard failing constraints — sig f7df492148f06dd7"
+      ],
+      "outstanding_low_findings": [],
+      "verification": "at 29234afe1ba034227bb0cadf6b10cef6b2960208: phase verify `npx vitest run src/domain/cattle src/tooling/cattle-conformance --maxWorkers=1 && npm run typecheck && npm run lint` qualified; full suite scripts/quality-gate.sh qualified (PASS or bounded FLAKY_RECOVERED)",
+      "receipt": ".agent/campaigns/cattle-engine-v1/receipts/C8.json",
+      "receipt_fingerprint": "d6f583512c55c34d1eb4b538db65751a5a09cc7645a4ec0d4d274716895766d7",
+      "closed_by": "scripts/agent-campaign-run",
+      "next_phase": "C9 NOT_STARTED"
     }
   }
 }

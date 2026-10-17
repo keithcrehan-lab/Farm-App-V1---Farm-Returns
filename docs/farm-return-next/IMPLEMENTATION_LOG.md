@@ -5,6 +5,18 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Cattle Engine v1, C8P1 close-out — Plan Compatibility Amendment — frozen at 9480f22 (2026-10-17)
+
+C8P1 (task `cattle-c8p1-plan-compatibility-amendment-20261017`, base `b66a318`) is **frozen at `9480f22e2b19656f95c7259d4f2cd105cca081d1`** by `scripts/agent-campaign-run`. This is the
+functional freeze SHA; the documentation commit recording it is not.
+
+- Strict full-phase audit `audit-20261017T205750Z-2430244256.md` over `b66a318..9480f22`: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0.
+- Automatic remediation: 0 Medium round(s), 0 High round(s).
+- Outstanding Low (recorded, not fixed): none.
+- Verification at `9480f22`: phase verify and full suite (`scripts/quality-gate.sh`) passed.
+- Receipt `.agent/campaigns/cattle-engine-v1/receipts/C8P1.json` (fingerprint `6c030ed74bfd99a7`). Migrations: none. Frozen contracts: ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md. Nothing pushed or deployed.
+- C9 **not started**.
+
 ## Cattle Engine v1, C8 close-out — Recommendation Engine — frozen at 29234af (2026-10-17)
 
 C8 (task `cattle-c8-recommendation-engine-20261015`, base `c3aa26d`) is **frozen at `29234afe1ba034227bb0cadf6b10cef6b2960208`** by `scripts/agent-campaign-run`. This is the

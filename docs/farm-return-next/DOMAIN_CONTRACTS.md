@@ -4728,7 +4728,8 @@ record to equal the one its pack derives. The three public pack readers (`readPa
 / F010): canonical plain data first, then the exact C0 pack shape, then every JSON-carried decision field
 (trigger, eligibility, effect, value) against its exact shape, then C8's own state-dependent semantics
 (only a SUPPORTED effect states one and names its model; only a KNOWN value carries a canonical
-`money.ts` amount, a currency and sorted observations; NOT_EVALUATED names no model; benefit claim and gate
+`money.ts` amount, a currency C8 computes (`COMPUTABLE_CURRENCIES`; audit F010 of 2026-10-16T230804Z) and
+sorted observations; NOT_EVALUATED names no model; benefit claim and gate
 state in vocabulary; selectability exactly C8's rule) and ONE pack-outcome reconciliation rule
 (`packOutcomeReconciled`, audit F010), applied on every reader path including an absent proposal: no
 proposal is exactly NO_RECOMMENDATION with no actionable id; `actionableActionId` is the proposal exactly

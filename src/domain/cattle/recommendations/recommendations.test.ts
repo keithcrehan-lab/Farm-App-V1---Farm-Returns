@@ -2720,3 +2720,35 @@ describe("C8 strict audit 2026-10-16T180756Z — F010: outcome and action identi
   });
 });
 
+describe("C8 audit 2026-10-16T230804Z — F010: a known value's currency must be one C8 computes, in every reader", () => {
+  type Step = { formula: string; inputs: Record<string, unknown> };
+  const readers = [
+    ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
+    ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
+    ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+  ] as const;
+  const refingerprint = (p: Record<string, unknown>) => {
+    const { fingerprint: _p, generatedAt: _g, ...content } = p;
+    void _p;
+    void _g;
+    return { ...p, fingerprint: computeCattleFingerprint("CATTLE_EVIDENCE_PACK", content, hash) } as Record<string, unknown>;
+  };
+  const pack = () => structuredClone(recOf(run(favourable({ actions: registry([SELL()]) }))).pack) as unknown as Record<string, unknown>;
+  const withCurrency = (currency: string) => {
+    const p = pack();
+    const s = (p.calculationSteps as Step[]).find((x) => x.formula === CANDIDATE_STEP_FORMULA && x.inputs.actionId === p.proposedActionId)!;
+    s.inputs.value = JSON.stringify({ ...JSON.parse(s.inputs.value as string), currency });
+    return refingerprint(p);
+  };
+
+  it("exact reproduction and class: empty, malformed, lower-case and unsupported currencies are unreadable; EUR stays readable", () => {
+    expect(JSON.parse(((pack().calculationSteps as Step[]).find((x) => x.formula === CANDIDATE_STEP_FORMULA)!.inputs.value) as string)).toMatchObject({ state: "VALUE_KNOWN", currency: "EUR" });
+    for (const currency of ["", "SYNTH-CUR", "eur", "GBP", " EUR", "EUR "]) {
+      const forged = withCurrency(currency);
+      expect(cattle.verifyRecommendationEvidencePack(forged as never, hash).valid, JSON.stringify(currency)).toBe(true);
+      for (const [name, read] of readers) expect(read(forged), `${JSON.stringify(currency)} / ${name}`).toBeNull();
+    }
+    for (const [name, read] of readers) expect(read(withCurrency("EUR")), `EUR / ${name}`).not.toBeNull();
+  });
+});
+

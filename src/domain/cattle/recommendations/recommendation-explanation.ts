@@ -19,7 +19,8 @@
 import type { RecommendationEvidencePack } from "../evidence-pack";
 import { compareStrings, sortedUnique } from "../integrity";
 import { toCanonicalPlainData } from "../regulatory";
-import { createMoneyAmount } from "../../money";
+import { createMoneyAmount, type CurrencyCode } from "../../money";
+import { COMPUTABLE_CURRENCIES } from "./economic-context";
 import { BENEFIT_CLAIMS, RECOMMENDATION_CONTEXT_PARTS, RECOMMENDATION_PRIORITY_TIERS, type RecommendationContextPart, type RecommendationPriorityTier } from "./candidate-actions";
 import type { CandidateEffect, CandidateValue, RecommendationRecord } from "./recommendation-contracts";
 import { EVIDENCE_PACK, exactValid, type CarriedRuleEvaluation, type ExactSpec } from "./recommendation-exact";
@@ -57,10 +58,15 @@ export const VALUE_SPEC: ExactSpec = {
   },
 };
 
-/** A canonical money amount (`money.ts` `createMoneyAmount`): no NaN / Infinity / exponent / "-0". */
-function moneyAmount(amount: string): boolean {
+/**
+ * A canonical money value in a currency C8 computes (`money.ts` `createMoneyAmount`; `COMPUTABLE_CURRENCIES`): no
+ * NaN / Infinity / exponent / "-0", and never an empty, malformed or unsupported currency (audit F010 of
+ * 2026-10-16T230804Z) — a KNOWN value is only ever produced in a computable currency.
+ */
+function moneyValue(amount: string, currency: string): boolean {
+  if (!(COMPUTABLE_CURRENCIES as readonly string[]).includes(currency)) return false;
   try {
-    createMoneyAmount(amount, "EUR");
+    createMoneyAmount(amount, currency as CurrencyCode);
     return true;
   } catch {
     return false;
@@ -79,7 +85,7 @@ export function effectSemanticsValid(e: CandidateEffect): boolean {
 export function valueSemanticsValid(v: CandidateValue): boolean {
   const ids = v.observationIds;
   if (v.state === "VALUE_KNOWN") {
-    return v.model !== null && v.amount !== null && v.currency !== null && moneyAmount(v.amount) && ids.length > 0 && ids.every((x, i) => i === 0 || compareStrings(ids[i - 1], x) < 0);
+    return v.model !== null && v.amount !== null && v.currency !== null && moneyValue(v.amount, v.currency) && ids.length > 0 && ids.every((x, i) => i === 0 || compareStrings(ids[i - 1], x) < 0);
   }
   return v.amount === null && v.currency === null && ids.length === 0 && (v.state !== "NOT_EVALUATED" || v.model === null);
 }

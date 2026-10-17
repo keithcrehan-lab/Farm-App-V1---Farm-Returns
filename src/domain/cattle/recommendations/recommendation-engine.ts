@@ -939,25 +939,49 @@ export function checkCattleRecommendationIntegrity(stored: CattleRecommendation,
  * fails, or on any difference. Never repairs.
  */
 export function verifyCattleRecommendation(stored: CattleRecommendation, request: unknown, hash: CattleHash, trusted: RecommendationTrustedInputs = {}): FingerprintVerificationResult {
+  const r = reproduceStored(stored, request, hash, trusted);
+  return r.ok ? { valid: true } : { valid: false, reasonCode: r.reasonCode, detail: r.detail };
+}
+
+/** A recommendation read through authoritative verification (`readVerifiedCattleRecommendation`). */
+export type VerifiedCattleRecommendation =
+  | { ok: true; recommendation: CattleRecommendation; record: RecommendationRecord; explanation: string }
+  | { ok: false; reasonCode: string; detail: string };
+
+/**
+ * THE public way to read a stored recommendation's decision, record and explanation (human architecture decision
+ * 2026-10-17, Option 1: the pack readers are non-authoritative and module-internal). Succeeds only when
+ * `verifyCattleRecommendation`'s full reproduction confirms the stored recommendation; the recommendation, record and
+ * explanation returned are the REPRODUCED, deep-frozen ones — the exact objects the engine derived from the original
+ * request, equal to what was verified. Fails closed, returning no decision content, on any verification failure.
+ */
+export function readVerifiedCattleRecommendation(stored: CattleRecommendation, request: unknown, hash: CattleHash, trusted: RecommendationTrustedInputs = {}): VerifiedCattleRecommendation {
+  const r = reproduceStored(stored, request, hash, trusted);
+  if (!r.ok) return deepFreezeAnimalValue({ ok: false, reasonCode: r.reasonCode, detail: r.detail });
+  return deepFreezeAnimalValue({ ok: true, recommendation: r.reproduced, record: r.reproduced.record, explanation: r.reproduced.record.explanation });
+}
+
+/** Integrity, then full reproduction from the original request; the reproduced recommendation when they are equal. */
+function reproduceStored(stored: CattleRecommendation, request: unknown, hash: CattleHash, trusted: RecommendationTrustedInputs): { ok: true; reproduced: CattleRecommendation } | { ok: false; reasonCode: string; detail: string } {
   const integrity = integrityOf(stored, hash);
-  if (!integrity.ok) return { valid: false, reasonCode: integrity.reasonCode, detail: integrity.detail };
+  if (!integrity.ok) return { ok: false, reasonCode: integrity.reasonCode, detail: integrity.detail };
   if (request === undefined || request === null) {
-    return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_VERIFICATION_REQUEST_REQUIRED", detail: "authoritative verification reproduces the recommendation from its original request; none was supplied" };
+    return { ok: false, reasonCode: "CATTLE_RECOMMENDATION_VERIFICATION_REQUEST_REQUIRED", detail: "authoritative verification reproduces the recommendation from its original request; none was supplied" };
   }
   let reproduced: CattleRecommendationOutcomeResult;
   try {
     reproduced = recommendCattle(request, hash, trusted);
   } catch {
-    return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_FAILED", detail: "the original request could not be re-evaluated" };
+    return { ok: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_FAILED", detail: "the original request could not be re-evaluated" };
   }
   if (!reproduced.ok) {
-    return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_FAILED", detail: `the original request does not reproduce a recommendation: ${reproduced.issues.map((i) => i.code).join(", ")}` };
+    return { ok: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_FAILED", detail: `the original request does not reproduce a recommendation: ${reproduced.issues.map((i) => i.code).join(", ")}` };
   }
   const same = reproduced.result.animals.find((a) => a.animalId === integrity.recommendation.animalId);
   if (same === undefined || rawIdentityKey(same) !== rawIdentityKey(integrity.recommendation)) {
-    return { valid: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_MISMATCH", detail: "the stored recommendation is not the one its original request reproduces" };
+    return { ok: false, reasonCode: "CATTLE_RECOMMENDATION_REPRODUCTION_MISMATCH", detail: "the stored recommendation is not the one its original request reproduces" };
   }
-  return { valid: true };
+  return { ok: true, reproduced: same };
 }
 
 /** The integrity checks, over the canonical detached copy only (CAT-INV-001/002; a getter is never invoked). */

@@ -4452,8 +4452,8 @@ canonicalisation changes. `livestock.ts` economic functions (`calculateFinishing
 | `recommendation-consumed.ts` | THE consumed-field schema (CAT-INV-028) for every C1–C7 output C8 reads (`RECOMMENDATION_CONSUMED_SURFACES`); owned-record shape check (no undeclared field). Module-internal |
 | `recommendation-exact.ts` | Exact consumed contracts for every C0 record C8 CARRIES: `RULE_EVALUATION_RECORD`, `EVIDENCE_PACK`, `exact` / `exactValid`, `CarriedRuleEvaluation`; `C0_EXACTNESS` compile-time completeness against the frozen C0 types. Module-internal |
 | `evaluation-context.ts` | THE construction boundary: `buildEvaluationContexts`, `sealEvaluationContext`; `RecommendationTrustedInputs`. Module-internal except the trusted-input type |
-| `recommendation-engine.ts` | `recommendCattle(request, hash, trusted)` → `CattleRecommendationResult`; `verifyCattleRecommendation(recommendation, request, hash, trusted)` (authoritative, by reproduction); `checkCattleRecommendationIntegrity(recommendation, hash)` (integrity only); `CATTLE_RECOMMENDATION_ENGINE_VERSION` |
-| `recommendation-explanation.ts` | `renderRecommendationExplanation` (fixed template over pack / record fields) |
+| `recommendation-engine.ts` | `recommendCattle(request, hash, trusted)` → `CattleRecommendationResult`; `verifyCattleRecommendation(recommendation, request, hash, trusted)` (authoritative, by reproduction); `readVerifiedCattleRecommendation(recommendation, request, hash, trusted)` → `VerifiedCattleRecommendation` (the ONLY public way to read a stored recommendation's record and explanation — after full reproduction); `checkCattleRecommendationIntegrity(recommendation, hash)` (integrity only); `CATTLE_RECOMMENDATION_ENGINE_VERSION` |
+| `recommendation-explanation.ts` | MODULE-INTERNAL, non-authoritative pack readers (`readPackDecision`, `renderRecommendationExplanation`, `deriveRecommendationRecord`; fixed template over pack / record fields) — not exported from the C8 index |
 | `recommendation-contracts.ts` | request, `CattleEvaluationContext`, candidate, record and herd types (types only) |
 | `recommendation-integrity.ts` | `computeRecommendationFingerprint` / `verifyRecommendationFingerprint`, `CATTLE_RECOMMENDATION_PAYLOAD_VERSION` |
 
@@ -4723,7 +4723,15 @@ Evidence labels are recovered through the pack's own model steps and C0 rule eva
 proposal's consulted models' rule assumptions and limitations are in the pack's (and so the record's)
 assumptions / limitations, tagged `CATTLE_RECOMMENDATION_MODEL_ASSUMPTION:` /
 `..._MODEL_LIMITATION:["<id>","<version>"]:<text>`. The integrity check requires the stored
-record to equal the one its pack derives. The three public pack readers (`readPackDecision`,
+record to equal the one its pack derives. **Trust boundary (human architecture decision 2026-10-17,
+Option 1).** The pack readers are NON-AUTHORITATIVE and module-internal: they run only on a pack the engine
+has just built, or inside the integrity check (which returns no decision content); no public function
+derives a recommendation, record or explanation from a caller-supplied pack, and a valid fingerprint,
+schema or provenance chain never substitutes for decision verification. A stored recommendation's record
+and explanation are read publicly only through `readVerifiedCattleRecommendation(recommendation, request,
+hash, trusted)`, which runs `verifyCattleRecommendation`'s full reproduction and, only on success, returns
+the REPRODUCED (deep-frozen) recommendation, record and explanation; any failure returns only
+`{ ok: false, reasonCode, detail }`. As defence in depth the internal readers (`readPackDecision`,
 `renderRecommendationExplanation`, `deriveRecommendationRecord`) treat their pack as untrusted (audits F009
 / F010): canonical plain data first, then the exact C0 pack shape, then every JSON-carried decision field
 (trigger, eligibility, effect, value) against its exact shape, then C8's own state-dependent semantics

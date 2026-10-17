@@ -105,8 +105,12 @@ import * as cattleModels from "./recommendation-models";
 import * as cattleEconomic from "./economic-context";
 import { computeRecommendationFingerprint } from "./recommendation-integrity";
 import { recommendForContext } from "./recommendation-engine";
+import * as c8Public from "./index";
+import { rawIdentityKey } from "../health/health-input";
 import { computeCattleFingerprint } from "../integrity";
 import { CANDIDATE_STEP_FORMULA } from "./recommendation-explanation";
+/** The NON-AUTHORITATIVE, module-internal pack readers (Option 1, 2026-10-17): tested as defence in depth, never public. */
+import * as internalPack from "./recommendation-explanation";
 import type { RecommendationEvidencePack } from "../evidence-pack";
 
 type Rec = Record<string, unknown>;
@@ -876,7 +880,7 @@ describe("C8 test 9 — deterministic explanation from structured fields", () =>
       "Outcome: ACTIONABLE. Proposed action: RECORD_WEIGHT (VALUE_OF_INFORMATION, registry-declared priority) - Record a weight observation for the animal (no weight observation is in view). Hard gates: none. Expected effect: EFFECT_UNKNOWN. Economic value: VALUE_UNKNOWN. Missing context: OBLIGATIONS, HEALTH, PERFORMANCE, GOALS, PROGRAMMES. Evidence pack <PACK-ID> (<PACK-DIGEST>).",
     );
     // The explanation is rendered from the pack alone (F003: single source of decision evidence).
-    expect(cattle.renderRecommendationExplanation(rec.pack)).toBe(rec.record.explanation);
+    expect(internalPack.renderRecommendationExplanation(rec.pack)).toBe(rec.record.explanation);
   });
 
   it("no clock, randomness, network, AI or tooling import anywhere in the production modules", () => {
@@ -1034,9 +1038,9 @@ describe("C8 canonical boundary, field policy and one viewpoint", () => {
           const label = `${taintName}@${siteName}`;
           expect(verifyStored(rec), label).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_NON_CANONICAL_INPUT" });
           if (siteName.startsWith("pack")) {
-            expect(cattle.readPackDecision(rec.pack), label).toBeNull();
-            expect(cattle.renderRecommendationExplanation(rec.pack), label).toBeNull();
-            expect(cattle.deriveRecommendationRecord(rec.pack), label).toBeNull();
+            expect(internalPack.readPackDecision(rec.pack), label).toBeNull();
+            expect(internalPack.renderRecommendationExplanation(rec.pack), label).toBeNull();
+            expect(internalPack.deriveRecommendationRecord(rec.pack), label).toBeNull();
           }
           expect(reads, label).toBe(0);
         }
@@ -1044,7 +1048,7 @@ describe("C8 canonical boundary, field policy and one viewpoint", () => {
       // Positive control: the untainted copy still verifies and reads.
       const clean = stored();
       expect(verifyStored(clean)).toEqual({ valid: true });
-      expect(cattle.deriveRecommendationRecord(clean.pack)).toEqual(clean.record);
+      expect(internalPack.deriveRecommendationRecord(clean.pack)).toEqual(clean.record);
     });
   });
 
@@ -1744,12 +1748,12 @@ describe("C8 bounded repair — F003: the evidence pack is the single source of 
     ];
     for (const s of scenarios) {
       const rec = recOf(run(s));
-      expect(cattle.deriveRecommendationRecord(rec.pack)).toEqual(rec.record);
-      expect(cattle.renderRecommendationExplanation(rec.pack)).toBe(rec.record.explanation);
+      expect(internalPack.deriveRecommendationRecord(rec.pack)).toEqual(rec.record);
+      expect(internalPack.renderRecommendationExplanation(rec.pack)).toBe(rec.record.explanation);
     }
     // The renderer and the record derivation take the pack and nothing else.
-    expect(cattle.renderRecommendationExplanation.length).toBe(1);
-    expect(cattle.deriveRecommendationRecord.length).toBe(1);
+    expect(internalPack.renderRecommendationExplanation.length).toBe(1);
+    expect(internalPack.deriveRecommendationRecord.length).toBe(1);
   });
 
   it("explanation-visible model content cannot exist without the corresponding pack content", () => {
@@ -1759,8 +1763,8 @@ describe("C8 bounded repair — F003: the evidence pack is the single source of 
     expect(candidateIdx).toBeGreaterThanOrEqual(0);
     // Without the candidate step the decision cannot be read at all — nothing is rendered from elsewhere.
     const stripped = { ...rec.pack, calculationSteps: steps.filter((_, i) => i !== candidateIdx) };
-    expect(cattle.renderRecommendationExplanation(stripped)).toBeNull();
-    expect(cattle.deriveRecommendationRecord(stripped)).toBeNull();
+    expect(internalPack.renderRecommendationExplanation(stripped)).toBeNull();
+    expect(internalPack.deriveRecommendationRecord(stripped)).toBeNull();
     // The statement shown is the one IN the pack: change it there and the explanation follows.
     const effect = JSON.parse(steps[candidateIdx].inputs.effect as string);
     // (Since audit F010 of 2026-10-17 the candidate's statement must equal its effect model step's, so both are edited.)
@@ -1774,12 +1778,12 @@ describe("C8 bounded repair — F003: the evidence pack is the single source of 
             : s,
       ),
     };
-    expect(cattle.renderRecommendationExplanation(edited)).toContain("SYNTH statement only in this pack");
-    expect(cattle.renderRecommendationExplanation(edited)).not.toContain("SYNTH asserted effect");
+    expect(internalPack.renderRecommendationExplanation(edited)).toContain("SYNTH statement only in this pack");
+    expect(internalPack.renderRecommendationExplanation(edited)).not.toContain("SYNTH asserted effect");
     // A supported effect needs its model's own step in the pack: without it the claim is unsupported and the pack is
     // unreadable (audit F010 of 2026-10-17 — stricter than the earlier downgrade of the approval label).
     const noModelStep = { ...rec.pack, calculationSteps: steps.filter((s) => !s.description.startsWith("Effect model")) };
-    expect(cattle.deriveRecommendationRecord(noModelStep)).toBeNull();
+    expect(internalPack.deriveRecommendationRecord(noModelStep)).toBeNull();
     expect(rec.record.evidence.effectBasis).toBe("SCIENTIFICALLY_APPROVED_EFFECT_MODEL");
   });
 
@@ -1983,7 +1987,7 @@ describe("C8 audit 2026-10-15T233648Z — F005 family closed by replay: a stored
     void _g;
     const pack = { ...(r.pack as RecommendationEvidencePack), fingerprint: computeCattleFingerprint("CATTLE_EVIDENCE_PACK", content, hash) };
     // A malformed decision field makes the pack unreadable (audit F010): the forgery then keeps the old record.
-    const record = cattle.deriveRecommendationRecord(pack) ?? r.record;
+    const record = internalPack.deriveRecommendationRecord(pack) ?? r.record;
     const { fingerprint: _f, ...body } = { ...r, pack, record } as Record<string, unknown>;
     void _f;
     return { ...body, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_RECORD", body, hash) } as unknown as CattleRecommendation;
@@ -2001,7 +2005,7 @@ describe("C8 audit 2026-10-15T233648Z — F005 family closed by replay: a stored
     expect((r.candidates as Cand[])[0].value).toMatchObject({ state: "VALUE_KNOWN", amount: "749.50" });
     setAmount(r, "NaN");
     // Since audit F010 a non-canonical amount makes the pack decision unreadable — rejected before replay is reached.
-    expect(cattle.readPackDecision(forge(r).pack)).toBeNull();
+    expect(internalPack.readPackDecision(forge(r).pack)).toBeNull();
     expect(verifyStored(forge(r))).toMatchObject({ valid: false, reasonCode: "CATTLE_RECOMMENDATION_RECORD_PACK_INCONSISTENT" });
   });
 
@@ -2044,9 +2048,9 @@ describe("C8 audit 2026-10-15T233648Z — F005 family closed by replay: a stored
 describe("C8 audit 2026-10-16T094305Z — F010: the public pack readers validate the pack and every parsed decision field", () => {
   type Step = { formula: string; inputs: Record<string, unknown> };
   const readers = [
-    ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
-    ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
-    ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+    ["readPackDecision", (p: unknown) => internalPack.readPackDecision(p as never)],
+    ["renderRecommendationExplanation", (p: unknown) => internalPack.renderRecommendationExplanation(p as never)],
+    ["deriveRecommendationRecord", (p: unknown) => internalPack.deriveRecommendationRecord(p as never)],
   ] as const;
   const pack = () => structuredClone(recOf(run(favourable({ actions: registry([SELL()]) }))).pack) as unknown as Record<string, unknown>;
   /** Re-fingerprints the edited pack so C0 `verifyRecommendationEvidencePack` accepts it (the audit's attack). */
@@ -2100,9 +2104,9 @@ describe("C8 audit 2026-10-16T094305Z — F010: the public pack readers validate
 describe("C8 audit 2026-10-16T104117Z — F010: every decision field and its semantics", () => {
   type Step = { formula: string; inputs: Record<string, unknown> };
   const readers = [
-    ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
-    ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
-    ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+    ["readPackDecision", (p: unknown) => internalPack.readPackDecision(p as never)],
+    ["renderRecommendationExplanation", (p: unknown) => internalPack.renderRecommendationExplanation(p as never)],
+    ["deriveRecommendationRecord", (p: unknown) => internalPack.deriveRecommendationRecord(p as never)],
   ] as const;
   const refingerprint = (p: Record<string, unknown>) => {
     const { fingerprint: _p, generatedAt: _g, ...content } = p;
@@ -2300,9 +2304,9 @@ describe("C8 architecture decision 2026-10-16 (Option 1) — authoritative verif
   describe("F010 — one pack-outcome reconciliation rule for every reader", () => {
     type Step = { formula: string; inputs: Record<string, unknown> };
     const readers = [
-      ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
-      ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
-      ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+      ["readPackDecision", (p: unknown) => internalPack.readPackDecision(p as never)],
+      ["renderRecommendationExplanation", (p: unknown) => internalPack.renderRecommendationExplanation(p as never)],
+      ["deriveRecommendationRecord", (p: unknown) => internalPack.deriveRecommendationRecord(p as never)],
     ] as const;
     const refingerprint = (p: Record<string, unknown>) => {
       const { fingerprint: _p, generatedAt: _g, ...content } = p;
@@ -2694,9 +2698,9 @@ describe("C8 audit 2026-10-16T170605Z — F007: every C4 latest-weight state is 
 
 describe("C8 strict audit 2026-10-16T180756Z — F010: outcome and action identities reconciled on every reader path, absent proposals included", () => {
   const readers = [
-    ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
-    ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
-    ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+    ["readPackDecision", (p: unknown) => internalPack.readPackDecision(p as never)],
+    ["renderRecommendationExplanation", (p: unknown) => internalPack.renderRecommendationExplanation(p as never)],
+    ["deriveRecommendationRecord", (p: unknown) => internalPack.deriveRecommendationRecord(p as never)],
   ] as const;
   const refingerprint = (p: Record<string, unknown>) => {
     const { fingerprint: _p, generatedAt: _g, ...content } = p;
@@ -2730,16 +2734,16 @@ describe("C8 strict audit 2026-10-16T180756Z — F010: outcome and action identi
     for (const [label, pack] of [["ACTIONABLE", actionable()], ["NO_RECOMMENDATION", nothing()]] as const) {
       for (const [name, read] of readers) expect(read(pack), `${label} / ${name}`).not.toBeNull();
     }
-    expect(cattle.deriveRecommendationRecord(nothing() as never)).toMatchObject({ actionable: false, recommendedAction: null, outcome: "NO_RECOMMENDATION" });
+    expect(internalPack.deriveRecommendationRecord(nothing() as never)).toMatchObject({ actionable: false, recommendedAction: null, outcome: "NO_RECOMMENDATION" });
   });
 });
 
 describe("C8 audit 2026-10-16T230804Z — F010: a known value's currency must be one C8 computes, in every reader", () => {
   type Step = { formula: string; inputs: Record<string, unknown> };
   const readers = [
-    ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
-    ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
-    ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+    ["readPackDecision", (p: unknown) => internalPack.readPackDecision(p as never)],
+    ["renderRecommendationExplanation", (p: unknown) => internalPack.renderRecommendationExplanation(p as never)],
+    ["deriveRecommendationRecord", (p: unknown) => internalPack.deriveRecommendationRecord(p as never)],
   ] as const;
   const refingerprint = (p: Record<string, unknown>) => {
     const { fingerprint: _p, generatedAt: _g, ...content } = p;
@@ -2769,9 +2773,9 @@ describe("C8 audit 2026-10-16T230804Z — F010: a known value's currency must be
 describe("C8 audit 2026-10-17T000348Z — F010: a candidate's effect and value claims are readable only when the pack's own steps carry them", () => {
   type Step = { formula: string; description: string; inputs: Record<string, unknown>; output: unknown };
   const readers = [
-    ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
-    ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
-    ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+    ["readPackDecision", (p: unknown) => internalPack.readPackDecision(p as never)],
+    ["renderRecommendationExplanation", (p: unknown) => internalPack.renderRecommendationExplanation(p as never)],
+    ["deriveRecommendationRecord", (p: unknown) => internalPack.deriveRecommendationRecord(p as never)],
   ] as const;
   const refingerprint = (p: Record<string, unknown>) => {
     const { fingerprint: _p, generatedAt: _g, ...content } = p;
@@ -2847,9 +2851,9 @@ describe("C8 audit 2026-10-17T010211Z — F010: claims and approval labels are r
   type Step = { formula: string; description: string; inputs: Record<string, unknown>; output: unknown; rule: { ruleId: string; version: number } | null };
   type RuleEval = { requestedRuleId: string; state: string; rule: { ruleId: string; version: number } | null };
   const readers = [
-    ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
-    ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
-    ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+    ["readPackDecision", (p: unknown) => internalPack.readPackDecision(p as never)],
+    ["renderRecommendationExplanation", (p: unknown) => internalPack.renderRecommendationExplanation(p as never)],
+    ["deriveRecommendationRecord", (p: unknown) => internalPack.deriveRecommendationRecord(p as never)],
   ] as const;
   const refingerprint = (p: Record<string, unknown>) => {
     const { fingerprint: _p, generatedAt: _g, ...content } = p;
@@ -2862,7 +2866,7 @@ describe("C8 audit 2026-10-17T010211Z — F010: claims and approval labels are r
   const recordOf = (p: Record<string, unknown>, role: "Effect" | "Economic") => (p.ruleEvaluations as RuleEval[]).find((r) => r.requestedRuleId === modelStep(p, role).rule!.ruleId)!;
 
   it("exact reproduction and class: either model's rule evaluation forged or unlinked makes every reader refuse the pack", () => {
-    expect(cattle.deriveRecommendationRecord(pack() as never)?.evidence).toMatchObject({ strength: "MODELLED_EFFECT_AND_VALUE" });
+    expect(internalPack.deriveRecommendationRecord(pack() as never)?.evidence).toMatchObject({ strength: "MODELLED_EFFECT_AND_VALUE" });
     const edits: [string, (p: Record<string, unknown>, role: "Effect" | "Economic") => void][] = [
       ["rule evaluation PASS → FAIL (the audit's forgery)", (p, role) => void (recordOf(p, role).state = "FAIL")],
       ["rule evaluation PASS → REVIEW_REQUIRED", (p, role) => void (recordOf(p, role).state = "REVIEW_REQUIRED")],
@@ -2895,7 +2899,134 @@ describe("C8 audit 2026-10-17T010211Z — F010: claims and approval labels are r
     for (const [label, rec] of [["effect FAIL", failing], ["both PASS", passing]] as const) {
       for (const [name, read] of readers) expect(read(rec.pack), `${label} / ${name}`).not.toBeNull();
     }
-    expect(cattle.deriveRecommendationRecord(passing.pack)?.evidence).toMatchObject({ effectBasis: "SCIENTIFICALLY_APPROVED_EFFECT_MODEL", valueBasis: "APPROVED_VALUE_FORM_OVER_UNVALIDATED_OBSERVATIONS" });
+    expect(internalPack.deriveRecommendationRecord(passing.pack)?.evidence).toMatchObject({ effectBasis: "SCIENTIFICALLY_APPROVED_EFFECT_MODEL", valueBasis: "APPROVED_VALUE_FORM_OVER_UNVALIDATED_OBSERVATIONS" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Human architecture decision 2026-10-17 (Option 1): the pack readers are non-authoritative and module-internal; a
+// stored recommendation's decision, record and explanation are read publicly ONLY through full reproduction.
+// ---------------------------------------------------------------------------
+
+describe("C8 trust boundary — public decision content only through readVerifiedCattleRecommendation (full reproduction)", () => {
+  type Any = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const readVerified = (rec: unknown, request: unknown = requestFor(rec)) => cattle.readVerifiedCattleRecommendation(rec as CattleRecommendation, request, hash, TRUSTED);
+  const expectRejected = (label: string, rec: unknown, request: unknown = requestFor(rec)) => {
+    const r = readVerified(rec, request);
+    expect(r.ok, label).toBe(false);
+    expect(Object.keys(r).sort(), `${label}: no decision content on failure`).toEqual(["detail", "ok", "reasonCode"]);
+    return r;
+  };
+  /** Re-fingerprints a stored recommendation end to end: C0 pack, sealed context and record (the strongest re-sealing). */
+  const resealAll = (r: Any): CattleRecommendation => {
+    const { fingerprint: _p, generatedAt: _g, ...packContent } = r.pack;
+    void _p;
+    void _g;
+    r.pack = { ...r.pack, fingerprint: computeCattleFingerprint("CATTLE_EVIDENCE_PACK", packContent, hash) };
+    const { fingerprint: _c, ...ctx } = r.context;
+    void _c;
+    r.context = { ...ctx, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", ctx, hash) };
+    const { fingerprint: _f, ...body } = r;
+    void _f;
+    return { ...body, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_RECORD", body, hash) } as CattleRecommendation;
+  };
+  /** Edits a stored context and REBUILDS every decision field through the engine over it — internally consistent by construction. */
+  const rebuiltFrom = (rec: CattleRecommendation, edit: (ctx: Any) => void): CattleRecommendation => {
+    const ctx = structuredClone(rec.context) as unknown as Any;
+    edit(ctx);
+    const { fingerprint: _c, ...body } = ctx;
+    void _c;
+    const r = recommendForContext({ ...body, fingerprint: computeRecommendationFingerprint("CATTLE_RECOMMENDATION_CONTEXT", body, hash) } as never, hash);
+    if (!r.ok) throw new Error("engine refused the edited context");
+    return structuredClone(r.recommendation) as CattleRecommendation;
+  };
+  const sell = () => recOf(run(favourable({ actions: registry([SELL()]) })));
+
+  it("legitimate recommendations of every outcome read back their exact record and explanation, deep-frozen", () => {
+    const cases: [string, CattleRecommendation][] = [
+      ["ACTIONABLE", sell()],
+      ["BLOCKED", recOf(run(favourable({ actions: registry([SELL(["C3_WITHDRAWAL"])]), health: health(IN_WITHDRAWAL_RECORDS) })))],
+      ["INSUFFICIENT_EVIDENCE", recOf(run({ actions: defaultOnly("RECORD_WEIGHT", { evidenceRequirements: ["HEALTH"] }) }))],
+      ["NO_RECOMMENDATION", recOf(run({ weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] }, actions: registry([action("SYNTH-X", { trigger: { kind: "WEIGHT_MISSING_OR_STALE", staleAfter: null } })]) }))],
+    ];
+    for (const [label, rec] of cases) {
+      expect(rec.record.outcome, label).toBe(label);
+      const r = readVerified(structuredClone(rec));
+      expect(r.ok, label).toBe(true);
+      if (!r.ok) continue;
+      expect(r.record, label).toEqual(rec.record);
+      expect(r.explanation, label).toBe(rec.record.explanation);
+      expect(r.recommendation, label).toEqual(rec);
+      expect(Object.isFrozen(r.record) && Object.isFrozen(r.recommendation), label).toBe(true);
+    }
+  });
+
+  it("the audit's F010 mutation — 999999 EUR replacing the supported 749.50 EUR everywhere, every fingerprint recomputed — is rejected", () => {
+    const rec = sell();
+    expect(rec.record.expectedOutcome?.value).toMatchObject({ state: "VALUE_KNOWN", amount: "749.50" });
+    const forged = resealAll(JSON.parse(JSON.stringify(rec).split("749.50").join("999999")));
+    expect(JSON.stringify(forged)).toContain("999999");
+    expectRejected("999999 EUR", forged);
+  });
+
+  it("removing valuation observations (from the context closure, the valuation step and the pack inputs) cannot bypass verification", () => {
+    const rec = sell();
+    const r = structuredClone(rec) as unknown as Any;
+    for (const e of r.context.economics) e.observations = e.observations.filter((o: Any) => o.observationId !== "o-cost");
+    r.pack.inputs = r.pack.inputs.filter((i: Any) => i.provenance.ref !== "o-cost");
+    for (const s of r.pack.calculationSteps) if (s.description.startsWith("Economic valuation")) for (const k of Object.keys(s.inputs)) s.inputs[k] = String(s.inputs[k]).replace(/\{[^{}]*"observationId":"o-cost"[^{}]*\{[^{}]*\}[^{}]*\}/, "");
+    expectRejected("observations removed", resealAll(r));
+  });
+
+  it("re-fingerprinted, internally consistent forgeries of valuation, ranking, ties and gate outcomes pass integrity yet never verify", () => {
+    const base = sell();
+    const two = recOf(run(favourable({ actions: registry([SELL(), action("SYNTH-OTHER", { tier: cattle.RECOMMENDATION_PRIORITY_TIERS[0] })]) })));
+    const tied = recOf(run({ weights: { observations: [] }, actions: registry([action("SYNTH-A", { benefitClaim: "NONE", assumptions: [] }), action("SYNTH-B", { benefitClaim: "NONE", assumptions: [] })]) }));
+    expect(tied.ties.length).toBeGreaterThan(0);
+    const blocked = recOf(run(favourable({ actions: registry([SELL(["C3_WITHDRAWAL"])]), health: health(IN_WITHDRAWAL_RECORDS) })));
+    expect(blocked.record.outcome).toBe("BLOCKED");
+    const forgeries: [string, CattleRecommendation, (ctx: Any) => void][] = [
+      ["valuation: cost re-priced", base, (c) => void (c.economics.find((e: Any) => e.valueKey === "SYNTH-KEY-COST").observations[0].amount = "1")],
+      ["ranking: tiers swapped", two, (c) => void c.actions.definitions.forEach((d: Any) => (d.tier = d.actionKind === "SYNTH-SELL" ? cattle.RECOMMENDATION_PRIORITY_TIERS[0] : cattle.RECOMMENDATION_PRIORITY_TIERS[cattle.RECOMMENDATION_PRIORITY_TIERS.length - 1]))],
+      ["ties: tie broken by a tier change", tied, (c) => void (c.actions.definitions[0].tier = cattle.RECOMMENDATION_PRIORITY_TIERS[0])],
+      ["gate outcome: withdrawal gate forged PASS", blocked, (c) => void c.health.gates.forEach((g: Any) => ((g.state = "PASS"), (g.reasonCodes = [])))],
+    ];
+    for (const [label, original, edit] of forgeries) {
+      const forged = rebuiltFrom(original, edit);
+      expect(rawIdentityKey(forged), `${label}: the forgery differs`).not.toBe(rawIdentityKey(original));
+      expect(cattle.checkCattleRecommendationIntegrity(forged, hash), `${label}: internally consistent`).toEqual({ intact: true, authoritative: false });
+      const r = expectRejected(label, forged, requestFor(original));
+      expect(r.ok ? null : r.reasonCode, label).toBe("CATTLE_RECOMMENDATION_REPRODUCTION_MISMATCH");
+    }
+    expect(blocked.record.outcome).toBe("BLOCKED");
+  });
+
+  it("fails closed without the original request, with another request, or without the trusted dependencies", () => {
+    const rec = sell();
+    expectRejected("no request", rec, null);
+    expect(readVerified(rec, null)).toMatchObject({ ok: false, reasonCode: "CATTLE_RECOMMENDATION_VERIFICATION_REQUEST_REQUIRED" });
+    expectRejected("another request", rec, { ...requestFor(rec), query: { effectiveAt: EFFECTIVE, knowledgeCutoff: LATER } });
+    const noTrust = cattle.readVerifiedCattleRecommendation(rec, requestFor(rec), hash, {});
+    expect(noTrust.ok).toBe(false);
+  });
+
+  it("the removed readers are not public; every public function is on the reviewed allow-list", () => {
+    for (const name of ["readPackDecision", "renderRecommendationExplanation", "deriveRecommendationRecord", "claimsSupported", "consultedModel", "packOutcomeReconciled", "recommendForContext"]) {
+      expect(Object.hasOwn(cattle, name), `cattle.${name}`).toBe(false);
+      expect(Object.hasOwn(c8Public, name), `recommendations.${name}`).toBe(false);
+    }
+    const ALLOWED_FUNCTIONS = [
+      "checkCattleRecommendationIntegrity",
+      "computeRecommendationFingerprint",
+      "computeRecommendationModelContentFingerprint",
+      "readVerifiedCattleRecommendation",
+      "recommendCattle",
+      "recommendationModelContentMarker",
+      "verifyCattleRecommendation",
+      "verifyRecommendationFingerprint",
+    ];
+    const functions = Object.entries(c8Public).filter(([, v]) => typeof v === "function").map(([k]) => k).sort();
+    expect(functions).toEqual(ALLOWED_FUNCTIONS);
   });
 });
 

@@ -13,6 +13,12 @@
 // input or are the one internal construction boundary, so they stay
 // module-internal: the public paths are `recommendCattle` and
 // `verifyCattleRecommendation`, which run the canonical boundary first.
+// The evidence-pack readers (`readPackDecision`, `renderRecommendationExplanation`,
+// `deriveRecommendationRecord`) are NON-AUTHORITATIVE and module-internal too
+// (human architecture decision 2026-10-17, Option 1): they run only on packs the
+// engine has just built, or inside the integrity check, which returns no decision
+// content. A stored recommendation's record and explanation are read publicly ONLY
+// through `readVerifiedCattleRecommendation`, after full reproduction.
 export {
   BENEFIT_CLAIMS,
   CANDIDATE_TRIGGER_KINDS,
@@ -52,12 +58,13 @@ export {
 } from "./recommendation-models";
 export type { RecommendationTrustedInputs } from "./evaluation-context";
 export type * from "./recommendation-contracts";
-export { deriveRecommendationRecord, readPackDecision, renderRecommendationExplanation, type PackDecision } from "./recommendation-explanation";
 export {
   CATTLE_RECOMMENDATION_ENGINE_VERSION,
   checkCattleRecommendationIntegrity,
+  readVerifiedCattleRecommendation,
   recommendCattle,
   verifyCattleRecommendation,
   type CattleRecommendationIntegrityResult,
+  type VerifiedCattleRecommendation,
 } from "./recommendation-engine";
 export * from "./recommendation-integrity";

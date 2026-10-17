@@ -319,6 +319,8 @@ function gateRecords(ctx: CattleEvaluationContext, source: RecommendationGateSou
 }
 
 const satisfied = (state: string) => state === "PASS" || state === "NOT_APPLICABLE";
+/** Gate states that resolve the evidence (a FAIL is a resolved negative); every other state — and NOT_EVALUATED — is unresolved. */
+const RESOLVED_GATE_STATES: ReadonlySet<string> = new Set(["PASS", "NOT_APPLICABLE", "FAIL"]);
 
 /** Fixed source order: only labels a gate consulted identically from several sources; never chooses between differing records. */
 const GATE_SOURCES = ["C2_OBLIGATION", "C3_WITHDRAWAL", "C7_PROGRAMME"] as const;
@@ -557,19 +559,19 @@ export function recommendForContext(ctx: CattleEvaluationContext, hash: CattleHa
     const trigger = triggerOf(d, ctx);
     const eligibility = eligibilityOf(d, ctx);
     // Precedence (a / a' / b before c; CAT-INV-009 / 022 — audit F007): a definition is excluded as "not a candidate"
-    // only when NOTHING it requires is unresolved. Any required context part not supplied (evidence requirement or
-    // prerequisite gate source) or any unresolved trigger / eligibility keeps it a non-actionable candidate, even when
-    // the other of trigger / eligibility resolved negative — required evidence is resolved before exclusion. A named
-    // prerequisite gate found in no supplied source is required evidence too (audit F007 of 2026-10-16T135236Z).
-    const requiredMissing = [...d.evidenceRequirements, ...d.prerequisites.sources.map((s) => GATE_SOURCE_PART[s])].filter((part) => !partSupplied(ctx, part));
-    const anyUnresolved = trigger.state === "UNRESOLVED" || eligibility.state === "UNRESOLVED" || requiredMissing.length > 0 || namedGates(d, ctx).missing.length > 0;
+    // only when NOTHING it requires is unresolved. Required evidence is resolved FIRST, through the candidate's own
+    // gate fold — the one place every kind of required evidence becomes a check (a context part not supplied, a
+    // prerequisite source not supplied, a named gate found nowhere, every supplied gate with its C0 state) — so no
+    // kind can be missed (structural, audit F007 of 2026-10-17T074415Z). Exclusion needs every check RESOLVED (PASS,
+    // NOT_APPLICABLE or FAIL) and a resolved trigger and eligibility; anything else keeps a non-actionable candidate.
+    const unresolved = [...(trigger.state === "UNRESOLVED" ? trigger.reasons : []), ...(eligibility.state === "UNRESOLVED" ? eligibility.reasons : [])];
+    const folded = foldGates(d, ctx, unresolved);
+    if (!folded.ok) return { ok: false, issues: ambiguityIssues(ctx.animalId, folded.ambiguous) };
+    const anyUnresolved = unresolved.length > 0 || folded.fold.checks.some((c) => !RESOLVED_GATE_STATES.has(c.state));
     if (!anyUnresolved && (trigger.state === "NO" || eligibility.state === "NO")) {
       notCandidates.push({ actionKind: d.actionKind, reasonCodes: sortedUnique([...(trigger.state === "NO" ? trigger.reasons : []), ...(eligibility.state === "NO" ? eligibility.reasons : [])]) });
       continue;
     }
-    const unresolved = [...(trigger.state === "UNRESOLVED" ? trigger.reasons : []), ...(eligibility.state === "UNRESOLVED" ? eligibility.reasons : [])];
-    const folded = foldGates(d, ctx, unresolved);
-    if (!folded.ok) return { ok: false, issues: ambiguityIssues(ctx.animalId, folded.ambiguous) };
     const gates = folded.fold;
     const clear = gates.state === "CLEAR";
     const effect = clear ? effectOf(d, ctx) : { effect: NOT_EVALUATED_EFFECT, record: null, consulted: null };

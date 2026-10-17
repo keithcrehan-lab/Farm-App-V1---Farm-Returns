@@ -3067,3 +3067,48 @@ describe("C8 audit 2026-10-17T064642Z — F011: an observation's supersedes set 
   });
 });
 
+describe("C8 audit 2026-10-17T074415Z — F007: required evidence is resolved through the gate fold before any exclusion (structural)", () => {
+  const known = { weights: { observations: [weightObs("w-1", "2026-04-10T00:00:00Z")] } };
+  const notMet = { kind: "WEIGHT_MISSING_OR_STALE", staleAfter: null };
+  const RESOLVED = ["PASS", "NOT_APPLICABLE", "FAIL"];
+  const withdrawalGate = (records: Rec[]) => recOf(run(favourable({ actions: registry([SELL(["C3_WITHDRAWAL"])]), health: health(records) }))).context.health as unknown as { gates: { requestedRuleId: string; state: string }[] };
+  const negatives: [string, Rec, Run][] = [
+    ["trigger NO", { trigger: notMet }, known],
+    ["eligibility NO", { applicableGoalTypes: ["SALE"], trigger: { kind: "UNCONDITIONAL" } }, { goals: goals([goalDecl("g-fin")]) }],
+  ];
+
+  it("exact reproduction and class: supplied-but-unresolved, missing and absent prerequisite evidence is never masked by a negative trigger or eligibility", () => {
+    for (const records of [UNKNOWN_RECORDS, CONFLICT_RECORDS]) for (const g of withdrawalGate(records).gates) expect(RESOLVED, g.state).not.toContain(g.state);
+    const ruleId = withdrawalGate(UNKNOWN_RECORDS).gates[0].requestedRuleId;
+    const prerequisites: [string, Rec, Run][] = [
+      ["C3 source supplied, UNKNOWN withdrawal evidence", { prerequisites: { sources: ["C3_WITHDRAWAL"], gateRuleIds: [] } }, { health: health(UNKNOWN_RECORDS) }],
+      ["C3 source supplied, CONFLICTING withdrawal evidence", { prerequisites: { sources: ["C3_WITHDRAWAL"], gateRuleIds: [] } }, { health: health(CONFLICT_RECORDS) }],
+      ["named gate supplied with an unresolved state", { prerequisites: { sources: [], gateRuleIds: [ruleId] } }, { health: health(UNKNOWN_RECORDS) }],
+      ["named gate found in no source", { prerequisites: { sources: [], gateRuleIds: ["SYNTH-RULE-NAMED-ABSENT"] } }, {}],
+      ["prerequisite source not supplied", { prerequisites: { sources: ["C3_WITHDRAWAL"], gateRuleIds: [] } }, {}],
+    ];
+    for (const [nLabel, nPatch, nRun] of negatives) {
+      for (const [pLabel, pPatch, pRun] of prerequisites) {
+        const label = `${nLabel} × ${pLabel}`;
+        const rec = recOf(run({ ...nRun, ...pRun, actions: registry([action("SYNTH-X", { ...nPatch, ...pPatch })]) }));
+        expect(rec.record.outcome, label).toBe("INSUFFICIENT_EVIDENCE");
+        expect(rec.notCandidates, label).toEqual([]);
+        expect(rec.candidates[0].selectable, label).toBe(false);
+        expect(verifyStored(rec), label).toEqual({ valid: true });
+      }
+    }
+  });
+
+  it("controls: with every prerequisite resolved (PASS or FAIL), a resolved negative trigger or eligibility still excludes", () => {
+    expect(withdrawalGate(CLEAR_RECORDS).gates.map((g) => g.state)).toEqual(["PASS"]);
+    expect(withdrawalGate(IN_WITHDRAWAL_RECORDS).gates.map((g) => g.state)).toEqual(["FAIL"]);
+    for (const [nLabel, nPatch, nRun] of negatives) {
+      for (const records of [CLEAR_RECORDS, IN_WITHDRAWAL_RECORDS]) {
+        const rec = recOf(run({ ...nRun, health: health(records), actions: registry([action("SYNTH-X", { ...nPatch, prerequisites: { sources: ["C3_WITHDRAWAL"], gateRuleIds: [] } })]) }));
+        expect(rec.record.outcome, nLabel).toBe("NO_RECOMMENDATION");
+        expect(rec.notCandidates.map((n) => n.actionKind), nLabel).toEqual(["SYNTH-X"]);
+      }
+    }
+  });
+});
+

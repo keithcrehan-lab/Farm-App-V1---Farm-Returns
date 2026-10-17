@@ -4734,7 +4734,9 @@ state in vocabulary; selectability exactly C8's rule) and ONE claim-support rule
 2026-10-17T000348Z): a candidate's claims are readable only when the pack's own steps carry them, as the engine
 writes them — gates not clear ⇔ effect and value NOT_EVALUATED; benefit claim NONE consults no model; a
 SUPPORTED / NOT_SUPPORTED effect is its effect-model step's PASS / FAIL with the same statement; a KNOWN value is
-its economic-model step's PASS and its `Economic valuation of the <label>` step's outcome, model and summed
+its economic-model step's PASS (a model is read only through `consultedModel`: exactly one model step whose rule id
+and version, role, identity and recorded state equal its one C0 rule evaluation's — audit F010 of
+2026-10-17T010211Z; approval labels come from that reconciled evaluation) and its `Economic valuation of the <label>` step's outcome, model and summed
 observations — and ONE pack-outcome reconciliation rule
 (`packOutcomeReconciled`, audit F010), applied on every reader path including an absent proposal: no
 proposal is exactly NO_RECOMMENDATION with no actionable id; `actionableActionId` is the proposal exactly

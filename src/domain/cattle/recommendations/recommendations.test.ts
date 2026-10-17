@@ -2843,3 +2843,59 @@ describe("C8 audit 2026-10-17T000348Z — F010: a candidate's effect and value c
   });
 });
 
+describe("C8 audit 2026-10-17T010211Z — F010: claims and approval labels are read only through a model step reconciled with its exact rule evaluation", () => {
+  type Step = { formula: string; description: string; inputs: Record<string, unknown>; output: unknown; rule: { ruleId: string; version: number } | null };
+  type RuleEval = { requestedRuleId: string; state: string; rule: { ruleId: string; version: number } | null };
+  const readers = [
+    ["readPackDecision", (p: unknown) => cattle.readPackDecision(p as never)],
+    ["renderRecommendationExplanation", (p: unknown) => cattle.renderRecommendationExplanation(p as never)],
+    ["deriveRecommendationRecord", (p: unknown) => cattle.deriveRecommendationRecord(p as never)],
+  ] as const;
+  const refingerprint = (p: Record<string, unknown>) => {
+    const { fingerprint: _p, generatedAt: _g, ...content } = p;
+    void _p;
+    void _g;
+    return { ...p, fingerprint: computeCattleFingerprint("CATTLE_EVIDENCE_PACK", content, hash) } as Record<string, unknown>;
+  };
+  const pack = () => structuredClone(recOf(run(favourable({ actions: registry([SELL()]) }))).pack) as unknown as Record<string, unknown>;
+  const modelStep = (p: Record<string, unknown>, role: "Effect" | "Economic") => (p.calculationSteps as Step[]).find((s) => s.description.startsWith(`${role} model`))!;
+  const recordOf = (p: Record<string, unknown>, role: "Effect" | "Economic") => (p.ruleEvaluations as RuleEval[]).find((r) => r.requestedRuleId === modelStep(p, role).rule!.ruleId)!;
+
+  it("exact reproduction and class: either model's rule evaluation forged or unlinked makes every reader refuse the pack", () => {
+    expect(cattle.deriveRecommendationRecord(pack() as never)?.evidence).toMatchObject({ strength: "MODELLED_EFFECT_AND_VALUE" });
+    const edits: [string, (p: Record<string, unknown>, role: "Effect" | "Economic") => void][] = [
+      ["rule evaluation PASS → FAIL (the audit's forgery)", (p, role) => void (recordOf(p, role).state = "FAIL")],
+      ["rule evaluation PASS → REVIEW_REQUIRED", (p, role) => void (recordOf(p, role).state = "REVIEW_REQUIRED")],
+      ["rule evaluation version differs from the step's", (p, role) => void (recordOf(p, role).rule!.version += 1)],
+      ["model step state differs from its evaluation", (p, role) => void ((modelStep(p, role).inputs.state = "FAIL"), (modelStep(p, role).output = "FAIL"))],
+      ["model step names another rule", (p, role) => void (modelStep(p, role).rule = { ...modelStep(p, role).rule!, ruleId: "SYNTH-RULE-ELSEWHERE" })],
+      ["rule evaluation duplicated", (p, role) => void (p.ruleEvaluations as RuleEval[]).push({ ...structuredClone(recordOf(p, role)), state: "FAIL" })],
+    ];
+    for (const role of ["Effect", "Economic"] as const) {
+      for (const [label, edit] of edits) {
+        const p = pack();
+        edit(p, role);
+        const forged = refingerprint(p);
+        const name = `${role}: ${label}`;
+        if (!cattle.verifyRecommendationEvidencePack(forged as never, hash).valid) continue; // C0 itself refuses this shape — nothing to read
+        for (const [reader, read] of readers) expect(read(forged), `${name} / ${reader}`).toBeNull();
+      }
+    }
+    // The audit's exact forgery is accepted by C0, so the readers are the ones refusing it.
+    for (const role of ["Effect", "Economic"] as const) {
+      const p = pack();
+      recordOf(p, role).state = "FAIL";
+      expect(cattle.verifyRecommendationEvidencePack(refingerprint(p) as never, hash).valid, role).toBe(true);
+    }
+  });
+
+  it("controls: genuine packs with model evaluations of every state stay readable, with labels from the reconciled evaluation", () => {
+    const failing = recOf(run(favourable({ models: allModels([effectModel(modelRule("SYNTH-RULE-EFFECT", MODEL_FAIL)), econModel(["SYNTH-KEY-PRICE"], ["SYNTH-KEY-COST"])]), actions: registry([SELL()]) })));
+    const passing = recOf(run(favourable({ actions: registry([SELL()]) })));
+    for (const [label, rec] of [["effect FAIL", failing], ["both PASS", passing]] as const) {
+      for (const [name, read] of readers) expect(read(rec.pack), `${label} / ${name}`).not.toBeNull();
+    }
+    expect(cattle.deriveRecommendationRecord(passing.pack)?.evidence).toMatchObject({ effectBasis: "SCIENTIFICALLY_APPROVED_EFFECT_MODEL", valueBasis: "APPROVED_VALUE_FORM_OVER_UNVALIDATED_OBSERVATIONS" });
+  });
+});
+

@@ -145,6 +145,26 @@ export function packOutcomeReconciled(
 }
 
 /**
+ * A consulted model as the pack itself carries it: its model step AND the exact C0 rule evaluation that step names —
+ * same rule id and version, and the step's recorded state equal to the evaluation's (audit F010 of
+ * 2026-10-17T010211Z). `null` when any link is missing or contradicts another. Claims and approval labels are read
+ * only through this.
+ */
+export function consultedModel(pack: RecommendationEvidencePack, role: "EFFECT" | "ECONOMIC", ref: CandidateEffect["model"], label: string): { step: RecommendationEvidencePack["calculationSteps"][number]; record: CarriedRuleEvaluation } | null {
+  if (ref === null) return null;
+  const steps = pack.calculationSteps.filter((s) => s.formula === MODEL_STEP_FORMULA && s.description === modelStepDescription(role, ref.modelId, ref.version, label));
+  if (steps.length !== 1 || steps[0].rule === null) return null;
+  const step = steps[0];
+  const rule = step.rule as NonNullable<typeof step.rule>;
+  const records = pack.ruleEvaluations.filter((r) => r.requestedRuleId === rule.ruleId);
+  if (records.length !== 1) return null;
+  const record = records[0] as CarriedRuleEvaluation;
+  if (record.rule === null || record.rule.ruleId !== rule.ruleId || record.rule.version !== rule.version) return null;
+  if (step.output !== record.state || step.inputs.state !== record.state || step.inputs.modelId !== ref.modelId || step.inputs.version !== ref.version || step.inputs.role !== role) return null;
+  return { step, record };
+}
+
+/**
  * THE claim-support rule (audit F010 of 2026-10-17T000348Z): a candidate's effect and value claims are accepted only
  * when the pack's own evidence steps carry them, exactly as the engine writes them — gates not clear ⇔ effect and
  * value NOT_EVALUATED; a benefit claim NONE consults no model; a SUPPORTED / NOT_SUPPORTED effect is its effect
@@ -155,17 +175,15 @@ export function claimsSupported(pack: RecommendationEvidencePack, label: string,
   const notEvaluated = effect.state === "NOT_EVALUATED";
   if (notEvaluated !== (value.state === "NOT_EVALUATED") || notEvaluated !== (gates === "NOT_CLEAR")) return false;
   if (benefitClaim === "NONE" && (effect.model !== null || value.model !== null)) return false;
-  const modelStep = (role: "EFFECT" | "ECONOMIC", ref: CandidateEffect["model"]) =>
-    ref === null ? undefined : pack.calculationSteps.find((s) => s.formula === MODEL_STEP_FORMULA && s.description === modelStepDescription(role, ref.modelId, ref.version, label));
   if (effect.state === "EFFECT_SUPPORTED" || effect.state === "EFFECT_NOT_SUPPORTED") {
-    const s = modelStep("EFFECT", effect.model);
-    if (s === undefined || s.output !== (effect.state === "EFFECT_SUPPORTED" ? "PASS" : "FAIL")) return false;
-    if (effect.state === "EFFECT_SUPPORTED" && s.inputs.expectedEffect !== JSON.stringify(effect.expectedEffect)) return false;
+    const m = consultedModel(pack, "EFFECT", effect.model, label);
+    if (m === null || m.record.state !== (effect.state === "EFFECT_SUPPORTED" ? "PASS" : "FAIL")) return false;
+    if (effect.state === "EFFECT_SUPPORTED" && m.step.inputs.expectedEffect !== JSON.stringify(effect.expectedEffect)) return false;
   }
   if (value.state === "VALUE_KNOWN") {
-    const s = modelStep("ECONOMIC", value.model);
+    const m = consultedModel(pack, "ECONOMIC", value.model, label);
     const v = pack.calculationSteps.find((x) => x.formula === VALUE_FORMULA && x.description === valuationStepDescription(label));
-    if (s === undefined || s.output !== "PASS" || v === undefined) return false;
+    if (m === null || m.record.state !== "PASS" || v === undefined) return false;
     if (v.inputs.outcome !== JSON.stringify({ state: "VALUE_KNOWN", amount: value.amount, currency: value.currency })) return false;
     if (v.inputs.usedObservationIds !== JSON.stringify(value.observationIds) || v.inputs.model !== JSON.stringify(value.model)) return false;
   }
@@ -206,13 +224,8 @@ function packDecision(pack: RecommendationEvidencePack): PackDecision | null {
   if (i.actionId !== pack.proposedActionId || typeof i.actionKind !== "string" || !RECOMMENDATION_PRIORITY_TIERS.includes(tier) || trigger === null || effect === null || value === null || candidate === undefined) {
     return null;
   }
-  // The model's C0 rule evaluation is found through the pack's own model step (its `rule`) — never outside the pack.
-  const modelRecord = (role: "EFFECT" | "ECONOMIC", ref: CandidateEffect["model"]): CarriedRuleEvaluation | null => {
-    if (ref === null) return null;
-    const step = pack.calculationSteps.find((x) => x.formula === MODEL_STEP_FORMULA && x.description === modelStepDescription(role, ref.modelId, ref.version, PROPOSED_LABEL));
-    const ruleId = step?.rule?.ruleId;
-    return ruleId === undefined ? null : ((pack.ruleEvaluations.find((r) => r.requestedRuleId === ruleId) as CarriedRuleEvaluation | undefined) ?? null);
-  };
+  // The model's C0 rule evaluation is reached only through the pack's own, reconciled model step — never outside the pack.
+  const modelRecord = (role: "EFFECT" | "ECONOMIC", ref: CandidateEffect["model"]): CarriedRuleEvaluation | null => consultedModel(pack, role, ref, PROPOSED_LABEL)?.record ?? null;
   const priorityBasis = "REGISTRY_DECLARED_UNREVIEWED" as const;
   let evidence: RecommendationRecord["evidence"];
   if (i.benefitClaim === "NONE") evidence = { type: "DATA_GAP_OR_OBLIGATION", strength: "PREDECESSOR_STATE", ...none, priorityBasis };

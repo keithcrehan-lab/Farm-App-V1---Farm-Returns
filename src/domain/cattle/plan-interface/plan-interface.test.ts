@@ -406,8 +406,10 @@ describe("C9 folding — C8 restatements of C2 / C7 work (D2)", () => {
     expect(parseRestatementCitation(code)).toEqual({ family: "C2_OBLIGATION", state: "OUTSTANDING", cites: c2.cites });
     expect(r.proposals).toHaveLength(1);
     expect(r.proposals[0].supportingReasons).toHaveLength(2);
-    // Folding keeps the authoritative origin (the restatement is provenance, not a second origin).
-    expect(r.proposals[0].creationSource).toEqual({ kind: "FARM_RETURN", reason: "OBLIGATION" });
+    // Folding decides job identity only: the restatement's DATA_GAP origin stays in the canonical group (F003).
+    expect(c2.supporting[0].origin).toBe("DATA_GAP");
+    expect(r.groups[0].origins).toEqual(["DATA_GAP", "OBLIGATION"]);
+    expect(r.proposals[0].creationSource).toEqual({ kind: "FARM_RETURN", reason: "COMPOSITE" });
   });
 
   it("7b. COMPLETE_PROGRAMME_ACTION citing several C7 occurrences adds provenance to each; Plan identity alone decides merging", () => {
@@ -490,6 +492,142 @@ describe("C9 folding — C8 restatements of C2 / C7 work (D2)", () => {
     };
     const [only] = foldRestatements([c2, c8]);
     expect(only.blockers.map((b) => b.id)).toContain("CATTLE_PLAN_BLOCKER:SYNTH");
+  });
+});
+
+describe("C9 F003 — folding decides job identity only; every origin is kept (B3, D2)", () => {
+  /** The proposal group (canonical) and Plan projection of every job, by job id. */
+  const jobs = (r: CattlePlanResult) => r.proposals.map((p) => ({ p, g: r.groups.find((g) => projectProposal(g, r.effectiveAt)!.id === p.id)! }));
+  const outputIdsOf = (g: CattlePlanProposalGroup) => g.items.flatMap((i) => [i.outputId, ...i.supporting.map((s) => s.outputId)]).sort();
+  // A synthetic C8 restatement of the real C2 work of OUTSTANDING_RUN (the real fold's own citation), with a chosen origin.
+  const synthetic = (origin: CattlePlanWorkItem["origin"]) => {
+    const base = ok(run(OUTSTANDING_RUN));
+    const s = base.workItems[0].supporting[0];
+    const c2: CattlePlanWorkItem = { ...base.workItems[0], supporting: [] };
+    const c8: CattlePlanWorkItem = {
+      ...c2,
+      key: JSON.stringify(["C8_RECOMMENDATION", s.outputId]),
+      family: "C8_RECOMMENDATION",
+      origin,
+      outputId: s.outputId,
+      outputFingerprint: s.outputFingerprint,
+      cites: null,
+      consumedState: "ACTIONABLE",
+      reasonCodes: s.reasonCodes,
+      vocabularyRow: "C8_RESOLVE_OBLIGATION_EVIDENCE",
+      actionKey: "CATTLE_RECOMMENDATION:RESOLVE_OBLIGATION_EVIDENCE",
+      timing: { window: null, windowBasis: null, hardDeadline: null, sourceChecks: [] },
+      blockers: [],
+      priority: { tier: "INFORMATION_VALUE", basis: "SYNTH-BASIS-C8" },
+      supporting: [],
+    };
+    return { c2, c8 };
+  };
+  const grouped = (items: CattlePlanWorkItem[]) => {
+    const g = groupWorkItems(foldRestatements(items));
+    if (!g.ok) throw new Error(JSON.stringify(g.issues));
+    return g.groups;
+  };
+
+  it("C2 fold (real engine): one Plan job, OBLIGATION + DATA_GAP origins and both provenance sources kept, COMPOSITE", () => {
+    const r = ok(run(OUTSTANDING_RUN));
+    expect(itemsOf(r, "C8_RECOMMENDATION")).toEqual([]);
+    expect(r.proposals).toHaveLength(1);
+    const [{ p, g }] = jobs(r);
+    const [c2] = g.items;
+    expect(c2.family).toBe("C2_OBLIGATION");
+    expect(c2.supporting.map((s) => [s.family, s.origin])).toEqual([["C8_RECOMMENDATION", "DATA_GAP"]]);
+    expect(g.origins).toEqual(["DATA_GAP", "OBLIGATION"]);
+    expect(outputIdsOf(g)).toEqual([c2.outputId, c2.supporting[0].outputId].sort());
+    expect(p.supportingReasons!.map((x) => JSON.parse(x.slice("CATTLE_PLAN_REASON:".length))[0]).sort()).toEqual(["C2_OBLIGATION", "C8_RECOMMENDATION"]);
+    expect(p.creationSource).toEqual({ kind: "FARM_RETURN", reason: "COMPOSITE" });
+    // The real Plan kernel keeps it.
+    expect(createPlanJob(p, r.effectiveAt).job.creationSource).toEqual({ kind: "FARM_RETURN", reason: "COMPOSITE" });
+  });
+
+  it("C7 fold (real engine): one Plan job per occurrence, PROGRAMME + DATA_GAP origins and both provenance sources kept, COMPOSITE", () => {
+    const r = ok(run({ programmes: programmes(), effectiveAt: "2026-04-15T00:00:00Z", knowledgeCutoff: "2026-04-16T00:00:00Z" }));
+    expect(itemsOf(r, "C8_RECOMMENDATION")).toEqual([]);
+    const programmeJobs = jobs(r).filter(({ p }) => p.actionKey.startsWith("CATTLE_PROGRAMME:"));
+    expect(programmeJobs).toHaveLength(3);
+    expect(r.proposals).toHaveLength(programmeJobs.length); // no separate C8 job
+    const folded = programmeJobs.filter(({ g }) => g.items.some((i) => i.supporting.length > 0));
+    expect(folded).toHaveLength(2);
+    for (const { p, g } of folded) {
+      expect(g.items.every((i) => i.family === "C7_PROGRAMME")).toBe(true);
+      expect(g.items.flatMap((i) => i.supporting.map((s) => s.origin))).toEqual(["DATA_GAP"]);
+      expect(g.origins).toEqual(["DATA_GAP", "PROGRAMME"]);
+      expect(outputIdsOf(g)).toHaveLength(2);
+      expect(p.creationSource).toEqual({ kind: "FARM_RETURN", reason: "COMPOSITE" });
+      expect(createPlanJob(p, r.effectiveAt).job.creationSource).toEqual({ kind: "FARM_RETURN", reason: "COMPOSITE" });
+    }
+    // Unsupported C7 work keeps its single origin.
+    for (const { p, g } of programmeJobs.filter((j) => !folded.includes(j))) {
+      expect(g.origins).toEqual(["PROGRAMME"]);
+      expect(p.creationSource).toEqual({ kind: "FARM_RETURN", reason: "PROGRAMME" });
+    }
+  });
+
+  it("DATA_GAP and RECOMMENDATION origins each survive a fold into the canonical origin set (one job)", () => {
+    for (const origin of ["DATA_GAP", "RECOMMENDATION"] as const) {
+      const { c2, c8 } = synthetic(origin);
+      const [only, ...rest] = grouped([c2, c8]);
+      expect(rest).toEqual([]);
+      expect(only.items.map((i) => i.family)).toEqual(["C2_OBLIGATION"]);
+      expect(only.items[0].supporting.map((s) => s.origin)).toEqual([origin]);
+      expect(only.origins).toEqual([origin, "OBLIGATION"].sort());
+      expect(projectProposal(only, "2026-03-05T00:00:00Z")!.creationSource).toEqual({ kind: "FARM_RETURN", reason: "COMPOSITE" });
+    }
+  });
+
+  it("a failed fold keeps C8 separate with its own origin; no origin is transferred to the C2 work", () => {
+    const { c2, c8 } = synthetic("RECOMMENDATION");
+    for (const [why, items] of [
+      ["not whitelisted", [c2, { ...c8, actionKey: "CATTLE_RECOMMENDATION:RECORD_WEIGHT" }]],
+      ["wrong animal", [{ ...c2, animalId: B }, c8]],
+      ["state differs", [{ ...c2, consumedState: "OVERDUE" }, c8]],
+      ["unparsed code", [c2, { ...c8, reasonCodes: [...c8.reasonCodes, "CATTLE_RECOMMENDATION_TRIGGER_UNRESOLVED:OBLIGATION_UNKNOWN"] }]],
+    ] as [string, CattlePlanWorkItem[]][]) {
+      const groups = grouped(items);
+      expect(groups, why).toHaveLength(2);
+      const own = groups.find((g) => g.items.some((i) => i.family === "C2_OBLIGATION"))!;
+      const separate = groups.find((g) => g.items.some((i) => i.family === "C8_RECOMMENDATION"))!;
+      expect(own.items[0].supporting, why).toEqual([]);
+      expect(own.origins, why).toEqual(["OBLIGATION"]);
+      expect(separate.origins, why).toEqual(["RECOMMENDATION"]);
+      expect(projectProposal(own, "2026-03-05T00:00:00Z")!.creationSource, why).toEqual({ kind: "FARM_RETURN", reason: "OBLIGATION" });
+    }
+  });
+
+  it("order invariance (real engine): permuted C2 / C7 / C8 inputs give identical origins, creation sources, job count and fingerprint", () => {
+    const FOLDS: Run = {
+      ...OUTSTANDING_RUN,
+      actions: defaultOnly("RESOLVE_OBLIGATION_EVIDENCE", "COMPLETE_PROGRAMME_ACTION"),
+      programmes: programmes({ definition: programmeDefinition({ animalIds: [A, B] }) }),
+      ledgers: [ledgerOf(A), ledgerOf(B)],
+    };
+    const summary = (r: CattlePlanResult) => ({ jobs: r.proposals.length, origins: r.groups.map((g) => [g.identityKey, g.origins]), sources: r.proposals.map((p) => [p.id, p.creationSource]), fingerprint: r.fingerprint });
+    const forward = ok(run(FOLDS));
+    expect(forward.groups.some((g) => g.origins.length > 1)).toBe(true); // folds happen
+    const reversed = ok(run({ ...FOLDS, ledgers: [...FOLDS.ledgers!].reverse(), actions: registry([...(FOLDS.actions as { definitions: unknown[] }).definitions].reverse()) }));
+    expect(summary(reversed)).toEqual(summary(forward));
+    const { c2, c8 } = synthetic("DATA_GAP");
+    expect(checkOrderIndependence("fold-origins", [c2, c8], (is) => grouped(is))).toEqual(CONFORMS);
+  });
+
+  it("idempotence: a restatement folded twice, or groups merged again, keeps one origin and one provenance entry", () => {
+    const { c2, c8 } = synthetic("DATA_GAP");
+    const once = grouped([c2, c8]);
+    expect(conformanceSnapshot(grouped([c2, c8, c8, c2]))).toBe(conformanceSnapshot(once));
+    expect(once[0].items[0].supporting).toHaveLength(1);
+    expect(once[0].origins).toEqual(["DATA_GAP", "OBLIGATION"]);
+    // A same-key conflict is never folded (no guessed winner) and still fails closed.
+    const conflicting = { ...c2, reasonCodes: ["SYNTH-DIFFERENT"] };
+    expect(groupWorkItems(foldRestatements([c2, conflicting, c8]))).toEqual({ ok: false, issues: [{ code: "CATTLE_PLAN_WORK_ITEM_IDENTITY_CONFLICT", ref: c2.key }] });
+    const again = mergeProposalGroups([...once, ...once]);
+    expect(again.ok && conformanceSnapshot(again.groups)).toBe(conformanceSnapshot(once));
+    const r = ok(run(OUTSTANDING_RUN));
+    expect(ok(run(OUTSTANDING_RUN)).fingerprint).toEqual(r.fingerprint);
   });
 });
 
@@ -726,10 +864,10 @@ describe("C9 merge algebra (proposal groups by planJobIdentityKey)", () => {
   it("5. several cattle reasons for the same work ⇒ one proposal with every reason; identity = planJobIdentityKey", () => {
     const [g] = merged([x, y, z]);
     expect(g.items).toHaveLength(3);
-    // Three origins plus the C8 restatement already folded into x (D2): every reason kept once.
+    // Three items plus the C8 restatement already folded into x (D2): every reason and every origin kept once.
     expect(x.supporting).toHaveLength(1);
     expect(g.supportingReasons).toHaveLength(4);
-    expect(g.origins).toEqual(["OBLIGATION", "RECOMMENDATION"]);
+    expect(g.origins).toEqual(["DATA_GAP", "OBLIGATION", "RECOMMENDATION"]);
     expect(g.priority.tier).toBe("HARD_OBLIGATION");
     expect(g.priority.bases).toHaveLength(3);
     // Earliest deadline wins; every authority is kept.

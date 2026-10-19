@@ -57,9 +57,15 @@ export interface CattlePlanTiming {
   sourceChecks: { bound: SourceVersionRef; status: string }[];
 }
 
-/** A folded C8 restatement (D2): supporting provenance, never a job. */
+/**
+ * A folded C8 restatement (D2): never a second job, but its complete
+ * provenance AND its Farm Return origin stay part of the work it restates —
+ * folding decides job identity only, it never discards an origin (B3).
+ */
 export interface CattlePlanSupport {
   family: "C8_RECOMMENDATION";
+  /** The folded C8 work item's own origin (`DATA_GAP` / `RECOMMENDATION`), verbatim. */
+  origin: CattlePlanOrigin;
   outputId: string;
   outputFingerprint: AssessmentFingerprint;
   actionKind: string;

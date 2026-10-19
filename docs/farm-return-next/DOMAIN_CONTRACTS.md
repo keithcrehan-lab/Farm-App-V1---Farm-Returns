@@ -4935,9 +4935,14 @@ outcome is an invariant failure (`CATTLE_PLAN_OUTCOME_GATES_INCONSISTENT`).
 the frozen C8 grammar (strict: frozen state vocabulary, exact JSON, re-serialises to itself), each cited
 item exists among C9's own items with the same family, animal, citation and consumed state, and the kind is
 whitelisted (`RESOLVE_OBLIGATION_EVIDENCE` ↔ C2, `COMPLETE_PROGRAMME_ACTION` ↔ C7). It then becomes
-supporting provenance (and its blockers move with it) of every cited item; otherwise it is a separate
-proposal. A folded restatement is provenance, not a second origin (the job keeps the authoritative
-creation source).
+supporting provenance (its origin and blockers move with it) of every cited item; otherwise it is a
+separate proposal and its origin stays on its own item only. Folding decides job identity only: a
+successfully folded C8 restatement does not create a second job, but its `DATA_GAP` / `RECOMMENDATION`
+origin and complete provenance remain part of the canonical proposal group (`CattlePlanSupport.origin`;
+group `origins` = every item's own origin plus each folded restatement's, `itemOrigins`). Creation source
+is projected from that complete canonical origin set by the one B3 rule (so authoritative C2 / C7 work with
+a folded restatement projects `COMPOSITE`). The fold reads its input as a set: an exact duplicate counts
+once; a same-key conflict is never folded and fails closed in the group summary.
 
 **Merge algebra.** Groups are the SET of items sharing `planJobIdentityKey`; merging is set union
 (associative, commutative, idempotent, order-independent, no source precedence). One summary derives:

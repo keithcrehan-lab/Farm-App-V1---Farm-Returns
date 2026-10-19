@@ -30,6 +30,7 @@
  * and never completion evidence.
  */
 
+import { canonicalizeValue } from "../../assessment-integrity";
 import { compareStrings, sortedUnique } from "../integrity";
 import { programmeGateRuleId, type ProgrammeAnimalStatus, type ProgrammeOccurrenceRecord, type ProgrammeStatus } from "../programmes";
 import type { CattleRecommendation } from "../recommendations";
@@ -334,11 +335,16 @@ export function parseRestatementCitation(code: string): { family: "C2_OBLIGATION
  * only when ALL hold: every trigger reason code parses under the frozen
  * grammar; each cited item exists among `items` with the same family,
  * animal, citation and consumed state; the action kind is whitelisted for
- * that family. The restatement then becomes supporting provenance (and its
- * blockers, never dropped) of every cited item. Otherwise it stays a separate
+ * that family. The restatement then becomes supporting provenance (its
+ * origin and blockers, never dropped) of every cited item: folding decides job
+ * identity only. Otherwise it stays a separate
  * proposal — never a guessed equivalence. Pure; input order independent.
  */
-export function foldRestatements(items: readonly CattlePlanWorkItem[]): CattlePlanWorkItem[] {
+export function foldRestatements(itemsIn: readonly CattlePlanWorkItem[]): CattlePlanWorkItem[] {
+  // A SET of work items: an exact duplicate counts once (idempotent). A same-key conflict is never folded
+  // (no guessed winner): the set is returned as is, for the group summary to reject.
+  const items = [...new Map(itemsIn.map((i) => [canonicalizeValue(i), i])).values()].sort((a, b) => compareStrings(a.key, b.key));
+  if (new Set(items.map((i) => i.key)).size !== items.length) return items;
   const byKey = new Map(items.map((i) => [i.key, { ...i, blockers: [...i.blockers], supporting: [...i.supporting] }]));
   for (const c8 of items) {
     if (c8.family !== "C8_RECOMMENDATION") continue;
@@ -348,7 +354,7 @@ export function foldRestatements(items: readonly CattlePlanWorkItem[]): CattlePl
     if (citations.some((c) => c === null || c.family !== family)) continue;
     const targets = citations.map((c) => items.filter((t) => t.family === c!.family && t.animalId === c8.animalId && t.cites === c!.cites && t.consumedState === c!.state));
     if (targets.some((t) => t.length !== 1)) continue;
-    const support: CattlePlanSupport = { family: "C8_RECOMMENDATION", outputId: c8.outputId, outputFingerprint: c8.outputFingerprint, actionKind: c8.actionKey.slice("CATTLE_RECOMMENDATION:".length), consumedState: c8.consumedState, reasonCodes: c8.reasonCodes };
+    const support: CattlePlanSupport = { family: "C8_RECOMMENDATION", origin: c8.origin, outputId: c8.outputId, outputFingerprint: c8.outputFingerprint, actionKind: c8.actionKey.slice("CATTLE_RECOMMENDATION:".length), consumedState: c8.consumedState, reasonCodes: c8.reasonCodes };
     byKey.delete(c8.key);
     for (const [t] of targets) {
       const target = byKey.get(t.key)!;

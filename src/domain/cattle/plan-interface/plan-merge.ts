@@ -65,6 +65,9 @@ export function itemReasons(i: CattlePlanWorkItem): string[] {
   return [reason(i.family, i.outputId, i.outputFingerprint.digest, i.consumedState), ...i.supporting.map((s) => reason(s.family, s.outputId, s.outputFingerprint.digest, s.consumedState))];
 }
 
+/** Every Farm Return origin a work item carries: its own and each folded restatement's (D2 never discards one). */
+export const itemOrigins = (i: CattlePlanWorkItem): CattlePlanOrigin[] => [i.origin, ...i.supporting.map((s) => s.origin)];
+
 const same = (a: unknown, b: unknown) => canonicalizeValue(a) === canonicalizeValue(b);
 
 /** What a cattle window projects to in Plan (`recommendedWindow` endpoints); Plan has no boundary semantics. */
@@ -104,7 +107,7 @@ export function summariseGroup(itemsIn: readonly CattlePlanWorkItem[]): { ok: tr
     group: {
       identityKey,
       items,
-      origins: [...new Set(items.map((i) => i.origin))].sort(compareStrings) as CattlePlanOrigin[],
+      origins: sortedUnique(items.flatMap(itemOrigins)) as CattlePlanOrigin[],
       priority: { tier, bases: sortedUnique(items.map((i) => i.priority.basis)) },
       windowBases: sortedUnique(items.flatMap((i) => (i.timing.windowBasis === null ? [] : [i.timing.windowBasis]))),
       hardDeadline: deadlines.length === 0 ? null : { dueIso: deadlines[0].dueIso, authority: deadlines[0].authority, authorities: deadlines },

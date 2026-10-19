@@ -16,6 +16,7 @@
  */
 
 import type { CompletionContract, PlanBlockerStatus, SystemPriorityTier } from "../../plan";
+import { animalInstantKey, isValidAnimalInstant } from "../animal-ledger";
 import type { RecommendationOutcome } from "../evidence-pack";
 import type { CattleEvaluationState } from "../evaluation";
 import type { GoalProjectionStatus } from "../goals";
@@ -238,6 +239,37 @@ export const weightObservationKind = (animalId: string) => `CATTLE_WEIGHT_OBSERV
 export const GOAL_IN_FORCE_REQUIREMENT = "CATTLE_PRODUCTION_GOAL_IN_FORCE";
 
 /**
+ * A Plan `notBeforeIso` that never admits an instant before `iso`. Plan compares
+ * by `Date.parse` (millisecond precision, truncating), while cattle instants
+ * carry up to nanoseconds: a sub-millisecond `iso` is rounded UP to the next
+ * whole millisecond, so `Date.parse(observed) >= bound` implies `observed >= iso`
+ * exactly (conservative: an observation in that same millisecond does not count).
+ * A millisecond-aligned `iso` is returned as spelled.
+ */
+export function planNotBeforeBound(iso: string): string {
+  if (!isValidAnimalInstant(iso)) return iso;
+  const key = animalInstantKey(iso);
+  if (/^0+$/.test(key.slice(-6))) return iso;
+  // The next whole millisecond after the truncated instant, by field carry (no clock or Date object).
+  const f = key.slice(0, -6).match(/\d+/g)!.map(Number);
+  const [y] = f;
+  const daysInMonth = [31, y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][f[1] - 1];
+  // [year, month, day, hour, minute, second, millisecond]: carry upward from the millisecond.
+  const limits = [Infinity, 12, daysInMonth, 23, 59, 59, 999];
+  const floors = [0, 1, 1, 0, 0, 0, 0];
+  for (let i = 6; i >= 0; i--) {
+    if (f[i] < limits[i]) {
+      f[i] += 1;
+      break;
+    }
+    f[i] = floors[i];
+  }
+  const [yy, mo, d, h, mi, s, ms] = f;
+  const p = (n: number, w = 2) => String(n).padStart(w, "0");
+  return `${p(yy, 4)}-${p(mo)}-${p(d)}T${p(h)}:${p(mi)}:${p(s)}.${p(ms, 3)}Z`;
+}
+
+/**
  * The completion contract of a job, from its vocabulary row and identity
  * alone — so every work item merged into one job has the same contract by
  * construction. `effectiveAt` is the request viewpoint (the instant the data
@@ -248,7 +280,7 @@ export function completionContractFor(row: CattlePlanVocabularyRowId, identity: 
     case "OWNER_OCCURRENCE_COMPLETION":
       return identity.windowed ? { kind: "OPERATIONAL_RECORD", recordKind: occurrenceCompletionKind(identity.identityKey), coverage: "EACH_MEMBER", notBeforeIso: null } : { kind: "MANUAL" };
     case "WEIGHT_OBSERVED_SINCE":
-      return { kind: "OPERATIONAL_RECORD", recordKind: weightObservationKind(identity.animalId), coverage: "EACH_MEMBER", notBeforeIso: effectiveAt };
+      return { kind: "OPERATIONAL_RECORD", recordKind: weightObservationKind(identity.animalId), coverage: "EACH_MEMBER", notBeforeIso: planNotBeforeBound(effectiveAt) };
     case "GOAL_IN_FORCE":
       return { kind: "DATA_COMPLETION", requirementKey: GOAL_IN_FORCE_REQUIREMENT };
     case "MANUAL":

@@ -67,6 +67,9 @@ export function itemReasons(i: CattlePlanWorkItem): string[] {
 
 const same = (a: unknown, b: unknown) => canonicalizeValue(a) === canonicalizeValue(b);
 
+/** What a cattle window projects to in Plan (`recommendedWindow` endpoints); Plan has no boundary semantics. */
+const planWindowOf = (i: CattlePlanWorkItem) => (i.timing.window === null ? null : { opensAt: i.timing.window.opensAt, dueAt: i.timing.window.dueAt });
+
 /** The one summary of a set of work items sharing an identity; fails closed on any inconsistency. */
 export function summariseGroup(itemsIn: readonly CattlePlanWorkItem[]): { ok: true; group: CattlePlanProposalGroup } | { ok: false; issues: CattlePlanIssue[] } {
   const byKey = new Map<string, CattlePlanWorkItem>();
@@ -80,7 +83,8 @@ export function summariseGroup(itemsIn: readonly CattlePlanWorkItem[]): { ok: tr
   const identityKey = itemIdentity(items[0]);
   const first = items[0];
   for (const i of items) {
-    if (itemIdentity(i) !== identityKey || i.vocabularyRow !== first.vocabularyRow || i.actionKey !== first.actionKey || i.animalId !== first.animalId || !same(i.timing.window, first.timing.window)) {
+    // The projected Plan window (endpoints) must agree; each owner's boundary stays in its item and window basis.
+    if (itemIdentity(i) !== identityKey || i.vocabularyRow !== first.vocabularyRow || i.actionKey !== first.actionKey || i.animalId !== first.animalId || !same(planWindowOf(i), planWindowOf(first))) {
       return { ok: false, issues: [issue("CATTLE_PLAN_GROUP_INCONSISTENT", identityKey)] };
     }
   }

@@ -63,14 +63,14 @@ import { EMPTY_GOAL_ROUTING_REGISTRY } from "../goals";
 import * as cattle from "../index";
 import type { RecommendationTrustedInputs } from "../recommendations";
 import { evaluateHerdObligations } from "../regulatory";
-import { rematerialiseAnimalLedger, type AnimalLedger } from "../animal-ledger";
+import { compareInstants, rematerialiseAnimalLedger, type AnimalLedger } from "../animal-ledger";
 import { sourceVersionRef } from "../source";
 import { SCIENCE_SOURCE } from "../test-fixtures";
 import type { CattlePlanOutcome, CattlePlanProposalGroup, CattlePlanResult, CattlePlanWorkItem } from "./plan-contracts";
 import { planCattleWork } from "./plan-interface";
 import { cattleGroupScope, groupWorkItems, mergeProposalGroups, projectProposal, summariseGroup } from "./plan-merge";
 import { c2Timing, foldRestatements, parseRestatementCitation } from "./plan-work-items";
-import { CATTLE_PLAN_VOCABULARY } from "./plan-vocabulary";
+import { CATTLE_PLAN_VOCABULARY, planNotBeforeBound } from "./plan-vocabulary";
 import {
   A,
   B,
@@ -607,6 +607,33 @@ describe("C9 completion evidence — canonical cattle records complete Plan jobs
     expect(roundTrip(first, "2026-03-10T00:00:00Z", unsupplied)[0].evaluation.completion.state).toBe("UNKNOWN");
   });
 
+  it("F002: a sub-millisecond gap viewpoint is never completed by an observation before it (Plan compares by millisecond)", () => {
+    const at = "2026-03-05T00:00:00.000000001Z";
+    const run1: Run = { effectiveAt: at, weights: { observations: [] }, actions: defaultOnly("RECORD_WEIGHT") };
+    const first = ok(run(run1));
+    expect(first.proposals[0].completionContract).toMatchObject({ kind: "OPERATIONAL_RECORD", notBeforeIso: "2026-03-05T00:00:00.001Z" });
+    const statusWith = (observedAt: string) =>
+      roundTrip(first, "2026-03-10T00:00:00Z", ok(run({ ...run1, effectiveAt: "2026-03-10T00:00:00Z", knowledgeCutoff: "2026-03-10T12:00:00Z", weights: { observations: [weightObs("SYNTH-W", observedAt)] } })))[0].evaluation.job.status;
+    expect(statusWith("2026-03-05T00:00:00.000000000Z")).not.toBe("COMPLETED"); // before: never complete
+    expect(statusWith(at)).not.toBe("COMPLETED"); // equal, within Plan's millisecond: conservatively not complete
+    expect(statusWith("2026-03-05T00:00:00.000999999Z")).not.toBe("COMPLETED"); // after, same millisecond: conservative
+    expect(statusWith("2026-03-05T00:00:00.001Z")).toBe("COMPLETED"); // after, next millisecond
+  });
+
+  it("F002 class: Plan's millisecond comparison against the contract bound never admits an observation before the viewpoint", () => {
+    const instants = ["2026-03-05T00:00:00Z", "2026-03-05T00:00:00.000000001Z", "2026-03-05T00:00:00.0005Z", "2026-03-05T00:00:00.000999999Z", "2026-03-05T00:00:00.001Z", "2026-03-05T00:00:00.001000001Z", "2026-03-05T00:00:00.999999999Z", "2026-03-05T00:00:01Z", "2026-12-31T23:59:59.9999999Z", "2026-02-28T23:59:59.9995Z", "2028-02-28T23:59:59.9995Z", "2027-01-01T00:00:00.000Z"];
+    expect(planNotBeforeBound("2026-02-28T23:59:59.9995Z")).toBe("2026-03-01T00:00:00.000Z");
+    expect(planNotBeforeBound("2028-02-28T23:59:59.9995Z")).toBe("2028-02-29T00:00:00.000Z");
+    expect(planNotBeforeBound("2026-12-31T23:59:59.9999999Z")).toBe("2027-01-01T00:00:00.000Z");
+    for (const viewpoint of instants) {
+      const bound = planNotBeforeBound(viewpoint);
+      expect(compareInstants(bound, viewpoint)).toBeGreaterThanOrEqual(0);
+      if (/\.\d{3}0*Z$|:\d{2}Z$/.test(viewpoint)) expect(bound).toBe(viewpoint); // millisecond-aligned: unchanged
+      else expect(Date.parse(bound)).toBe(Date.parse(viewpoint) + 1); // the least whole millisecond after
+      for (const observed of instants) if (Date.parse(observed) >= Date.parse(bound)) expect(compareInstants(observed, viewpoint)).toBeGreaterThanOrEqual(0);
+    }
+  });
+
   it("C6 via C8: a goal in force completes DECLARE_PRODUCTION_GOAL (data completion); not supplied ⇒ unknown", () => {
     const run1: Run = { goals: { declarations: [], routingRegistry: EMPTY_GOAL_ROUTING_REGISTRY }, actions: defaultOnly("DECLARE_PRODUCTION_GOAL") };
     const first = ok(run(run1));
@@ -730,6 +757,29 @@ describe("C9 merge algebra (proposal groups by planJobIdentityKey)", () => {
     expect(merged([x, later])).toHaveLength(2);
     const sameKeyDifferent = { ...x, reasonCodes: ["SYNTH-DIFFERENT"] };
     expect(groupWorkItems([x, sameKeyDifferent])).toEqual({ ok: false, issues: [{ code: "CATTLE_PLAN_WORK_ITEM_IDENTITY_CONFLICT", ref: x.key }] });
+  });
+
+  it("F001: items differing only in cattle window boundary share the Plan window and merge; each boundary stays in provenance", () => {
+    const otherBoundary = { ...y, timing: { ...y.timing, window: { ...y.timing.window!, boundary: `${x.timing.window!.boundary}-SYNTH-OTHER` } } };
+    const [g] = merged([x, otherBoundary]);
+    expect(g.items.map((i) => i.timing.window!.boundary).sort()).toEqual([x.timing.window!.boundary, otherBoundary.timing.window.boundary].sort());
+    expect(checkOrderIndependence("merge-boundary", [x, otherBoundary, z], (is) => merged(is))).toEqual(CONFORMS);
+  });
+
+  it("F001 real engine: two C7 actions of one kind with different window boundaries merge into one proposal per occurrence", () => {
+    const def = programmeDefinition();
+    const [action] = def.actions as { schedule: { window: Record<string, unknown> } & Record<string, unknown> }[];
+    const inclusive = { ...action, actionId: "SYNTH-ACTION-2", schedule: { ...action.schedule, window: { ...action.schedule.window, boundary: "INCLUSIVE_START_INCLUSIVE_END" } } };
+    const r = ok(run({ programmes: programmes({ definition: { ...def, actions: [action, inclusive] } }) }));
+    const c7 = itemsOf(r, "C7_PROGRAMME");
+    expect(new Set(c7.map((i) => i.timing.window?.boundary))).toEqual(new Set(["INCLUSIVE_START_EXCLUSIVE_END", "INCLUSIVE_START_INCLUSIVE_END"]));
+    const proposals = proposalOf(r, "CATTLE_PROGRAMME:");
+    expect(proposals).toHaveLength(3);
+    for (const p of proposals) {
+      const g = r.groups.find((x) => projectGroup(x, r.effectiveAt).id === p.id)!;
+      expect(g.items.map((i) => i.timing.window!.boundary).sort()).toEqual(["INCLUSIVE_START_EXCLUSIVE_END", "INCLUSIVE_START_INCLUSIVE_END"]);
+      expect(createPlanJob(p, r.effectiveAt).job.status).toBe("PROPOSED");
+    }
   });
 
   it("COMPOSITE is a projection: the group keeps every origin and Plan accepts the job", () => {

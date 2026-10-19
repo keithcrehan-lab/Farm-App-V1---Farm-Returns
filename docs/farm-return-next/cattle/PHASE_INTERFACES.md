@@ -321,33 +321,45 @@ These apply unless a phase section below says otherwise.
 ## C9 — Plan interface
 
 - **Owner:** C9. It owns only the translation from Cattle outputs into the
-  existing Plan kernel input types.
-- **Inputs:**
-  - C2 obligation states;
-  - C7 programme occurrences;
-  - C8 recommendations;
-  - C1 snapshots and C4 group scopes;
-  - canonical records from C2, C3, C4 and C6, for completion evidence.
-- **Outputs:** Plan inputs from the existing `src/domain/plan/` types
-  only:
+  Plan kernel input types, as frozen by the C8P1 Plan compatibility
+  amendment (`DOMAIN_CONTRACTS.md`, "Plan compatibility amendment (C8P1,
+  cattle campaign)").
+- **Binding detail:** the "Binding design freeze (2026-10-19)" section of
+  `.agent/campaigns/cattle-engine-v1/C9_BRIEF.md` (decisions B1–B6, D1–D4)
+  governs C9; this section summarises it.
+- **Inputs:** one canonical request built around C8's
+  `CattleRecommendationRequest`, plus C4 group-scope references and the C8
+  trusted inputs. C9 itself invokes the frozen C2, C4, C7 and C8 engines
+  in-process (delegation, CAT-INV-023). It never accepts caller-supplied
+  C2, C7 or C8 output records as authoritative input.
+- **Outputs:** Plan inputs from the existing `src/domain/plan/` types only:
   - job proposals;
+  - shared `PlanBlocker`s;
   - `ScopeReality`;
   - `CanonicalEvidence`;
-  - action routes.
+  - action routes (`NONE` / `MANUAL_TASK`; no cattle workflow route exists).
 
-  Each carries cattle output ids and fingerprints.
+  Each carries cattle output ids and fingerprints, projected from one
+  canonical C9 object.
+- **Subjects:** cattle animals are `CATTLE_ANIMAL` and C1 management groups
+  `CATTLE_GROUP` — never the V1 `ANIMAL` / `ANIMAL_GROUP` ids.
 - **Times:**
   - a cattle window is mapped to Plan timing;
-  - a recommended window and a sourced hard deadline stay distinct;
+  - a recommended window and a hard deadline stay distinct; a hard deadline
+    cites a `VERSIONED_SOURCE` authority only where the frozen C2/C0
+    contracts prove it uniquely, otherwise the proposal carries an UNKNOWN
+    blocker instead;
   - an unknown window never becomes an invented date.
 - **Identity:** deduplication follows the Plan kernel's
-  `planJobIdentityKey`.
+  `planJobIdentityKey`; a deterministic merge keeps every origin, and a
+  multi-origin proposal is projected as `FARM_RETURN` / `COMPOSITE`.
 - **Unknown:**
   - BLOCKED and UNKNOWN become Plan blockers and are never dropped;
   - unknown completion evidence is unavailable, never complete.
 - **Frozen Plan contract:** any change to it stops at the frozen-contract
   gate.
-- **Upstream:** C1–C8 outputs only.
+- **Upstream:** C1–C8 engines (through delegation) and the C8P1-frozen Plan
+  contract.
 - **Downstream consumers:** the Plan kernel (not modified).
 - **Forbidden:**
   - cattle calculations;

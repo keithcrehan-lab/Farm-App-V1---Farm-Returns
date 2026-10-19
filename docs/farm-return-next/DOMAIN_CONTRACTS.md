@@ -4981,6 +4981,15 @@ no consumed output depends on do not. Change detection, not a signature.
 C7 `programmeGateRuleId`; `assessment-integrity.ts` canonicalisation and SHA-256 unchanged. No cattle
 derivation is restated.
 
+**Consumed-output integrity (CAT-INV-028, B5).** Before B1 equivalence or any projection, every
+delegated output C9 reads must be canonical plain data and re-verify through its owning phase's
+exported verifier: each C8 recommendation (`checkCattleRecommendationIntegrity`), each C2 state record
+(`verifyObligationStateRecord`, its `animalId` equal to its evaluation's), the C7 evaluation
+(`verifyProgrammeStatusEvaluation`) and each C4 scope (`verifyWeightFingerprint` over
+`scopeResolutionPayload`, its `groupRef` the requested one). A missing field or malformed nested source
+reference therefore fails closed with `CATTLE_PLAN_DELEGATED_OUTPUT_INTEGRITY_FAILED` (ref `C2` / `C7` /
+`C8` / `C4:<groupRef>`), never as deadline authority and never as a throw.
+
 **Known limitations.** No C2 / C7 / C8 output is group-level work, so no proposal is `DYNAMIC`. A C7
 action gate that is failing is an `ACTIVE` blocker even while C7 reports the occurrence `UPCOMING`. The
 B5 hard deadline applies to every proposal-producing windowed legal / scheme hard-gate record, including

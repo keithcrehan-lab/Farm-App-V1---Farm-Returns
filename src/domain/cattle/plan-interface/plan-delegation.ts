@@ -19,15 +19,24 @@
  * fingerprints must equal C8's sealed-context `obligations.recordFingerprints`
  * and C9's C7 animal-status fingerprints C8's `programmes.animalStatusFingerprints`.
  * A mismatch is an internal invariant failure: an issue, no proposals.
+ *
+ * CONSUMED-OUTPUT INTEGRITY (CAT-INV-028, B5): every delegated output C9 reads
+ * — each C8 recommendation, each C2 state record (its rule source checks are
+ * deadline authority), the C7 evaluation and each C4 scope — must be canonical
+ * plain data and re-verify against its own fingerprint through the owning
+ * phase's exported verifier, before equivalence or any projection. A record
+ * whose content no longer matches its fingerprint (a missing field, a
+ * malformed nested source reference) fails closed with an issue; it is never
+ * read, repaired or defaulted.
  */
 
 import type { AssessmentFingerprint } from "../../assessment-integrity";
 import { isOpaqueRef, rematerialiseAnimalLedger, type AnimalLedger } from "../animal-ledger";
 import { compareStrings } from "../integrity";
-import { evaluateHealthProgrammes, type ProgrammeStatusEvaluation } from "../programmes";
-import { recommendCattle, type CattleRecommendationResult, type RecommendationTrustedInputs } from "../recommendations";
-import { evaluateHerdObligations, toCanonicalPlainData, type AnimalObligationEvaluation, type ObligationImplementationRegistry } from "../regulatory";
-import { resolveGroupScope, type ScopeResolution } from "../weights";
+import { evaluateHealthProgrammes, verifyProgrammeStatusEvaluation, type ProgrammeStatusEvaluation } from "../programmes";
+import { checkCattleRecommendationIntegrity, recommendCattle, type CattleRecommendationResult, type RecommendationTrustedInputs } from "../recommendations";
+import { evaluateHerdObligations, toCanonicalPlainData, verifyObligationStateRecord, type AnimalObligationEvaluation, type ObligationImplementationRegistry, type ObligationStateRecord } from "../regulatory";
+import { resolveGroupScope, scopeResolutionPayload, verifyWeightFingerprint, type ScopeResolution } from "../weights";
 import type { CattleHash } from "../integrity";
 import type { CattlePlanIssue } from "./plan-contracts";
 
@@ -82,6 +91,29 @@ export function readCattlePlanRequest(request: unknown): { ok: true; cattle: unk
   return { ok: true, cattle: req.cattle, groupRefs: [...new Set(refs)].sort(compareStrings) };
 }
 
+/** Canonical plain data that re-verifies through the owning phase's verifier; anything else (including a throw) is `false`. */
+function verified(value: unknown, verify: (canonical: never) => boolean): boolean {
+  const canonical = toCanonicalPlainData(value);
+  return canonical.ok && failClosed(() => verify(canonical.value as never)) === true;
+}
+
+const c8Intact = (r: CattleRecommendationResult, hash: CattleHash) =>
+  verified(r, (c: CattleRecommendationResult) => isPlainObject(c) && Array.isArray(c.animals) && c.animals.every((a) => checkCattleRecommendationIntegrity(a, hash).intact));
+
+const c2Intact = (animals: readonly AnimalObligationEvaluation[], hash: CattleHash) =>
+  verified(animals, (c: AnimalObligationEvaluation[]) =>
+    c.every((e) => isPlainObject(e) && Array.isArray(e.results) && e.results.every((r: ObligationStateRecord) => isPlainObject(r) && r.animalId === e.animalId && verifyObligationStateRecord(r, hash).valid)),
+  );
+
+const c7Intact = (e: ProgrammeStatusEvaluation, hash: CattleHash) => verified(e, (c: ProgrammeStatusEvaluation) => verifyProgrammeStatusEvaluation(c, hash).valid);
+
+const c4Intact = (s: ScopeResolution, groupRef: string, hash: CattleHash) =>
+  verified(s, (c: ScopeResolution) => {
+    if (!isPlainObject(c) || c.groupRef !== groupRef || !Array.isArray(c.animals)) return false;
+    const { fingerprint, ...content } = c;
+    return verifyWeightFingerprint("CATTLE_GROUP_SCOPE", scopeResolutionPayload(content), fingerprint, hash).valid;
+  });
+
 const digests = (fs: readonly AssessmentFingerprint[]) => fs.map((f) => f.digest).sort(compareStrings);
 const sameDigests = (a: readonly AssessmentFingerprint[], b: readonly AssessmentFingerprint[]) => JSON.stringify(digests(a)) === JSON.stringify(digests(b));
 
@@ -91,6 +123,7 @@ export function delegate(cattleRaw: unknown, groupRefs: readonly string[], hash:
   if (c8 === null) return { ok: false, issues: [issue("CATTLE_PLAN_RECOMMENDATION_REJECTED")] };
   if (!c8.ok) return { ok: false, issues: c8.issues.map((i) => issue("CATTLE_PLAN_RECOMMENDATION_REJECTED", `${i.code}:${i.ref ?? ""}`)) };
   const recommendation = c8.result;
+  if (!c8Intact(recommendation, hash)) return { ok: false, issues: [issue("CATTLE_PLAN_DELEGATED_OUTPUT_INTEGRITY_FAILED", "C8")] };
   // C8 accepted the request, so it is canonical and conforms to C8's field-presence policy.
   const cattle = cattleRaw as CanonicalCattle;
   const { effectiveAt, knowledgeCutoff } = recommendation;
@@ -113,6 +146,7 @@ export function delegate(cattleRaw: unknown, groupRefs: readonly string[], hash:
       ),
     );
     if (herd === null || !herd.ok || herd.herd.issues.length > 0 || herd.herd.catalogueIssues.length > 0) return { ok: false, issues: [issue("CATTLE_PLAN_OBLIGATION_DELEGATION_FAILED")] };
+    if (!c2Intact(herd.herd.animals, hash)) return { ok: false, issues: [issue("CATTLE_PLAN_DELEGATED_OUTPUT_INTEGRITY_FAILED", "C2")] };
     obligations = [...herd.herd.animals];
   }
 
@@ -121,6 +155,7 @@ export function delegate(cattleRaw: unknown, groupRefs: readonly string[], hash:
     const request = { ...cattle.programmes, ledgers: cattle.ledgers, health: cattle.health, obligations: cattle.obligations, query: times };
     const result = failClosed(() => evaluateHealthProgrammes(request, hash, { obligationImplementations: trusted.obligationImplementations }));
     if (result === null || !result.ok) return { ok: false, issues: [issue("CATTLE_PLAN_PROGRAMME_DELEGATION_FAILED")] };
+    if (!c7Intact(result.evaluation, hash)) return { ok: false, issues: [issue("CATTLE_PLAN_DELEGATED_OUTPUT_INTEGRITY_FAILED", "C7")] };
     programmes = result.evaluation;
   }
 
@@ -146,6 +181,7 @@ export function delegate(cattleRaw: unknown, groupRefs: readonly string[], hash:
   for (const groupRef of groupRefs) {
     const r = failClosed(() => resolveGroupScope({ scope: { kind: "GROUP", groupRef, ledgers: cattle.ledgers as AnimalLedger[] }, query: times }, hash));
     if (r === null || !r.ok) return { ok: false, issues: [issue("CATTLE_PLAN_GROUP_SCOPE_REJECTED", groupRef)] };
+    if (!c4Intact(r.scope, groupRef, hash)) return { ok: false, issues: [issue("CATTLE_PLAN_DELEGATED_OUTPUT_INTEGRITY_FAILED", `C4:${groupRef}`)] };
     scopes.push({ groupRef, scope: r.scope });
   }
   return { ok: true, delegated: { effectiveAt, knowledgeCutoff, recommendation, obligations, programmes, scopes } };

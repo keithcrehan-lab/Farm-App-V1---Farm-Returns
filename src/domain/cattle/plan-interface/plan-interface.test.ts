@@ -10,7 +10,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-const faults = vi.hoisted(() => ({ c2: 0, c2Calls: 0, c7: 0, c7Calls: 0 }));
+/** Fault injection deliberately writes outside the typed shapes. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Loose = any;
+type Mutate = ((value: Loose, args: Loose[], mod: Loose) => Loose) | null;
+const faults = vi.hoisted(() => ({ c2: 0, c2Calls: 0, c7: 0, c7Calls: 0, c2Mutate: null as Mutate, c7Mutate: null as Mutate, c8Mutate: null as Mutate, c4Mutate: null as Mutate }));
 const zero = "0".repeat(64);
 
 vi.mock("../regulatory", async (importOriginal) => {
@@ -21,6 +25,7 @@ vi.mock("../regulatory", async (importOriginal) => {
       const r = mod.evaluateHerdObligations(...args);
       faults.c2Calls += 1;
       if (faults.c2 === 0 || faults.c2Calls !== faults.c2 || !r.ok) return r;
+      if (faults.c2Mutate !== null) return { ok: true, herd: faults.c2Mutate(structuredClone(r.herd), args, mod) };
       const animals = r.herd.animals.map((a) => ({ ...a, results: a.results.map((x, i) => (i === 0 ? { ...x, fingerprint: { ...x.fingerprint, digest: zero } } : x)) }));
       return { ok: true, herd: { ...r.herd, animals } };
     },
@@ -34,8 +39,30 @@ vi.mock("../programmes", async (importOriginal) => {
       const r = mod.evaluateHealthProgrammes(...args);
       faults.c7Calls += 1;
       if (faults.c7 === 0 || faults.c7Calls !== faults.c7 || !r.ok) return r;
+      if (faults.c7Mutate !== null) return { ok: true, evaluation: faults.c7Mutate(structuredClone(r.evaluation), args, mod) };
       const programmes = r.evaluation.programmes.map((p) => ({ ...p, animals: p.animals.map((a) => ({ ...a, fingerprint: { ...a.fingerprint, digest: zero } })) }));
       return { ok: true, evaluation: { ...r.evaluation, programmes } };
+    },
+  };
+});
+// C9 is the only caller of these two seams (C8 is not faulted through itself).
+vi.mock("../recommendations", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../recommendations")>();
+  return {
+    ...mod,
+    recommendCattle: (...args: Parameters<typeof mod.recommendCattle>) => {
+      const r = mod.recommendCattle(...args);
+      return faults.c8Mutate === null || !r.ok ? r : { ok: true, result: faults.c8Mutate(structuredClone(r.result), args, mod) };
+    },
+  };
+});
+vi.mock("../weights", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../weights")>();
+  return {
+    ...mod,
+    resolveGroupScope: (...args: Parameters<typeof mod.resolveGroupScope>) => {
+      const r = mod.resolveGroupScope(...args);
+      return faults.c4Mutate === null || !r.ok ? r : { ok: true, scope: faults.c4Mutate(structuredClone(r.scope), args, mod) };
     },
   };
 });
@@ -365,19 +392,64 @@ function conflictingFulfilments(): Rec[] {
 // ---------------------------------------------------------------------------
 
 describe("C9 delegation — B1 structural equivalence with C8's sealed context", () => {
-  it("positive control: C9's C2 / C7 fingerprints equal C8's; a faulted C9-side C2 or C7 output fails closed with no proposals", () => {
+  it("positive control: C9's C2 / C7 fingerprints equal C8's; an intact but different C9-side C2 or C7 output fails closed with no proposals", () => {
     expect(run({ ...OVERDUE_RUN, programmes: programmes() }).ok).toBe(true);
+    // A genuine, self-consistent output of the same engine at another knowledge cutoff: integrity holds, equivalence does not.
+    const later = (key: "herd" | "evaluation") => (_: unknown, args: Loose[], mod: Loose) => {
+      const [req, ...rest] = args;
+      const r = (key === "herd" ? mod.evaluateHerdObligations : mod.evaluateHealthProgrammes)({ ...req, query: { ...req.query, knowledgeCutoff: "2026-04-17T00:00:00Z" } }, ...rest);
+      return r[key];
+    };
     try {
-      Object.assign(faults, { c2: 2, c2Calls: 0 });
+      Object.assign(faults, { c2: 2, c2Calls: 0, c2Mutate: later("herd") });
       const r = run(OVERDUE_RUN);
       expect(r.ok).toBe(false);
       expect(codes(r)).toEqual(["CATTLE_PLAN_DELEGATION_EQUIVALENCE_MISMATCH"]);
-      Object.assign(faults, { c2: 0, c7: 2, c7Calls: 0 });
+      Object.assign(faults, { c2: 0, c2Mutate: null, c7: 2, c7Calls: 0, c7Mutate: later("evaluation") });
       const p = run({ programmes: programmes(), effectiveAt: "2026-04-15T00:00:00Z", knowledgeCutoff: "2026-04-16T00:00:00Z" });
       expect(codes(p)).toEqual(["CATTLE_PLAN_DELEGATION_EQUIVALENCE_MISMATCH"]);
     } finally {
-      Object.assign(faults, { c2: 0, c7: 0 });
+      Object.assign(faults, { c2: 0, c7: 0, c2Mutate: null, c7Mutate: null });
     }
+  });
+
+  // F004 (CAT-INV-028, B5): a delegated output whose content no longer matches its own fingerprint — even with the
+  // fingerprint retained, so B1 equivalence alone would pass — is never read; it fails closed before Loose projection.
+  describe("consumed delegated outputs are re-verified through the owning phase's verifier", () => {
+    const INTEGRITY = ["CATTLE_PLAN_DELEGATED_OUTPUT_INTEGRITY_FAILED"];
+    const firstC2 = (f: (r: Loose) => void) => (herd: Loose) => (f(herd.animals[0].results[0]), herd);
+    const firstC7 = (f: (a: Loose) => void) => (e: Loose) => (f(e.programmes[0].animals[0]), e);
+    const firstC8 = (f: (a: Loose) => void) => (res: Loose) => (f(res.animals[0]), res);
+    const cases: { label: string; set: Partial<typeof faults>; run: Run; ref: string }[] = [
+      { label: "C2 nested source reference: bound.sourceId → null", set: { c2: 2, c2Mutate: firstC2((r) => (r.ruleEvaluation.sourceChecks[0].bound.sourceId = null)) }, run: OVERDUE_RUN, ref: "C2" },
+      { label: "C2 nested source reference: contentFingerprint removed", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation.sourceChecks[0].bound.contentFingerprint) }, run: OVERDUE_RUN, ref: "C2" },
+      { label: "C2 sourceChecks missing", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation.sourceChecks) }, run: OVERDUE_RUN, ref: "C2" },
+      { label: "C2 ruleEvaluation missing", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation) }, run: OVERDUE_RUN, ref: "C2" },
+      { label: "C2 window dueAt changed", set: { c2: 2, c2Mutate: firstC2((r) => (r.window.dueAt = "2099-01-01T00:00:00Z")) }, run: OVERDUE_RUN, ref: "C2" },
+      { label: "C2 state changed", set: { c2: 2, c2Mutate: firstC2((r) => (r.state = "SATISFIED")) }, run: OVERDUE_RUN, ref: "C2" },
+      { label: "C2 record moved to another animal", set: { c2: 2, c2Mutate: firstC2((r) => (r.animalId = "SYNTH-ELSEWHERE")) }, run: OVERDUE_RUN, ref: "C2" },
+      { label: "C2 results missing", set: { c2: 2, c2Mutate: (h: Loose) => (delete h.animals[0].results, h) }, run: OVERDUE_RUN, ref: "C2" },
+      { label: "C7 animal record state changed", set: { c7: 2, c7Mutate: firstC7((a) => (a.records[0].state = "COMPLETE")) }, run: { programmes: programmes() }, ref: "C7" },
+      { label: "C7 animal records missing", set: { c7: 2, c7Mutate: firstC7((a) => delete a.records) }, run: { programmes: programmes() }, ref: "C7" },
+      { label: "C8 record outcome changed", set: { c8Mutate: firstC8((a) => (a.record.outcome = a.record.outcome === "ACTIONABLE" ? "BLOCKED" : "ACTIONABLE")) }, run: OVERDUE_RUN, ref: "C8" },
+      { label: "C8 candidates missing", set: { c8Mutate: firstC8((a) => delete a.candidates) }, run: OVERDUE_RUN, ref: "C8" },
+      { label: "C8 animals missing", set: { c8Mutate: (res: Loose) => (delete res.animals, res) }, run: OVERDUE_RUN, ref: "C8" },
+      { label: "C4 member set changed", set: { c4Mutate: (s: Loose) => ((s.animals[0].state = "UNKNOWN"), s) }, run: { ledgers: [ledgerOf(A, [{ id: "ga", value: GROUP }])], groupScopes: [{ groupRef: GROUP }], actions: registry([]) }, ref: `C4:${GROUP}` },
+      { label: "C4 animals missing", set: { c4Mutate: (s: Loose) => (delete s.animals, s) }, run: { ledgers: [ledgerOf(A, [{ id: "ga", value: GROUP }])], groupScopes: [{ groupRef: GROUP }], actions: registry([]) }, ref: `C4:${GROUP}` },
+    ];
+    it.each(cases)("$label ⇒ an integrity issue, no proposals, never a throw", ({ set, run: r, ref }) => {
+      expect(run(r).ok).toBe(true);
+      try {
+        Object.assign(faults, { c2Calls: 0, c7Calls: 0 }, set);
+        let out: CattlePlanOutcome | undefined;
+        expect(() => (out = run(r))).not.toThrow();
+        expect(out!.ok).toBe(false);
+        expect(codes(out!)).toEqual(INTEGRITY);
+        expect(out!.ok ? null : out!.issues[0].ref).toBe(ref);
+      } finally {
+        Object.assign(faults, { c2: 0, c7: 0, c2Mutate: null, c7Mutate: null, c8Mutate: null, c4Mutate: null });
+      }
+    });
   });
 
   it("C9 never accepts caller-supplied predecessor outputs: the request is exactly { cattle, groupScopes }", () => {

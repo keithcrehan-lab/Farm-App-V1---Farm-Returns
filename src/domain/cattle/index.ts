@@ -22,3 +22,4 @@ export * from "./performance";
 export * from "./goals";
 export * from "./programmes";
 export * from "./recommendations";
+export * from "./plan-interface";

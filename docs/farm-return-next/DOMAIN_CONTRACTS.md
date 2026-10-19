@@ -4871,3 +4871,119 @@ mean something else. Nothing existing is renamed, removed or changes meaning; Pl
 **Exclusions.** No C9 adapter or cattle → Plan mapping; no cattle file change; no change to existing Plan
 behaviour, readiness, completion, scope resolution, audit events or routes; `REGISTERED_SOURCE`,
 `ADVISER_APPROVED`, `ANIMAL`, `ANIMAL_GROUP` and the existing tiers keep their meaning.
+
+## Cattle C9 — Plan interface (2026-10-19)
+
+C0–C8 and the C8P1-frozen Plan kernel are unchanged; C9 changes no earlier file except one additive
+`export * from "./plan-interface";` in `src/domain/cattle/index.ts`. New, **non-frozen** pure modules under
+`src/domain/cattle/plan-interface/` (barrel `index.ts`); tests `plan-interface.test.ts`, `plan-tables.test.ts`
+(fixtures `plan-test-fixtures.ts`, synthetic `SYNTH-*` data). Governed by the C9 binding design freeze
+(B1–B6, D1–D4, 2026-10-19). No persistence, schema, migration, UI, route, clock, network or model call; no
+Plan code change (pinned by a byte-digest guard over every `src/domain/plan` file and `subject.ts`).
+
+**Ownership.** C9 owns only the Cattle → Plan translation. Cattle keeps animal truth, obligations, health,
+performance, goals, programme state and recommendations; Plan receives existing Plan types only and holds
+no copy of a cattle record.
+
+| Module | Contract |
+|---|---|
+| `plan-interface.ts` | `planCattleWork(request, hash, trusted)` → `{ ok, result: CattlePlanResult }` or `{ ok: false, issues }`. Any issue fails the whole request closed (no proposals). Result detached, deep-frozen, fingerprinted |
+| `plan-delegation.ts` | Canonical boundary: whole request through `toCanonicalPlainData`, field policy exactly `{ cattle, groupScopes: { groupRef }[] }` (refs opaque; a set — deduplicated, sorted). Delegation (B1, pinned shapes): C8 `recommendCattle(cattle, hash, trusted)`; C2 `evaluateHerdObligations` over the C1-rematerialised request ledgers sorted by animal id; C7 `evaluateHealthProgrammes({...programmes, ledgers, health, obligations, query})`; C4 `resolveGroupScope` per group over `cattle.ledgers` — all at C8's echoed canonical `effectiveAt` / `knowledgeCutoff`. B1 equivalence: per animal, C9's C2 record and C7 animal-status fingerprints must equal C8's sealed-context ones (`CATTLE_PLAN_DELEGATION_EQUIVALENCE_MISMATCH` otherwise) |
+| `plan-vocabulary.ts` | Every compiled table (`satisfies Record<…>` over the frozen vocabularies; runtime `lookup` → `undefined`, never a default): C2 / C7 state and C8 outcome → proposal / state blocker / completion meaning (B6); C0 gate state → blocker status (D3); C4 membership (B2); C8 default kinds → tier (D4), modelled tier map, origin (B3), fold whitelist (D2); C4 / C6 completion-evidence states. THE vocabulary table `CATTLE_PLAN_VOCABULARY` (rows → family, completion form, owning records that prove completion) and `completionContractFor(row, identity, effectiveAt)` |
+| `plan-work-items.ts` | Canonical `CattlePlanWorkItem`s from the delegated outputs (selection and mapping only); C9's status / evidence precedence list (header); D2 folding (`parseRestatementCitation`, `foldRestatements`) |
+| `plan-merge.ts` | Identity = Plan `planJobIdentityKey` (called, never restated); `groupWorkItems` / `mergeProposalGroups` / `summariseGroup` (merge algebra); projections `projectProposal` → `PlanJobInput`, `projectBlockers` → `PlanBlocker[]`; `cattleAnimalScope`, `cattleGroupScope` |
+| `plan-evidence.ts` | `CanonicalEvidence` (vocabulary-driven) and `ScopeReality` (all-or-unknown) |
+| `plan-integrity.ts` | Phase-local fingerprint wrapper `{kind, cattlePlanPayloadVersion: 1, payload}`; kind `CATTLE_PLAN_INTERFACE_RESULT` |
+| `plan-contracts.ts` | Types only |
+
+**Mappings (design freeze).** Subjects: C1 animal id → `CATTLE_ANIMAL`, C1 management group →
+`CATTLE_GROUP` (never `ANIMAL` / `ANIMAL_GROUP`). Every C2 / C7 / C8 output is per animal, so every proposal
+is individual-animal `STATIC` work; `cattleGroupScope(groupRef)` (`DYNAMIC MEMBERS_OF CATTLE_GROUP →
+CATTLE_ANIMAL`, `ABSORB_INTO_JOB`) is exported for group jobs and resolved by the `ScopeReality` C9
+produces for each requested group. Proposals (B6): C2 `UPCOMING` / `OUTSTANDING` / `OVERDUE` /
+`ADVISORY_FAIL` work; `BLOCKED` with an `ACTIVE` state blocker; `UNKNOWN` / `INSUFFICIENT_EVIDENCE` /
+`EVIDENCE_CONFLICT` / `INVALID_EVIDENCE` / `UNSUPPORTED` / `REVIEW_REQUIRED` evidence-resolution work with
+an `UNKNOWN` blocker; C7 the same pattern where a concrete programme action exists (a programme-level
+record proposes nothing); C8 `ACTIONABLE`, `BLOCKED` (ACTIVE), `REVIEW_REQUIRED` / `INSUFFICIENT_EVIDENCE`
+(UNKNOWN) with a concrete proposed action. States producing no proposal are listed in
+`withoutProposal` with a reason (never silently dropped). Creation source (B3): C2 `OBLIGATION`, C7
+`PROGRAMME`, C8 `benefitClaim: NONE` `DATA_GAP`, modelled `RECOMMENDATION`, several distinct origins in
+one group `COMPOSITE` (projection only; never `ADVISER_APPROVED`). Priority (B4): C2 legal / scheme
+`HARD_GATE` in a resolved state `HARD_OBLIGATION`, other resolved C2 work `ROUTINE_MANAGEMENT`, unresolved
+C2 `INFORMATION_VALUE` (never promoted; classification kept in the basis); C7 `ROUTINE_MANAGEMENT`; C8 by
+the compiled kind table, modelled actions by tier (`AVOID_MATERIAL_LOSS`, `EXPECTED_NET_RETURN`,
+`VALUE_OF_INFORMATION` → `INFORMATION_VALUE`) — anything else, including a modelled
+`SAFETY_LEGAL_WELFARE`, fails closed (`CATTLE_PLAN_ACTION_KIND_UNMAPPED`). Timing (B5 / D1): a C2 legal /
+scheme `HARD_GATE` record with a window and exactly one `CURRENT` rule source check →
+`HARD_DEADLINE { dueIso: window.dueAt, authority: VERSIONED_SOURCE <that bound ref> }` plus the
+recommended window `opensAt..dueAt`; two or more checks or a non-`CURRENT` one → recommended window only
+and an `UNKNOWN` `DEADLINE_AUTHORITY_NOT_UNIQUELY_ESTABLISHED` blocker (provenance keeps every check);
+other C2 and every C7 window → `RECOMMENDED_WINDOW`; no window / C8 → no timing. Instants pass through in
+the owner's canonical spelling. Route: always `{ kind: "NONE", reason: "MANUAL_TASK" }`.
+
+**Blockers (D3).** Kind `LEGAL_WINDOW` for a C3 withdrawal gate, otherwise `OTHER`. Status from the C0
+gate state: PASS / NOT_APPLICABLE `CLEARED`, FAIL `ACTIVE`, every unresolved state (incl. C8
+`NOT_EVALUATED`, C7 `NOT_SUPPLIED`) `UNKNOWN`. Consumed gates: each C7 action gate check and each
+prerequisite gate check of the proposed C8 action (all, cleared ones `CLEARED`); plus the B6 state blocker
+of C2 / C7 items and the D1 deadline blocker. Id = `CATTLE_PLAN_BLOCKER:` + JSON `[sourceFamily (incl.
+gate source), output id, output fingerprint digest, gate rule id, "CATTLE_ANIMAL", animal id, obligation /
+occurrence id or null]`; one blocker per id, shared by every job; one id with different content fails
+closed (`CATTLE_PLAN_BLOCKER_IDENTITY_CONFLICT`). A C8 proposal whose consulted gates contradict its C0
+outcome is an invariant failure (`CATTLE_PLAN_OUTCOME_GATES_INCONSISTENT`).
+
+**Folding (D2).** A C8 work item folds into C2 / C7 work only when every trigger reason code parses under
+the frozen C8 grammar (strict: frozen state vocabulary, exact JSON, re-serialises to itself), each cited
+item exists among C9's own items with the same family, animal, citation and consumed state, and the kind is
+whitelisted (`RESOLVE_OBLIGATION_EVIDENCE` ↔ C2, `COMPLETE_PROGRAMME_ACTION` ↔ C7). It then becomes
+supporting provenance (and its blockers move with it) of every cited item; otherwise it is a separate
+proposal. A folded restatement is provenance, not a second origin (the job keeps the authoritative
+creation source).
+
+**Merge algebra.** Groups are the SET of items sharing `planJobIdentityKey`; merging is set union
+(associative, commutative, idempotent, order-independent, no source precedence). One summary derives:
+reasons / blocker ids / window bases unioned; earliest hard deadline by instant, projected authority the
+canonical minimum, every authority kept; highest tier, bases unioned; equal action key, scope, window,
+vocabulary row (so completion contract, title, route) by construction and checked; one origin → its
+reason, several → `COMPOSITE`. The same item key with different content fails closed.
+
+**Completion evidence (one vocabulary).** `completionContractFor` and `buildCanonicalEvidence` read the
+same rows. Windowed C2 / C7 work: `OPERATIONAL_RECORD` with `recordKind = CATTLE_PLAN_COMPLETION:<job
+identity>`; the evidence entry under that key is AVAILABLE with the owners' counted records (C2
+`countedEvidence` → `CATTLE_OBLIGATION_FULFILMENT:<evidenceId>` at `fulfilledAt`; C7 `completion.counted`
+→ declaration or C3 health-record id at `completedAt`) only when EVERY owner occurrence mapping to that
+identity is completed by its owner, AVAILABLE with none when all are resolved and some not done, and
+UNAVAILABLE when any is unresolved or not applicable. Window-less owner work: `MANUAL`. C8
+`RECORD_WEIGHT`: `OPERATIONAL_RECORD` `CATTLE_WEIGHT_OBSERVATION:<animal>`, `notBeforeIso` = the request
+`effectiveAt`; evidence = C4's latest-known weight bound by C8's sealed context (KNOWN → one record
+`CATTLE_WEIGHT_SERIES:<digest>` at `observedAt`; NONE → none; unresolved / not supplied → UNAVAILABLE). C8
+`DECLARE_PRODUCTION_GOAL`: `DATA_COMPLETION` `CATTLE_PRODUCTION_GOAL_IN_FORCE`; C6 ACTIVE → PRESENT (goal
+snapshot ref), NONE → MISSING, unresolved / not supplied → not listed (UNKNOWN). Every other C8 kind:
+`MANUAL`. Unknown is never complete.
+
+**Scope reality (B2).** Per requested group, from C4 only: every animal MEMBER / NOT_MEMBER → `KNOWN` with
+the MEMBER animals; any UNKNOWN / EVIDENCE_CONFLICT / INVALID → the selector `UNKNOWN` with reason
+`CATTLE_GROUP_MEMBERSHIP_UNRESOLVED:{unknown, conflict, invalid}` (Plan then keeps the last members).
+
+**Fingerprint.** `CATTLE_PLAN_INTERFACE_RESULT` (result fingerprint, FINGERPRINTS.md purpose 3) over the
+canonical objects — both canonical times, work items (each with its consumed output id and fingerprint),
+groups, group scopes (C4 scope fingerprint), canonical evidence and `withoutProposal` — never the Plan
+projections. A consumed upstream change changes it; input order, equivalent instant spellings and inputs
+no consumed output depends on do not. Change detection, not a signature.
+
+**Reuse decisions.** Plan `planJobIdentityKey`, `recommendedWindow`, `hardDeadline`,
+`systemPriorityRank`, `subjectRef` are called, never restated; C2 `toCanonicalPlainData`; C1
+`rematerialiseAnimalLedger`, `compareInstants`, `deepFreezeAnimalValue`; C0 `compareSourceVersionRefs`;
+C7 `programmeGateRuleId`; `assessment-integrity.ts` canonicalisation and SHA-256 unchanged. No cattle
+derivation is restated.
+
+**Known limitations.** No C2 / C7 / C8 output is group-level work, so no proposal is `DYNAMIC`. A C7
+action gate that is failing is an `ACTIVE` blocker even while C7 reports the occurrence `UPCOMING`. The
+B5 hard deadline applies to every proposal-producing windowed legal / scheme hard-gate record, including
+evidence-resolution work. `RECORD_WEIGHT` completes only on a weight observed at or after the request
+`effectiveAt` (a back-dated weight received later leaves it open). The default-kind table interprets a
+kind by its registered name. C9 composes predecessors per request; it persists nothing, and no public API
+turns a stored C9 object or C8 pack into authoritative Plan work (CAT-INV-028 unchanged).
+
+**Exclusions.** No Plan type, variant, route or behaviour change; no cattle calculation or evidence
+reinterpretation; no real legal, veterinary, scientific or economic content; no persistence, scheduling,
+notification, connector, migration, UI (C10) or AI.

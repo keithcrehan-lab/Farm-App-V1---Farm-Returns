@@ -24,7 +24,8 @@ runs destructive git commands.
 
 Authorised amendments: a phase may list `authorised_amendments` in the manifest — human-reviewed
 changes to test/tooling files OUTSIDE its scope (e.g. a frozen predecessor's test), each bound to
-the exact baseline blob, result blob and canonical patch hash. Scope checks accept exactly those
+the exact baseline blob, result blob and a sha256 digest of the full before/after content (mode +
+bytes; independent of git diff formatting and configuration). Scope checks accept exactly those
 bytes (and a manifest delta confined to that list), refuse any build/fix checkpoint that touched
 them, and the receipt records them. They are never passed to build/fix agents.
 
@@ -273,13 +274,13 @@ def manifest_problems(m, cid):
     return bad
 
 
-AMENDMENT_KEYS = ('path', 'baseline_blob', 'result_blob', 'patch_sha256', 'authorisation')
+AMENDMENT_KEYS = ('path', 'baseline_blob', 'result_blob', 'amendment_sha256', 'authorisation')
 
 
 def amendment_entry_problems(ph):
     """Shape of a phase's optional `authorised_amendments`: human-authorised changes to files
     OUTSIDE the phase scope (e.g. a reviewed test-only amendment of a frozen predecessor's test),
-    each bound to the exact baseline blob, result blob and canonical patch hash. Only tests/tooling
+    each bound to the exact baseline blob, result blob and amendment digest. Only tests/tooling
     (category B) qualify — never docs, rules or contracts, campaign records, production logic. The
     list is never passed to build/fix agents: it grants them nothing."""
     ams = ph.get('authorised_amendments')
@@ -304,8 +305,8 @@ def amendment_entry_problems(ph):
             bad.append('%s %s is already inside the phase scope; amendments are only for paths outside it' % (w, p))
         if not all(isinstance(a[k], str) and SHA_RE.match(a[k]) for k in ('baseline_blob', 'result_blob')) or a['baseline_blob'] == a['result_blob']:
             bad.append('%s baseline_blob/result_blob must be two different full blob SHAs' % w)
-        if not (isinstance(a['patch_sha256'], str) and re.fullmatch(r'[0-9a-f]{64}', a['patch_sha256'])):
-            bad.append('%s patch_sha256 must be a sha256 hex digest' % w)
+        if not (isinstance(a['amendment_sha256'], str) and re.fullmatch(r'[0-9a-f]{64}', a['amendment_sha256'])):
+            bad.append('%s amendment_sha256 must be a sha256 hex digest' % w)
         if not (isinstance(a['authorisation'], str) and a['authorisation'].strip() and '\n' not in a['authorisation']):
             bad.append('%s authorisation must be a one-line human authorisation record' % w)
     return bad
@@ -504,7 +505,7 @@ def validate_receipt(m, ph, pred_fp):
         if amendment_entry_problems(dict(authorised_amendments=ams)): raise ValueError('authorised_amendments record is malformed')
         for x in ams:
             if (blob_at(base, x['path']), blob_at(freeze, x['path'])) != (x['baseline_blob'], x['result_blob']) or \
-                    amendment_patch_sha256(base, freeze, x['path']) != x['patch_sha256']:
+                    amendment_sha256(base, freeze, x['path']) != x['amendment_sha256']:
                 raise ValueError('authorised amendment %s does not match the phase base/freeze SHA' % x['path'])
     a = r.get('strict_audit') or {}
     art = a.get('artifact')
@@ -1329,13 +1330,19 @@ def is_tracked(ref, p):
 
 
 # ── scope checks (deterministic, after every build/fix and at freeze) ──
-def amendment_patch_sha256(base, h, path):
-    """sha256 of the canonical patch base..h for one path: full blob ids, fixed prefixes and diff
-    algorithm, no renames/textconv/external diff, so user git config cannot change the bytes."""
-    out = subprocess.run(['git', 'diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--no-relative',
-                          '--full-index', '--diff-algorithm=myers', '--indent-heuristic', '--inter-hunk-context=0', '-U3',
-                          '--src-prefix=a/', '--dst-prefix=b/', base, h, '--', path], capture_output=True, check=True)
-    return hashlib.sha256(out.stdout).hexdigest()
+def amendment_sha256(base, h, path):
+    """Versioned sha256 over the path and the exact (mode, bytes) of the file at base and at h —
+    the whole amendment, which fully determines its patch. Read with ls-tree -z / cat-file, never
+    via `git diff` formatting, so no git config, attributes or GIT_DIFF_OPTS can change it."""
+    parts = [b'farm-return-authorised-amendment-v1', path.encode()]
+    for ref in (base, h):
+        row = subprocess.run(['git', 'ls-tree', '-z', ref, '--', path], capture_output=True, check=True).stdout.split(b'\0')[0]
+        if not row:
+            parts += [b'absent', b'']; continue
+        mode, kind, blob = row.split(b'\t', 1)[0].split(b' ')
+        data = subprocess.run(['git', 'cat-file', 'blob', blob.decode()], capture_output=True, check=True).stdout if kind == b'blob' else b''
+        parts += [mode + b' ' + kind, data]
+    return hashlib.sha256(b''.join(b'%d:' % len(x) + x for x in parts)).hexdigest()
 
 
 def blob_at(ref, path):
@@ -1346,7 +1353,7 @@ def blob_at(ref, path):
 def phase_amendments(m, ph, base, h, files, agent_commits):
     """(verified amendment paths, manifest-delta-is-amendment-only) for scope_check. Every
     authorised amendment must match its exact baseline blob at the phase base, result blob at h and
-    canonical patch hash; the manifest may differ from its base copy ONLY in this phase's
+    amendment digest; the manifest may differ from its base copy ONLY in this phase's
     `authorised_amendments`; and no build/fix checkpoint may have touched an amended path or the
     manifest — a recorded amendment is human-only, never an agent permission."""
     ams = ph.get('authorised_amendments') or []
@@ -1356,10 +1363,10 @@ def phase_amendments(m, ph, base, h, files, agent_commits):
         if rs.category(p) != 'B':
             raise Stop('FROZEN_CONTRACT_CHANGE_REQUIRED', 'authorised amendment %s is not a test/tooling path' % p,
                        'frozen-contract changes need a separately authorised task')
-        got = (blob_at(base, p), blob_at(h, p), amendment_patch_sha256(base, h, p) if p in files else None)
-        want = (a['baseline_blob'], a['result_blob'], a['patch_sha256'])
+        got = (blob_at(base, p), blob_at(h, p), amendment_sha256(base, h, p))
+        want = (a['baseline_blob'], a['result_blob'], a['amendment_sha256'])
         if got != want:
-            names = [k for k, x, y in zip(('baseline_blob', 'result_blob', 'patch_sha256'), got, want) if x != y]
+            names = [k for k, x, y in zip(('baseline_blob', 'result_blob', 'amendment_sha256'), got, want) if x != y]
             raise Stop('AUTHORISED_AMENDMENT_MISMATCH', '%s differs from its authorised amendment (%s)' % (p, ', '.join(names)),
                        'restore the exact authorised content; any other change needs a new human authorisation')
     manifest_ok = False

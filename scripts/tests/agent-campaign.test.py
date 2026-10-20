@@ -1695,17 +1695,20 @@ class CampaignTests(unittest.TestCase):
         self.write(self.FROZEN, 'it("a1", () => { expect(1).toBe(1); });\nit("a2", () => { expect(2).toBe(2); });\n' + extra)
         self.commit('human: reviewed test-only amendment of a frozen predecessor test')
 
-    def canonical_patch_sha(self, base, h, path):
-        out = subprocess.run([REAL_GIT, 'diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--no-relative',
-                              '--full-index', '--diff-algorithm=myers', '--indent-heuristic', '--inter-hunk-context=0', '-U3',
-                              '--src-prefix=a/', '--dst-prefix=b/', base, h, '--', path], cwd=self.R, capture_output=True, check=True).stdout
+    def amendment_digest(self, base, h, path):
+        """Independent re-implementation of the runner's versioned amendment digest."""
         import hashlib
-        return hashlib.sha256(out).hexdigest()
+        parts = [b'farm-return-authorised-amendment-v1', path.encode()]
+        for ref in (base, h):
+            mode, kind, blob = self.git('ls-tree', ref, '--', path).split('\t')[0].split(' ')
+            data = subprocess.run([REAL_GIT, 'cat-file', 'blob', blob], cwd=self.R, capture_output=True, check=True).stdout
+            parts += [('%s %s' % (mode, kind)).encode(), data]
+        return hashlib.sha256(b''.join(b'%d:' % len(x) + x for x in parts)).hexdigest()
 
     def entry(self, base, h='HEAD', path=None, **over):
         path = path or self.FROZEN
         e = dict(path=path, baseline_blob=self.git('rev-parse', '%s:%s' % (base, path)), result_blob=self.git('rev-parse', '%s:%s' % (h, path)),
-                 patch_sha256=self.canonical_patch_sha(base, self.git('rev-parse', h), path), authorisation='human 2026-10-20: test-only split, reviewed')
+                 amendment_sha256=self.amendment_digest(base, h, path), authorisation='human 2026-10-20: test-only split, reviewed')
         e.update(over)
         return e
 
@@ -1769,7 +1772,7 @@ class CampaignTests(unittest.TestCase):
         self.human_amend(extra='it("smuggled", () => {});\n')   # beyond the authorised bytes
         self.run_campaign('--resolve-stop', '--note', 'amendment recorded, then changed again')
         self.run_campaign()
-        self.stopped('AUTHORISED_AMENDMENT_MISMATCH'); self.assertIn('result_blob', self.out); self.assertIn('patch_sha256', self.out)
+        self.stopped('AUTHORISED_AMENDMENT_MISMATCH'); self.assertIn('result_blob', self.out); self.assertIn('amendment_sha256', self.out)
         self.assertFalse((self.R / CAMP / 'receipts/X1.json').exists())
 
     def test_37d_entry_must_bind_exact_baseline_result_and_patch(self):
@@ -1777,18 +1780,30 @@ class CampaignTests(unittest.TestCase):
         self.human_amend()
         good = self.entry(base)
         other = self.git('rev-parse', 'HEAD:AGENTS.md')
-        for field, value in (('baseline_blob', other), ('result_blob', other), ('patch_sha256', '0' * 64)):
+        for field, value in (('baseline_blob', other), ('result_blob', other), ('amendment_sha256', '0' * 64)):
             with self.subTest(field=field):
                 self.record_amendments([dict(good, **{field: value})], msg='manifest %s' % field)
                 self.assertEqual(self.scope(base)[0], 'AUTHORISED_AMENDMENT_MISMATCH')
                 self.assertIn(field, self.scope(base)[1])
         self.record_amendments([good], msg='manifest exact')
         self.assertIsNone(self.scope(base))
-        # User git diff configuration cannot change the canonical patch bytes.
+        # No git configuration, attribute or diff environment can change the amendment digest.
         for k, v in (('diff.noprefix', 'true'), ('diff.mnemonicPrefix', 'true'), ('diff.algorithm', 'patience'), ('color.ui', 'always'),
-                     ('diff.context', '7'), ('diff.interHunkContext', '9'), ('diff.renames', 'copies')):
+                     ('diff.context', '7'), ('diff.interHunkContext', '9'), ('diff.renames', 'copies'), ('diff.suppressBlankEmpty', 'true'),
+                     ('core.quotePath', 'false'), ('core.autocrlf', 'true'), ('diff.external', 'false'),
+                     ('core.attributesFile', str(self.T / 'attrs'))):
             self.git('config', k, v)
-        self.assertIsNone(self.scope(base))
+        (self.T / 'attrs').write_text('* -diff -text\n')
+        (self.R / '.git/info').mkdir(exist_ok=True); (self.R / '.git/info/attributes').write_text('*.ts -diff\n')
+        saved = {k: os.environ.get(k) for k in ('GIT_DIFF_OPTS', 'GIT_EXTERNAL_DIFF')}
+        os.environ.update(GIT_DIFF_OPTS='--unified=9', GIT_EXTERNAL_DIFF='false')
+        try:
+            self.assertIsNone(self.scope(base))
+        finally:
+            for k, v in saved.items():
+                if v is None: os.environ.pop(k, None)
+                else: os.environ[k] = v
+        self.assertEqual(self.amendment_digest(base, 'HEAD', self.FROZEN), good['amendment_sha256'])
 
     def test_37e_manifest_change_beyond_amendments_is_rejected(self):
         base = self.amendment_fixture()
@@ -1835,7 +1850,7 @@ class CampaignTests(unittest.TestCase):
 
     def test_37h_manifest_rejects_ineligible_amendments(self):
         mod = self.module()
-        good = dict(path=self.FROZEN, baseline_blob='a' * 40, result_blob='b' * 40, patch_sha256='c' * 64, authorisation='human ok')
+        good = dict(path=self.FROZEN, baseline_blob='a' * 40, result_blob='b' * 40, amendment_sha256='c' * 64, authorisation='human ok')
         self.assertEqual(mod.amendment_entry_problems(dict(authorised_amendments=[good])), [])
         self.assertEqual(mod.amendment_entry_problems(dict()), [])
         cases = {
@@ -1850,11 +1865,11 @@ class CampaignTests(unittest.TestCase):
             'parent': dict(good, path='src/../x.test.ts'),
             'same blobs': dict(good, result_blob='a' * 40),
             'short blob': dict(good, baseline_blob='a' * 7),
-            'bad hash': dict(good, patch_sha256='z' * 64),
+            'bad hash': dict(good, amendment_sha256='z' * 64),
             'empty authorisation': dict(good, authorisation=' '),
             'multi-line authorisation': dict(good, authorisation='a\nb'),
             'extra key': dict(good, scope='widen'),
-            'missing key': {k: v for k, v in good.items() if k != 'patch_sha256'},
+            'missing key': {k: v for k, v in good.items() if k != 'amendment_sha256'},
         }
         inside = dict(scope_guard=['src/x1'], allowed_shared_paths=['src/shared/*.test.ts'])
         for name, path in (('inside scope_guard', 'src/x1/a.test.ts'), ('inside allowed_shared_paths', 'src/shared/b.test.ts')):

@@ -1332,16 +1332,18 @@ def is_tracked(ref, p):
 # ── scope checks (deterministic, after every build/fix and at freeze) ──
 def amendment_sha256(base, h, path):
     """Versioned sha256 over the path and the exact (mode, bytes) of the file at base and at h —
-    the whole amendment, which fully determines its patch. Read with ls-tree -z / cat-file, never
-    via `git diff` formatting, so no git config, attributes or GIT_DIFF_OPTS can change it."""
+    the whole amendment, which fully determines its patch. Modes come from `git diff --raw -z
+    --no-abbrev` and bytes from `git cat-file blob`, never from patch formatting, so no git config,
+    attributes or GIT_DIFF_OPTS can change it."""
+    raw = subprocess.run(['git', 'diff', '--raw', '-z', '--no-renames', '--no-abbrev', '--no-ext-diff', '--no-textconv',
+                          base, h, '--', path], capture_output=True, check=True).stdout
+    row = raw.split(b'\0')[0].lstrip(b':').split(b' ') if raw else []
+    modes = (row[0], row[1]) if len(row) >= 4 else (b'unchanged', b'unchanged')
     parts = [b'farm-return-authorised-amendment-v1', path.encode()]
-    for ref in (base, h):
-        row = subprocess.run(['git', 'ls-tree', '-z', ref, '--', path], capture_output=True, check=True).stdout.split(b'\0')[0]
-        if not row:
-            parts += [b'absent', b'']; continue
-        mode, kind, blob = row.split(b'\t', 1)[0].split(b' ')
-        data = subprocess.run(['git', 'cat-file', 'blob', blob.decode()], capture_output=True, check=True).stdout if kind == b'blob' else b''
-        parts += [mode + b' ' + kind, data]
+    for ref, mode in zip((base, h), modes):
+        blob = blob_at(ref, path)
+        regular = blob is not None and (mode == b'unchanged' or mode.startswith((b'100', b'120')))   # files/symlinks, not gitlinks
+        parts += [mode, subprocess.run(['git', 'cat-file', 'blob', blob], capture_output=True, check=True).stdout if regular else b'']
     return hashlib.sha256(b''.join(b'%d:' % len(x) + x for x in parts)).hexdigest()
 
 

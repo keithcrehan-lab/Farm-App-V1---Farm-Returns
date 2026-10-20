@@ -1702,7 +1702,7 @@ class CampaignTests(unittest.TestCase):
         for ref in (base, h):
             mode, kind, blob = self.git('ls-tree', ref, '--', path).split('\t')[0].split(' ')
             data = subprocess.run([REAL_GIT, 'cat-file', 'blob', blob], cwd=self.R, capture_output=True, check=True).stdout
-            parts += [('%s %s' % (mode, kind)).encode(), data]
+            parts += [mode.encode(), data]
         return hashlib.sha256(b''.join(b'%d:' % len(x) + x for x in parts)).hexdigest()
 
     def entry(self, base, h='HEAD', path=None, **over):

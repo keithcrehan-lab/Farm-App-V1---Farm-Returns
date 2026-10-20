@@ -126,7 +126,8 @@ export function groupWorkItems(items: readonly CattlePlanWorkItem[]): { ok: true
   const byIdentity = new Map<string, CattlePlanWorkItem[]>();
   for (const i of items) {
     const id = itemIdentity(i);
-    byIdentity.set(id, [...(byIdentity.get(id) ?? []), i]);
+    const seen = byIdentity.get(id);
+    byIdentity.set(id, seen === undefined ? [i] : [...seen, i]);
   }
   const groups: CattlePlanProposalGroup[] = [];
   const issues: CattlePlanIssue[] = [];

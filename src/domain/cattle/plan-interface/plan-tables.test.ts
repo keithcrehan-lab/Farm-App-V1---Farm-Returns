@@ -9,7 +9,10 @@ import type { CattleEvaluationState } from "../evaluation";
 import { PROGRAMME_OCCURRENCE_STATES } from "../programmes";
 import { DEFAULT_CANDIDATE_ACTION_REGISTRY, RECOMMENDATION_PRIORITY_TIERS } from "../recommendations";
 import { OBLIGATION_STATES } from "../regulatory";
-import { c8KindPlan } from "./plan-work-items";
+import { c8KindPlan as c8KindPlanOf } from "./plan-work-items";
+
+/** Table probes over admitted-shaped operands (the adapter admits these in production). */
+const c8KindPlan = (kind: string, claim: string, tier: string) => c8KindPlanOf(kind as Parameters<typeof c8KindPlanOf>[0], claim as Parameters<typeof c8KindPlanOf>[1], tier as Parameters<typeof c8KindPlanOf>[2]);
 import {
   C2_STATE_PLAN,
   C7_STATE_PLAN,

@@ -9,8 +9,9 @@
  * the cattle output ids and fingerprints it came from.
  *
  * request → canonical boundary + field policy (`readCattlePlanRequest`)
- *   → delegation to the frozen C8 / C2 / C7 / C4 engines at one viewpoint,
- *     with the B1 structural-equivalence check (`plan-delegation.ts`)
+ *   → delegation to the frozen C8 / C2 / C7 / C4 engines at one viewpoint
+ *     (`plan-delegation.ts`), every raw result admitted into C9 DTOs by its
+ *     adapter, then B1 structural equivalence (`plan-adapters.ts`)
  *   → canonical work items + D2 folding (`plan-work-items.ts`)
  *   → proposal groups by `planJobIdentityKey` (`plan-merge.ts`)
  *   → Plan projections, completion evidence and scope reality.
@@ -41,18 +42,18 @@ export function planCattleWork(request: unknown, hash: CattleHash, trusted: Reco
   if (!delegated.ok) return fail(delegated.issues);
   const d = delegated.delegated;
 
-  const built = buildWorkItems(d.obligations, d.programmes, d.recommendation.animals);
+  const built = buildWorkItems(d.obligations, d.programmes, d.recommendations);
   if (built.issues.length > 0) return fail(built.issues);
   const grouped = groupWorkItems(built.items);
   if (!grouped.ok) return fail(grouped.issues);
-  const evidence = buildCanonicalEvidence(d.obligations, d.programmes, d.recommendation.animals);
+  const evidence = buildCanonicalEvidence(d.obligations, d.programmes, d.recommendations);
   if (!evidence.ok) return fail(evidence.issues);
   const scopes = buildScopeReality(d.scopes);
   if (!scopes.ok) return fail(scopes.issues);
 
   const proposals = [];
   for (const g of grouped.groups) {
-    const p = projectProposal(g, d.effectiveAt);
+    const p = projectProposal(g, d.viewpoint.effectiveAt);
     if (p === null) return fail([{ code: "CATTLE_PLAN_TIMING_INVALID", ref: g.identityKey }]);
     proposals.push(p);
   }
@@ -60,8 +61,8 @@ export function planCattleWork(request: unknown, hash: CattleHash, trusted: Reco
 
   const body: Omit<CattlePlanResult, "fingerprint"> = {
     cattlePlanPayloadVersion: CATTLE_PLAN_PAYLOAD_VERSION,
-    effectiveAt: d.effectiveAt,
-    knowledgeCutoff: d.knowledgeCutoff,
+    effectiveAt: d.viewpoint.effectiveAt,
+    knowledgeCutoff: d.viewpoint.knowledgeCutoff,
     workItems: built.items,
     groups: grouped.groups,
     proposals,

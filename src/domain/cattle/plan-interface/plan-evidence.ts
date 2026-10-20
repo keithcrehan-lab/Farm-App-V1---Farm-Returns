@@ -23,16 +23,18 @@
  * animal MEMBER / NOT_MEMBER ⇒ KNOWN with the members; any UNKNOWN /
  * EVIDENCE_CONFLICT / INVALID ⇒ the whole selector UNKNOWN with a
  * deterministic reason (Plan has no partial membership).
+ *
+ * ONE admission path (F004 architecture review 2, Outcome C): this module
+ * reads the SAME admitted C9 DTOs the work items are built from — never a
+ * raw predecessor result — and every completion reference is built by a
+ * constructor over admitted C9 primitives (`plan-vocabulary.ts`).
  */
 
 import type { CanonicalEvidence, CanonicalRecordRef, ScopeReality, ScopeRealityEntry } from "../../plan";
-import { subjectRef } from "../../subject";
+import { subjectRef, type SubjectRef } from "../../subject";
 import { compareStrings } from "../integrity";
-import type { ProgrammeStatusEvaluation } from "../programmes";
-import type { CattleRecommendation } from "../recommendations";
-import type { AnimalObligationEvaluation } from "../regulatory";
-import type { ScopeResolution } from "../weights";
-import { admit, attempt, evidenceCheck, groupScopeCheck } from "./plan-admission";
+import { admit, evidenceCheck, groupScopeCheck, type C9Ref } from "./plan-admission";
+import type { C2Dto, C4ScopeDto, C7Dto, C8Dto } from "./plan-adapters";
 import type { CattlePlanGroupScope, CattlePlanIssue } from "./plan-contracts";
 import { cattleGroupScope, cattleWorkIdentity } from "./plan-merge";
 import {
@@ -42,14 +44,22 @@ import {
   GOAL_IN_FORCE_REQUIREMENT,
   MEMBERSHIP_PLAN,
   WEIGHT_EVIDENCE,
+  goalSnapshotRecordId,
+  healthRecordRecordId,
   lookup,
   obligationActionKey,
+  obligationFulfilmentRecordId,
   occurrenceCompletionKind,
   programmeActionKey,
+  programmeDeclarationRecordId,
   weightObservationKind,
+  weightSeriesRecordId,
   type CompletionMeaning,
   type StatePlan,
 } from "./plan-vocabulary";
+
+/** Every Plan subject C9 builds is a `CATTLE_ANIMAL` with an admitted id (B2). */
+const animalSubject = (animalId: C9Ref): SubjectRef => subjectRef("CATTLE_ANIMAL", animalId);
 
 const issue = (code: string, ref: string | null = null): CattlePlanIssue => ({ code, ref });
 
@@ -70,35 +80,27 @@ function occurrenceEntry(e: OccurrenceEvidence): Records {
   return { status: "AVAILABLE", records };
 }
 
-/** The Plan `CanonicalEvidence` C9 builds, admitted whole (`plan-admission.ts`) before Plan may read it. */
-export function buildCanonicalEvidence(
-  obligations: readonly AnimalObligationEvaluation[] | null,
-  programmes: ProgrammeStatusEvaluation | null,
-  recommendations: readonly CattleRecommendation[],
-): { ok: true; evidence: CanonicalEvidence } | { ok: false; issues: CattlePlanIssue[] } {
-  const built = attempt("EVIDENCE", () => evidenceCandidate(obligations, programmes, recommendations));
-  if (!built.ok) return { ok: false, issues: [built.issue] };
-  if (!built.value.ok) return built.value;
-  const rejected = admit("EVIDENCE", evidenceCheck, built.value.evidence);
-  return rejected === null ? built.value : { ok: false, issues: [rejected] };
+/** The Plan `CanonicalEvidence` C9 builds from the admitted DTOs, checked whole (defence in depth) before Plan may read it. */
+export function buildCanonicalEvidence(obligations: C2Dto | null, programmes: C7Dto | null, recommendations: C8Dto): { ok: true; evidence: CanonicalEvidence } | { ok: false; issues: CattlePlanIssue[] } {
+  const built = evidenceCandidate(obligations, programmes, recommendations);
+  if (!built.ok) return built;
+  const rejected = admit("EVIDENCE", evidenceCheck, built.evidence);
+  return rejected === null ? built : { ok: false, issues: [rejected] };
 }
 
-function evidenceCandidate(
-  obligations: readonly AnimalObligationEvaluation[] | null,
-  programmes: ProgrammeStatusEvaluation | null,
-  recommendations: readonly CattleRecommendation[],
-): { ok: true; evidence: CanonicalEvidence } | { ok: false; issues: CattlePlanIssue[] } {
+function evidenceCandidate(obligations: C2Dto | null, programmes: C7Dto | null, recommendations: C8Dto): { ok: true; evidence: CanonicalEvidence } | { ok: false; issues: CattlePlanIssue[] } {
   const issues: CattlePlanIssue[] = [];
   const occurrences = new Map<string, OccurrenceEvidence>();
   const add = (kind: string, state: string, meaning: CompletionMeaning, records: CanonicalRecordRef[]) => {
-    const e = occurrences.get(kind) ?? { states: [], meanings: [], records: [] };
+    const seen = occurrences.get(kind);
+    const e = seen === undefined ? { states: [], meanings: [], records: [] } : seen;
     e.states.push(state);
     e.meanings.push(meaning);
     e.records.push(...records);
     occurrences.set(kind, e);
   };
 
-  for (const a of obligations ?? []) {
+  for (const a of obligations === null ? [] : obligations.animals) {
     for (const r of a.results) {
       if (r.window === null) continue;
       const plan = lookup<StatePlan>(C2_STATE_PLAN, r.state);
@@ -107,13 +109,13 @@ function evidenceCandidate(
         continue;
       }
       const kind = occurrenceCompletionKind(cattleWorkIdentity(obligationActionKey(r.obligationId), a.animalId, r.window));
-      const records = plan.completion === "DONE" ? r.evidence.countedEvidence.map((f) => ({ recordId: `CATTLE_OBLIGATION_FULFILMENT:${f.evidenceId}`, recordKind: kind, subjects: [subjectRef("CATTLE_ANIMAL", a.animalId)], occurredAt: f.fulfilledAt as string })) : [];
+      const records = plan.completion === "DONE" ? r.countedEvidence.map((f) => ({ recordId: obligationFulfilmentRecordId(f.evidenceId), recordKind: kind, subjects: [animalSubject(a.animalId)], occurredAt: f.fulfilledAt })) : [];
       if (plan.completion === "DONE" && records.length === 0) issues.push(issue("CATTLE_PLAN_COMPLETION_RECORD_UNIDENTIFIED", kind));
       add(kind, r.state, plan.completion, records);
     }
   }
 
-  for (const p of programmes?.programmes ?? []) {
+  for (const p of programmes === null ? [] : programmes.programmes) {
     for (const s of p.animals) {
       for (const r of s.records) {
         if (r.occurrence === null || r.actionId === null || r.actionKind === null) continue;
@@ -123,12 +125,12 @@ function evidenceCandidate(
           continue;
         }
         const kind = occurrenceCompletionKind(cattleWorkIdentity(programmeActionKey(p.programmeId, r.actionKind), s.animalId, r.occurrence));
-        const counted = plan.completion === "DONE" ? (r.completion?.counted ?? []) : [];
+        const counted = plan.completion === "DONE" && r.completion !== null ? r.completion.counted : [];
         const records: CanonicalRecordRef[] = [];
         for (const c of counted) {
-          const recordId = c.declarationId !== null ? `CATTLE_PROGRAMME_COMPLETION_DECLARATION:${c.declarationId}` : c.healthRecordId !== null ? `CATTLE_HEALTH_RECORD:${c.healthRecordId}` : null;
+          const recordId = c.declarationId !== null ? programmeDeclarationRecordId(c.declarationId) : c.healthRecordId !== null ? healthRecordRecordId(c.healthRecordId) : null;
           if (recordId === null) issues.push(issue("CATTLE_PLAN_COMPLETION_RECORD_UNIDENTIFIED", kind));
-          else records.push({ recordId, recordKind: kind, subjects: [subjectRef("CATTLE_ANIMAL", s.animalId)], occurredAt: c.completedAt });
+          else records.push({ recordId, recordKind: kind, subjects: [animalSubject(s.animalId)], occurredAt: c.completedAt });
         }
         if (plan.completion === "DONE" && records.length === 0) issues.push(issue("CATTLE_PLAN_COMPLETION_RECORD_UNIDENTIFIED", kind));
         add(kind, r.state, plan.completion, records);
@@ -139,11 +141,11 @@ function evidenceCandidate(
   const records: Record<string, Records> = {};
   for (const kind of [...occurrences.keys()].sort(compareStrings)) records[kind] = occurrenceEntry(occurrences.get(kind)!);
 
-  const goalMembers: { subject: ReturnType<typeof subjectRef>; state: "PRESENT" | "MISSING"; sourceRecordId?: string }[] = [];
-  for (const rec of recommendations) {
-    const subject = subjectRef("CATTLE_ANIMAL", rec.animalId);
+  const goalMembers: { subject: SubjectRef; state: "PRESENT" | "MISSING"; sourceRecordId?: string }[] = [];
+  for (const rec of recommendations.animals) {
+    const subject = animalSubject(rec.animalId);
     const kind = weightObservationKind(rec.animalId);
-    const w = rec.context.weights;
+    const w = rec.weights;
     if (w.state !== "SUPPLIED") records[kind] = { status: "UNAVAILABLE", reason: "CATTLE_PLAN_EVIDENCE_NOT_SUPPLIED:WEIGHTS" };
     else {
       const meaning = lookup(WEIGHT_EVIDENCE, w.latest.state);
@@ -151,13 +153,13 @@ function evidenceCandidate(
       else if (meaning === "UNRESOLVED") records[kind] = { status: "UNAVAILABLE", reason: `CATTLE_PLAN_EVIDENCE_UNRESOLVED:WEIGHT_${w.latest.state}` };
       else if (meaning === "NO_OBSERVATION") records[kind] = { status: "AVAILABLE", records: [] };
       else if (w.latest.observedAt === null) issues.push(issue("CATTLE_PLAN_COMPLETION_RECORD_UNIDENTIFIED", kind));
-      else records[kind] = { status: "AVAILABLE", records: [{ recordId: `CATTLE_WEIGHT_SERIES:${w.seriesFingerprint.digest}`, recordKind: kind, subjects: [subject], occurredAt: w.latest.observedAt }] };
+      else records[kind] = { status: "AVAILABLE", records: [{ recordId: weightSeriesRecordId(w.seriesFingerprint), recordKind: kind, subjects: [subject], occurredAt: w.latest.observedAt }] };
     }
-    const g = rec.context.goals;
+    const g = rec.goals;
     if (g.state === "SUPPLIED") {
       const meaning = lookup(GOAL_EVIDENCE, g.status);
       if (meaning === undefined) issues.push(issue("CATTLE_PLAN_STATE_UNMAPPED", `C6:${g.status}`));
-      else if (meaning === "PRESENT") goalMembers.push({ subject, state: "PRESENT", sourceRecordId: `CATTLE_GOAL_SNAPSHOT:${g.snapshot.fingerprint.digest}` });
+      else if (meaning === "PRESENT") goalMembers.push({ subject, state: "PRESENT", sourceRecordId: goalSnapshotRecordId(g.snapshotFingerprint) });
       else if (meaning === "MISSING") goalMembers.push({ subject, state: "MISSING" });
     }
   }
@@ -174,13 +176,14 @@ function evidenceCandidate(
   };
 }
 
-function groupScopeCandidate(groupRef: string, scope: ScopeResolution): { ok: true; canonical: CattlePlanGroupScope; unresolved: boolean } | { ok: false; issues: CattlePlanIssue[] } {
+function groupScopeCandidate(scope: C4ScopeDto): { ok: true; canonical: CattlePlanGroupScope; unresolved: boolean } | { ok: false; issues: CattlePlanIssue[] } {
   const byState = { MEMBER: [] as string[], NOT_MEMBER: [] as string[], UNKNOWN: [] as string[], EVIDENCE_CONFLICT: [] as string[], INVALID: [] as string[] };
   let unresolved = false;
   for (const a of scope.animals) {
     const meaning = lookup(MEMBERSHIP_PLAN, a.state);
     if (meaning === undefined || !Object.hasOwn(byState, a.state)) return { ok: false, issues: [issue("CATTLE_PLAN_STATE_UNMAPPED", `C4:${String(a.state)}`)] };
-    byState[a.state].push(a.animalId);
+    const state: keyof typeof byState = a.state;
+    byState[state].push(a.animalId);
     if (meaning === "UNRESOLVED") unresolved = true;
   }
   const sort = (xs: string[]) => [...xs].sort(compareStrings);
@@ -188,8 +191,8 @@ function groupScopeCandidate(groupRef: string, scope: ScopeResolution): { ok: tr
     ok: true,
     unresolved,
     canonical: {
-      groupRef,
-      scopeFingerprint: scope.fingerprint,
+      groupRef: scope.groupRef,
+      scopeFingerprint: scope.scopeFingerprint,
       members: sort(byState.MEMBER),
       notMembers: sort(byState.NOT_MEMBER),
       unknown: sort(byState.UNKNOWN),
@@ -200,29 +203,28 @@ function groupScopeCandidate(groupRef: string, scope: ScopeResolution): { ok: tr
 }
 
 /**
- * The canonical C9 view of one C4 group resolution — admitted (`plan-admission.ts`) before any Plan subject
- * is built from it — and its Plan `ScopeReality` entry (all-or-unknown).
+ * The canonical C9 view of one admitted C4 group resolution — checked (defence in depth) before any Plan
+ * subject is built from it — and its Plan `ScopeReality` entry (all-or-unknown).
  */
-export function groupScopeOf(groupRef: string, scope: ScopeResolution): { ok: true; canonical: CattlePlanGroupScope; entry: ScopeRealityEntry } | { ok: false; issues: CattlePlanIssue[] } {
-  const where = `C4:${groupRef}`;
-  const built = attempt(where, () => groupScopeCandidate(groupRef, scope));
-  if (!built.ok) return { ok: false, issues: [built.issue] };
-  if (!built.value.ok) return built.value;
-  const { canonical, unresolved } = built.value;
+export function groupScopeOf(scope: C4ScopeDto): { ok: true; canonical: CattlePlanGroupScope; entry: ScopeRealityEntry } | { ok: false; issues: CattlePlanIssue[] } {
+  const where = `C4:${scope.groupRef}`;
+  const built = groupScopeCandidate(scope);
+  if (!built.ok) return built;
+  const { canonical, unresolved } = built;
   const rejected = admit(where, groupScopeCheck, canonical);
   if (rejected !== null) return { ok: false, issues: [rejected] };
-  const selector = (cattleGroupScope(groupRef) as Extract<ReturnType<typeof cattleGroupScope>, { kind: "DYNAMIC" }>).selector;
+  const selector = (cattleGroupScope(scope.groupRef) as Extract<ReturnType<typeof cattleGroupScope>, { kind: "DYNAMIC" }>).selector;
   const entry: ScopeRealityEntry = unresolved
     ? { selector, membership: { status: "UNKNOWN", reason: `CATTLE_GROUP_MEMBERSHIP_UNRESOLVED:${JSON.stringify({ unknown: canonical.unknown, conflict: canonical.conflict, invalid: canonical.invalid })}` } }
     : { selector, membership: { status: "KNOWN", members: canonical.members.map((id) => subjectRef("CATTLE_ANIMAL", id)) } };
   return { ok: true, canonical, entry };
 }
 
-export function buildScopeReality(scopes: readonly { groupRef: string; scope: ScopeResolution }[]): { ok: true; canonical: CattlePlanGroupScope[]; reality: ScopeReality } | { ok: false; issues: CattlePlanIssue[] } {
+export function buildScopeReality(scopes: readonly C4ScopeDto[]): { ok: true; canonical: CattlePlanGroupScope[]; reality: ScopeReality } | { ok: false; issues: CattlePlanIssue[] } {
   const canonical: CattlePlanGroupScope[] = [];
   const reality: ScopeRealityEntry[] = [];
-  for (const { groupRef, scope } of scopes) {
-    const g = groupScopeOf(groupRef, scope);
+  for (const scope of scopes) {
+    const g = groupScopeOf(scope);
     if (!g.ok) return g;
     canonical.push(g.canonical);
     reality.push(g.entry);

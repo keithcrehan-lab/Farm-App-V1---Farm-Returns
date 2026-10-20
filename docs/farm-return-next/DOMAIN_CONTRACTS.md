@@ -4888,12 +4888,13 @@ no copy of a cattle record.
 | Module | Contract |
 |---|---|
 | `plan-interface.ts` | `planCattleWork(request, hash, trusted)` → `{ ok, result: CattlePlanResult }` or `{ ok: false, issues }`. Any issue fails the whole request closed (no proposals). Result detached, deep-frozen, fingerprinted |
-| `plan-delegation.ts` | Canonical boundary: whole request through `toCanonicalPlainData`, field policy exactly `{ cattle, groupScopes: { groupRef }[] }` (refs opaque; a set — deduplicated, sorted). Delegation (B1, pinned shapes): C8 `recommendCattle(cattle, hash, trusted)`; C2 `evaluateHerdObligations` over the C1-rematerialised request ledgers sorted by animal id; C7 `evaluateHealthProgrammes({...programmes, ledgers, health, obligations, query})`; C4 `resolveGroupScope` per group over `cattle.ledgers` — all at C8's echoed canonical `effectiveAt` / `knowledgeCutoff`. B1 equivalence: per animal, C9's C2 record and C7 animal-status fingerprints must equal C8's sealed-context ones (`CATTLE_PLAN_DELEGATION_EQUIVALENCE_MISMATCH` otherwise) |
+| `plan-delegation.ts` | Canonical boundary: whole request through `toCanonicalPlainData`, field policy exactly `{ cattle, groupScopes: { groupRef }[] }` (refs opaque; a set — deduplicated, sorted). Delegation (B1, pinned shapes): C8 `recommendCattle(cattle, hash, trusted)`; C2 `evaluateHerdObligations` over the C1-rematerialised request ledgers sorted by animal id; C7 `evaluateHealthProgrammes({...programmes, ledgers, health, obligations, query})`; C4 `resolveGroupScope` per group over `cattle.ledgers` — all at C8's admitted echoed canonical `effectiveAt` / `knowledgeCutoff`. Each raw result is handed to its adapter where it is obtained; only admitted DTOs (`Delegated`) leave the module. B1 equivalence (over admitted fingerprints, `plan-adapters.ts`): per animal, C9's C2 record and C7 animal-status fingerprints must equal C8's sealed-context ones (`CATTLE_PLAN_DELEGATION_EQUIVALENCE_MISMATCH` otherwise) |
 | `plan-vocabulary.ts` | Every compiled table (`satisfies Record<…>` over the frozen vocabularies; runtime `lookup` → `undefined`, never a default): C2 / C7 state and C8 outcome → proposal / state blocker / completion meaning (B6); C0 gate state → blocker status (D3); C4 membership (B2); C8 default kinds → tier (D4), modelled tier map, origin (B3), fold whitelist (D2); C4 / C6 completion-evidence states. THE vocabulary table `CATTLE_PLAN_VOCABULARY` (rows → family, completion form, owning records that prove completion) and `completionContractFor(row, identity, effectiveAt)` |
-| `plan-work-items.ts` | Canonical `CattlePlanWorkItem`s from the delegated outputs (selection and mapping only); C9's status / evidence precedence list (header); D2 folding (`parseRestatementCitation`, `foldRestatements`) |
+| `plan-adapters.ts` | THE predecessor adapter boundary (F004 architecture review 2, Outcome C): one C9-owned DTO, exhaustive `DtoSpec` (`satisfies`) and adapter per consumed family — viewpoint, C2 records, C7 records, C8 recommendations with the sealed-context parts C9 reads (weights, goals, C2 / C7 fingerprints), C4 group scope — plus B1 equivalence over admitted fingerprints and the relation that a proposed C8 action names exactly one candidate |
+| `plan-work-items.ts` | Canonical `CattlePlanWorkItem`s from the admitted DTOs (selection and mapping only); C9's status / evidence precedence list (header); D2 folding (`parseRestatementCitation`, `foldRestatements`) |
 | `plan-merge.ts` | Identity = Plan `planJobIdentityKey` (called, never restated); `groupWorkItems` / `mergeProposalGroups` / `summariseGroup` (merge algebra); projections `projectProposal` → `PlanJobInput`, `projectBlockers` → `PlanBlocker[]`; `cattleAnimalScope`, `cattleGroupScope` |
-| `plan-evidence.ts` | `CanonicalEvidence` (vocabulary-driven) and `ScopeReality` (all-or-unknown) |
-| `plan-admission.ts` | THE admission boundary of C9's own canonical records (CAT-INV-028 as clarified; F004 Outcome B): field tables (`satisfies Fields<…>` drift guard), `admit` / `attempt`, issue `CATTLE_PLAN_ADMISSION_FAILED` |
+| `plan-evidence.ts` | `CanonicalEvidence` (vocabulary-driven) and `ScopeReality` (all-or-unknown), from the SAME admitted DTOs as the work items (no second reader of predecessor output) |
+| `plan-admission.ts` | The admission layer: C9 validated primitives (`C9Ref`, `C9Text`, `C9Instant`, `C9Fingerprint`, `C9SourceRef`, `C9Vocab`, brands minted only by `admitDto`), the `DtoSpec` reader `admitDto`, and the defence-in-depth field tables of C9's finished canonical records (`satisfies Fields<…>`, `admit`); issue `CATTLE_PLAN_ADMISSION_FAILED` |
 | `plan-integrity.ts` | Phase-local fingerprint wrapper `{kind, cattlePlanPayloadVersion: 1, payload}`; kind `CATTLE_PLAN_INTERFACE_RESULT` |
 | `plan-contracts.ts` | Types only |
 
@@ -4982,24 +4983,40 @@ no consumed output depends on do not. Change detection, not a signature.
 C7 `programmeGateRuleId`; `assessment-integrity.ts` canonicalisation and SHA-256 unchanged. No cattle
 derivation is restated.
 
-**Admission boundary (CAT-INV-028 as clarified 2026-10-15; F004 architecture review, Outcome B).** The
-C2 / C4 / C7 / C8 outputs C9 obtains by invoking the frozen engines in-process are trusted to satisfy
-their owners' published contracts: C9 neither re-checks owner-specific invariants nor uses a predecessor
-fingerprint as a validator (fingerprints are carried as provenance and compared only for B1 equivalence).
-C9 owns the validity of what it admits into its OWN canonical records — the viewpoint, every
-`CattlePlanWorkItem` (with its timing, blockers, priority and folded support), `CattlePlanNoProposal`,
-`CattlePlanGroupScope` and the Plan `CanonicalEvidence` it builds: values it relies on structurally, uses
-as an identity / reference, reads from a shared C0 structure (`SourceVersionRef` as B5 deadline authority
-and source checks, `AssessmentFingerprint`) or gives Plan meaning (subjects, instants, vocabulary).
-`plan-admission.ts` is the one path: each record is built from trusted output (a throw is missing
-structure) and admitted against its field table (`isOpaqueRef`, `isValidAnimalInstant`, `fingerprintOf`,
-`sourceVersionRefOf`, C9's vocabularies, and the identities C9 derives: item key, citation, action key,
-blocker id) before grouping, merge or projection; any failure is `CATTLE_PLAN_ADMISSION_FAILED`
-(ref `<where>:<field path>`, `where` = `VIEWPOINT` / `C2` / `C7` / `C8` / `C4:<groupRef>` / `EVIDENCE` /
-`B1_EQUIVALENCE`), no proposals, never a throw. `planNotBeforeBound` / `completionContractFor` never
-turn an invalid viewpoint into a permissive cut-off (`null` ⇒ the proposal fails closed). Drift guard:
-each field table `satisfies` an exhaustive, exact `Fields<record>` type, and an undeclared key is rejected
-at runtime; the tables are keyed to C9's own records, never to the full predecessor shapes.
+**Admission boundary (CAT-INV-028 as clarified 2026-10-15; F004 architecture review 2, Outcome C,
+2026-10-20).** Data flow: approved frozen engine → raw result → C9 predecessor adapter → admitted C9 DTO →
+canonical C9 work items / groups → grouping, merge, evidence, timing, blockers, fingerprint → Plan
+projection. The C2 / C4 / C7 / C8 outputs C9 obtains by invoking the frozen engines in-process are trusted
+for their owners' domain semantics: C9 re-runs no predecessor business rule and never uses a predecessor
+fingerprint as a validator. Binding invariant: no value from C2, C4, C7 or C8 may influence a C9-derived
+identifier, decision, timing value, canonical key, completion reference, blocker, provenance reference,
+fingerprint input or Plan projection until every raw operand whose validity C9 independently relies upon
+has passed the appropriate C9-owned admission predicate; once admitted, downstream C9 derivation accepts
+only admitted C9 values or canonical C9 objects, never raw predecessor records. The adapters
+(`plan-adapters.ts`) are that admission boundary: each consumed family has one C9-owned DTO and one
+exhaustive `DtoSpec` (`satisfies`: a DTO field without an admission node is a type error; specs name only
+what C9 consumes, never the full predecessor shapes). `admitDto` copies exactly those operands,
+untransformed — no interpolation, `JSON.stringify`, optional chaining, default or coercion before
+admission — and admits each by presence, runtime type, format (`isOpaqueRef`, `isValidAnimalInstant`,
+`fingerprintOf`, `sourceVersionRefOf`) and published vocabulary membership (C0 classification, gate role,
+source-binding status and evaluation state; C2 / C7 states and window boundaries; C7 classification and
+gate source; C8 outcome, tier, benefit claim and gate source; C4 / C6 states), plus the cross-object
+consistency C9 relies on (B1 equivalence over admitted fingerprints; a proposed C8 action names exactly
+one candidate). Only then are the values C9 primitives (`C9Ref`, `C9Text`, `C9Instant`, `C9Fingerprint`,
+`C9SourceRef`, `C9Vocab` — brands minted nowhere else); every identifier / key / completion-reference
+constructor (`obligationActionKey`, `programmeActionKey`, `recommendationActionKey`, `c2OutputId`,
+`c7OutputId`, `obligationFulfilmentRecordId`, `programmeDeclarationRecordId`, `healthRecordRecordId`,
+`weightSeriesRecordId`, `goalSnapshotRecordId`, blocker identities) accepts only them. Raw predecessor
+results are confined to `plan-delegation.ts` / `plan-adapters.ts` / `plan-admission.ts` (static boundary
+test: downstream modules import no predecessor result type or engine and apply no optional chaining or
+nullish default); work items AND completion evidence derive from the same admitted DTOs. Any failure is
+`CATTLE_PLAN_ADMISSION_FAILED` (ref `<where>:<raw path>`, `where` = `VIEWPOINT` / `C2` / `C7` / `C8` /
+`C4:<groupRef>`), no proposals, never a throw. Defence in depth (not the boundary): the finished canonical
+records (viewpoint, work items, no-proposal records, group scopes, `CanonicalEvidence`) are still checked
+against their field tables and the identities C9 derives (item key, citation, action key, blocker id)
+before grouping, merge or projection — a check of a derived value never establishes that its operands
+were valid. `planNotBeforeBound` / `completionContractFor` never turn an invalid viewpoint into a
+permissive cut-off (`null` ⇒ the proposal fails closed).
 
 **Known limitations.** No C2 / C7 / C8 output is group-level work, so no proposal is `DYNAMIC`. A C7
 action gate that is failing is an `ACTIVE` blocker even while C7 reports the occurrence `UPCOMING`. The

@@ -97,6 +97,7 @@ import type { CattlePlanOutcome, CattlePlanProposalGroup, CattlePlanResult, Catt
 import { planCattleWork } from "./plan-interface";
 import { cattleGroupScope, groupWorkItems, mergeProposalGroups, projectProposal, summariseGroup } from "./plan-merge";
 import { c2Timing, foldRestatements, parseRestatementCitation } from "./plan-work-items";
+import { admitObligations, type C2RecordDto } from "./plan-adapters";
 import { CATTLE_PLAN_VOCABULARY, planNotBeforeBound } from "./plan-vocabulary";
 import {
   A,
@@ -245,15 +246,18 @@ describe("C9 timing — hard deadline vs recommended window (B5, D1)", () => {
 
   it("D1: a single non-CURRENT binding ⇒ no hard deadline (mapping over a real record's source check)", () => {
     const r = ok(run(OVERDUE_RUN));
-    const record = rawC2Records(OVERDUE_RUN)[0];
-    const changed = { ...record, ruleEvaluation: { ...record.ruleEvaluation, sourceChecks: [{ ...record.ruleEvaluation.sourceChecks[0], status: "SOURCE_CONTENT_CHANGED" as const }] } };
+    // The record as C9 consumes it: admitted by the C2 adapter from the real engine output.
+    const admitted = admitObligations({ animals: [{ animalId: A, results: rawC2Records(OVERDUE_RUN) }] });
+    if (!admitted.ok) throw new Error(JSON.stringify(admitted.issues));
+    const record = admitted.value.animals[0].results[0];
+    const changed: C2RecordDto = { ...record, sourceChecks: [{ ...record.sourceChecks[0], status: "SOURCE_CONTENT_CHANGED" as C2RecordDto["sourceChecks"][number]["status"] }] };
     expect(c2Timing(record).timing.hardDeadline).not.toBeNull();
     const t = c2Timing(changed);
     expect(t.authorityProven).toBe(false);
     expect(t.timing.hardDeadline).toBeNull();
     expect(t.timing.window).toEqual(itemsOf(r, "C2_OBLIGATION")[0].timing.window);
     // Not legal / scheme hard-gate ⇒ recommended window only, authority not required.
-    const advisory = c2Timing({ ...record, classification: "SCIENCE_CONSTRAINT", gateRole: "ADVISORY" });
+    const advisory = c2Timing({ ...record, classification: "SCIENCE_CONSTRAINT" as C2RecordDto["classification"], gateRole: "ADVISORY" as C2RecordDto["gateRole"] });
     expect(advisory).toMatchObject({ authorityProven: true, timing: { hardDeadline: null } });
     expect(advisory.timing.windowBasis).toContain("CATTLE_OBLIGATION_WINDOW_RECOMMENDED");
   });
@@ -413,39 +417,42 @@ describe("C9 delegation — B1 structural equivalence with C8's sealed context",
     }
   });
 
-  // F004 (CAT-INV-028 as clarified 2026-10-15; architecture review Outcome B): the frozen engines' in-process outputs
-  // are trusted; what C9 admits into its OWN canonical records is not. Each fault below reaches a value C9 relies on
-  // structurally, uses as an identity, reads from a shared C0 shape or gives Plan meaning: it fails closed at the C9
-  // admission boundary with an issue naming the field — no proposals, never a throw. (Test-only module seams.)
+  // F004 (CAT-INV-028 as clarified 2026-10-15; architecture review 2, Outcome C): the frozen engines' in-process
+  // outputs are trusted for owner semantics; every raw operand C9 relies on is admitted by its predecessor adapter
+  // BEFORE any derivation. Each fault below reaches such an operand: it fails closed at the adapter with an issue
+  // naming the raw path — no proposals, never a throw. (Test-only module seams; the generated matrix is in
+  // plan-adapters.test.ts.)
   describe("C9 admission boundary — malformed values never become canonical C9 records", () => {
     const GROUP_RUN: Run = { ledgers: [ledgerOf(A, [{ id: "ga", value: GROUP }])], groupScopes: [{ groupRef: GROUP }], actions: registry([]) };
     const firstC2 = (f: (r: Loose) => void) => (herd: Loose) => (f(herd.animals[0].results[0]), herd);
     const firstC7 = (f: (a: Loose) => void) => (e: Loose) => (f(e.programmes[0].animals[0]), e);
     const firstC8 = (f: (a: Loose) => void) => (res: Loose) => (f(res.animals[0]), res);
     const sourceId = (v: unknown) => firstC2((r) => (r.ruleEvaluation.sourceChecks[0].bound.sourceId = v));
+    /** Issues name the raw operand the C2 adapter rejected (F004 architecture review 2: admitted before any derivation). */
+    const C2_0 = "C2:animals[0].results[0]";
     const cases: { label: string; set: Partial<typeof faults>; run: Run; ref: string; code?: string }[] = [
       // The five strict-audit regressions.
-      { label: "C2 shared source reference: sourceId null", set: { c2: 2, c2Mutate: sourceId(null) }, run: OVERDUE_RUN, ref: "C2:timing.hardDeadline.authority" },
-      { label: "C2 shared source reference: sourceId malformed", set: { c2: 2, c2Mutate: sourceId(" SYNTH-PADDED") }, run: OVERDUE_RUN, ref: "C2:timing.hardDeadline.authority" },
-      { label: "C2 sourceChecks missing (B5 mapping structure)", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation.sourceChecks) }, run: OVERDUE_RUN, ref: "C2:STRUCTURE" },
+      { label: "C2 shared source reference: sourceId null", set: { c2: 2, c2Mutate: sourceId(null) }, run: OVERDUE_RUN, ref: `${C2_0}.ruleEvaluation.sourceChecks[0].bound` },
+      { label: "C2 shared source reference: sourceId malformed", set: { c2: 2, c2Mutate: sourceId(" SYNTH-PADDED") }, run: OVERDUE_RUN, ref: `${C2_0}.ruleEvaluation.sourceChecks[0].bound` },
+      { label: "C2 sourceChecks missing (B5 mapping structure)", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation.sourceChecks) }, run: OVERDUE_RUN, ref: `${C2_0}.ruleEvaluation.sourceChecks` },
       { label: "C8 effectiveAt null", set: { c8Mutate: (res: Loose) => ((res.effectiveAt = null), res) }, run: { actions: defaultOnly("RECORD_WEIGHT") }, ref: "VIEWPOINT:effectiveAt" },
       { label: "C8 effectiveAt missing", set: { c8Mutate: (res: Loose) => (delete res.effectiveAt, res) }, run: { actions: defaultOnly("RECORD_WEIGHT") }, ref: "VIEWPOINT:effectiveAt" },
-      { label: "C4 member animal id null", set: { c4Mutate: (s: Loose) => ((s.animals[0].animalId = null), s) }, run: GROUP_RUN, ref: `C4:${GROUP}:members[0]` },
-      { label: "C4 member animal id malformed", set: { c4Mutate: (s: Loose) => ((s.animals[0].animalId = ""), s) }, run: GROUP_RUN, ref: `C4:${GROUP}:members[0]` },
+      { label: "C4 member animal id null", set: { c4Mutate: (s: Loose) => ((s.animals[0].animalId = null), s) }, run: GROUP_RUN, ref: `C4:${GROUP}:scope.animals[0].animalId` },
+      { label: "C4 member animal id malformed", set: { c4Mutate: (s: Loose) => ((s.animals[0].animalId = ""), s) }, run: GROUP_RUN, ref: `C4:${GROUP}:scope.animals[0].animalId` },
       // The same family: other shared / relied-upon structure.
-      { label: "C2 shared source reference: contentFingerprint missing", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation.sourceChecks[0].bound.contentFingerprint) }, run: OVERDUE_RUN, ref: "C2:timing.hardDeadline.authority" },
-      // Fingerprints are only compared (B1), never read as validity: an altered one is a B1 mismatch.
-      { label: "C2 output fingerprint malformed", set: { c2: 2, c2Mutate: firstC2((r) => (r.fingerprint = { ...r.fingerprint, digest: "SYNTH" })) }, run: OVERDUE_RUN, ref: `C2:${A}`, code: "CATTLE_PLAN_DELEGATION_EQUIVALENCE_MISMATCH" },
-      { label: "C2 ruleEvaluation missing", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation) }, run: OVERDUE_RUN, ref: "C2:STRUCTURE" },
-      { label: "C2 window instant malformed", set: { c2: 2, c2Mutate: firstC2((r) => (r.window.dueAt = "2026-02-30T00:00:00Z")) }, run: OVERDUE_RUN, ref: "C2:timing.window.dueAt" },
-      { label: "C2 results missing", set: { c2: 2, c2Mutate: (h: Loose) => (delete h.animals[0].results, h) }, run: OVERDUE_RUN, ref: "B1_EQUIVALENCE:STRUCTURE" },
-      { label: "C7 animal records missing", set: { c7: 2, c7Mutate: firstC7((a) => delete a.records) }, run: { programmes: programmes() }, ref: "C7:STRUCTURE" },
-      { label: "C7 animal id null", set: { c7: 2, c7Mutate: firstC7((a) => (a.animalId = null)) }, run: { programmes: programmes() }, ref: `C7:${A}`, code: "CATTLE_PLAN_DELEGATION_EQUIVALENCE_MISMATCH" },
+      { label: "C2 shared source reference: contentFingerprint missing", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation.sourceChecks[0].bound.contentFingerprint) }, run: OVERDUE_RUN, ref: `${C2_0}.ruleEvaluation.sourceChecks[0].bound` },
+      // A fingerprint is admitted as the shared C0 shape C9 cites and compares (B1) — never read as validity of what it seals.
+      { label: "C2 output fingerprint malformed", set: { c2: 2, c2Mutate: firstC2((r) => (r.fingerprint = { ...r.fingerprint, digest: "SYNTH" })) }, run: OVERDUE_RUN, ref: `${C2_0}.fingerprint` },
+      { label: "C2 ruleEvaluation missing", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation) }, run: OVERDUE_RUN, ref: `${C2_0}.ruleEvaluation.requestedRuleId` },
+      { label: "C2 window instant malformed", set: { c2: 2, c2Mutate: firstC2((r) => (r.window.dueAt = "2026-02-30T00:00:00Z")) }, run: OVERDUE_RUN, ref: `${C2_0}.window.dueAt` },
+      { label: "C2 results missing", set: { c2: 2, c2Mutate: (h: Loose) => (delete h.animals[0].results, h) }, run: OVERDUE_RUN, ref: "C2:animals[0].results" },
+      { label: "C7 animal records missing", set: { c7: 2, c7Mutate: firstC7((a) => delete a.records) }, run: { programmes: programmes() }, ref: "C7:programmes[0].animals[0].records" },
+      { label: "C7 animal id null", set: { c7: 2, c7Mutate: firstC7((a) => (a.animalId = null)) }, run: { programmes: programmes() }, ref: "C7:programmes[0].animals[0].animalId" },
       { label: "C8 knowledgeCutoff malformed", set: { c8Mutate: (res: Loose) => ((res.knowledgeCutoff = "not-an-instant"), res) }, run: {}, ref: "VIEWPOINT:knowledgeCutoff" },
-      { label: "C8 candidates missing", set: { c8Mutate: firstC8((a) => delete a.candidates) }, run: {}, ref: "C8:STRUCTURE" },
-      { label: "C8 animals missing", set: { c8Mutate: (res: Loose) => (delete res.animals, res) }, run: {}, ref: "B1_EQUIVALENCE:STRUCTURE" },
-      { label: "C4 animals missing", set: { c4Mutate: (s: Loose) => (delete s.animals, s) }, run: GROUP_RUN, ref: `C4:${GROUP}:STRUCTURE` },
-      { label: "C4 scope fingerprint malformed", set: { c4Mutate: (s: Loose) => ((s.fingerprint = null), s) }, run: GROUP_RUN, ref: `C4:${GROUP}:scopeFingerprint` },
+      { label: "C8 candidates missing", set: { c8Mutate: firstC8((a) => delete a.candidates) }, run: {}, ref: "C8:animals[0].candidates" },
+      { label: "C8 animals missing", set: { c8Mutate: (res: Loose) => (delete res.animals, res) }, run: {}, ref: "C8:animals" },
+      { label: "C4 animals missing", set: { c4Mutate: (s: Loose) => (delete s.animals, s) }, run: GROUP_RUN, ref: `C4:${GROUP}:scope.animals` },
+      { label: "C4 scope fingerprint malformed", set: { c4Mutate: (s: Loose) => ((s.fingerprint = null), s) }, run: GROUP_RUN, ref: `C4:${GROUP}:scope.fingerprint` },
     ];
     it.each(cases)("$label ⇒ an issue ($ref), no proposals, never a throw", ({ set, run: r, ref, code = "CATTLE_PLAN_ADMISSION_FAILED" }) => {
       expect(run(r).ok).toBe(true); // positive control
@@ -1120,7 +1127,7 @@ describe("C9 determinism, aliasing and the canonical boundary", () => {
   it("no clock, randomness, network, AI, persistence or tooling import in the production modules; Plan is imported, never modified", () => {
     const dir = path.resolve(__dirname);
     const production = readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "plan-test-fixtures.ts" && f !== "plan-test-support.ts");
-    expect(production.sort()).toEqual(["index.ts", "plan-admission.ts", "plan-contracts.ts", "plan-delegation.ts", "plan-evidence.ts", "plan-integrity.ts", "plan-interface.ts", "plan-merge.ts", "plan-vocabulary.ts", "plan-work-items.ts"]);
+    expect(production.sort()).toEqual(["index.ts", "plan-adapters.ts", "plan-admission.ts", "plan-contracts.ts", "plan-delegation.ts", "plan-evidence.ts", "plan-integrity.ts", "plan-interface.ts", "plan-merge.ts", "plan-vocabulary.ts", "plan-work-items.ts"]);
     for (const f of production) {
       const src = readFileSync(path.join(dir, f), "utf8");
       expect(src, f).not.toMatch(/Date\.now|new Date\(|performance\.now|Math\.random|fetch\(|tooling|supabase|node:/);

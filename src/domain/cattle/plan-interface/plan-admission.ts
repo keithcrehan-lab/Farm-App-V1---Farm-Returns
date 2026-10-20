@@ -1,47 +1,56 @@
 /**
- * Cattle C9 — THE admission boundary of C9's own canonical records
- * (CAT-INV-028 as clarified 2026-10-15; F004 architecture review 2026-10-19,
- * Outcome B).
+ * Cattle C9 — the admission layer: C9's validated primitives, THE DTO
+ * admission reader, and the defence-in-depth checks of C9's finished canonical
+ * records (CAT-INV-028 as clarified 2026-10-15; F004 architecture review 2,
+ * Outcome C, 2026-10-20).
  *
  * TRUST. The C2 / C4 / C7 / C8 outputs C9 obtains by invoking the frozen
  * engines in-process are TRUSTED to satisfy their owners' published
  * contracts. C9 never re-checks an owner-specific invariant and never uses a
- * predecessor fingerprint as a schema / semantic validator (fingerprints are
- * only carried as provenance and compared for B1 equivalence).
+ * predecessor fingerprint as a schema / semantic validator.
  *
- * OWNERSHIP. C9 owns the validity of every value it admits into its OWN
- * canonical records — the viewpoint, `CattlePlanWorkItem`,
- * `CattlePlanNoProposal`, `CattlePlanGroupScope` and the Plan
- * `CanonicalEvidence` it builds: values it relies on structurally, uses as a
- * cross-engine identity / reference, reads from a shared C0 structure (a
- * `SourceVersionRef`, an `AssessmentFingerprint`), or gives Plan meaning
- * (subjects, instants, deadline authority, vocabulary).
+ * PRIMARY BOUNDARY — admit BEFORE deriving (`plan-adapters.ts`). Every raw
+ * predecessor operand C9 relies on (structure, identity / reference,
+ * shared C0 protocol shape, vocabulary that drives a C9 decision, a value C9
+ * turns into an identifier, a value C9 gives timing / priority / completion /
+ * blocker / Plan meaning) is COPIED, untransformed, into a C9-owned DTO by
+ * `admitDto` and checked against that DTO's exhaustive `DtoSpec` (presence,
+ * runtime type, format, published vocabulary membership). No interpolation,
+ * `JSON.stringify`, optional chaining, default or coercion touches a raw
+ * operand first. Only an admitted DTO carries the C9 primitives (`C9Ref`,
+ * `C9Text`, `C9Instant`, `C9Fingerprint`, `C9SourceRef`, `C9Vocab`): they are
+ * brands minted exclusively by `admitDto`, and every C9 identifier / key /
+ * reference constructor accepts only them. Any failure is
+ * `CATTLE_PLAN_ADMISSION_FAILED` (ref `<where>:<raw path>`), the whole request
+ * fails closed with no proposals, and nothing crashes.
  *
- * BOUNDARY. trusted output → build the candidate record (`attempt`: a throw is
- * a missing structure) → `admit` it against its field table → only then is it
- * a canonical C9 record that grouping, merge and Plan projection may rely on.
- * Any failure is the issue `CATTLE_PLAN_ADMISSION_FAILED` (ref
- * `<where>:<field path>`), the whole request fails closed with no proposals,
- * and nothing crashes. Malformed records are never built and sanitised later.
+ * DRIFT GUARD. Each DTO spec is declared with `satisfies DtoSpec<Dto>`: a DTO
+ * field added without its admission node (or a node for a field that does not
+ * exist) is a type error. Specs are keyed to C9's own DTOs, never to the full
+ * C2 / C4 / C7 / C8 shapes, so a new upstream owner field or invariant needs
+ * no C9 change unless C9 starts consuming it.
  *
- * DRIFT GUARD. Each field table is declared with `satisfies Fields<T>` over
- * the C9 record type: a field added to a canonical record without a predicate
- * (or a predicate for a field that does not exist) is a type error, and at
- * runtime a record carrying an undeclared key is rejected. The tables are
- * keyed to C9's own records, never to the full C2 / C4 / C7 / C8 shapes, so a
- * new upstream owner invariant needs no C9 change unless C9 starts relying
- * on it.
+ * DEFENCE IN DEPTH (not the boundary). The finished canonical records — the
+ * viewpoint, `CattlePlanWorkItem`, `CattlePlanNoProposal`,
+ * `CattlePlanGroupScope` and the Plan `CanonicalEvidence` — are still checked
+ * against their field tables (`satisfies Fields<T>`, undeclared keys rejected)
+ * and the relations C9 derives (item key, citation, action key, blocker id)
+ * before grouping, merge or projection. A check of a DERIVED value can never
+ * establish that the operands it was derived from were valid; that guarantee
+ * belongs to the DTO admission above.
  *
  * Reuses the shared predicates: `isOpaqueRef` / `isValidAnimalInstant` (C1),
  * `fingerprintOf` / `sourceVersionRefOf` (the shared C0 shapes, as C7 / C8
  * consume them) and C9's own compiled vocabulary tables.
  */
 
+import type { AssessmentFingerprint } from "../../assessment-integrity";
 import type { CanonicalEvidence, CanonicalRecordRef, PlanBlockerKind, PlanBlockerStatus } from "../../plan";
 import { SYSTEM_PRIORITY_TIERS } from "../../plan";
 import type { SubjectRef } from "../../subject";
 import { isOpaqueRef, isValidAnimalInstant } from "../animal-ledger";
 import { fingerprintOf, isRecord, sourceVersionRefOf } from "../health/health-input";
+import type { SourceVersionRef } from "../source";
 import type {
   CattlePlanBlocker,
   CattlePlanFamily,
@@ -137,7 +146,164 @@ const BLOCKER_STATUSES = { ACTIVE: true, CLEARED: true, UNKNOWN: true } as const
 const tier: Check = is((v) => (SYSTEM_PRIORITY_TIERS as readonly unknown[]).includes(v));
 
 // ---------------------------------------------------------------------------
-// Field tables — C9's own records (the drift guard)
+// C9 validated primitives — minted ONLY by `admitDto`
+// ---------------------------------------------------------------------------
+
+declare const ADMITTED: unique symbol;
+type Admitted<T, K extends string> = T & { readonly [ADMITTED]: K };
+
+/** An admitted opaque identifier / reference (`isOpaqueRef`). */
+export type C9Ref = Admitted<string, "REF">;
+/** An admitted non-empty text (reason codes). */
+export type C9Text = Admitted<string, "TEXT">;
+/** An admitted canonical-grammar instant (`isValidAnimalInstant`). */
+export type C9Instant = Admitted<string, "INSTANT">;
+/** An admitted shared C0 `AssessmentFingerprint` (`fingerprintOf`). */
+export type C9Fingerprint = Admitted<AssessmentFingerprint, "FINGERPRINT">;
+/** An admitted shared C0 `SourceVersionRef` (`sourceVersionRefOf`). */
+export type C9SourceRef = Admitted<SourceVersionRef, "SOURCE_REF">;
+/** An admitted member of a published vocabulary. */
+export type C9Vocab<V extends string> = Admitted<V, "VOCAB">;
+
+// ---------------------------------------------------------------------------
+// DTO admission specs — what C9 copies from a raw predecessor output, and how each operand is admitted
+// ---------------------------------------------------------------------------
+
+/** The admission class of a raw leaf operand (drives the generated mutation matrix). */
+export type LeafClass = "REF" | "NULLABLE_REF" | "TEXT" | "INSTANT" | "NULLABLE_INSTANT" | "FINGERPRINT" | "SOURCE_REF" | "VOCAB" | "NULLABLE_VOCAB" | "LITERAL";
+
+/** A raw leaf copied verbatim from `from` (relative to its parent node) and admitted by `check`. */
+export interface LeafSpec {
+  readonly kind: "leaf";
+  readonly from: readonly string[];
+  readonly cls: LeafClass;
+  readonly check: Check;
+  /** The published vocabulary (VOCAB / NULLABLE_VOCAB / LITERAL), else `null`. */
+  readonly values: readonly string[] | null;
+}
+/** A raw object at `from` whose admitted fields form a C9 DTO object (`nullable`: `null` is admitted as `null`). */
+export interface ObjectSpec {
+  readonly kind: "object";
+  readonly from: readonly string[];
+  readonly nullable: boolean;
+  readonly fields: Readonly<Record<string, NodeSpec>>;
+}
+/** A raw array at `from`; every element is admitted by `item` (its `from` relative to the element). */
+export interface ListSpec {
+  readonly kind: "list";
+  readonly from: readonly string[];
+  readonly item: NodeSpec;
+}
+/** A raw object at `from` discriminated by its `state`: the variant's own fields are admitted. */
+export interface VariantSpec {
+  readonly kind: "variant";
+  readonly from: readonly string[];
+  readonly variants: Readonly<Record<string, Readonly<Record<string, NodeSpec>>>>;
+}
+export type NodeSpec = LeafSpec | ObjectSpec | ListSpec | VariantSpec;
+
+/** One admission node per DTO field — exhaustive and exact (the DTO drift guard). */
+export type DtoSpec<T> = { readonly [K in keyof T]-?: NodeSpec };
+
+const leafOf =
+  (cls: LeafClass, check: Check, values: readonly string[] | null = null) =>
+  (...from: string[]): LeafSpec => ({ kind: "leaf", from, cls, check, values });
+const member = (values: readonly string[]): Check => is((v) => typeof v === "string" && values.includes(v));
+
+/** The node constructors of every C9 DTO spec. */
+export const operand = {
+  ref: leafOf("REF", ref),
+  nullableRef: leafOf("NULLABLE_REF", nullable(ref)),
+  text: leafOf("TEXT", text),
+  instant: leafOf("INSTANT", instant),
+  nullableInstant: leafOf("NULLABLE_INSTANT", nullable(instant)),
+  fingerprint: leafOf("FINGERPRINT", fingerprint),
+  sourceRef: leafOf("SOURCE_REF", sourceRef),
+  vocab: (values: readonly string[], ...from: string[]): LeafSpec => leafOf("VOCAB", member(values), values)(...from),
+  nullableVocab: (values: readonly string[], ...from: string[]): LeafSpec => leafOf("NULLABLE_VOCAB", nullable(member(values)), values)(...from),
+  literal: (value: string, ...from: string[]): LeafSpec => leafOf("LITERAL", literal(value), [value])(...from),
+  object: <T>(from: readonly string[], fields: DtoSpec<T>): ObjectSpec => ({ kind: "object", from, nullable: false, fields }),
+  nullableObject: <T>(from: readonly string[], fields: DtoSpec<T>): ObjectSpec => ({ kind: "object", from, nullable: true, fields }),
+  list: (from: readonly string[], item: NodeSpec): ListSpec => ({ kind: "list", from, item }),
+  variant: <T extends { state: string }>(from: readonly string[], variants: { readonly [S in T["state"]]: DtoSpec<Extract<T, { state: S }>> }): VariantSpec => ({
+    kind: "variant",
+    from,
+    variants: variants as unknown as VariantSpec["variants"],
+  }),
+};
+
+const MISSING = Symbol("MISSING");
+type Read = { ok: true; value: unknown } | { ok: false; path: string };
+
+const segment = (path: string, seg: string | number) => (typeof seg === "number" ? `${path}[${seg}]` : path === "" ? seg : `${path}.${seg}`);
+
+/** Own-property navigation over plain objects; anything else is MISSING (never a throw, never a default). */
+function at(raw: unknown, from: readonly string[], base: string): { value: unknown; path: string } {
+  let value = raw;
+  let path = base;
+  for (const k of from) {
+    path = segment(path, k);
+    value = isRecord(value) && Object.hasOwn(value, k) ? value[k] : MISSING;
+  }
+  return { value, path };
+}
+
+function readFields(fields: Readonly<Record<string, NodeSpec>>, raw: unknown, base: string): Read {
+  const out: Record<string, unknown> = {};
+  for (const [k, n] of Object.entries(fields)) {
+    const r = readNode(n, raw, base);
+    if (!r.ok) return r;
+    out[k] = r.value;
+  }
+  return { ok: true, value: out };
+}
+
+function readNode(n: NodeSpec, raw: unknown, base: string): Read {
+  const { value, path } = at(raw, n.from, base);
+  switch (n.kind) {
+    case "leaf": {
+      if (value === MISSING) return { ok: false, path };
+      const p = n.check(value);
+      return p === null ? { ok: true, value } : { ok: false, path: p === "" ? path : join(path, p) };
+    }
+    case "object":
+      if (n.nullable && value === null) return { ok: true, value: null };
+      return isRecord(value) ? readFields(n.fields, value, path) : { ok: false, path };
+    case "list": {
+      if (!Array.isArray(value)) return { ok: false, path };
+      const out: unknown[] = [];
+      for (let i = 0; i < value.length; i++) {
+        const r = readNode(n.item, value[i], segment(path, i));
+        if (!r.ok) return r;
+        out.push(r.value);
+      }
+      return { ok: true, value: out };
+    }
+    case "variant": {
+      if (!isRecord(value)) return { ok: false, path };
+      const tag = Object.hasOwn(value, "state") ? value.state : MISSING;
+      if (typeof tag !== "string" || !Object.hasOwn(n.variants, tag)) return { ok: false, path: segment(path, "state") };
+      return readFields(n.variants[tag], value, path);
+    }
+  }
+}
+
+/**
+ * THE mint of C9's validated primitives: copies exactly the operands `spec`
+ * names from a raw predecessor output, untransformed, and admits each one.
+ * Only on success is the copy a `T` (and its leaves C9 primitives); otherwise
+ * the issue names `<where>:<raw path>`. Never throws, never defaults.
+ */
+export function admitDto<T>(where: string, spec: DtoSpec<T>, raw: unknown): { ok: true; value: T } | { ok: false; issue: CattlePlanIssue } {
+  const r = readFields(spec as Readonly<Record<string, NodeSpec>>, raw, "");
+  return r.ok ? { ok: true, value: r.value as T } : { ok: false, issue: admissionIssue(where, r.path) };
+}
+
+/** The admission layer's own relation checks re-derive identities from canonical strings: an opaque ref is admitted here. */
+const admittedRef = (v: unknown): v is C9Ref => isOpaqueRef(v);
+
+// ---------------------------------------------------------------------------
+// Field tables — C9's own finished records (defence in depth)
 // ---------------------------------------------------------------------------
 
 export const VIEWPOINT_FIELDS = { effectiveAt: instant, knowledgeCutoff: instant } as const satisfies Fields<Pick<CattlePlanResult, "effectiveAt" | "knowledgeCutoff">>;
@@ -223,18 +389,19 @@ function workItemRelation(i: CattlePlanWorkItem): string | null {
   if (i.family === "C8_RECOMMENDATION") {
     if (i.cites !== null) return "cites";
     const kind = i.actionKey.slice("CATTLE_RECOMMENDATION:".length);
-    return isOpaqueRef(kind) && i.actionKey === recommendationActionKey(kind) ? null : "actionKey";
+    return admittedRef(kind) && i.actionKey === recommendationActionKey(kind) ? null : "actionKey";
   }
   const cites = i.cites === null ? undefined : parseJson(i.cites);
   if (i.family === "C2_OBLIGATION") {
     if (tuple(ref, nullable(ref))(cites) !== null) return "cites";
-    return i.actionKey === obligationActionKey((cites as [string, string | null])[0]) ? null : "actionKey";
+    const [obligationId] = cites as unknown[];
+    return admittedRef(obligationId) && i.actionKey === obligationActionKey(obligationId) ? null : "actionKey";
   }
   if (tuple(ref, ref, nullable(ref))(cites) !== null) return "cites";
   const key = i.actionKey.startsWith("CATTLE_PROGRAMME:") ? parseJson(i.actionKey.slice("CATTLE_PROGRAMME:".length)) : undefined;
   if (tuple(ref, ref)(key) !== null) return "actionKey";
-  const [programmeId, actionKind] = key as [string, string];
-  return programmeId === (cites as [string, string, string | null])[0] && i.actionKey === programmeActionKey(programmeId, actionKind) ? null : "actionKey";
+  const [programmeId, actionKind] = key as unknown[];
+  return admittedRef(programmeId) && admittedRef(actionKind) && programmeId === (cites as unknown[])[0] && i.actionKey === programmeActionKey(programmeId, actionKind) ? null : "actionKey";
 }
 
 export const NO_PROPOSAL_FIELDS = {
@@ -277,7 +444,7 @@ export const EVIDENCE_FIELDS = {
 } as const satisfies Fields<CanonicalEvidence>;
 
 // ---------------------------------------------------------------------------
-// The admission path
+// Finished-record checks (defence in depth over records built from admitted DTOs)
 // ---------------------------------------------------------------------------
 
 export const viewpointCheck = record(VIEWPOINT_FIELDS);
@@ -288,17 +455,8 @@ export const evidenceCheck = record(EVIDENCE_FIELDS);
 
 export const admissionIssue = (where: string, path: string): CattlePlanIssue => ({ code: ADMISSION_FAILED, ref: path === "" ? where : `${where}:${path}` });
 
-/** Admits `value` as a canonical C9 record, or returns the issue naming the first failing field. */
+/** Checks a finished canonical C9 record, or returns the issue naming the first failing field. */
 export function admit(where: string, check: Check, value: unknown): CattlePlanIssue | null {
   const p = check(value);
   return p === null ? null : admissionIssue(where, p);
-}
-
-/** Builds a candidate record from trusted output; a throw is missing structure C9 relies on — an issue, never a crash. */
-export function attempt<T>(where: string, build: () => T): { ok: true; value: T } | { ok: false; issue: CattlePlanIssue } {
-  try {
-    return { ok: true, value: build() };
-  } catch {
-    return { ok: false, issue: admissionIssue(where, "STRUCTURE") };
-  }
 }

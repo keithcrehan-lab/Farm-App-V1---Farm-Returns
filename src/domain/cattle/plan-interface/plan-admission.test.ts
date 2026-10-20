@@ -1,6 +1,8 @@
 /**
- * Cattle C9 — the admission boundary (F004 architecture review, Outcome B;
- * CAT-INV-028 as clarified 2026-10-15).
+ * Cattle C9 — the defence-in-depth checks of C9's finished canonical records
+ * (CAT-INV-028 as clarified 2026-10-15). The primary boundary — admission of
+ * every raw predecessor operand before derivation — is tested in
+ * `plan-adapters.test.ts` (F004 architecture review 2, Outcome C).
  *
  * - A generated mutation matrix over C9's OWN canonical records (never over
  *   the C2 / C4 / C7 / C8 shapes): every observed field is classified here,

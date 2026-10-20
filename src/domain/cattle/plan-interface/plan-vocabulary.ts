@@ -24,6 +24,7 @@ import type { ProgrammeOccurrenceState } from "../programmes";
 import type { BenefitClaim, RecommendationPriorityTier } from "../recommendations";
 import type { ObligationState } from "../regulatory";
 import type { LatestWeightState, ScopeMembershipState } from "../weights";
+import type { C9Fingerprint, C9Ref } from "./plan-admission";
 import type { CattlePlanFamily, CattlePlanOrigin } from "./plan-contracts";
 
 /** Own-property lookup: `undefined` for anything not in the table (fail closed at the caller). */
@@ -222,9 +223,18 @@ export const CATTLE_PLAN_VOCABULARY = {
 
 export type CattlePlanVocabularyRowId = keyof typeof CATTLE_PLAN_VOCABULARY;
 
-export const obligationActionKey = (obligationId: string) => `CATTLE_OBLIGATION:${obligationId}`;
-export const programmeActionKey = (programmeId: string, actionKind: string) => `CATTLE_PROGRAMME:${JSON.stringify([programmeId, actionKind])}`;
-export const recommendationActionKey = (actionKind: string) => `CATTLE_RECOMMENDATION:${actionKind}`;
+// Identifier constructors: each accepts only admitted C9 primitives (`plan-admission.ts`), never a raw
+// predecessor value — a malformed operand cannot reach an interpolation (F004 architecture review 2).
+export const obligationActionKey = (obligationId: C9Ref) => `CATTLE_OBLIGATION:${obligationId}`;
+export const programmeActionKey = (programmeId: C9Ref, actionKind: C9Ref) => `CATTLE_PROGRAMME:${JSON.stringify([programmeId, actionKind])}`;
+export const recommendationActionKey = (actionKind: C9Ref) => `CATTLE_RECOMMENDATION:${actionKind}`;
+
+/** The canonical records that prove completion (`CanonicalRecordRef.recordId`), each citing its owner's admitted identity. */
+export const obligationFulfilmentRecordId = (evidenceId: C9Ref) => `CATTLE_OBLIGATION_FULFILMENT:${evidenceId}`;
+export const programmeDeclarationRecordId = (declarationId: C9Ref) => `CATTLE_PROGRAMME_COMPLETION_DECLARATION:${declarationId}`;
+export const healthRecordRecordId = (healthRecordId: C9Ref) => `CATTLE_HEALTH_RECORD:${healthRecordId}`;
+export const weightSeriesRecordId = (series: C9Fingerprint) => `CATTLE_WEIGHT_SERIES:${series.digest}`;
+export const goalSnapshotRecordId = (snapshot: C9Fingerprint) => `CATTLE_GOAL_SNAPSHOT:${snapshot.digest}`;
 
 /** Deterministic title of a vocabulary row's job (a function of the action key alone). */
 export function vocabularyTitle(row: CattlePlanVocabularyRowId, actionKey: string): string {

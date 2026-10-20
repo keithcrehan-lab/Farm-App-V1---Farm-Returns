@@ -28,15 +28,19 @@
  * benefit claim, trigger reasons and prerequisite gate checks. Unresolved
  * required evidence is never a resolved-looking Plan state: it is a blocker
  * and never completion evidence.
+ *
+ * Inputs are the ADMITTED C9 DTOs (`plan-adapters.ts`) only — never a raw
+ * predecessor record — and every identifier is built by a constructor that
+ * accepts admitted C9 primitives. Absent optional structure is decided by
+ * explicit `=== null` tests on admitted values, never by defaults.
  */
 
 import { canonicalizeValue } from "../../assessment-integrity";
 import { compareStrings, sortedUnique } from "../integrity";
-import { programmeGateRuleId, type ProgrammeAnimalStatus, type ProgrammeOccurrenceRecord, type ProgrammeStatus } from "../programmes";
-import type { CattleRecommendation } from "../recommendations";
-import { OBLIGATION_STATES, type ObligationStateRecord } from "../regulatory";
-import { PROGRAMME_OCCURRENCE_STATES } from "../programmes";
-import { admit, attempt, noProposalCheck, workItemCheck } from "./plan-admission";
+import { PROGRAMME_OCCURRENCE_STATES, programmeGateRuleId } from "../programmes";
+import { OBLIGATION_STATES } from "../regulatory";
+import { admit, noProposalCheck, workItemCheck, type C9Ref } from "./plan-admission";
+import type { C2AnimalDto, C2Dto, C2RecordDto, C7AnimalDto, C7Dto, C7ProgrammeDto, C7RecordDto, C8ActionDto, C8CandidateDto, C8Dto, C8RecommendationDto } from "./plan-adapters";
 import type { CattlePlanBlocker, CattlePlanBlockerIdentity, CattlePlanFamily, CattlePlanIssue, CattlePlanNoProposal, CattlePlanSupport, CattlePlanTiming, CattlePlanWorkItem } from "./plan-contracts";
 import {
   C2_STATE_PLAN,
@@ -62,12 +66,20 @@ type Built = { items: CattlePlanWorkItem[]; withoutProposal: CattlePlanNoProposa
 const issue = (code: string, ref: string | null = null): CattlePlanIssue => ({ code, ref });
 const itemKey = (family: CattlePlanFamily, outputId: string) => JSON.stringify([family, outputId]);
 
+/** The identity fields a blocker cites (admitted, or derived from admitted operands only). */
+interface BlockerSubject {
+  outputId: string;
+  digest: string;
+  animalId: C9Ref;
+  occurrence: C9Ref | null;
+}
+
 // ---------------------------------------------------------------------------
 // Blockers (D3)
 // ---------------------------------------------------------------------------
 
 export function blockerOf(
-  identity: CattlePlanBlockerIdentity,
+  identity: CattlePlanBlockerIdentity & [string, string, string, string, "CATTLE_ANIMAL", C9Ref, C9Ref | null],
   status: CattlePlanBlocker["status"],
   kind: CattlePlanBlocker["kind"],
   gateState: string,
@@ -84,13 +96,13 @@ export function blockerOf(
 }
 
 /** A consumed C0 gate check (C7 action gate, C8 prerequisite gate) as a blocker; `null` when its state is outside the table. */
-function gateBlocker(family: string, item: { outputId: string; digest: string; animalId: string; occurrence: string | null }, ruleId: string, state: string, source: string | null): CattlePlanBlocker | null {
+function gateBlocker(family: string, item: BlockerSubject, ruleId: C9Ref, state: string, source: string | null): CattlePlanBlocker | null {
   const status = lookup(GATE_STATE_STATUS, state);
   if (status === undefined) return null;
-  return blockerOf([`${family}:${source ?? "NONE"}`, item.outputId, item.digest, ruleId, "CATTLE_ANIMAL", item.animalId, item.occurrence], status, source === "C3_WITHDRAWAL" ? "LEGAL_WINDOW" : "OTHER", state);
+  return blockerOf([`${family}:${source === null ? "NONE" : source}`, item.outputId, item.digest, ruleId, "CATTLE_ANIMAL", item.animalId, item.occurrence], status, source === "C3_WITHDRAWAL" ? "LEGAL_WINDOW" : "OTHER", state);
 }
 
-function stateBlocker(family: CattlePlanFamily, item: { outputId: string; digest: string; animalId: string; occurrence: string | null }, plan: StatePlan, gate: string, state: string): CattlePlanBlocker[] {
+function stateBlocker(family: CattlePlanFamily, item: BlockerSubject, plan: StatePlan, gate: string, state: string): CattlePlanBlocker[] {
   return plan.blocker === "NONE" ? [] : [blockerOf([family, item.outputId, item.digest, gate, "CATTLE_ANIMAL", item.animalId, item.occurrence], plan.blocker, "OTHER", state)];
 }
 
@@ -101,11 +113,11 @@ const NO_TIMING: CattlePlanTiming = { window: null, windowBasis: null, hardDeadl
 // ---------------------------------------------------------------------------
 
 /** B5 / D1 timing of a C2 record; `authorityProven: false` only for a legal / scheme hard-gate window without a unique CURRENT source. */
-export function c2Timing(r: Pick<ObligationStateRecord, "obligationId" | "occurrence" | "classification" | "gateRole" | "window" | "ruleEvaluation">): { timing: CattlePlanTiming; authorityProven: boolean } {
+export function c2Timing(r: Pick<C2RecordDto, "obligationId" | "occurrence" | "classification" | "gateRole" | "window" | "sourceChecks">): { timing: CattlePlanTiming; authorityProven: boolean } {
   if (r.window === null) return { timing: NO_TIMING, authorityProven: true };
-  const checks = r.ruleEvaluation.sourceChecks;
+  const checks = r.sourceChecks;
   const sourceChecks = checks.map((c) => ({ bound: c.bound, status: c.status }));
-  const ref = JSON.stringify([r.obligationId, r.occurrence?.occurrenceId ?? null, r.window.boundary]);
+  const ref = JSON.stringify([r.obligationId, r.occurrence === null ? null : r.occurrence.occurrenceId, r.window.boundary]);
   const window = { opensAt: r.window.opensAt, dueAt: r.window.dueAt, boundary: r.window.boundary };
   const legalHard = r.classification !== null && HARD_OBLIGATION_CLASSIFICATIONS.includes(r.classification) && r.gateRole === "HARD_GATE";
   if (!legalHard) return { timing: { window, windowBasis: `CATTLE_OBLIGATION_WINDOW_RECOMMENDED:${ref}`, hardDeadline: null, sourceChecks }, authorityProven: true };
@@ -121,17 +133,17 @@ export function c2Timing(r: Pick<ObligationStateRecord, "obligationId" | "occurr
 }
 
 /** B4 for C2. */
-export function c2Priority(r: Pick<ObligationStateRecord, "classification" | "gateRole" | "state">, plan: StatePlan): CattlePlanWorkItem["priority"] {
-  const what = `${r.classification ?? "NONE"}:${r.gateRole ?? "NONE"}:${r.state}`;
+export function c2Priority(r: Pick<C2RecordDto, "classification" | "gateRole" | "state">, plan: StatePlan): CattlePlanWorkItem["priority"] {
+  const what = `${r.classification === null ? "NONE" : r.classification}:${r.gateRole === null ? "NONE" : r.gateRole}:${r.state}`;
   if (plan.resolution === "UNRESOLVED") return { tier: "INFORMATION_VALUE", basis: `CATTLE_PLAN_PRIORITY_C2_EVIDENCE_RESOLUTION:${what}` };
   const legalHard = r.classification !== null && HARD_OBLIGATION_CLASSIFICATIONS.includes(r.classification) && r.gateRole === "HARD_GATE";
   return legalHard ? { tier: "HARD_OBLIGATION", basis: `CATTLE_PLAN_PRIORITY_C2_HARD_OBLIGATION:${what}` } : { tier: "ROUTINE_MANAGEMENT", basis: `CATTLE_PLAN_PRIORITY_C2_NON_HARD_WORK:${what}` };
 }
 
-export const c2OutputId = (animalId: string, obligationId: string, occurrenceId: string | null) => `CATTLE_OBLIGATION_STATE:${JSON.stringify([animalId, obligationId, occurrenceId])}`;
+export const c2OutputId = (animalId: C9Ref, obligationId: C9Ref, occurrenceId: C9Ref | null) => `CATTLE_OBLIGATION_STATE:${JSON.stringify([animalId, obligationId, occurrenceId])}`;
 
-function c2Item(e: { animalId: string }, r: ObligationStateRecord, out: Built): void {
-  const occurrenceId = r.occurrence?.occurrenceId ?? null;
+function c2Item(e: C2AnimalDto, r: C2RecordDto, out: Built): void {
+  const occurrenceId = r.occurrence === null ? null : r.occurrence.occurrenceId;
   const outputId = c2OutputId(e.animalId, r.obligationId, occurrenceId);
   const plan = lookup<StatePlan>(C2_STATE_PLAN, r.state);
   if (plan === undefined) {
@@ -142,9 +154,9 @@ function c2Item(e: { animalId: string }, r: ObligationStateRecord, out: Built): 
     out.withoutProposal.push({ family: "C2_OBLIGATION", outputId, outputFingerprint: r.fingerprint, animalId: e.animalId, consumedState: r.state, reason: `CATTLE_PLAN_NO_PROPOSAL:C2_${r.state}` });
     return;
   }
-  const ref = { outputId, digest: r.fingerprint.digest, animalId: e.animalId, occurrence: occurrenceId ?? r.obligationId };
+  const ref: BlockerSubject = { outputId, digest: r.fingerprint.digest, animalId: e.animalId, occurrence: occurrenceId === null ? r.obligationId : occurrenceId };
   const { timing, authorityProven } = c2Timing(r);
-  const blockers = stateBlocker("C2_OBLIGATION", ref, plan, r.ruleEvaluation.requestedRuleId, r.state);
+  const blockers = stateBlocker("C2_OBLIGATION", ref, plan, r.requestedRuleId, r.state);
   if (!authorityProven) blockers.push(blockerOf(["C2_OBLIGATION", outputId, ref.digest, DEADLINE_AUTHORITY_NOT_UNIQUELY_ESTABLISHED, "CATTLE_ANIMAL", e.animalId, ref.occurrence], "UNKNOWN", "OTHER", DEADLINE_AUTHORITY_NOT_UNIQUELY_ESTABLISHED));
   const actionKey = obligationActionKey(r.obligationId);
   out.items.push({
@@ -170,10 +182,10 @@ function c2Item(e: { animalId: string }, r: ObligationStateRecord, out: Built): 
 // C7
 // ---------------------------------------------------------------------------
 
-export const c7OutputId = (animalId: string, programmeId: string, actionId: string | null, occurrenceId: string | null) => `CATTLE_PROGRAMME_OCCURRENCE:${JSON.stringify([animalId, programmeId, actionId, occurrenceId])}`;
+export const c7OutputId = (animalId: C9Ref, programmeId: C9Ref, actionId: C9Ref | null, occurrenceId: C9Ref | null) => `CATTLE_PROGRAMME_OCCURRENCE:${JSON.stringify([animalId, programmeId, actionId, occurrenceId])}`;
 
-function c7Item(p: ProgrammeStatus, status: ProgrammeAnimalStatus, rec: ProgrammeOccurrenceRecord, out: Built): void {
-  const occurrenceId = rec.occurrence?.occurrenceId ?? null;
+function c7Item(p: C7ProgrammeDto, status: C7AnimalDto, rec: C7RecordDto, out: Built): void {
+  const occurrenceId = rec.occurrence === null ? null : rec.occurrence.occurrenceId;
   const outputId = c7OutputId(status.animalId, p.programmeId, rec.actionId, occurrenceId);
   const plan = lookup<StatePlan>(C7_STATE_PLAN, rec.state);
   if (plan === undefined) {
@@ -186,7 +198,8 @@ function c7Item(p: ProgrammeStatus, status: ProgrammeAnimalStatus, rec: Programm
     out.withoutProposal.push({ family: "C7_PROGRAMME", outputId, outputFingerprint: status.fingerprint, animalId: status.animalId, consumedState: rec.state, reason });
     return;
   }
-  const ref = { outputId, digest: status.fingerprint.digest, animalId: status.animalId, occurrence: occurrenceId ?? rec.actionId };
+  const ref: BlockerSubject = { outputId, digest: status.fingerprint.digest, animalId: status.animalId, occurrence: occurrenceId === null ? rec.actionId : occurrenceId };
+  // C7's own published identity of the action's hard-gate rule, over admitted operands.
   const blockers = stateBlocker("C7_PROGRAMME", ref, plan, programmeGateRuleId(p.programmeId, rec.actionId), rec.state);
   for (const g of rec.gates) {
     const b = gateBlocker("C7_GATE", ref, g.ruleId, g.state, g.source);
@@ -223,7 +236,7 @@ function c7Item(p: ProgrammeStatus, status: ProgrammeAnimalStatus, rec: Programm
 // ---------------------------------------------------------------------------
 
 /** D4 tier and vocabulary row of a proposed C8 action; `null` = unmapped (fail closed). */
-export function c8KindPlan(actionKind: string, benefitClaim: string, tier: string): { tier: CattlePlanWorkItem["priority"]["tier"]; row: CattlePlanVocabularyRowId; basis: string } | null {
+export function c8KindPlan(actionKind: C8ActionDto["actionKind"], benefitClaim: C8CandidateDto["benefitClaim"], tier: C8ActionDto["tier"]): { tier: CattlePlanWorkItem["priority"]["tier"]; row: CattlePlanVocabularyRowId; basis: string } | null {
   const known = lookup(C8_DEFAULT_KIND_PLAN, actionKind);
   if (known !== undefined) return { tier: known.tier, row: known.row, basis: `CATTLE_PLAN_PRIORITY_C8_KIND:${actionKind}` };
   if (benefitClaim !== "MODELLED") return null;
@@ -232,18 +245,17 @@ export function c8KindPlan(actionKind: string, benefitClaim: string, tier: strin
   return { tier: mapped as CattlePlanWorkItem["priority"]["tier"], row: "C8_MODELLED_ACTION", basis: `CATTLE_PLAN_PRIORITY_C8_MODELLED_TIER:${tier}:REGISTRY_DECLARED_UNREVIEWED` };
 }
 
-function c8Item(rec: CattleRecommendation, out: Built): void {
-  const record = rec.record;
-  const outputId = record.packId;
-  const plan = lookup<StatePlan>(C8_OUTCOME_PLAN, record.outcome);
+function c8Item(rec: C8RecommendationDto, out: Built): void {
+  const outputId = rec.packId;
+  const plan = lookup<StatePlan>(C8_OUTCOME_PLAN, rec.outcome);
   if (plan === undefined) {
-    out.issues.push(issue("CATTLE_PLAN_STATE_UNMAPPED", `C8:${record.outcome}`));
+    out.issues.push(issue("CATTLE_PLAN_STATE_UNMAPPED", `C8:${rec.outcome}`));
     return;
   }
-  const action = record.recommendedAction;
+  const action = rec.recommendedAction;
   if (!plan.proposal || action === null) {
-    const reason = plan.proposal ? "CATTLE_PLAN_NO_PROPOSAL:C8_NO_CONCRETE_ACTION" : `CATTLE_PLAN_NO_PROPOSAL:C8_${record.outcome}`;
-    out.withoutProposal.push({ family: "C8_RECOMMENDATION", outputId, outputFingerprint: rec.fingerprint, animalId: rec.animalId, consumedState: record.outcome, reason });
+    const reason = plan.proposal ? "CATTLE_PLAN_NO_PROPOSAL:C8_NO_CONCRETE_ACTION" : `CATTLE_PLAN_NO_PROPOSAL:C8_${rec.outcome}`;
+    out.withoutProposal.push({ family: "C8_RECOMMENDATION", outputId, outputFingerprint: rec.fingerprint, animalId: rec.animalId, consumedState: rec.outcome, reason });
     return;
   }
   const candidate = rec.candidates.find((c) => c.actionId === action.actionId);
@@ -257,17 +269,17 @@ function c8Item(rec: CattleRecommendation, out: Built): void {
     out.issues.push(issue("CATTLE_PLAN_ACTION_KIND_UNMAPPED", `${rec.animalId}:${action.actionKind}`));
     return;
   }
-  const ref = { outputId, digest: rec.fingerprint.digest, animalId: rec.animalId, occurrence: null };
+  const ref: BlockerSubject = { outputId, digest: rec.fingerprint.digest, animalId: rec.animalId, occurrence: null };
   const blockers: CattlePlanBlocker[] = [];
-  for (const g of candidate.gates.checks) {
+  for (const g of candidate.gates) {
     const b = gateBlocker("C8_GATE", ref, g.ruleId, g.state, g.source);
     if (b === null) out.issues.push(issue("CATTLE_PLAN_GATE_STATE_UNMAPPED", `C8:${g.state}`));
     else blockers.push(b);
   }
   // C0 derives the outcome from exactly these gates; a contradiction is an invariant failure, never repaired.
   const open = blockers.some((b) => b.status !== "CLEARED");
-  if (open !== (record.outcome !== "ACTIONABLE")) {
-    out.issues.push(issue("CATTLE_PLAN_OUTCOME_GATES_INCONSISTENT", `${rec.animalId}:${record.outcome}`));
+  if (open !== (rec.outcome !== "ACTIONABLE")) {
+    out.issues.push(issue("CATTLE_PLAN_OUTCOME_GATES_INCONSISTENT", `${rec.animalId}:${rec.outcome}`));
     return;
   }
   out.items.push({
@@ -278,8 +290,8 @@ function c8Item(rec: CattleRecommendation, out: Built): void {
     outputFingerprint: rec.fingerprint,
     animalId: rec.animalId,
     cites: null,
-    consumedState: record.outcome,
-    reasonCodes: sortedUnique(candidate.trigger.reasonCodes),
+    consumedState: rec.outcome,
+    reasonCodes: sortedUnique(candidate.reasonCodes),
     vocabularyRow: kind.row,
     actionKey: recommendationActionKey(action.actionKind),
     timing: NO_TIMING,
@@ -306,7 +318,7 @@ const PROGRAMME_TRIGGER = /^CATTLE_RECOMMENDATION_TRIGGER_PROGRAMME_([A-Z_]+):(.
 export function parseRestatementCitation(code: string): { family: "C2_OBLIGATION" | "C7_PROGRAMME"; state: string; cites: string } | null {
   const ob = OBLIGATION_TRIGGER.exec(code);
   const pr = ob === null ? PROGRAMME_TRIGGER.exec(code) : null;
-  const m = ob ?? pr;
+  const m = ob === null ? pr : ob;
   if (m === null) return null;
   let parsed: unknown;
   try {
@@ -368,14 +380,10 @@ export function foldRestatements(itemsIn: readonly CattlePlanWorkItem[]): Cattle
 // Admission
 // ---------------------------------------------------------------------------
 
-/** Maps ONE upstream record and admits every candidate it yields; nothing joins `out` unless all are admitted. */
+/** Maps ONE admitted record and checks every canonical record it yields (defence in depth); nothing joins `out` unless all pass. */
 function admitRecord(where: string, map: (local: Built) => void, out: Built): void {
   const local: Built = { items: [], withoutProposal: [], issues: [] };
-  const mapped = attempt(where, () => map(local));
-  if (!mapped.ok) {
-    out.issues.push(mapped.issue);
-    return;
-  }
+  map(local);
   const rejected = [...local.items.map((i) => admit(where, workItemCheck, i)), ...local.withoutProposal.map((n) => admit(where, noProposalCheck, n))].find((i) => i !== null);
   if (rejected !== undefined) {
     out.issues.push(rejected);
@@ -390,21 +398,13 @@ function admitRecord(where: string, map: (local: Built) => void, out: Built): vo
 // Entry
 // ---------------------------------------------------------------------------
 
-export function buildWorkItems(
-  obligations: readonly { animalId: string; results: readonly ObligationStateRecord[] }[] | null,
-  programmes: { programmes: readonly ProgrammeStatus[] } | null,
-  recommendations: readonly CattleRecommendation[],
-): Built {
+export function buildWorkItems(obligations: C2Dto | null, programmes: C7Dto | null, recommendations: C8Dto): Built {
   const out: Built = { items: [], withoutProposal: [], issues: [] };
-  // The admission boundary (plan-admission.ts): each upstream record is mapped from trusted output and its
-  // candidates admitted whole before they join the canonical set; a missing structure is an issue, never a crash.
-  const walk = (where: string, records: () => void) => {
-    const walked = attempt(where, records);
-    if (!walked.ok) out.issues.push(walked.issue);
-  };
-  if (obligations !== null) walk("C2", () => obligations.forEach((e) => e.results.forEach((r) => admitRecord("C2", (l) => c2Item(e, r, l), out))));
-  if (programmes !== null) walk("C7", () => programmes.programmes.forEach((p) => p.animals.forEach((a) => a.records.forEach((r) => admitRecord("C7", (l) => c7Item(p, a, r, l), out)))));
-  walk("C8", () => recommendations.forEach((rec) => admitRecord("C8", (l) => c8Item(rec, l), out)));
+  // Every input is an admitted C9 DTO (plan-adapters.ts); each canonical record built from one is checked whole
+  // before it joins the canonical set.
+  if (obligations !== null) for (const e of obligations.animals) for (const r of e.results) admitRecord("C2", (l) => c2Item(e, r, l), out);
+  if (programmes !== null) for (const p of programmes.programmes) for (const a of p.animals) for (const r of a.records) admitRecord("C7", (l) => c7Item(p, a, r, l), out);
+  for (const rec of recommendations.animals) admitRecord("C8", (l) => c8Item(rec, l), out);
   const keys = new Set<string>();
   for (const i of out.items) {
     if (keys.has(i.key)) out.issues.push(issue("CATTLE_PLAN_WORK_ITEM_IDENTITY_CONFLICT", i.key));

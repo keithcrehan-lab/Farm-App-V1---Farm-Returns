@@ -1691,13 +1691,52 @@ describe("C8 repair B — complete decision provenance (F003 / R1, R6)", () => {
 // ---------------------------------------------------------------------------
 
 describe("C8 bounded repair — genuine trust boundary: a stored / reloaded recommendation (CAT-INV-028)", () => {
-  it("every mutation of a stored recommendation (record, pack, context, candidates — every level) is rejected by verification", () => {
-    const rec = recOf(run(favourable({ actions: registry([SELL(["C2_OBLIGATION", "C3_WITHDRAWAL"]), action("SYNTH-OTHER")]), obligations: obligations({ evidence: [fulfilment()] }), health: health(CLEAR_RECORDS) })));
+  // Test-harness reliability amendment (human-authorised 2026-10-19; C8 semantics, cases and assertions unchanged).
+  // The one real mutation matrix of a stored recommendation is partitioned by the mutated path, so unrelated cases
+  // no longer share one 5-second wall-clock budget. Every mutation is still asserted exactly as before (rejected by
+  // verification, labelled); the first test keeps the positive control and size floor and proves the partition
+  // covers the whole matrix, each case in exactly one group.
+  const storedMutations = (() => {
+    let built: { rec: CattleRecommendation; matrix: ReturnType<typeof realMutations> } | null = null;
+    return () => {
+      if (built === null) {
+        const rec = recOf(run(favourable({ actions: registry([SELL(["C2_OBLIGATION", "C3_WITHDRAWAL"]), action("SYNTH-OTHER")]), obligations: obligations({ evidence: [fulfilment()] }), health: health(CLEAR_RECORDS) })));
+        const isMap = (path: string[]) => path.length === 4 && path[0] === "pack" && path[1] === "calculationSteps" && path[3] === "inputs";
+        built = { rec, matrix: realMutations(rec, isMap) };
+      }
+      return built;
+    };
+  })();
+  /** The mutated path's group: `context` / `record` / `pack` by their second level, everything else by its first. */
+  const mutationGroup = (label: string) => {
+    const path = label.split(" ")[0].split(".");
+    return ["context", "record", "pack"].includes(path[0]) && path.length > 1 ? `${path[0]}.${path[1]}` : path[0];
+  };
+  const MUTATION_GROUPS = [
+    "<root>", "animalId", "candidates", "context", "context.actions", "context.animal", "context.animalId", "context.economics",
+    "context.effectiveAt", "context.evaluationDate", "context.fingerprint", "context.goals", "context.health", "context.knowledgeCutoff", "context.modelEvaluations", "context.models",
+    "context.obligations", "context.performance", "context.programmes", "context.recommendationPayloadVersion", "context.weights", "effectiveAt", "fingerprint", "knowledgeCutoff",
+    "notCandidates", "pack", "pack.actionableActionId", "pack.additionalSourceRefs", "pack.architectureVersion", "pack.assumptions", "pack.calculationSteps", "pack.candidateActions",
+    "pack.conflictingInputs", "pack.engineVersion", "pack.evaluationDate", "pack.fingerprint", "pack.generatedAt", "pack.hardGateOutcomes", "pack.inputs", "pack.intent",
+    "pack.knownAt", "pack.limitations", "pack.missingInputs", "pack.outcome", "pack.outcomeReasonCodes", "pack.proposedActionId", "pack.recommendationId", "pack.rejectedAlternatives",
+    "pack.requiredHardGateRuleIds", "pack.review", "pack.ruleEvaluations", "pack.rulesetVersion", "pack.sourceRefs", "pack.targetScope", "pack.uncertainties", "recommendationPayloadVersion",
+    "record", "record.actionable", "record.assumptions", "record.evidence", "record.expectedOutcome", "record.explanation", "record.informationClass", "record.limitations",
+    "record.missingContextParts", "record.outcome", "record.packFingerprint", "record.packId", "record.reasonCodes", "record.recommendedAction", "record.regulatoryStatus", "record.sourceRefs",
+    "record.unknowns", "ties",
+  ];
+
+  it("every mutation of a stored recommendation (record, pack, context, candidates — every level) is rejected by verification — positive control and partition coverage", () => {
+    const { rec, matrix } = storedMutations();
     expect(verifyStored(rec).valid).toBe(true);
-    const isMap = (path: string[]) => path.length === 4 && path[0] === "pack" && path[1] === "calculationSteps" && path[3] === "inputs";
-    const matrix = realMutations(rec, isMap);
     expect(matrix.length).toBeGreaterThan(500);
-    for (const m of matrix) {
+    const groups = matrix.map((m) => mutationGroup(m.label));
+    expect([...new Set(groups)].sort()).toEqual([...MUTATION_GROUPS].sort());
+    for (const g of MUTATION_GROUPS) expect(groups.filter((x) => x === g).length, g).toBeGreaterThan(0);
+  });
+
+  it.each(MUTATION_GROUPS)("every mutation of a stored recommendation (record, pack, context, candidates — every level) is rejected by verification — %s", (group) => {
+    const { rec, matrix } = storedMutations();
+    for (const m of matrix.filter((x) => mutationGroup(x.label) === group)) {
       const copy = structuredClone(rec) as unknown as Record<string, unknown>;
       m.mutate(copy);
       expect(verifyStored(copy as unknown as CattleRecommendation).valid, m.label).toBe(false);

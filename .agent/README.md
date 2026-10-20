@@ -215,6 +215,55 @@ the paths it will create, review `verify`/`contracts`/`allowed_shared_paths`, se
 `brief_status` to `READY`, and commit. Tests: `python3 scripts/tests/agent-campaign.test.py`
 (also run by `agent-run.test.sh`).
 
+### Authorised amendments (human-only)
+
+Purpose: record a specific, human-authorised test/script/tooling change that falls inside a
+phase's `phase_base..HEAD` range but outside its scope (e.g. a reliability split of a frozen
+predecessor's test, or a reviewed repair of campaign tooling) without widening what build/fix
+agents may touch. First used for Cattle C9 (receipt `receipts/C9.json`).
+
+Each phase may carry `authorised_amendments`: a non-empty list of objects with exactly the keys
+`path`, `baseline_blob`, `result_blob`, `amendment_sha256`, `authorisation`. Manifest validation
+refuses any other shape.
+
+- Allowed: category B paths only (`*.test.*` / `*.spec.*`, `scripts/`, `src/tooling/`, `test/`,
+  `tests/`), as a plain repository-relative path, each listed once.
+- Prohibited: docs, rules and other category A paths; UI (C); production logic (D);
+  shared/frozen-contract or unbounded paths (E); migrations (F); `.agent/campaigns/` and the
+  harness records `.agent/CURRENT_TASK.md` / `.agent/TASK.json`; any path already inside the
+  phase's `scope_guard` or `allowed_shared_paths` (that is ordinary scope, not an amendment).
+- Exact content: `baseline_blob` must be the file's blob at the phase base and `result_blob`
+  its blob at the checked HEAD (two different full blob SHAs). Any other content is refused.
+- Content-only digest: `amendment_sha256` is the runner's `amendment_sha256(base, head, path)`,
+  a versioned SHA-256 over the path and the exact mode + bytes of the file at base and at head,
+  taken from `git diff --raw` and `git cat-file blob`. It never depends on patch formatting, git
+  config, attributes or `GIT_DIFF_OPTS`. Compute it with that function, never by hand.
+- `authorisation` is a one-line human record of who decided what, and when.
+
+Human-only: a human makes and commits the amended change, then commits the manifest entry.
+The list is never passed to build/fix agents and grants them nothing; amended paths are never
+added to builder/fixer scope. The manifest may differ from its phase-base copy only in this
+phase's `authorised_amendments`; any other manifest change is still out of scope. A build/fix
+checkpoint commit in the range that touched an amended path or the manifest stops the phase.
+
+Mismatch behaviour (checked by `scope_check` after every build/fix and at freeze):
+
+- a non-category-B amendment → `FROZEN_CONTRACT_CHANGE_REQUIRED`;
+- a baseline blob, result blob or digest that does not match → `AUTHORISED_AMENDMENT_MISMATCH`
+  (restore the exact authorised content; any other change needs a new human authorisation);
+- an agent checkpoint that touched an amended path or the manifest, or a manifest delta beyond
+  the amendment list → `TASK_SCOPE_EXPANSION_REQUIRED`.
+
+Receipt and freeze: the verified list is copied into the phase receipt. Receipt validation
+re-derives both blobs and the digest at the phase base and freeze SHA, and the receipt is
+invalid on any difference. The amended files lie inside `phase_base..HEAD`, so the standard
+and strict phase audits review them with the rest of the phase. CLOSURE_RECORD adds an
+`IMPLEMENTATION_LOG.md` line listing each amendment (path, short blobs, authorisation).
+
+Never use an amendment to bless an unexpected scope violation after the fact. A change that
+was not specifically authorised by a human before it was recorded is a scope stop. Resolve it
+by reverting, or by a separately authorised task, never by registering it here.
+
 ## Explicit broader and working-tree reviews
 
 ```sh

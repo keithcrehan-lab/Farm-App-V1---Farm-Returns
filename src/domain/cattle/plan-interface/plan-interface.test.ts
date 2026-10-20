@@ -413,41 +413,61 @@ describe("C9 delegation — B1 structural equivalence with C8's sealed context",
     }
   });
 
-  // F004 (CAT-INV-028, B5): a delegated output whose content no longer matches its own fingerprint — even with the
-  // fingerprint retained, so B1 equivalence alone would pass — is never read; it fails closed before Loose projection.
-  describe("consumed delegated outputs are re-verified through the owning phase's verifier", () => {
-    const INTEGRITY = ["CATTLE_PLAN_DELEGATED_OUTPUT_INTEGRITY_FAILED"];
+  // F004 (CAT-INV-028 as clarified 2026-10-15; architecture review Outcome B): the frozen engines' in-process outputs
+  // are trusted; what C9 admits into its OWN canonical records is not. Each fault below reaches a value C9 relies on
+  // structurally, uses as an identity, reads from a shared C0 shape or gives Plan meaning: it fails closed at the C9
+  // admission boundary with an issue naming the field — no proposals, never a throw. (Test-only module seams.)
+  describe("C9 admission boundary — malformed values never become canonical C9 records", () => {
+    const GROUP_RUN: Run = { ledgers: [ledgerOf(A, [{ id: "ga", value: GROUP }])], groupScopes: [{ groupRef: GROUP }], actions: registry([]) };
     const firstC2 = (f: (r: Loose) => void) => (herd: Loose) => (f(herd.animals[0].results[0]), herd);
     const firstC7 = (f: (a: Loose) => void) => (e: Loose) => (f(e.programmes[0].animals[0]), e);
     const firstC8 = (f: (a: Loose) => void) => (res: Loose) => (f(res.animals[0]), res);
-    const cases: { label: string; set: Partial<typeof faults>; run: Run; ref: string }[] = [
-      { label: "C2 nested source reference: bound.sourceId → null", set: { c2: 2, c2Mutate: firstC2((r) => (r.ruleEvaluation.sourceChecks[0].bound.sourceId = null)) }, run: OVERDUE_RUN, ref: "C2" },
-      { label: "C2 nested source reference: contentFingerprint removed", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation.sourceChecks[0].bound.contentFingerprint) }, run: OVERDUE_RUN, ref: "C2" },
-      { label: "C2 sourceChecks missing", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation.sourceChecks) }, run: OVERDUE_RUN, ref: "C2" },
-      { label: "C2 ruleEvaluation missing", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation) }, run: OVERDUE_RUN, ref: "C2" },
-      { label: "C2 window dueAt changed", set: { c2: 2, c2Mutate: firstC2((r) => (r.window.dueAt = "2099-01-01T00:00:00Z")) }, run: OVERDUE_RUN, ref: "C2" },
-      { label: "C2 state changed", set: { c2: 2, c2Mutate: firstC2((r) => (r.state = "SATISFIED")) }, run: OVERDUE_RUN, ref: "C2" },
-      { label: "C2 record moved to another animal", set: { c2: 2, c2Mutate: firstC2((r) => (r.animalId = "SYNTH-ELSEWHERE")) }, run: OVERDUE_RUN, ref: "C2" },
-      { label: "C2 results missing", set: { c2: 2, c2Mutate: (h: Loose) => (delete h.animals[0].results, h) }, run: OVERDUE_RUN, ref: "C2" },
-      { label: "C7 animal record state changed", set: { c7: 2, c7Mutate: firstC7((a) => (a.records[0].state = "COMPLETE")) }, run: { programmes: programmes() }, ref: "C7" },
-      { label: "C7 animal records missing", set: { c7: 2, c7Mutate: firstC7((a) => delete a.records) }, run: { programmes: programmes() }, ref: "C7" },
-      { label: "C8 record outcome changed", set: { c8Mutate: firstC8((a) => (a.record.outcome = a.record.outcome === "ACTIONABLE" ? "BLOCKED" : "ACTIONABLE")) }, run: OVERDUE_RUN, ref: "C8" },
-      { label: "C8 candidates missing", set: { c8Mutate: firstC8((a) => delete a.candidates) }, run: OVERDUE_RUN, ref: "C8" },
-      { label: "C8 animals missing", set: { c8Mutate: (res: Loose) => (delete res.animals, res) }, run: OVERDUE_RUN, ref: "C8" },
-      { label: "C4 member set changed", set: { c4Mutate: (s: Loose) => ((s.animals[0].state = "UNKNOWN"), s) }, run: { ledgers: [ledgerOf(A, [{ id: "ga", value: GROUP }])], groupScopes: [{ groupRef: GROUP }], actions: registry([]) }, ref: `C4:${GROUP}` },
-      { label: "C4 animals missing", set: { c4Mutate: (s: Loose) => (delete s.animals, s) }, run: { ledgers: [ledgerOf(A, [{ id: "ga", value: GROUP }])], groupScopes: [{ groupRef: GROUP }], actions: registry([]) }, ref: `C4:${GROUP}` },
+    const sourceId = (v: unknown) => firstC2((r) => (r.ruleEvaluation.sourceChecks[0].bound.sourceId = v));
+    const cases: { label: string; set: Partial<typeof faults>; run: Run; ref: string; code?: string }[] = [
+      // The five strict-audit regressions.
+      { label: "C2 shared source reference: sourceId null", set: { c2: 2, c2Mutate: sourceId(null) }, run: OVERDUE_RUN, ref: "C2:timing.hardDeadline.authority" },
+      { label: "C2 shared source reference: sourceId malformed", set: { c2: 2, c2Mutate: sourceId(" SYNTH-PADDED") }, run: OVERDUE_RUN, ref: "C2:timing.hardDeadline.authority" },
+      { label: "C2 sourceChecks missing (B5 mapping structure)", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation.sourceChecks) }, run: OVERDUE_RUN, ref: "C2:STRUCTURE" },
+      { label: "C8 effectiveAt null", set: { c8Mutate: (res: Loose) => ((res.effectiveAt = null), res) }, run: { actions: defaultOnly("RECORD_WEIGHT") }, ref: "VIEWPOINT:effectiveAt" },
+      { label: "C8 effectiveAt missing", set: { c8Mutate: (res: Loose) => (delete res.effectiveAt, res) }, run: { actions: defaultOnly("RECORD_WEIGHT") }, ref: "VIEWPOINT:effectiveAt" },
+      { label: "C4 member animal id null", set: { c4Mutate: (s: Loose) => ((s.animals[0].animalId = null), s) }, run: GROUP_RUN, ref: `C4:${GROUP}:members[0]` },
+      { label: "C4 member animal id malformed", set: { c4Mutate: (s: Loose) => ((s.animals[0].animalId = ""), s) }, run: GROUP_RUN, ref: `C4:${GROUP}:members[0]` },
+      // The same family: other shared / relied-upon structure.
+      { label: "C2 shared source reference: contentFingerprint missing", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation.sourceChecks[0].bound.contentFingerprint) }, run: OVERDUE_RUN, ref: "C2:timing.hardDeadline.authority" },
+      // Fingerprints are only compared (B1), never read as validity: an altered one is a B1 mismatch.
+      { label: "C2 output fingerprint malformed", set: { c2: 2, c2Mutate: firstC2((r) => (r.fingerprint = { ...r.fingerprint, digest: "SYNTH" })) }, run: OVERDUE_RUN, ref: `C2:${A}`, code: "CATTLE_PLAN_DELEGATION_EQUIVALENCE_MISMATCH" },
+      { label: "C2 ruleEvaluation missing", set: { c2: 2, c2Mutate: firstC2((r) => delete r.ruleEvaluation) }, run: OVERDUE_RUN, ref: "C2:STRUCTURE" },
+      { label: "C2 window instant malformed", set: { c2: 2, c2Mutate: firstC2((r) => (r.window.dueAt = "2026-02-30T00:00:00Z")) }, run: OVERDUE_RUN, ref: "C2:timing.window.dueAt" },
+      { label: "C2 results missing", set: { c2: 2, c2Mutate: (h: Loose) => (delete h.animals[0].results, h) }, run: OVERDUE_RUN, ref: "B1_EQUIVALENCE:STRUCTURE" },
+      { label: "C7 animal records missing", set: { c7: 2, c7Mutate: firstC7((a) => delete a.records) }, run: { programmes: programmes() }, ref: "C7:STRUCTURE" },
+      { label: "C7 animal id null", set: { c7: 2, c7Mutate: firstC7((a) => (a.animalId = null)) }, run: { programmes: programmes() }, ref: `C7:${A}`, code: "CATTLE_PLAN_DELEGATION_EQUIVALENCE_MISMATCH" },
+      { label: "C8 knowledgeCutoff malformed", set: { c8Mutate: (res: Loose) => ((res.knowledgeCutoff = "not-an-instant"), res) }, run: {}, ref: "VIEWPOINT:knowledgeCutoff" },
+      { label: "C8 candidates missing", set: { c8Mutate: firstC8((a) => delete a.candidates) }, run: {}, ref: "C8:STRUCTURE" },
+      { label: "C8 animals missing", set: { c8Mutate: (res: Loose) => (delete res.animals, res) }, run: {}, ref: "B1_EQUIVALENCE:STRUCTURE" },
+      { label: "C4 animals missing", set: { c4Mutate: (s: Loose) => (delete s.animals, s) }, run: GROUP_RUN, ref: `C4:${GROUP}:STRUCTURE` },
+      { label: "C4 scope fingerprint malformed", set: { c4Mutate: (s: Loose) => ((s.fingerprint = null), s) }, run: GROUP_RUN, ref: `C4:${GROUP}:scopeFingerprint` },
     ];
-    it.each(cases)("$label ⇒ an integrity issue, no proposals, never a throw", ({ set, run: r, ref }) => {
-      expect(run(r).ok).toBe(true);
+    it.each(cases)("$label ⇒ an issue ($ref), no proposals, never a throw", ({ set, run: r, ref, code = "CATTLE_PLAN_ADMISSION_FAILED" }) => {
+      expect(run(r).ok).toBe(true); // positive control
       try {
         Object.assign(faults, { c2Calls: 0, c7Calls: 0 }, set);
         let out: CattlePlanOutcome | undefined;
         expect(() => (out = run(r))).not.toThrow();
         expect(out!.ok).toBe(false);
-        expect(codes(out!)).toEqual(INTEGRITY);
-        expect(out!.ok ? null : out!.issues[0].ref).toBe(ref);
+        expect(out!.ok ? null : out!.issues).toEqual([{ code, ref }]);
       } finally {
         Object.assign(faults, { c2: 0, c7: 0, c2Mutate: null, c7Mutate: null, c8Mutate: null, c4Mutate: null });
+      }
+    });
+
+    it("trusted owner-specific values are not re-validated: a well-formed value C9 merely maps is admitted (CAT-INV-028 fault model)", () => {
+      try {
+        // Another valid frozen-vocabulary C2 state on the same record: an owner value, mapped through C9's total table.
+        Object.assign(faults, { c2: 2, c2Calls: 0, c2Mutate: firstC2((r) => (r.state = "UPCOMING")) });
+        const r = run(OVERDUE_RUN);
+        expect(codes(r)).not.toContain("CATTLE_PLAN_ADMISSION_FAILED");
+      } finally {
+        Object.assign(faults, { c2: 0, c2Mutate: null });
       }
     });
   });
@@ -836,7 +856,8 @@ describe("C9 completion evidence — canonical cattle records complete Plan jobs
     expect(planNotBeforeBound("2028-02-28T23:59:59.9995Z")).toBe("2028-02-29T00:00:00.000Z");
     expect(planNotBeforeBound("2026-12-31T23:59:59.9999999Z")).toBe("2027-01-01T00:00:00.000Z");
     for (const viewpoint of instants) {
-      const bound = planNotBeforeBound(viewpoint);
+      const bound = planNotBeforeBound(viewpoint)!;
+      expect(bound).not.toBeNull();
       expect(compareInstants(bound, viewpoint)).toBeGreaterThanOrEqual(0);
       if (/\.\d{3}0*Z$|:\d{2}Z$/.test(viewpoint)) expect(bound).toBe(viewpoint); // millisecond-aligned: unchanged
       else expect(Date.parse(bound)).toBe(Date.parse(viewpoint) + 1); // the least whole millisecond after
@@ -1099,7 +1120,7 @@ describe("C9 determinism, aliasing and the canonical boundary", () => {
   it("no clock, randomness, network, AI, persistence or tooling import in the production modules; Plan is imported, never modified", () => {
     const dir = path.resolve(__dirname);
     const production = readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "plan-test-fixtures.ts" && f !== "plan-test-support.ts");
-    expect(production.sort()).toEqual(["index.ts", "plan-contracts.ts", "plan-delegation.ts", "plan-evidence.ts", "plan-integrity.ts", "plan-interface.ts", "plan-merge.ts", "plan-vocabulary.ts", "plan-work-items.ts"]);
+    expect(production.sort()).toEqual(["index.ts", "plan-admission.ts", "plan-contracts.ts", "plan-delegation.ts", "plan-evidence.ts", "plan-integrity.ts", "plan-interface.ts", "plan-merge.ts", "plan-vocabulary.ts", "plan-work-items.ts"]);
     for (const f of production) {
       const src = readFileSync(path.join(dir, f), "utf8");
       expect(src, f).not.toMatch(/Date\.now|new Date\(|performance\.now|Math\.random|fetch\(|tooling|supabase|node:/);

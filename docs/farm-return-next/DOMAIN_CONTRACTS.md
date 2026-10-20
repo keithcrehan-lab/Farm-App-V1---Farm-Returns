@@ -4893,6 +4893,7 @@ no copy of a cattle record.
 | `plan-work-items.ts` | Canonical `CattlePlanWorkItem`s from the delegated outputs (selection and mapping only); C9's status / evidence precedence list (header); D2 folding (`parseRestatementCitation`, `foldRestatements`) |
 | `plan-merge.ts` | Identity = Plan `planJobIdentityKey` (called, never restated); `groupWorkItems` / `mergeProposalGroups` / `summariseGroup` (merge algebra); projections `projectProposal` → `PlanJobInput`, `projectBlockers` → `PlanBlocker[]`; `cattleAnimalScope`, `cattleGroupScope` |
 | `plan-evidence.ts` | `CanonicalEvidence` (vocabulary-driven) and `ScopeReality` (all-or-unknown) |
+| `plan-admission.ts` | THE admission boundary of C9's own canonical records (CAT-INV-028 as clarified; F004 Outcome B): field tables (`satisfies Fields<…>` drift guard), `admit` / `attempt`, issue `CATTLE_PLAN_ADMISSION_FAILED` |
 | `plan-integrity.ts` | Phase-local fingerprint wrapper `{kind, cattlePlanPayloadVersion: 1, payload}`; kind `CATTLE_PLAN_INTERFACE_RESULT` |
 | `plan-contracts.ts` | Types only |
 
@@ -4981,14 +4982,24 @@ no consumed output depends on do not. Change detection, not a signature.
 C7 `programmeGateRuleId`; `assessment-integrity.ts` canonicalisation and SHA-256 unchanged. No cattle
 derivation is restated.
 
-**Consumed-output integrity (CAT-INV-028, B5).** Before B1 equivalence or any projection, every
-delegated output C9 reads must be canonical plain data and re-verify through its owning phase's
-exported verifier: each C8 recommendation (`checkCattleRecommendationIntegrity`), each C2 state record
-(`verifyObligationStateRecord`, its `animalId` equal to its evaluation's), the C7 evaluation
-(`verifyProgrammeStatusEvaluation`) and each C4 scope (`verifyWeightFingerprint` over
-`scopeResolutionPayload`, its `groupRef` the requested one). A missing field or malformed nested source
-reference therefore fails closed with `CATTLE_PLAN_DELEGATED_OUTPUT_INTEGRITY_FAILED` (ref `C2` / `C7` /
-`C8` / `C4:<groupRef>`), never as deadline authority and never as a throw.
+**Admission boundary (CAT-INV-028 as clarified 2026-10-15; F004 architecture review, Outcome B).** The
+C2 / C4 / C7 / C8 outputs C9 obtains by invoking the frozen engines in-process are trusted to satisfy
+their owners' published contracts: C9 neither re-checks owner-specific invariants nor uses a predecessor
+fingerprint as a validator (fingerprints are carried as provenance and compared only for B1 equivalence).
+C9 owns the validity of what it admits into its OWN canonical records — the viewpoint, every
+`CattlePlanWorkItem` (with its timing, blockers, priority and folded support), `CattlePlanNoProposal`,
+`CattlePlanGroupScope` and the Plan `CanonicalEvidence` it builds: values it relies on structurally, uses
+as an identity / reference, reads from a shared C0 structure (`SourceVersionRef` as B5 deadline authority
+and source checks, `AssessmentFingerprint`) or gives Plan meaning (subjects, instants, vocabulary).
+`plan-admission.ts` is the one path: each record is built from trusted output (a throw is missing
+structure) and admitted against its field table (`isOpaqueRef`, `isValidAnimalInstant`, `fingerprintOf`,
+`sourceVersionRefOf`, C9's vocabularies, and the identities C9 derives: item key, citation, action key,
+blocker id) before grouping, merge or projection; any failure is `CATTLE_PLAN_ADMISSION_FAILED`
+(ref `<where>:<field path>`, `where` = `VIEWPOINT` / `C2` / `C7` / `C8` / `C4:<groupRef>` / `EVIDENCE` /
+`B1_EQUIVALENCE`), no proposals, never a throw. `planNotBeforeBound` / `completionContractFor` never
+turn an invalid viewpoint into a permissive cut-off (`null` ⇒ the proposal fails closed). Drift guard:
+each field table `satisfies` an exhaustive, exact `Fields<record>` type, and an undeclared key is rejected
+at runtime; the tables are keyed to C9's own records, never to the full predecessor shapes.
 
 **Known limitations.** No C2 / C7 / C8 output is group-level work, so no proposal is `DYNAMIC`. A C7
 action gate that is failing is an `ACTIVE` blocker even while C7 reports the occurrence `UPCOMING`. The

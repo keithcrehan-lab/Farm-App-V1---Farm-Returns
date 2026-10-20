@@ -191,7 +191,8 @@ export const cattlePlanJobId = (identityKey: string) => `CATTLE_PLAN_JOB:${ident
 export function projectProposal(group: CattlePlanProposalGroup, effectiveAt: string): PlanJobInput | null {
   const first = group.items[0];
   const timing = timingOf(group);
-  if (timing === null) return null;
+  const completionContract = completionContractFor(first.vocabularyRow, { identityKey: group.identityKey, animalId: first.animalId, windowed: first.timing.window !== null }, effectiveAt);
+  if (timing === null || completionContract === null) return null;
   return {
     id: cattlePlanJobId(group.identityKey),
     actionKey: first.actionKey,
@@ -201,7 +202,7 @@ export function projectProposal(group: CattlePlanProposalGroup, effectiveAt: str
     creationSource: creationSourceOf(group),
     supportingReasons: group.supportingReasons,
     scope: cattleAnimalScope(first.animalId),
-    completionContract: completionContractFor(first.vocabularyRow, { identityKey: group.identityKey, animalId: first.animalId, windowed: first.timing.window !== null }, effectiveAt),
+    completionContract,
     timing,
     dependencies: { jobIds: [], blockerIds: group.blockerIds },
     systemPriority: { tier: group.priority.tier, basis: basisOf(group.priority.bases) },

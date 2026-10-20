@@ -244,10 +244,12 @@ export const GOAL_IN_FORCE_REQUIREMENT = "CATTLE_PRODUCTION_GOAL_IN_FORCE";
  * carry up to nanoseconds: a sub-millisecond `iso` is rounded UP to the next
  * whole millisecond, so `Date.parse(observed) >= bound` implies `observed >= iso`
  * exactly (conservative: an observation in that same millisecond does not count).
- * A millisecond-aligned `iso` is returned as spelled.
+ * A millisecond-aligned `iso` is returned as spelled. An invalid `iso` is
+ * `null` — never passed through, and never read as "no cut-off" (the caller
+ * fails closed).
  */
-export function planNotBeforeBound(iso: string): string {
-  if (!isValidAnimalInstant(iso)) return iso;
+export function planNotBeforeBound(iso: string): string | null {
+  if (!isValidAnimalInstant(iso)) return null;
   const key = animalInstantKey(iso);
   if (/^0+$/.test(key.slice(-6))) return iso;
   // The next whole millisecond after the truncated instant, by field carry (no clock or Date object).
@@ -273,14 +275,17 @@ export function planNotBeforeBound(iso: string): string {
  * The completion contract of a job, from its vocabulary row and identity
  * alone — so every work item merged into one job has the same contract by
  * construction. `effectiveAt` is the request viewpoint (the instant the data
- * gap was identified at).
+ * gap was identified at); `null` when a required cut-off cannot be formed
+ * from it (fail closed — never a permissive contract).
  */
-export function completionContractFor(row: CattlePlanVocabularyRowId, identity: { identityKey: string; animalId: string; windowed: boolean }, effectiveAt: string): CompletionContract {
+export function completionContractFor(row: CattlePlanVocabularyRowId, identity: { identityKey: string; animalId: string; windowed: boolean }, effectiveAt: string): CompletionContract | null {
   switch (CATTLE_PLAN_VOCABULARY[row].completion) {
     case "OWNER_OCCURRENCE_COMPLETION":
       return identity.windowed ? { kind: "OPERATIONAL_RECORD", recordKind: occurrenceCompletionKind(identity.identityKey), coverage: "EACH_MEMBER", notBeforeIso: null } : { kind: "MANUAL" };
-    case "WEIGHT_OBSERVED_SINCE":
-      return { kind: "OPERATIONAL_RECORD", recordKind: weightObservationKind(identity.animalId), coverage: "EACH_MEMBER", notBeforeIso: planNotBeforeBound(effectiveAt) };
+    case "WEIGHT_OBSERVED_SINCE": {
+      const notBeforeIso = planNotBeforeBound(effectiveAt);
+      return notBeforeIso === null ? null : { kind: "OPERATIONAL_RECORD", recordKind: weightObservationKind(identity.animalId), coverage: "EACH_MEMBER", notBeforeIso };
+    }
     case "GOAL_IN_FORCE":
       return { kind: "DATA_COMPLETION", requirementKey: GOAL_IN_FORCE_REQUIREMENT };
     case "MANUAL":

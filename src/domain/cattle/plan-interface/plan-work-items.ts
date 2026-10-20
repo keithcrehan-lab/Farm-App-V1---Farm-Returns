@@ -36,6 +36,7 @@ import { programmeGateRuleId, type ProgrammeAnimalStatus, type ProgrammeOccurren
 import type { CattleRecommendation } from "../recommendations";
 import { OBLIGATION_STATES, type ObligationStateRecord } from "../regulatory";
 import { PROGRAMME_OCCURRENCE_STATES } from "../programmes";
+import { admit, attempt, noProposalCheck, workItemCheck } from "./plan-admission";
 import type { CattlePlanBlocker, CattlePlanBlockerIdentity, CattlePlanFamily, CattlePlanIssue, CattlePlanNoProposal, CattlePlanSupport, CattlePlanTiming, CattlePlanWorkItem } from "./plan-contracts";
 import {
   C2_STATE_PLAN,
@@ -129,44 +130,40 @@ export function c2Priority(r: Pick<ObligationStateRecord, "classification" | "ga
 
 export const c2OutputId = (animalId: string, obligationId: string, occurrenceId: string | null) => `CATTLE_OBLIGATION_STATE:${JSON.stringify([animalId, obligationId, occurrenceId])}`;
 
-function c2Items(evaluations: readonly { animalId: string; results: readonly ObligationStateRecord[] }[], out: Built): void {
-  for (const e of evaluations) {
-    for (const r of e.results) {
-      const occurrenceId = r.occurrence?.occurrenceId ?? null;
-      const outputId = c2OutputId(e.animalId, r.obligationId, occurrenceId);
-      const plan = lookup<StatePlan>(C2_STATE_PLAN, r.state);
-      if (plan === undefined) {
-        out.issues.push(issue("CATTLE_PLAN_STATE_UNMAPPED", `C2:${r.state}`));
-        continue;
-      }
-      if (!plan.proposal) {
-        out.withoutProposal.push({ family: "C2_OBLIGATION", outputId, outputFingerprint: r.fingerprint, animalId: e.animalId, consumedState: r.state, reason: `CATTLE_PLAN_NO_PROPOSAL:C2_${r.state}` });
-        continue;
-      }
-      const ref = { outputId, digest: r.fingerprint.digest, animalId: e.animalId, occurrence: occurrenceId ?? r.obligationId };
-      const { timing, authorityProven } = c2Timing(r);
-      const blockers = stateBlocker("C2_OBLIGATION", ref, plan, r.ruleEvaluation.requestedRuleId, r.state);
-      if (!authorityProven) blockers.push(blockerOf(["C2_OBLIGATION", outputId, ref.digest, DEADLINE_AUTHORITY_NOT_UNIQUELY_ESTABLISHED, "CATTLE_ANIMAL", e.animalId, ref.occurrence], "UNKNOWN", "OTHER", DEADLINE_AUTHORITY_NOT_UNIQUELY_ESTABLISHED));
-      const actionKey = obligationActionKey(r.obligationId);
-      out.items.push({
-        key: itemKey("C2_OBLIGATION", outputId),
-        family: "C2_OBLIGATION",
-        origin: "OBLIGATION",
-        outputId,
-        outputFingerprint: r.fingerprint,
-        animalId: e.animalId,
-        cites: JSON.stringify([r.obligationId, occurrenceId]),
-        consumedState: r.state,
-        reasonCodes: sortedUnique(r.reasonCodes),
-        vocabularyRow: "C2_OBLIGATION",
-        actionKey,
-        timing,
-        blockers,
-        priority: c2Priority(r, plan),
-        supporting: [],
-      });
-    }
+function c2Item(e: { animalId: string }, r: ObligationStateRecord, out: Built): void {
+  const occurrenceId = r.occurrence?.occurrenceId ?? null;
+  const outputId = c2OutputId(e.animalId, r.obligationId, occurrenceId);
+  const plan = lookup<StatePlan>(C2_STATE_PLAN, r.state);
+  if (plan === undefined) {
+    out.issues.push(issue("CATTLE_PLAN_STATE_UNMAPPED", `C2:${r.state}`));
+    return;
   }
+  if (!plan.proposal) {
+    out.withoutProposal.push({ family: "C2_OBLIGATION", outputId, outputFingerprint: r.fingerprint, animalId: e.animalId, consumedState: r.state, reason: `CATTLE_PLAN_NO_PROPOSAL:C2_${r.state}` });
+    return;
+  }
+  const ref = { outputId, digest: r.fingerprint.digest, animalId: e.animalId, occurrence: occurrenceId ?? r.obligationId };
+  const { timing, authorityProven } = c2Timing(r);
+  const blockers = stateBlocker("C2_OBLIGATION", ref, plan, r.ruleEvaluation.requestedRuleId, r.state);
+  if (!authorityProven) blockers.push(blockerOf(["C2_OBLIGATION", outputId, ref.digest, DEADLINE_AUTHORITY_NOT_UNIQUELY_ESTABLISHED, "CATTLE_ANIMAL", e.animalId, ref.occurrence], "UNKNOWN", "OTHER", DEADLINE_AUTHORITY_NOT_UNIQUELY_ESTABLISHED));
+  const actionKey = obligationActionKey(r.obligationId);
+  out.items.push({
+    key: itemKey("C2_OBLIGATION", outputId),
+    family: "C2_OBLIGATION",
+    origin: "OBLIGATION",
+    outputId,
+    outputFingerprint: r.fingerprint,
+    animalId: e.animalId,
+    cites: JSON.stringify([r.obligationId, occurrenceId]),
+    consumedState: r.state,
+    reasonCodes: sortedUnique(r.reasonCodes),
+    vocabularyRow: "C2_OBLIGATION",
+    actionKey,
+    timing,
+    blockers,
+    priority: c2Priority(r, plan),
+    supporting: [],
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -368,6 +365,28 @@ export function foldRestatements(itemsIn: readonly CattlePlanWorkItem[]): Cattle
 }
 
 // ---------------------------------------------------------------------------
+// Admission
+// ---------------------------------------------------------------------------
+
+/** Maps ONE upstream record and admits every candidate it yields; nothing joins `out` unless all are admitted. */
+function admitRecord(where: string, map: (local: Built) => void, out: Built): void {
+  const local: Built = { items: [], withoutProposal: [], issues: [] };
+  const mapped = attempt(where, () => map(local));
+  if (!mapped.ok) {
+    out.issues.push(mapped.issue);
+    return;
+  }
+  const rejected = [...local.items.map((i) => admit(where, workItemCheck, i)), ...local.withoutProposal.map((n) => admit(where, noProposalCheck, n))].find((i) => i !== null);
+  if (rejected !== undefined) {
+    out.issues.push(rejected);
+    return;
+  }
+  out.items.push(...local.items);
+  out.withoutProposal.push(...local.withoutProposal);
+  out.issues.push(...local.issues);
+}
+
+// ---------------------------------------------------------------------------
 // Entry
 // ---------------------------------------------------------------------------
 
@@ -377,9 +396,15 @@ export function buildWorkItems(
   recommendations: readonly CattleRecommendation[],
 ): Built {
   const out: Built = { items: [], withoutProposal: [], issues: [] };
-  if (obligations !== null) c2Items(obligations, out);
-  if (programmes !== null) for (const p of programmes.programmes) for (const a of p.animals) for (const r of a.records) c7Item(p, a, r, out);
-  for (const rec of recommendations) c8Item(rec, out);
+  // The admission boundary (plan-admission.ts): each upstream record is mapped from trusted output and its
+  // candidates admitted whole before they join the canonical set; a missing structure is an issue, never a crash.
+  const walk = (where: string, records: () => void) => {
+    const walked = attempt(where, records);
+    if (!walked.ok) out.issues.push(walked.issue);
+  };
+  if (obligations !== null) walk("C2", () => obligations.forEach((e) => e.results.forEach((r) => admitRecord("C2", (l) => c2Item(e, r, l), out))));
+  if (programmes !== null) walk("C7", () => programmes.programmes.forEach((p) => p.animals.forEach((a) => a.records.forEach((r) => admitRecord("C7", (l) => c7Item(p, a, r, l), out)))));
+  walk("C8", () => recommendations.forEach((rec) => admitRecord("C8", (l) => c8Item(rec, l), out)));
   const keys = new Set<string>();
   for (const i of out.items) {
     if (keys.has(i.key)) out.issues.push(issue("CATTLE_PLAN_WORK_ITEM_IDENTITY_CONFLICT", i.key));

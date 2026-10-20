@@ -32,6 +32,7 @@ import type { ProgrammeStatusEvaluation } from "../programmes";
 import type { CattleRecommendation } from "../recommendations";
 import type { AnimalObligationEvaluation } from "../regulatory";
 import type { ScopeResolution } from "../weights";
+import { admit, attempt, evidenceCheck, groupScopeCheck } from "./plan-admission";
 import type { CattlePlanGroupScope, CattlePlanIssue } from "./plan-contracts";
 import { cattleGroupScope, cattleWorkIdentity } from "./plan-merge";
 import {
@@ -69,7 +70,20 @@ function occurrenceEntry(e: OccurrenceEvidence): Records {
   return { status: "AVAILABLE", records };
 }
 
+/** The Plan `CanonicalEvidence` C9 builds, admitted whole (`plan-admission.ts`) before Plan may read it. */
 export function buildCanonicalEvidence(
+  obligations: readonly AnimalObligationEvaluation[] | null,
+  programmes: ProgrammeStatusEvaluation | null,
+  recommendations: readonly CattleRecommendation[],
+): { ok: true; evidence: CanonicalEvidence } | { ok: false; issues: CattlePlanIssue[] } {
+  const built = attempt("EVIDENCE", () => evidenceCandidate(obligations, programmes, recommendations));
+  if (!built.ok) return { ok: false, issues: [built.issue] };
+  if (!built.value.ok) return built.value;
+  const rejected = admit("EVIDENCE", evidenceCheck, built.value.evidence);
+  return rejected === null ? built.value : { ok: false, issues: [rejected] };
+}
+
+function evidenceCandidate(
   obligations: readonly AnimalObligationEvaluation[] | null,
   programmes: ProgrammeStatusEvaluation | null,
   recommendations: readonly CattleRecommendation[],
@@ -160,8 +174,7 @@ export function buildCanonicalEvidence(
   };
 }
 
-/** The canonical C9 view of one C4 group resolution, and its Plan `ScopeReality` entry (all-or-unknown). */
-export function groupScopeOf(groupRef: string, scope: ScopeResolution): { ok: true; canonical: CattlePlanGroupScope; entry: ScopeRealityEntry } | { ok: false; issues: CattlePlanIssue[] } {
+function groupScopeCandidate(groupRef: string, scope: ScopeResolution): { ok: true; canonical: CattlePlanGroupScope; unresolved: boolean } | { ok: false; issues: CattlePlanIssue[] } {
   const byState = { MEMBER: [] as string[], NOT_MEMBER: [] as string[], UNKNOWN: [] as string[], EVIDENCE_CONFLICT: [] as string[], INVALID: [] as string[] };
   let unresolved = false;
   for (const a of scope.animals) {
@@ -171,15 +184,33 @@ export function groupScopeOf(groupRef: string, scope: ScopeResolution): { ok: tr
     if (meaning === "UNRESOLVED") unresolved = true;
   }
   const sort = (xs: string[]) => [...xs].sort(compareStrings);
-  const canonical: CattlePlanGroupScope = {
-    groupRef,
-    scopeFingerprint: scope.fingerprint,
-    members: sort(byState.MEMBER),
-    notMembers: sort(byState.NOT_MEMBER),
-    unknown: sort(byState.UNKNOWN),
-    conflict: sort(byState.EVIDENCE_CONFLICT),
-    invalid: sort(byState.INVALID),
+  return {
+    ok: true,
+    unresolved,
+    canonical: {
+      groupRef,
+      scopeFingerprint: scope.fingerprint,
+      members: sort(byState.MEMBER),
+      notMembers: sort(byState.NOT_MEMBER),
+      unknown: sort(byState.UNKNOWN),
+      conflict: sort(byState.EVIDENCE_CONFLICT),
+      invalid: sort(byState.INVALID),
+    },
   };
+}
+
+/**
+ * The canonical C9 view of one C4 group resolution — admitted (`plan-admission.ts`) before any Plan subject
+ * is built from it — and its Plan `ScopeReality` entry (all-or-unknown).
+ */
+export function groupScopeOf(groupRef: string, scope: ScopeResolution): { ok: true; canonical: CattlePlanGroupScope; entry: ScopeRealityEntry } | { ok: false; issues: CattlePlanIssue[] } {
+  const where = `C4:${groupRef}`;
+  const built = attempt(where, () => groupScopeCandidate(groupRef, scope));
+  if (!built.ok) return { ok: false, issues: [built.issue] };
+  if (!built.value.ok) return built.value;
+  const { canonical, unresolved } = built.value;
+  const rejected = admit(where, groupScopeCheck, canonical);
+  if (rejected !== null) return { ok: false, issues: [rejected] };
   const selector = (cattleGroupScope(groupRef) as Extract<ReturnType<typeof cattleGroupScope>, { kind: "DYNAMIC" }>).selector;
   const entry: ScopeRealityEntry = unresolved
     ? { selector, membership: { status: "UNKNOWN", reason: `CATTLE_GROUP_MEMBERSHIP_UNRESOLVED:${JSON.stringify({ unknown: canonical.unknown, conflict: canonical.conflict, invalid: canonical.invalid })}` } }

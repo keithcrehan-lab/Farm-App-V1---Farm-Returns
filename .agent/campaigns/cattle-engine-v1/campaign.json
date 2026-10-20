@@ -204,7 +204,12 @@
       "build_state_key": "c9_plan_interface",
       "scope_guard": ["src/domain/cattle/plan-interface"],
       "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "src/domain/cattle/index.ts"],
-      "policy": {"medium_rounds": 2, "high_rounds": 2, "attempts_per_signature": 2}
+      "policy": {"medium_rounds": 2, "high_rounds": 2, "attempts_per_signature": 2},
+      "authorised_amendments": [
+        {"path": "src/domain/cattle/recommendations/recommendations.test.ts", "baseline_blob": "9ce65076d64e89aacb136b9e06649ad94f3a1e3f", "result_blob": "17790adc45cbfe9fbfef2adc627af2805a1a190d", "amendment_sha256": "5d06115151709797a9b29018023afaa7d082c958e420cdc13353e5be423e1e17", "authorisation": "human 2026-10-20: authorised frozen-C8 test-only reliability split of the recommendation mutation test (1160 mutations into 74 groups); zero semantic coverage loss, no assertion weakening, no C8 production change"},
+        {"path": "scripts/agent-campaign-run", "baseline_blob": "8e4b0303aefa1fc95df3cca3d549f24db2d33a93", "result_blob": "cc58f756c0456c655fb5e84b1aadcead8244b405", "amendment_sha256": "217eab0a82c519d3d2b22718406aa5fa6301d87b88c454dfa72b07f17597f36d", "authorisation": "human 2026-10-20: authorised campaign tooling repair supporting exact content-pinned frozen-phase amendments without widening build/fix-agent scope (aa4af97, 11c3b70, 095b51d)"},
+        {"path": "scripts/tests/agent-campaign.test.py", "baseline_blob": "f212d7fa36727e0b17b99ea75d0fdeb802315d0b", "result_blob": "7d01fcb4e54721525c75baa410d6f53c44f8abba", "amendment_sha256": "adcb10f5453570e55bd8d58037108e75b8d515273f3edbe4914c79e43542dc6f", "authorisation": "human 2026-10-20: authorised tests for the campaign amendment mechanism (aa4af97, 11c3b70, 095b51d)"}
+      ]
     },
     {
       "id": "C10",

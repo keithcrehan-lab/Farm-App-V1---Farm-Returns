@@ -221,13 +221,13 @@
       "brief": ".agent/campaigns/cattle-engine-v1/C10_BRIEF.md",
       "brief_status": "READY",
       "domains": ["cattle", "ui"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/PRODUCT_RULES.md", ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md", ".agent/campaigns/cattle-engine-v1/AUTONOMY.md", ".agent/skills/cattle-evidence-rules.md", "docs/farm-return-next/cattle/index.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
-      "verify": "npx vitest run cattle src/components/shell --maxWorkers=1 && npm run typecheck && npm run lint",
+      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/PRODUCT_RULES.md", ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md", ".agent/campaigns/cattle-engine-v1/AUTONOMY.md", ".agent/campaigns/cattle-engine-v1/C10_PREBUILD_REVIEW.md", ".agent/skills/cattle-evidence-rules.md", "design/farm-spatial-v2/DESIGN_CONTRACT.md", "docs/farm-return-next/cattle/index.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "verify": "npx vitest run cattle animal-plan src/components/shell --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c10_cattle_ux",
-      "scope_guard": ["src/app/(app)/cattle", "src/components/cattle", "src/domain/cattle/presentation"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "src/domain/cattle/index.ts", "src/components/shell/nav-items.ts", "src/components/shell/nav-items.test.ts", "src/components/shell/nav-items.test.tsx"],
+      "scope_guard": ["src/app/(app)/cattle", "src/components/cattle", "src/domain/cattle/presentation", "src/domain/animal-plan", "src/server/cattle-demo"],
+      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "src/domain/cattle/index.ts", "src/components/shell/nav-items.ts", "src/components/shell/nav-items.test.ts", "src/components/shell/nav-items.test.tsx"],
       "policy": {"medium_rounds": 2, "high_rounds": 2, "attempts_per_signature": 2}
     }
   ]

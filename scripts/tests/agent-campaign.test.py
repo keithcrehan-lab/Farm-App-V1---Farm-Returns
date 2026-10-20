@@ -37,6 +37,7 @@ n = int(open(d + '/claude.n').read()) + 1 if os.path.exists(d + '/claude.n') els
 open(d + '/claude.n', 'w').write(str(n))
 prompt = sys.argv[sys.argv.index('-p') + 1] if '-p' in sys.argv else ''
 open(d + '/claude.prompts', 'a').write('=== call %d\n%s\n' % (n, prompt))
+open(d + '/claude.scope', 'a').write('%s\n' % os.environ.get('AGENT_CAMPAIGN_ALLOWED_SHARED_JSON', ''))
 seq = json.load(open(d + '/claude.json'))
 act = seq[n - 1] if n <= len(seq) else 'unexpected'
 def change():
@@ -54,6 +55,11 @@ elif act == 'migration':
     os.makedirs('supabase/migrations', exist_ok=True); open('supabase/migrations/0001_x.sql', 'w').write('select 1;\n')
 elif act == 'outside':
     os.makedirs('src/domain/other', exist_ok=True); open('src/domain/other/escape.ts', 'w').write('export const escape = 1;\n')
+elif act == 'amended':
+    open('src/x0/frozen.test.ts', 'a').write('// agent edit of a human-authorised amendment\n')
+elif act == 'manifest':   # smuggled alongside a legitimate in-scope edit
+    change(); p = '.agent/campaigns/fx/campaign.json'; m = json.load(open(p))
+    m['phases'][0]['allowed_shared_paths'].append('src/x0/frozen.test.ts'); open(p, 'w').write(json.dumps(m, indent=2) + '\n')
 elif act == 'frozen':
     os.makedirs('src/domain', exist_ok=True); open('src/domain/evidence.ts', 'w').write('export const x = 1;\n')
 elif act == 'contracts_add':
@@ -1672,6 +1678,198 @@ class CampaignTests(unittest.TestCase):
         rc, out = fix('--dry-run'); self.assertEqual(rc, 0, out); self.assertIn('no findings to fix', out)  # default unchanged: C/H only
         self.assertEqual(self.calls('claude'), 1)
 
+
+    # ── 37: human-authorised amendments outside the phase scope ──────────
+    FROZEN = 'src/x0/frozen.test.ts'
+
+    def amendment_fixture(self):
+        """X1 ready; a frozen predecessor's test exists at the phase base; X1 stops on a Critical."""
+        self.write(self.FROZEN, 'it("a", () => { expect(1).toBe(1); });\n')
+        self.one_phase()
+        self.seq(['done', 'done'], [{'f': [['CRITICAL', 'Needs a human']]}, CLEAN, CLEAN])
+        self.run_campaign()
+        self.stopped('CRITICAL_FINDING')
+        return self.state()['phases']['X1']['base_sha']
+
+    def human_amend(self, extra=''):
+        self.write(self.FROZEN, 'it("a1", () => { expect(1).toBe(1); });\nit("a2", () => { expect(2).toBe(2); });\n' + extra)
+        self.commit('human: reviewed test-only amendment of a frozen predecessor test')
+
+    def canonical_patch_sha(self, base, h, path):
+        out = subprocess.run([REAL_GIT, 'diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--no-relative',
+                              '--full-index', '--diff-algorithm=myers', '--indent-heuristic', '--inter-hunk-context=0', '-U3',
+                              '--src-prefix=a/', '--dst-prefix=b/', base, h, '--', path], cwd=self.R, capture_output=True, check=True).stdout
+        import hashlib
+        return hashlib.sha256(out).hexdigest()
+
+    def entry(self, base, h='HEAD', path=None, **over):
+        path = path or self.FROZEN
+        e = dict(path=path, baseline_blob=self.git('rev-parse', '%s:%s' % (base, path)), result_blob=self.git('rev-parse', '%s:%s' % (h, path)),
+                 patch_sha256=self.canonical_patch_sha(base, self.git('rev-parse', h), path), authorisation='human 2026-10-20: test-only split, reviewed')
+        e.update(over)
+        return e
+
+    def record_amendments(self, entries, msg='manifest: record the human-authorised amendment', **phase_over):
+        self.manifest['phases'][0]['authorised_amendments'] = entries
+        self.manifest['phases'][0].update(phase_over)
+        self.write(CAMP + '/campaign.json', json.dumps(self.manifest, indent=2) + '\n')
+        self.commit(msg)
+
+    def scope(self, base, h='HEAD', agent_commits=()):
+        """scope_check in the fixture repo → None or (reason, detail)."""
+        mod = self.module()
+        cwd = os.getcwd(); os.chdir(self.R)
+        try:
+            m = mod.load_manifest(CID)
+            mod.scope_check(m, mod.phase_by_id(m, 'X1'), base, self.git('rev-parse', h), list(agent_commits))
+            return None
+        except mod.Stop as e:
+            return e.reason, e.detail
+        finally:
+            os.chdir(cwd)
+
+    def test_37a_authorised_amendment_is_accepted_and_recorded(self):
+        base = self.amendment_fixture()
+        self.human_amend()
+        e = self.entry(base)
+        self.record_amendments([e])
+        self.run_campaign('--resolve-stop', '--note', 'human-authorised amendment recorded in the manifest')
+        self.assertEqual(self.rc, 0, self.out)
+        self.run_campaign()
+        self.stopped('PHASE_NOT_READY')
+        x1 = self.state()['phases']['X1']
+        self.assertEqual(x1['stage'], 'COMPLETE', self.out)
+        self.assertEqual([a['tier'] for a in x1['audits']], ['standard', 'standard', 'strict'])
+        r = self.receipt('X1')
+        self.assertEqual(r['authorised_amendments'], [e])
+        self.assertEqual(r['frozen_contract_status'], 'UNCHANGED')
+        self.assertIsNone(self.validate('X1'))
+        self.assertIn('Human-authorised amendments outside the phase scope', (self.R / 'docs/farm-return-next/IMPLEMENTATION_LOG.md').read_text())
+        # The fixer never saw the amended path as writable: its scope is the unchanged allow-list.
+        for line in (self.T / 'claude.scope').read_text().splitlines():
+            self.assertNotIn(self.FROZEN, line); self.assertNotIn('campaign.json', line)
+        # A receipt whose amendment record is altered no longer validates.
+        self.rewrite_receipt('X1', lambda r: r['authorised_amendments'][0].update(result_blob=e['baseline_blob'][::-1]))
+        self.assertIn('does not match', self.validate('X1') or '')
+
+    def test_37b_unauthorised_frozen_test_change_is_rejected_at_freeze(self):
+        self.amendment_fixture()
+        self.human_amend()
+        self.run_campaign('--resolve-stop', '--note', 'no manifest record')
+        self.run_campaign()
+        self.stopped('TASK_SCOPE_EXPANSION_REQUIRED'); self.assertIn(self.FROZEN, self.out)
+        self.assertNotEqual(self.state()['phases']['X1']['stage'], 'COMPLETE')
+        self.assertFalse((self.R / CAMP / 'receipts/X1.json').exists())
+
+    def test_37c_any_additional_or_different_change_is_rejected(self):
+        base = self.amendment_fixture()
+        self.human_amend()
+        e = self.entry(base)
+        self.record_amendments([e])
+        self.human_amend(extra='it("smuggled", () => {});\n')   # beyond the authorised bytes
+        self.run_campaign('--resolve-stop', '--note', 'amendment recorded, then changed again')
+        self.run_campaign()
+        self.stopped('AUTHORISED_AMENDMENT_MISMATCH'); self.assertIn('result_blob', self.out); self.assertIn('patch_sha256', self.out)
+        self.assertFalse((self.R / CAMP / 'receipts/X1.json').exists())
+
+    def test_37d_entry_must_bind_exact_baseline_result_and_patch(self):
+        base = self.amendment_fixture()
+        self.human_amend()
+        good = self.entry(base)
+        other = self.git('rev-parse', 'HEAD:AGENTS.md')
+        for field, value in (('baseline_blob', other), ('result_blob', other), ('patch_sha256', '0' * 64)):
+            with self.subTest(field=field):
+                self.record_amendments([dict(good, **{field: value})], msg='manifest %s' % field)
+                self.assertEqual(self.scope(base)[0], 'AUTHORISED_AMENDMENT_MISMATCH')
+                self.assertIn(field, self.scope(base)[1])
+        self.record_amendments([good], msg='manifest exact')
+        self.assertIsNone(self.scope(base))
+        # User git diff configuration cannot change the canonical patch bytes.
+        for k, v in (('diff.noprefix', 'true'), ('diff.mnemonicPrefix', 'true'), ('diff.algorithm', 'patience'), ('color.ui', 'always'),
+                     ('diff.context', '7'), ('diff.interHunkContext', '9'), ('diff.renames', 'copies')):
+            self.git('config', k, v)
+        self.assertIsNone(self.scope(base))
+
+    def test_37e_manifest_change_beyond_amendments_is_rejected(self):
+        base = self.amendment_fixture()
+        self.human_amend()
+        self.record_amendments([self.entry(base)], allowed_shared_paths=['docs/farm-return-next/DOMAIN_CONTRACTS.md', 'src/domain/fixture/work.ts', 'src/escape/*'])
+        r = self.scope(base)
+        self.assertEqual(r[0], 'TASK_SCOPE_EXPANSION_REQUIRED'); self.assertIn('campaign.json', r[1])
+        # The amendments alone (allow-list restored) are accepted.
+        self.record_amendments([self.entry(base)], allowed_shared_paths=['docs/farm-return-next/DOMAIN_CONTRACTS.md', 'src/domain/fixture/work.ts'])
+        self.assertIsNone(self.scope(base))
+        # Another phase's record is not this phase's amendment list either.
+        self.manifest['phases'][1]['authorised_amendments'] = [self.entry(base)]
+        self.write(CAMP + '/campaign.json', json.dumps(self.manifest, indent=2) + '\n'); self.commit('manifest: X2 entry')
+        r = self.scope(base)
+        self.assertEqual(r[0], 'TASK_SCOPE_EXPANSION_REQUIRED'); self.assertIn('campaign.json', r[1])
+
+    def test_37f_agent_checkpoint_touching_amendment_or_manifest_is_rejected(self):
+        base = self.amendment_fixture()
+        self.human_amend()
+        amend_commit = self.git('rev-parse', 'HEAD')
+        self.record_amendments([self.entry(base)])
+        manifest_commit = self.git('rev-parse', 'HEAD')
+        self.assertIsNone(self.scope(base, agent_commits=[base]))
+        for c in (amend_commit, manifest_commit):   # as if the runner had recorded it as a build/fix checkpoint
+            r = self.scope(base, agent_commits=[c])
+            self.assertEqual(r[0], 'TASK_SCOPE_EXPANSION_REQUIRED'); self.assertIn('human-only', r[1])
+
+    def test_37g_fixers_cannot_edit_amended_path_or_manifest(self):
+        for act in ('amended', 'manifest'):
+            with self.subTest(act=act):
+                self.tearDown(); self.setUp()
+                base = self.amendment_fixture()
+                self.human_amend()
+                self.record_amendments([self.entry(base)])
+                self.run_campaign('--resolve-stop', '--note', 'recorded')
+                h = self.git('rev-parse', 'HEAD')
+                self.seq(['done', act], [{'f': [['CRITICAL', 'Needs a human']]}, M('Fix me')])
+                self.run_campaign()
+                self.stopped('TASK_SCOPE_EXPANSION_REQUIRED')
+                self.assertIn(self.FROZEN if act == 'amended' else 'campaign.json', self.out)
+                self.assertEqual(self.git('rev-parse', 'HEAD'), h)   # nothing the fixer did was committed
+                self.assertEqual(self.calls('claude'), 2)
+                self.assertNotIn(self.FROZEN, (self.T / 'claude.scope').read_text())   # never granted to the fixer
+
+    def test_37h_manifest_rejects_ineligible_amendments(self):
+        mod = self.module()
+        good = dict(path=self.FROZEN, baseline_blob='a' * 40, result_blob='b' * 40, patch_sha256='c' * 64, authorisation='human ok')
+        self.assertEqual(mod.amendment_entry_problems(dict(authorised_amendments=[good])), [])
+        self.assertEqual(mod.amendment_entry_problems(dict()), [])
+        cases = {
+            'production logic': dict(good, path='src/domain/fixture/other.ts'),
+            'frozen contract doc': dict(good, path='docs/farm-return-next/DOMAIN_CONTRACTS.md'),
+            'audit rules': dict(good, path='.agent/AUDIT_RULES.md'),
+            'docs': dict(good, path='docs/x.md'),
+            'campaign record': dict(good, path=CAMP + '/campaign.json'),
+            'brief': dict(good, path=CAMP + '/X1_BRIEF.md'),
+            'migration': dict(good, path='supabase/migrations/1_x.sql'),
+            'glob': dict(good, path='src/x0/*.test.ts'),
+            'parent': dict(good, path='src/../x.test.ts'),
+            'same blobs': dict(good, result_blob='a' * 40),
+            'short blob': dict(good, baseline_blob='a' * 7),
+            'bad hash': dict(good, patch_sha256='z' * 64),
+            'empty authorisation': dict(good, authorisation=' '),
+            'multi-line authorisation': dict(good, authorisation='a\nb'),
+            'extra key': dict(good, scope='widen'),
+            'missing key': {k: v for k, v in good.items() if k != 'patch_sha256'},
+        }
+        inside = dict(scope_guard=['src/x1'], allowed_shared_paths=['src/shared/*.test.ts'])
+        for name, path in (('inside scope_guard', 'src/x1/a.test.ts'), ('inside allowed_shared_paths', 'src/shared/b.test.ts')):
+            with self.subTest(case=name):
+                self.assertTrue(mod.amendment_entry_problems(dict(inside, authorised_amendments=[dict(good, path=path)])))
+        self.assertEqual(mod.amendment_entry_problems(dict(inside, authorised_amendments=[good])), [])
+        for name, e in cases.items():
+            with self.subTest(case=name):
+                self.assertTrue(mod.amendment_entry_problems(dict(authorised_amendments=[e])), name)
+        self.assertTrue(mod.amendment_entry_problems(dict(authorised_amendments=[])))
+        self.assertTrue(mod.amendment_entry_problems(dict(authorised_amendments=[good, good])))
+        self.manifest['phases'][0]['authorised_amendments'] = [cases['production logic']]
+        self.write(CAMP + '/campaign.json', json.dumps(self.manifest, indent=2) + '\n'); self.commit('bad amendment')
+        self.run_campaign()
+        self.stopped('MANIFEST_INVALID'); self.assertEqual(self.calls('claude'), 0)
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)

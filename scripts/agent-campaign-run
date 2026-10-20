@@ -22,10 +22,17 @@ recorded, never fixed. State is persisted after every transition in
 a completed model call. Local commits only: nothing here pushes, deploys, applies migrations or
 runs destructive git commands.
 
+Authorised amendments: a phase may list `authorised_amendments` in the manifest — human-reviewed
+changes to test/tooling files OUTSIDE its scope (e.g. a frozen predecessor's test), each bound to
+the exact baseline blob, result blob and canonical patch hash. Scope checks accept exactly those
+bytes (and a manifest delta confined to that list), refuse any build/fix checkpoint that touched
+them, and the receipt records them. They are never passed to build/fix agents.
+
 Exit: 0 campaign complete (or status/dry-run ready) · 1 stopped · 2 usage · 3 another runner is
 live · 130 interrupted (rerun to resume).
 """
 import datetime
+import fnmatch
 import hashlib
 import importlib.machinery
 import importlib.util
@@ -249,6 +256,7 @@ def manifest_problems(m, cid):
             req(isinstance(ph.get('task_title'), str) and ph['task_title'].strip() and not ph['task_title'].startswith('(none'), '%s task_title required' % where)
             for k in ('domains', 'contracts', 'scope_guard', 'allowed_shared_paths'):
                 req(isinstance(ph.get(k), list) and all(isinstance(x, str) and x for x in ph[k]), '%s %s must be a list of strings' % (where, k))
+            for why in amendment_entry_problems(ph): bad.append('%s %s' % (where, why))
             req(bool(ph.get('domains')), '%s domains must be non-empty' % where)
             req(bool(ph.get('contracts')), '%s contracts must be non-empty' % where)
             v = ph.get('verify')
@@ -262,6 +270,44 @@ def manifest_problems(m, cid):
                 '%s: a campaign phase can never authorise migrations' % where)
         ids.append(pid)
         if type(ph.get('order')) is int: last_order = ph['order']
+    return bad
+
+
+AMENDMENT_KEYS = ('path', 'baseline_blob', 'result_blob', 'patch_sha256', 'authorisation')
+
+
+def amendment_entry_problems(ph):
+    """Shape of a phase's optional `authorised_amendments`: human-authorised changes to files
+    OUTSIDE the phase scope (e.g. a reviewed test-only amendment of a frozen predecessor's test),
+    each bound to the exact baseline blob, result blob and canonical patch hash. Only tests/tooling
+    (category B) qualify — never docs, rules or contracts, campaign records, production logic. The
+    list is never passed to build/fix agents: it grants them nothing."""
+    ams = ph.get('authorised_amendments')
+    if ams is None: return []
+    if not isinstance(ams, list) or not ams: return ['authorised_amendments must be a non-empty list when present']
+    bad, seen = [], set()
+    for i, a in enumerate(ams):
+        w = 'authorised_amendments[%d]' % i
+        if not isinstance(a, dict) or sorted(a) != sorted(AMENDMENT_KEYS):
+            bad.append('%s must have exactly the keys %s' % (w, ', '.join(AMENDMENT_KEYS))); continue
+        p = a['path']
+        if not isinstance(p, str) or not p or p.startswith('/') or '..' in p.split('/') or any(c in p for c in '*?[\\\n'):
+            bad.append('%s path must be a plain repository-relative path' % w); continue
+        if p in seen: bad.append('%s path %s duplicated' % (w, p))
+        seen.add(p)
+        if p.startswith('.agent/campaigns/') or p in ('.agent/CURRENT_TASK.md', '.agent/TASK.json'):
+            bad.append('%s may not amend campaign or harness records (%s)' % (w, p))
+        elif rs.category(p) != 'B':
+            bad.append('%s may only amend tests/tooling (category B); %s is category %s' % (w, p, rs.category(p)))
+        elif any(p == g.rstrip('/') or p.startswith(g.rstrip('/') + '/') for g in ph.get('scope_guard') or []) or \
+                any(fnmatch.fnmatch(p, pat) for pat in ph.get('allowed_shared_paths') or []):
+            bad.append('%s %s is already inside the phase scope; amendments are only for paths outside it' % (w, p))
+        if not all(isinstance(a[k], str) and SHA_RE.match(a[k]) for k in ('baseline_blob', 'result_blob')) or a['baseline_blob'] == a['result_blob']:
+            bad.append('%s baseline_blob/result_blob must be two different full blob SHAs' % w)
+        if not (isinstance(a['patch_sha256'], str) and re.fullmatch(r'[0-9a-f]{64}', a['patch_sha256'])):
+            bad.append('%s patch_sha256 must be a sha256 hex digest' % w)
+        if not (isinstance(a['authorisation'], str) and a['authorisation'].strip() and '\n' not in a['authorisation']):
+            bad.append('%s authorisation must be a one-line human authorisation record' % w)
     return bad
 
 
@@ -453,6 +499,13 @@ def validate_receipt(m, ph, pred_fp):
     for c in r.get('contracts') or []:
         blob = subprocess.run(['git', 'rev-parse', '%s:%s' % (freeze, c['path'])], capture_output=True, text=True).stdout.strip()
         if blob != c.get('blob_at_freeze'): raise ValueError('contract %s does not match its blob at the freeze SHA' % c.get('path'))
+    ams = r.get('authorised_amendments')
+    if ams is not None:
+        if amendment_entry_problems(dict(authorised_amendments=ams)): raise ValueError('authorised_amendments record is malformed')
+        for x in ams:
+            if (blob_at(base, x['path']), blob_at(freeze, x['path'])) != (x['baseline_blob'], x['result_blob']) or \
+                    amendment_patch_sha256(base, freeze, x['path']) != x['patch_sha256']:
+                raise ValueError('authorised amendment %s does not match the phase base/freeze SHA' % x['path'])
     a = r.get('strict_audit') or {}
     art = a.get('artifact')
     if not art or not Path(art).is_file(): raise ValueError('strict audit artifact %s is missing' % art)
@@ -549,6 +602,12 @@ def load_state(cid):
     if not p.exists(): return None
     try: return json.loads(p.read_text())
     except ValueError: raise Stop('STATE_UNREADABLE', '%s is not valid JSON' % p, 'inspect or restore the campaign state file')
+
+
+def agent_checkpoints(ps):
+    """Commits the runner recorded as build/fix checkpoints of this phase."""
+    return sorted(set([v['head'] for v in ps['verification'] if v.get('name') == 'checkpoint' and v.get('head')] +
+                      [r['fix_commit'] for r in ps['round_history'] if r.get('fix_commit')]))
 
 
 def new_phase_state():
@@ -831,7 +890,7 @@ class Campaign:
         s = read_state_md()
         if not s.get('last_verify', '').startswith('PASS'):
             raise Stop('VERIFICATION_FAILED', 'no passing verification recorded for %s' % short(head()), 'inspect .agent/STATE.md')
-        ps['scope'] = scope_check(ph, ps['base_sha'], head())
+        ps['scope'] = scope_check(self.m, ph, ps['base_sha'], head(), agent_checkpoints(ps) + [head()])
         ps['verification'].append(dict(name='checkpoint', head=head(), result='PASS', source=s.get('last_verify')))
         ps.update(stage=nxt, head=head())
         self.save()
@@ -1054,7 +1113,7 @@ class Campaign:
         if why or sha256_file(a['artifact']) != a['sha256']: raise Stop('AUDIT_UNASSESSED', why or 'strict audit artifact changed', 'rerun the strict audit', True)
         if any(a['counts'][k] for k in ('critical', 'high', 'medium')):
             raise Stop('UNEXPECTED_STATE_CHANGE', 'strict audit is not clean of Critical/High/Medium', 'inspect the audit')
-        ps['scope'] = scope_check(ph, base, h)
+        ps['scope'] = scope_check(self.m, ph, base, h, agent_checkpoints(ps))
         for name, cmd in (('phase_verify', ph['verify']), ('full_suite', 'bash scripts/quality-gate.sh')):
             if any(v['name'] == name and v['head'] == h and v['result'] in ('PASS', 'FLAKY_RECOVERED') for v in ps['verification']): continue
             log = self.log(pid, 'freeze-' + name)
@@ -1270,7 +1329,62 @@ def is_tracked(ref, p):
 
 
 # ── scope checks (deterministic, after every build/fix and at freeze) ──
-def scope_check(ph, base, h):
+def amendment_patch_sha256(base, h, path):
+    """sha256 of the canonical patch base..h for one path: full blob ids, fixed prefixes and diff
+    algorithm, no renames/textconv/external diff, so user git config cannot change the bytes."""
+    out = subprocess.run(['git', 'diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--no-relative',
+                          '--full-index', '--diff-algorithm=myers', '--indent-heuristic', '--inter-hunk-context=0', '-U3',
+                          '--src-prefix=a/', '--dst-prefix=b/', base, h, '--', path], capture_output=True, check=True)
+    return hashlib.sha256(out.stdout).hexdigest()
+
+
+def blob_at(ref, path):
+    out = subprocess.run(['git', 'rev-parse', '--verify', '-q', '%s:%s' % (ref, path)], capture_output=True, text=True)
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def phase_amendments(m, ph, base, h, files, agent_commits):
+    """(verified amendment paths, manifest-delta-is-amendment-only) for scope_check. Every
+    authorised amendment must match its exact baseline blob at the phase base, result blob at h and
+    canonical patch hash; the manifest may differ from its base copy ONLY in this phase's
+    `authorised_amendments`; and no build/fix checkpoint may have touched an amended path or the
+    manifest — a recorded amendment is human-only, never an agent permission."""
+    ams = ph.get('authorised_amendments') or []
+    mp = str(manifest_path(m['campaign_id']))
+    for a in ams:
+        p = a['path']
+        if rs.category(p) != 'B':
+            raise Stop('FROZEN_CONTRACT_CHANGE_REQUIRED', 'authorised amendment %s is not a test/tooling path' % p,
+                       'frozen-contract changes need a separately authorised task')
+        got = (blob_at(base, p), blob_at(h, p), amendment_patch_sha256(base, h, p) if p in files else None)
+        want = (a['baseline_blob'], a['result_blob'], a['patch_sha256'])
+        if got != want:
+            names = [k for k, x, y in zip(('baseline_blob', 'result_blob', 'patch_sha256'), got, want) if x != y]
+            raise Stop('AUTHORISED_AMENDMENT_MISMATCH', '%s differs from its authorised amendment (%s)' % (p, ', '.join(names)),
+                       'restore the exact authorised content; any other change needs a new human authorisation')
+    manifest_ok = False
+    if mp in files:
+        def without(ref):
+            blob = read_blob(ref, mp)
+            try: doc = json.loads(blob) if blob is not None else None
+            except ValueError: return None
+            for q in (doc or {}).get('phases') or []:
+                if isinstance(q, dict) and q.get('id') == ph['id']: q.pop('authorised_amendments', None)
+            return doc
+        before, after = without(base), without(h)
+        manifest_ok = before is not None and before == after
+    guarded = set(a['path'] for a in ams) | ({mp} if mp in files else set())
+    if guarded:
+        for c in agent_commits:
+            if not (is_ancestor(base, c) and is_ancestor(c, h)) or c == base: continue
+            touched = sorted(guarded & set(rs.delta_files(c + '^', c)))
+            if touched:
+                raise Stop('TASK_SCOPE_EXPANSION_REQUIRED', 'agent checkpoint %s changed human-only path(s): %s' % (short(c), ', '.join(touched)),
+                           'authorised amendments and the manifest are never agent-editable; human review')
+    return set(a['path'] for a in ams), manifest_ok
+
+
+def scope_check(m, ph, base, h, agent_commits=()):
     files = rs.delta_files(base, h)
     import fnmatch
     guards = [g.rstrip('/') for g in ph['scope_guard']]
@@ -1290,14 +1404,19 @@ def scope_check(ph, base, h):
         if removed:
             raise Stop('FROZEN_CONTRACT_CHANGE_REQUIRED', '%s: only additive changes are pre-authorised (%d line(s) removed)' % (f, removed),
                        'frozen-contract changes need a separately authorised task')
+    amended, manifest_ok = phase_amendments(m, ph, base, h, files, agent_commits)
+    mp = str(manifest_path(m['campaign_id']))
     def in_scope(f):
-        return f in harness_owned or any(f == g or f.startswith(g + '/') for g in guards) or any(fnmatch.fnmatch(f, pat) for pat in shared_patterns)
+        return (f in harness_owned or any(f == g or f.startswith(g + '/') for g in guards) or any(fnmatch.fnmatch(f, pat) for pat in shared_patterns)
+                or f in amended or (f == mp and manifest_ok))
     outside = [f for f in files if not in_scope(f)]
     if outside:
         raise Stop('TASK_SCOPE_EXPANSION_REQUIRED', 'phase changed path(s) outside its manifest allow-list: ' + ', '.join(outside[:5]),
                    'human review; expand the manifest scope only in a separately authorised infrastructure task')
-    return dict(migration_status='NONE', frozen_contract_status=('ADDITIVE_ALLOWED: ' + ', '.join(shared)) if shared else 'UNCHANGED',
-                files=len(files))
+    out = dict(migration_status='NONE', frozen_contract_status=('ADDITIVE_ALLOWED: ' + ', '.join(shared)) if shared else 'UNCHANGED',
+               files=len(files))
+    if ph.get('authorised_amendments'): out['authorised_amendments'] = [dict(a) for a in ph['authorised_amendments']]
+    return out
 
 
 # ── closure (deterministic docs record) ────────────────────────────────
@@ -1373,6 +1492,7 @@ def closure_plan(m, ph, ps, pred_fp=None, check_only=False):
         outstanding_low_findings=ps['outstanding_low'], migration_status=ps['scope']['migration_status'],
         frozen_contract_status=ps['scope']['frozen_contract_status'], human_gate_status='NONE', pushed_or_deployed=False,
         predecessor=ph['predecessor'], predecessor_receipt_fingerprint=pred_fp, policy=effective_policy(m, ph))
+    if ps['scope'].get('authorised_amendments'): receipt['authorised_amendments'] = ps['scope']['authorised_amendments']
     receipt['receipt_fingerprint'] = receipt_fingerprint(receipt)
     summary = 'CRITICAL=%d HIGH=%d MEDIUM=%d LOW=%d' % tuple(a['counts'][k] for k in ('critical', 'high', 'medium', 'low'))
     rpath = str(receipt_path(m, pid))
@@ -1396,6 +1516,9 @@ def closure_plan(m, ph, ps, pred_fp=None, check_only=False):
             ps['rounds']['medium'], ps['rounds']['high'], (': ' + '; '.join(remediated)) if remediated else ''),
         '- Outstanding Low (recorded, not fixed): %s.' % ('; '.join(ps['outstanding_low']) or 'none'),
         '- Verification at `%s`: phase verify and full suite (`scripts/quality-gate.sh`) passed.' % short(freeze),
+        *(['- Human-authorised amendments outside the phase scope (bound to exact blobs; never agent-editable): %s.' % '; '.join(
+            '`%s` %s→%s (%s)' % (a['path'], a['baseline_blob'][:12], a['result_blob'][:12], a['authorisation'])
+            for a in receipt['authorised_amendments'])] if receipt.get('authorised_amendments') else []),
         '- Receipt `%s` (fingerprint `%s`). Migrations: none. Frozen contracts: %s. Nothing pushed or deployed.' % (
             rpath, receipt['receipt_fingerprint'][:16], ps['scope']['frozen_contract_status']),
         '- %s.' % (('%s **not started**' % nxt) if nxt else 'Campaign complete'), '', ''])

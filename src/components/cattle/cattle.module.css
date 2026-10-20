@@ -1,0 +1,92 @@
+/* Cattle C10 — motion vocabulary. Functional only: every animation explains a
+   state change, and every one is removed under prefers-reduced-motion. */
+
+.settle {
+  animation: settle 420ms cubic-bezier(0.16, 0.72, 0.24, 1);
+}
+
+@keyframes settle {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pointIn {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pointIn 520ms cubic-bezier(0.16, 0.72, 0.24, 1);
+}
+
+@keyframes pointIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.resolve {
+  animation: resolve 900ms ease-out;
+}
+
+@keyframes resolve {
+  0% {
+    background-color: var(--fr-v2-teal-tint);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.sheetIn {
+  animation: sheetIn 260ms cubic-bezier(0.16, 0.72, 0.24, 1);
+}
+
+@keyframes sheetIn {
+  0% {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.scrim {
+  animation: scrim 200ms ease-out;
+}
+
+@keyframes scrim {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.hatch {
+  background-image: repeating-linear-gradient(135deg, rgba(105, 113, 107, 0.16) 0 4px, transparent 4px 8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settle,
+  .pointIn,
+  .resolve,
+  .sheetIn,
+  .scrim {
+    animation: none;
+  }
+}

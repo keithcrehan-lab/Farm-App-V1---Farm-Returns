@@ -72,6 +72,9 @@ export const moreNavItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/soil", label: "Soil", icon: Sprout },
   { href: "/livestock", label: "Livestock", icon: Beef },
+  // Cattle C10 — the canonical cattle reference experience (herd → animal →
+  // plan). Additive: Livestock above is unchanged.
+  { href: "/cattle", label: "Cattle", icon: Beef },
   { href: "/silage", label: "Silage & Fields", icon: Wheat },
   // Fertiliser Overview and Stock Visuals campaign — the new farm-wide
   // landing page takes over the "Fertiliser Plan" label; the existing

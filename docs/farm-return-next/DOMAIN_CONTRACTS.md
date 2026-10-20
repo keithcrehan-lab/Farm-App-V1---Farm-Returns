@@ -5029,3 +5029,36 @@ turns a stored C9 object or C8 pack into authoritative Plan work (CAT-INV-028 un
 **Exclusions.** No Plan type, variant, route or behaviour change; no cattle calculation or evidence
 reinterpretation; no real legal, veterinary, scientific or economic content; no persistence, scheduling,
 notification, connector, migration, UI (C10) or AI.
+
+## Cattle C10 — Cattle UX reference experience (2026-10-20)
+
+Authority: `.agent/campaigns/cattle-engine-v1/C10_BRIEF.md` (human C10 overnight authorisation, 2026-10-20) and `C10_PREBUILD_REVIEW.md`. C10 consumes the frozen C1–C9 public exports and the Plan kernel; it changes no earlier module.
+
+### Modules
+
+- `src/domain/cattle/presentation/` — pure view-models over frozen outputs at one viewpoint (`CattleOutputs`): `buildAnimalProfile`, `buildHerd` / `animalRow`, `animalWork` / `workVM`, `buildAnimalTimeline`; display tables (`display-states.ts`) total over every frozen vocabulary C10 renders (`satisfies Record<…>`); display formatting (`format.ts`, the only place display rounding lives). No clock, React, server or persistence import.
+- `src/domain/animal-plan/` — the isolated C10 capability domain (never an input to C8, C9 or the Plan kernel): `cost-ledger.ts` (`AnimalCostEntry`, `summariseAnimalCosts`, `costPerKgLiveweight`), `mart-valuation.ts` (`MartValuationProvider`, `MartComparableResult`, `valueAnimalAtMart`), `plan-economics.ts` (`computeAnimalPlanEconomics`), `plan-dates.ts` (date-only arithmetic). Exact decimals (`decimal.js`); definitions in `docs/evidence-register.md`, "Cattle C10 — animal plan definitions".
+- `src/server/cattle-demo/` (server-only, demonstration mode only) — the `SYNTH-*` demonstration catalogue and herd, a stateless replay through C1 `projectAnimalSnapshot`, C4 `buildWeightReadContract` / `resolveGroupScope`, C5 `evaluatePerformance` (incl. `projectionAt`), C6 `projectProductionGoals`, C3 `projectAnimalHealth`, C8 `recommendCattle`, C9 `planCattleWork` and Plan `createPlanJob` / `reevaluatePlanJob`; fixture cost entries and a DEVELOPMENT_FIXTURE mart provider.
+- `src/app/(app)/cattle/` — routes `/cattle`, `/cattle/groups/[groupRef]`, `/cattle/animals/[tag]`, `/cattle/animals/[tag]/plan`; server functions `loadCattleHerd`, `loadCattleAnimal`, `projectCattleWeight` (refuse outside demonstration mode; validate the caller's session, tag, scenario and date before any engine runs).
+- `src/components/cattle/` — screens and the client demo session (`CattleDemoSessionProvider`, `demo-session.ts` zod contract), photo boundary (`AnimalPhotoStore`, session-only adapter).
+
+### Contracts
+
+- Data honesty: Supabase configured ⇒ `CattleUnavailable` and refusing server functions; only demonstration mode renders `SYNTH-*` data, always labelled.
+- Time: the demonstration viewpoint is fixture-supplied (`2026-10-16T09:00:00Z`); session action k happens at base + (k + 1) × 10 min. No clock in any domain, view-model or replay path.
+- Work: Plan jobs are created from C9 proposals and re-evaluated by the Plan kernel at every later viewpoint; order = `compareSystemPriority` then job id; completion, readiness and status are the kernel's. RECORD_WEIGHT closes only by a weight observed at or after the viewpoint the gap was raised (C9 `WEIGHT_OBSERVED_SINCE`); a back-dated weight does not.
+- Timing: C9 windows are shown as "Recommended window"; "Must be done by" appears only for a C9 `hardDeadline`. A `LEGAL_WINDOW` blocker on withdrawal is described as an engine check, not a legal ruling.
+- Projection: only C5's labelled PREDICTION (`LINEAR_EXTRAPOLATION_OF_PERIOD_ADG`); feed / housing inputs never change it.
+- Economics: `projectedDirectProfit = projectedSaleValue − recordedDirectCosts − forecastDirectHoldingCost`; `currentSellNowMargin = currentEstimatedMarketValue − recordedDirectCosts`; `returnFromHolding = projectedDirectProfit − currentSellNowMargin`; unknown inputs ⇒ UNKNOWN with reasons, never zero.
+- Valuation: provider result carries mart, report date, freshness (caller-supplied stale-after days), comparable category, basis, observed range, central derivation, live vs fixture; €/kg × liveweight is labelled DERIVED.
+
+### Known limitations
+
+- No persistence: weights, saved plans (C6 goal versions), plan drafts and photos live in the browser tab only; cost entries and mart prices are fixtures. Storage owners and migrations for weights, goals, the cost ledger and photos are open decisions.
+- The demonstration registry adds one synthetic RECORD_WEIGHT staleness setting (28 days); production ships none.
+- C8 explanation text and reason codes are machine strings; C10 maps known codes to farmer sentences and keeps the rest under "Technical detail".
+- Herd views replay the whole demonstration herd (~1 s cold); animal views replay one animal.
+
+### Exclusions
+
+No change to C0–C9, the Plan kernel, `src/lib/farm-data/`, `supabase/`, configs or dependencies; no AI, network, scraping or live market data; no feed-response, price-forecast or health model; legacy `/livestock` unchanged.

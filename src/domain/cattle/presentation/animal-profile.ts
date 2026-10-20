@@ -1,0 +1,319 @@
+/**
+ * Cattle C10 — the animal profile view-model. Selects and shapes frozen
+ * engine outputs at one viewpoint (C1 snapshot, C4 series, C5 performance,
+ * C6 goals, C3 health, C8 recommendation, C9 + Plan work) and the C10
+ * direct-cost summary. No new calculation: every number is an engine output
+ * or a documented display rounding (`format.ts`); every unresolved input is
+ * its own display state (CAT-INV-009 / 022).
+ */
+
+import type { AnimalResolution } from "../animal-snapshot";
+import type { AnimalPerformance, PerformancePoint } from "../performance";
+import type { WeightSeriesEntry } from "../weights";
+import { costPerKgLiveweight, utcDateOfInstant, type AnimalCostSummary } from "../../animal-plan";
+import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
+import {
+  ADMINISTRATION_WITHDRAWAL_DISPLAY,
+  GAIN_DISPLAY,
+  GOAL_DISPLAY,
+  IDENTITY_DISPLAY,
+  LATEST_WEIGHT_DISPLAY,
+  MEMBERSHIP_DISPLAY,
+  OBLIGATION_DISPLAY,
+  PREDICTION_DISPLAY,
+  PROGRAMME_DISPLAY,
+  RECOMMENDATION_DISPLAY,
+  TARGET_DISPLAY,
+  TREND_DISPLAY,
+  WITHDRAWAL_DISPLAY,
+  displayOf,
+  type DisplayState,
+} from "./display-states";
+import { ageInMonths, formatAdg, formatAge, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatSignedKg, formatUtcTime } from "./format";
+import { buildAnimalTimeline, type TimelineEntryVM } from "./timeline";
+import { animalWork, type WorkVM } from "./work-view";
+
+export interface FieldVM {
+  label: string;
+  /** Display text when resolved; `null` otherwise (render `state`). */
+  value: string | null;
+  state: DisplayState;
+}
+
+export interface ChartPointVM {
+  at: string;
+  dateLabel: string;
+  /** Usable kilograms (`null` for a conflicting / unsupported point). */
+  kg: number | null;
+  kgLabel: string;
+  state: "MEASURED" | "ESTIMATED" | "CONFLICT" | "UNSUPPORTED" | "EXCLUDED";
+  stateLabel: string;
+  method: string;
+  /** Competing kilograms at a conflicting instant (ascending). */
+  candidates: number[];
+  recordIds: string[];
+}
+
+export interface MetricVM {
+  label: string;
+  /** Large numeral (resolved) or `null`. */
+  value: string | null;
+  unit: string | null;
+  state: DisplayState;
+  caption: string | null;
+}
+
+export interface AnimalProfileVM {
+  animalId: string;
+  title: string;
+  tag: FieldVM;
+  identity: { breed: FieldVM; sex: FieldVM; age: FieldVM; group: FieldVM & { groupRef: string | null }; location: FieldVM & { housed: boolean | null }; status: FieldVM };
+  asOf: { effectiveAt: string; knowledgeCutoff: string; label: string };
+  metrics: { weight: MetricVM; gain: MetricVM; cost: MetricVM };
+  /** The headline performance state (target comparison, or why there is none). */
+  performanceState: DisplayState;
+  weight: { state: DisplayState; kg: number | null; observedAt: string | null; candidatesKg: number[] };
+  gain: {
+    state: DisplayState;
+    adgKgPerDay: number | null;
+    periodLabel: string | null;
+    recentLabel: string | null;
+    trend: DisplayState;
+    trace: { formula: string; start: string | null; end: string | null; days: string | null } | null;
+  };
+  target: { state: DisplayState; label: string | null; bandLabel: string | null; source: string | null };
+  chart: { points: ChartPointVM[]; projection: { at: string; kg: number; label: string; dateLabel: string } | null; goalTarget: { kg: number; label: string; date: string | null } | null };
+  projection: { state: DisplayState; label: string | null; at: string | null; assumptions: string[] };
+  goal: { state: DisplayState; typeLabel: string | null; targetWeightLabel: string | null; targetWeightKg: number | null; targetDate: string | null; targetDateLabel: string | null; goalType: string | null };
+  health: {
+    withdrawal: { state: DisplayState; label: string; untilLabel: string | null; product: string };
+    programmes: { label: string; state: DisplayState }[];
+    obligations: { label: string; state: DisplayState }[];
+    medicines: { date: string; label: string; product: string; withdrawal: DisplayState; withdrawalEndLabel: string | null }[];
+    status: "HEALTH_RECORDS" | "HEALTH_UNAVAILABLE";
+  };
+  recommendation: { state: DisplayState; text: string | null };
+  work: { state: "PLANNING_OK" | "PLANNING_FAILED"; primary: WorkVM | null; others: WorkVM[]; closed: WorkVM[]; failureCodes: string[] };
+  timeline: TimelineEntryVM[];
+  costSummary: AnimalCostSummary | null;
+}
+
+const field = <T>(label: string, r: AnimalResolution<T> | null | undefined, render: (v: T) => string): FieldVM => {
+  if (!r) return { label, value: null, state: displayOf(IDENTITY_DISPLAY, "UNKNOWN", "IDENTITY") };
+  return { label, value: r.state === "KNOWN" && r.value !== null ? render(r.value) : null, state: displayOf(IDENTITY_DISPLAY, r.state, "IDENTITY") };
+};
+
+const GOAL_TYPE_LABEL: Readonly<Record<string, string>> = { FINISHING: "Finishing", SALE: "Sale", RETAIN: "Keep on farm", BREEDING: "Breeding", REPLACEMENT: "Replacement" };
+const SEX_LABEL: Readonly<Record<string, string>> = { MALE: "Male", FEMALE: "Female" };
+const METHOD_LABEL: Readonly<Record<string, string>> = {
+  SCALE: "Scale",
+  WEIGHBRIDGE: "Weighbridge",
+  ESTIMATE_VISUAL: "Visual estimate",
+  ESTIMATE_TAPE: "Tape estimate",
+  DERIVED_EXTERNAL: "External figure",
+  UNKNOWN: "Method not recorded",
+};
+
+function pointVM(p: PerformancePoint): ChartPointVM {
+  const first = p.inputs[0];
+  const estimated = p.inputs.some((i) => i.basis !== "MEASURED");
+  const state: ChartPointVM["state"] = p.state === "USABLE" ? (estimated ? "ESTIMATED" : "MEASURED") : p.state === "CONFLICT" ? "CONFLICT" : p.state === "UNSUPPORTED" ? "UNSUPPORTED" : "EXCLUDED";
+  const candidates = [...new Set(p.inputs.map((i) => i.kg).filter((k): k is number => k !== null))].sort((a, b) => a - b);
+  const stateLabel = { MEASURED: "Weighed", ESTIMATED: "Estimate", CONFLICT: "Weights disagree", UNSUPPORTED: "Unit not supported", EXCLUDED: "Not used" }[state];
+  return {
+    at: p.at,
+    dateLabel: formatDate(p.at),
+    kg: p.kg,
+    kgLabel: p.kg !== null ? formatKg(p.kg) : state === "CONFLICT" ? candidates.map((c) => formatKg(c)).join(" or ") : "—",
+    state,
+    stateLabel,
+    method: first ? (METHOD_LABEL[first.method] ?? first.method) : "",
+    candidates,
+    recordIds: p.inputs.map((i) => i.recordId),
+  };
+}
+
+function seriesOf(outputs: CattleOutputs, animalId: string) {
+  return outputs.weights?.series.find((s) => s.animalId === animalId) ?? null;
+}
+
+export function performanceOf(outputs: CattleOutputs, animalId: string): AnimalPerformance | null {
+  return outputs.performance?.animals.find((a) => a.animalId === animalId) ?? null;
+}
+
+/** The headline performance state: the single target comparison, or why there isn't one. */
+export function headlinePerformance(perf: AnimalPerformance | null): DisplayState {
+  if (perf === null) return displayOf(TARGET_DISPLAY, "INSUFFICIENT_EVIDENCE", "TARGET");
+  if (perf.targetOutcome === "NO_TARGET" || perf.comparisons.length === 0) return TARGET_DISPLAY.NO_TARGET;
+  // More than one known target: each is shown in detail; the headline is the first by target id (C5 order), never a blend.
+  return displayOf(TARGET_DISPLAY, perf.comparisons[0].state, "TARGET");
+}
+
+export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, directory: CattleDirectory, costs: AnimalCostSummary | null): AnimalProfileVM {
+  const snap = outputs.snapshots[animalId] ?? null;
+  const vp = outputs.viewpoint;
+  const tagScheme = snap?.externalIdentifiers.byScheme.find((s) => s.scheme === directory.tagScheme) ?? null;
+  const tag: FieldVM = tagScheme
+    ? { label: "Tag", value: tagScheme.state === "KNOWN" ? tagScheme.value : null, state: displayOf(IDENTITY_DISPLAY, tagScheme.state, "IDENTITY") }
+    : { label: "Tag", value: null, state: IDENTITY_DISPLAY.UNKNOWN };
+
+  const months = snap?.dateOfBirth.state === "KNOWN" && snap.dateOfBirth.value ? ageInMonths(snap.dateOfBirth.value, vp.effectiveAt) : null;
+  const age: FieldVM = snap?.dateOfBirth.state === "KNOWN" && months !== null ? { label: "Age", value: formatAge(months), state: IDENTITY_DISPLAY.KNOWN } : field("Age", snap?.dateOfBirth, () => "");
+  const groupRes = snap?.managementGroup;
+  const groupRef = groupRes?.state === "KNOWN" ? groupRes.value : null;
+  const group = { ...field("Group", groupRes, (v) => directory.groupLabels[v] ?? "Unnamed group"), groupRef };
+  if (groupRes?.state === "CONFLICTING_EVIDENCE") group.state = MEMBERSHIP_DISPLAY.EVIDENCE_CONFLICT;
+  const locRes = snap?.location;
+  const location = { ...field("Location", locRes, (v) => directory.locationLabels[v.ref] ?? (v.kind === "HOUSING" ? "Housed (unnamed)" : "Unnamed location")), housed: locRes?.state === "KNOWN" && locRes.value ? locRes.value.kind === "HOUSING" : null };
+
+  // Weight (C4) and performance (C5).
+  const series = seriesOf(outputs, animalId);
+  const latest = series?.latest ?? null;
+  const weightState = latest ? displayOf(LATEST_WEIGHT_DISPLAY, latest.state, "WEIGHT") : LATEST_WEIGHT_DISPLAY.NONE;
+  const perf = performanceOf(outputs, animalId);
+  const period = perf?.period ?? null;
+  const gainState = period ? displayOf(GAIN_DISPLAY, period.state, "GAIN") : GAIN_DISPLAY.INSUFFICIENT_EVIDENCE;
+  const lastInterval = perf ? [...perf.intervals].reverse().find((i) => i.state === "DERIVED") ?? null : null;
+  const comparison = perf?.comparisons[0] ?? null;
+  const headline = headlinePerformance(perf);
+  const targetDef = comparison && outputs.performance ? outputs.performance.targetDefinitions.find((t) => t.targetId === comparison.targetId) : undefined;
+
+  const goalProj = outputs.goals[animalId] ?? null;
+  const goalState = goalProj ? displayOf(GOAL_DISPLAY, goalProj.status, "GOAL") : GOAL_DISPLAY.INVALID;
+  const active = goalProj?.status === "ACTIVE" ? goalProj.activeGoals[0]?.declaration ?? null : null;
+  const goalKg = active?.targetWeight?.canonical && active.targetWeight.canonical.state === "KNOWN" ? active.targetWeight.canonical.kg : null;
+
+  const prediction = perf?.prediction ?? null;
+  const points = (perf?.points ?? []).map(pointVM);
+
+  // Health (C3), programmes / obligations (C8 sealed context), recommendation (C8).
+  const health = outputs.health[animalId] ?? null;
+  const gate = health?.withdrawalGate.entries[0] ?? null;
+  const rec = outputs.recommendations.ok ? outputs.recommendations.result.animals.find((a) => a.animalId === animalId) ?? null : null;
+  const ctx = rec?.context ?? null;
+  const programmes = ctx && ctx.programmes.state === "SUPPLIED" ? ctx.programmes.occurrences.filter((o) => o.state !== "NOT_APPLICABLE").map((o) => ({ label: directory.programmeLabels[o.programmeId] ?? "Unnamed programme", state: displayOf(PROGRAMME_DISPLAY, o.state, "PROGRAMME") })) : [];
+  const obligations = ctx && ctx.obligations.state === "SUPPLIED" ? ctx.obligations.records.filter((o) => o.state !== "NOT_APPLICABLE").map((o) => ({ label: directory.obligationLabels[o.obligationId] ?? "Unnamed requirement", state: displayOf(OBLIGATION_DISPLAY, o.state, "OBLIGATION") })) : [];
+  const medicines = (health?.medicineLedger.entries ?? [])
+    .filter((e) => e.status === "LIVE")
+    .map((e) => {
+      const w = e.withdrawals[0];
+      const productId = e.binding.state === "BOUND" ? e.binding.product?.productId ?? null : null;
+      return {
+        date: e.occurredAt ?? "",
+        label: e.occurredAt ? formatDate(e.occurredAt) : "Date not recorded",
+        product: productId !== null ? (directory.productLabels[productId] ?? "Recorded product") : "Product not identified",
+        withdrawal: w ? displayOf(ADMINISTRATION_WITHDRAWAL_DISPLAY, w.state, "ADMIN_WITHDRAWAL") : ADMINISTRATION_WITHDRAWAL_DISPLAY.UNKNOWN,
+        withdrawalEndLabel: w?.state === "KNOWN" && w.withdrawalEnd ? `Withdrawal end ${formatDate(w.withdrawalEnd)}` : null,
+      };
+    });
+
+  const work = animalWork(outputs, animalId, directory);
+  const costMetric: MetricVM =
+    costs === null || costs.state === "NONE_RECORDED"
+      ? { label: "Direct cost to date", value: null, unit: null, state: { code: "COST:NONE_RECORDED", label: "No costs recorded", tone: "unknown", detail: "No direct costs are recorded for this animal yet. That isn't €0." }, caption: null }
+      : costs.state !== "RECORDED" || costs.total === null
+        ? { label: "Direct cost to date", value: null, unit: null, state: { code: `COST:${costs.state}`, label: costs.state === "MIXED_CURRENCY" ? "Costs in mixed currencies" : "A cost record can't be read", tone: "review", detail: null }, caption: null }
+        : {
+            label: "Direct cost to date",
+            value: formatEuro(costs.total),
+            unit: null,
+            state: { code: "COST:RECORDED", label: "Recorded costs only", tone: "neutral", detail: `${costs.entryCount} recorded entr${costs.entryCount === 1 ? "y" : "ies"}; overheads not included.` },
+            caption: (() => {
+              const perKg = costPerKgLiveweight(costs, latest?.state === "KNOWN" ? latest.kg : null);
+              return perKg === null ? null : `${formatEuroPerKg(perKg)} of liveweight`;
+            })(),
+          };
+
+  return {
+    animalId,
+    title: tag.value ? tag.value : "Untagged animal",
+    tag,
+    identity: {
+      breed: field("Breed", snap?.breed, (v) => v.label ?? v.code ?? "Recorded (no label)"),
+      sex: field("Sex", snap?.sex, (v) => SEX_LABEL[v] ?? v),
+      age,
+      group,
+      location,
+      status: field("Status", snap?.lifecycleStatus, (v) => ({ PRESENT: "On farm", DEPARTED: "Left the farm", DECEASED: "Died" })[v] ?? v),
+    },
+    asOf: { effectiveAt: vp.effectiveAt, knowledgeCutoff: vp.knowledgeCutoff, label: `As of ${formatDate(vp.effectiveAt)}, ${formatUtcTime(vp.effectiveAt)}` },
+    metrics: {
+      weight: {
+        label: "Current weight",
+        value: latest?.state === "KNOWN" && latest.kg !== null ? formatKg(latest.kg).replace(" kg", "") : null,
+        unit: latest?.state === "KNOWN" ? "kg" : null,
+        state: weightState,
+        caption: latest?.state === "KNOWN" && latest.observedAt ? `Weighed ${formatDayMonth(latest.observedAt)}` : latest?.state === "EVIDENCE_CONFLICT" ? latest.candidateKg.map((k) => formatKg(k)).join(" or ") : null,
+      },
+      gain: {
+        label: "Daily gain",
+        value: period?.state === "DERIVED" && period.adgKgPerDay !== null ? formatAdg(period.adgKgPerDay).replace(" kg/day", "") : null,
+        unit: period?.state === "DERIVED" ? "kg/day" : null,
+        state: gainState,
+        caption: period?.state === "DERIVED" && period.from && period.to ? `${formatDayMonth(period.from)} – ${formatDayMonth(period.to)}` : null,
+      },
+      cost: costMetric,
+    },
+    performanceState: headline,
+    weight: { state: weightState, kg: latest?.state === "KNOWN" ? latest.kg : null, observedAt: latest?.observedAt ?? null, candidatesKg: latest?.candidateKg ?? [] },
+    gain: {
+      state: gainState,
+      adgKgPerDay: period?.state === "DERIVED" ? period.adgKgPerDay : null,
+      periodLabel: period?.state === "DERIVED" && period.gainKg !== null && period.from && period.to ? `${formatSignedKg(period.gainKg)} from ${formatDayMonth(period.from)} to ${formatDayMonth(period.to)}` : null,
+      recentLabel: lastInterval && lastInterval.gainKg !== null && lastInterval.from && lastInterval.to && lastInterval.adgKgPerDay !== null ? `${formatSignedKg(lastInterval.gainKg)} since ${formatDayMonth(lastInterval.from)} (${formatAdg(lastInterval.adgKgPerDay)})` : null,
+      trend: perf ? displayOf(TREND_DISPLAY, perf.trend.state, "TREND") : TREND_DISPLAY.INSUFFICIENT_EVIDENCE,
+      trace: period?.trace ? { formula: period.trace.formula, start: period.from, end: period.to, days: period.elapsedDays !== null ? period.elapsedDays.toFixed(3) : null } : null,
+    },
+    target: {
+      state: headline,
+      label: comparison && comparison.targetValue !== null ? (comparison.metric === "ADG" ? `Target ${formatAdg(comparison.targetValue)}` : `Target ${formatKg(comparison.targetValue)}`) : null,
+      bandLabel: comparison && comparison.lowerBound !== null && comparison.upperBound !== null ? (comparison.metric === "ADG" ? `${formatAdg(comparison.lowerBound)} – ${formatAdg(comparison.upperBound)}` : `${formatKg(comparison.lowerBound)} – ${formatKg(comparison.upperBound)}`) : null,
+      source: targetDef?.versions[0] ? `${targetDef.versions[0].provenance.sourceRef?.sourceId ?? "Unsourced"} · ${targetDef.versions[0].reviewState.toLowerCase()}` : null,
+    },
+    chart: {
+      points,
+      projection: prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null ? { at: prediction.at, kg: prediction.projectedKg, label: formatKg(prediction.projectedKg), dateLabel: formatDate(prediction.at) } : null,
+      goalTarget: goalKg !== null ? { kg: goalKg, label: formatKg(goalKg), date: active?.targetDate ?? null } : null,
+    },
+    projection: {
+      state: prediction ? displayOf(PREDICTION_DISPLAY, prediction.state, "PREDICTION") : PREDICTION_DISPLAY.NOT_REQUESTED,
+      label: prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null ? `${formatKg(prediction.projectedKg)} by ${formatDate(prediction.at)}` : null,
+      at: prediction?.at ?? null,
+      assumptions: prediction?.assumptions ?? [],
+    },
+    goal: {
+      state: goalState,
+      goalType: active?.goalType ?? null,
+      typeLabel: active ? (GOAL_TYPE_LABEL[active.goalType] ?? active.goalType) : null,
+      targetWeightKg: goalKg,
+      targetWeightLabel: goalKg !== null ? formatKg(goalKg) : null,
+      targetDate: active?.targetDate ?? null,
+      targetDateLabel: active?.targetDate ? formatDate(active.targetDate) : null,
+    },
+    health: {
+      withdrawal: {
+        state: gate ? displayOf(WITHDRAWAL_DISPLAY, gate.state, "WITHDRAWAL") : WITHDRAWAL_DISPLAY.UNKNOWN,
+        label: gate ? displayOf(WITHDRAWAL_DISPLAY, gate.state, "WITHDRAWAL").label : "Withdrawal unknown",
+        untilLabel: gate?.state === "IN_WITHDRAWAL" && gate.inWithdrawalUntil ? `Until ${formatDate(gate.inWithdrawalUntil)} (engine calculation from the product record)` : null,
+        product: gate ? (directory.foodProductLabels[gate.foodProduct] ?? "Food product") : "Food product",
+      },
+      programmes,
+      obligations,
+      medicines,
+      status: health ? "HEALTH_RECORDS" : "HEALTH_UNAVAILABLE",
+    },
+    recommendation: rec ? { state: displayOf(RECOMMENDATION_DISPLAY, rec.record.outcome, "RECOMMENDATION"), text: rec.record.recommendedAction?.description ?? null } : { state: RECOMMENDATION_DISPLAY.INSUFFICIENT_EVIDENCE, text: null },
+    work: outputs.plan.ok
+      ? { state: "PLANNING_OK", primary: work.open[0] ?? null, others: work.open.slice(1), closed: work.closed, failureCodes: [] }
+      : { state: "PLANNING_FAILED", primary: null, others: [], closed: work.closed, failureCodes: outputs.plan.issues.map((i) => i.code) },
+    timeline: buildAnimalTimeline(outputs, animalId, directory, costs),
+    costSummary: costs,
+  };
+}
+
+/** For callers that need the canonical latest-weight entries of an animal (e.g. the chart's record ids). */
+export function liveObservations(outputs: CattleOutputs, animalId: string): WeightSeriesEntry[] {
+  return seriesOf(outputs, animalId)?.observations ?? [];
+}
+
+export const viewpointDate = (outputs: CattleOutputs): string | null => utcDateOfInstant(outputs.viewpoint.effectiveAt);

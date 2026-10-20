@@ -2248,3 +2248,17 @@ model revision):
    provenance pattern).
 3. Note what changed and why in the engine's own doc if the change alters
    behaviour a farmer would notice.
+
+## Cattle C10 — animal plan definitions (2026-10-20)
+
+**Status: product definitions (accounting identities), not scientific or market evidence.** Authority: human C10 overnight authorisation, 2026-10-20, §12–13 (`.agent/campaigns/cattle-engine-v1/C10_BRIEF.md`). Implementation: `src/domain/animal-plan/plan-economics.ts` (`computeAnimalPlanEconomics`).
+
+| Definition | Formula | Version |
+|---|---|---|
+| Projected sale value | projected weight at sale (C5 PREDICTION) × scenario sale price €/kg (observed low / central / high of the selected comparable) | C10 v1 |
+| Projected direct profit | projected sale value − recorded direct animal costs − forecast direct holding costs (feed + housing entered in the plan) | C10 v1 |
+| Current sell-now margin | current estimated market value (provider central × current liveweight) − recorded direct animal costs | C10 v1 |
+| Return from holding | projected direct profit − current sell-now margin | C10 v1 |
+| Cost per kg liveweight | recorded direct costs ÷ current liveweight; (recorded + forecast) ÷ projected weight at sale | C10 v1 |
+
+Excluded by definition: labour, land / rent, finance, depreciation, general overhead and unallocated shared costs. No price, cost or growth constant is encoded; demonstration figures are fixtures labelled as such, and mart fixtures are never C8 observations.

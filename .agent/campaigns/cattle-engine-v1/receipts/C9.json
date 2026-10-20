@@ -1,0 +1,268 @@
+{
+  "receipt_schema_version": 1,
+  "origin": "campaign",
+  "campaign_id": "cattle-engine-v1",
+  "phase_id": "C9",
+  "phase_title": "Plan Interface",
+  "phase_order": 10,
+  "task_id": "cattle-c9-plan-interface-20261019",
+  "phase_base_sha": "91ef01298ea4106f7233c19277b8cc4a624126c1",
+  "functional_freeze_sha": "c3e717daf69ac4507686eec4bd0ab169419e425a",
+  "frozen_at": "2026-10-20T17:00:36Z",
+  "brief": ".agent/campaigns/cattle-engine-v1/C9_BRIEF.md",
+  "brief_sha256": "6e30643dd68a6abb83ddce5a2e52ad86c360cada1f35287157d1961349f43bc6",
+  "contracts": [
+    {
+      "path": "AGENTS.md",
+      "blob_at_freeze": "c608fb74479ed5ef58544105aee90d6fa07ce918"
+    },
+    {
+      "path": ".agent/AUDIT_RULES.md",
+      "blob_at_freeze": "d01ab47f5cc5c4be98f369e565d448292bf7ae47"
+    },
+    {
+      "path": ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md",
+      "blob_at_freeze": "580aee539f1c4f96e2769cf910356a86a3123d48"
+    },
+    {
+      "path": ".agent/campaigns/cattle-engine-v1/AUTONOMY.md",
+      "blob_at_freeze": "51102b7229f13aea2e8db752f16b7a96f3b13a4f"
+    },
+    {
+      "path": ".agent/skills/cattle-evidence-rules.md",
+      "blob_at_freeze": "34103147824c01008e92dba49531ff406294fce7"
+    },
+    {
+      "path": ".agent/skills/plan-domain.md",
+      "blob_at_freeze": "e4292e329d4dffa5f7afad310ed26609cb0f9464"
+    },
+    {
+      "path": "docs/farm-return-next/cattle/index.md",
+      "blob_at_freeze": "ed787671c170f51492d718821dfe439bfdfc1108"
+    },
+    {
+      "path": "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+      "blob_at_freeze": "d9cd13717f874b563aac71bdc540472591b4628c"
+    }
+  ],
+  "verify_command": "npx vitest run src/domain/cattle src/tooling/cattle-conformance src/domain/plan --maxWorkers=1 && npm run typecheck && npm run lint",
+  "verification": [
+    {
+      "name": "phase_verify",
+      "cmd": "npx vitest run src/domain/cattle src/tooling/cattle-conformance src/domain/plan --maxWorkers=1 && npm run typecheck && npm run lint",
+      "head": "c3e717daf69ac4507686eec4bd0ab169419e425a",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C9-freeze-phase_verify-20261020T160535576235Z.log"
+    },
+    {
+      "name": "full_suite",
+      "cmd": "bash scripts/quality-gate.sh",
+      "head": "c3e717daf69ac4507686eec4bd0ab169419e425a",
+      "result": "PASS",
+      "log": ".agent/history/campaign-cattle-engine-v1-C9-freeze-full_suite-20261020T160747028755Z.log"
+    }
+  ],
+  "strict_audit": {
+    "artifact": ".agent/campaigns/cattle-engine-v1/audits/audit-20261020T160112Z-2985897161.md",
+    "original": ".agent/history/audit-20261020T160112Z-2985897161.md",
+    "sha256": "f1925bf711d4b361ac1d4b5cbcced5c2a253e1cef3e42075e657aa250bacbb8a",
+    "range": "91ef01298ea4106f7233c19277b8cc4a624126c1..c3e717daf69ac4507686eec4bd0ab169419e425a",
+    "counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "tier": "strict"
+  },
+  "audits": [
+    {
+      "tier": "standard",
+      "artifact": "audit-20261019T123404Z-1547146619.md",
+      "head": "47854c8551ead267789d0a31131cf341a37ff61a",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261019T151706Z-612276544.md",
+      "head": "a19c959e3442f3319ab2fa67e92328d1dd7b44ae",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261019T170206Z-2957700564.md",
+      "head": "02f241a304d4e97591aaf1d68437c8bda94017dc",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261019T170520Z-623621139.md",
+      "head": "02f241a304d4e97591aaf1d68437c8bda94017dc",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261019T181804Z-3271808183.md",
+      "head": "b9036b4be979ae3a8a8bd644d7fa9272e21429f6",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261020T135448Z-2058409177.md",
+      "head": "3b863240e060c3b1c40c265a86072cbf9e68a998",
+      "counts": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261020T155752Z-2434397293.md",
+      "head": "c3e717daf69ac4507686eec4bd0ab169419e425a",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261020T160112Z-2985897161.md",
+      "head": "c3e717daf69ac4507686eec4bd0ab169419e425a",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    }
+  ],
+  "remediation": {
+    "medium_rounds": 1,
+    "high_rounds": 2,
+    "rounds": [
+      {
+        "n": 1,
+        "tier": "strict",
+        "audit": "audit-20261019T170520Z-623621139.md",
+        "ids": [
+          "F004"
+        ],
+        "severities": [
+          "HIGH"
+        ],
+        "fix_commit": "b9036b4be979ae3a8a8bd644d7fa9272e21429f6"
+      }
+    ]
+  },
+  "finding_signatures": {
+    "815b4a9abb920265": {
+      "severity": "HIGH",
+      "title": "Shared source-reference structure reaches Plan unchecked",
+      "file": "src/domain/cattle/plan-interface/plan-delegation.ts",
+      "attempts": 1,
+      "ids": [
+        "F004@audit-20261019T170520Z-623621139.md"
+      ]
+    },
+    "9f93a3d2b678b255": {
+      "severity": "HIGH",
+      "title": "Folding drops creation-origin provenance",
+      "file": "src/domain/cattle/plan-interface/plan-work-items.ts",
+      "attempts": 1,
+      "ids": [
+        "F003@audit-20261019T151706Z-612276544.md"
+      ]
+    },
+    "ab8864175944918a": {
+      "severity": "MEDIUM",
+      "title": "Timestamp precision can falsely complete weight work",
+      "file": "src/domain/cattle/plan-interface/plan-vocabulary.ts",
+      "attempts": 1,
+      "ids": [
+        "F002@audit-20261019T123404Z-1547146619.md"
+      ]
+    },
+    "f28d12b7df4aba24": {
+      "severity": "MEDIUM",
+      "title": "Valid matching Plan identities fail to merge",
+      "file": "src/domain/cattle/plan-interface/plan-merge.ts",
+      "attempts": 1,
+      "ids": [
+        "F001@audit-20261019T123404Z-1547146619.md"
+      ]
+    }
+  },
+  "outstanding_low_findings": [],
+  "migration_status": "NONE",
+  "frozen_contract_status": "ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md",
+  "human_gate_status": "NONE",
+  "pushed_or_deployed": false,
+  "predecessor": "C8P1",
+  "predecessor_receipt_fingerprint": "6c030ed74bfd99a711dde57b91fec8acd4336856d56906370f148bed9ce351a4",
+  "policy": {
+    "medium_rounds": 2,
+    "high_rounds": 2,
+    "attempts_per_signature": 2
+  },
+  "authorised_amendments": [
+    {
+      "path": "src/domain/cattle/recommendations/recommendations.test.ts",
+      "baseline_blob": "9ce65076d64e89aacb136b9e06649ad94f3a1e3f",
+      "result_blob": "17790adc45cbfe9fbfef2adc627af2805a1a190d",
+      "amendment_sha256": "5d06115151709797a9b29018023afaa7d082c958e420cdc13353e5be423e1e17",
+      "authorisation": "human 2026-10-20: authorised frozen-C8 test-only reliability split of the recommendation mutation test (1160 mutations into 74 groups); zero semantic coverage loss, no assertion weakening, no C8 production change"
+    },
+    {
+      "path": "scripts/agent-campaign-run",
+      "baseline_blob": "8e4b0303aefa1fc95df3cca3d549f24db2d33a93",
+      "result_blob": "cc58f756c0456c655fb5e84b1aadcead8244b405",
+      "amendment_sha256": "217eab0a82c519d3d2b22718406aa5fa6301d87b88c454dfa72b07f17597f36d",
+      "authorisation": "human 2026-10-20: authorised campaign tooling repair supporting exact content-pinned frozen-phase amendments without widening build/fix-agent scope (aa4af97, 11c3b70, 095b51d)"
+    },
+    {
+      "path": "scripts/tests/agent-campaign.test.py",
+      "baseline_blob": "f212d7fa36727e0b17b99ea75d0fdeb802315d0b",
+      "result_blob": "7d01fcb4e54721525c75baa410d6f53c44f8abba",
+      "amendment_sha256": "adcb10f5453570e55bd8d58037108e75b8d515273f3edbe4914c79e43542dc6f",
+      "authorisation": "human 2026-10-20: authorised tests for the campaign amendment mechanism (aa4af97, 11c3b70, 095b51d)"
+    }
+  ],
+  "receipt_fingerprint": "6b30b6a48c2ef4300a97e6358f44af545378ddab1ba644db2e76f254aba3f656"
+}

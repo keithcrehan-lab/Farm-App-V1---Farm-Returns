@@ -5,6 +5,19 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Cattle Engine v1, C9 close-out — Plan Interface — frozen at c3e717d (2026-10-20)
+
+C9 (task `cattle-c9-plan-interface-20261019`, base `91ef012`) is **frozen at `c3e717daf69ac4507686eec4bd0ab169419e425a`** by `scripts/agent-campaign-run`. This is the
+functional freeze SHA; the documentation commit recording it is not.
+
+- Strict full-phase audit `audit-20261020T160112Z-2985897161.md` over `91ef012..c3e717d`: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0.
+- Automatic remediation: 1 Medium round(s), 2 High round(s): F004 (HIGH, audit-20261019T170520Z-623621139.md): Shared source-reference structure reaches Plan unchecked — sig 815b4a9abb920265; F003 (HIGH, audit-20261019T151706Z-612276544.md): Folding drops creation-origin provenance — sig 9f93a3d2b678b255; F002 (MEDIUM, audit-20261019T123404Z-1547146619.md): Timestamp precision can falsely complete weight work — sig ab8864175944918a; F001 (MEDIUM, audit-20261019T123404Z-1547146619.md): Valid matching Plan identities fail to merge — sig f28d12b7df4aba24.
+- Outstanding Low (recorded, not fixed): none.
+- Verification at `c3e717d`: phase verify and full suite (`scripts/quality-gate.sh`) passed.
+- Human-authorised amendments outside the phase scope (bound to exact blobs; never agent-editable): `src/domain/cattle/recommendations/recommendations.test.ts` 9ce65076d64e→17790adc45cb (human 2026-10-20: authorised frozen-C8 test-only reliability split of the recommendation mutation test (1160 mutations into 74 groups); zero semantic coverage loss, no assertion weakening, no C8 production change); `scripts/agent-campaign-run` 8e4b0303aefa→cc58f756c045 (human 2026-10-20: authorised campaign tooling repair supporting exact content-pinned frozen-phase amendments without widening build/fix-agent scope (aa4af97, 11c3b70, 095b51d)); `scripts/tests/agent-campaign.test.py` f212d7fa3672→7d01fcb4e547 (human 2026-10-20: authorised tests for the campaign amendment mechanism (aa4af97, 11c3b70, 095b51d)).
+- Receipt `.agent/campaigns/cattle-engine-v1/receipts/C9.json` (fingerprint `6b30b6a48c2ef430`). Migrations: none. Frozen contracts: ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md. Nothing pushed or deployed.
+- C10 **not started**.
+
 ## Cattle Engine v1, C8P1 close-out — Plan Compatibility Amendment — frozen at 9480f22 (2026-10-17)
 
 C8P1 (task `cattle-c8p1-plan-compatibility-amendment-20261017`, base `b66a318`) is **frozen at `9480f22e2b19656f95c7259d4f2cd105cca081d1`** by `scripts/agent-campaign-run`. This is the

@@ -22,7 +22,13 @@ export function HealthSection({ health }: { health: AnimalProfileVM["health"] })
           {health.withdrawal.untilLabel ? <div className="text-sm text-fr-v2-charcoal">{health.withdrawal.untilLabel}</div> : null}
         </dd>
       </div>
-      {health.programmes.map((p) => (
+      {health.programmes.state === "UNAVAILABLE" || health.obligations.state === "UNAVAILABLE" ? (
+        <div className="flex items-baseline justify-between gap-4 py-3">
+          <dt className="text-sm text-fr-v2-muted">Programmes and requirements</dt>
+          <dd className="text-right text-sm text-fr-v2-charcoal">Couldn&apos;t be checked — the evaluation didn&apos;t run, so their status is unknown.</dd>
+        </div>
+      ) : null}
+      {(health.programmes.state === "EVALUATED" ? health.programmes.items : []).map((p) => (
         <div key={p.label} className="flex items-baseline justify-between gap-4 py-3">
           <dt className="text-sm text-fr-v2-muted">{p.label}</dt>
           <dd>
@@ -30,7 +36,7 @@ export function HealthSection({ health }: { health: AnimalProfileVM["health"] })
           </dd>
         </div>
       ))}
-      {health.obligations.map((o) => (
+      {(health.obligations.state === "EVALUATED" ? health.obligations.items : []).map((o) => (
         <div key={o.label} className="flex items-baseline justify-between gap-4 py-3">
           <dt className="text-sm text-fr-v2-muted">{o.label}</dt>
           <dd>
@@ -38,7 +44,7 @@ export function HealthSection({ health }: { health: AnimalProfileVM["health"] })
           </dd>
         </div>
       ))}
-      {health.programmes.length === 0 ? (
+      {health.programmes.state === "EVALUATED" && health.programmes.items.length === 0 ? (
         <div className="py-3 text-sm text-fr-v2-muted">Not in any declared veterinary programme.</div>
       ) : null}
       {health.medicines.length > 0 ? (
@@ -67,6 +73,7 @@ export function CostSection({ costs }: { costs: AnimalCostSummary | null }) {
   if (costs === null || costs.state === "NONE_RECORDED") {
     return <p className="text-sm text-fr-v2-charcoal">No direct costs are recorded for this animal. Until they are, its cost — and any projected direct profit — is unknown, not €0.</p>;
   }
+  if (costs.state === "RECORDED" && costs.currency !== "EUR") return <p className="text-sm text-fr-v2-charcoal">Costs are recorded in {costs.currency}. No exchange rate is used, so no euro total is shown.</p>;
   if (costs.state !== "RECORDED") return <p className="text-sm text-fr-v2-charcoal">A cost record can&apos;t be read ({costs.state === "MIXED_CURRENCY" ? "mixed currencies" : "invalid entry"}), so no total is shown.</p>;
   const missing = costs.byCategory.filter((c) => c.amount === null).map((c) => CATEGORY_LABEL[c.category].toLowerCase());
   return (
@@ -108,8 +115,9 @@ const CLASS_STYLE: Record<TimelineClass, string> = {
   COST: "bg-fr-v2-stone text-fr-v2-charcoal",
 };
 
-export function TimelineSection({ entries, freshIds }: { entries: TimelineEntryVM[]; freshIds: Set<string> }) {
-  if (entries.length === 0) return <p className="text-sm text-fr-v2-muted">No dated records for this animal yet.</p>;
+export function TimelineSection({ entries, freshIds, gaps = [] }: { entries: TimelineEntryVM[]; freshIds: Set<string>; gaps?: string[] }) {
+  const gapNote = gaps.length > 0 ? <p className="mb-2 text-sm text-fr-v2-charcoal">Not shown: {gaps.join("; ")}.</p> : null;
+  if (entries.length === 0) return gapNote ?? <p className="text-sm text-fr-v2-muted">No dated records for this animal yet.</p>;
   const first = entries.slice(0, 8);
   const rest = entries.slice(8);
   const Row = ({ e }: { e: TimelineEntryVM }) => (
@@ -128,6 +136,7 @@ export function TimelineSection({ entries, freshIds }: { entries: TimelineEntryV
   );
   return (
     <div>
+      {gapNote}
       <ul className="divide-y divide-fr-v2-rule">
         {first.map((e) => (
           <Row key={e.id} e={e} />

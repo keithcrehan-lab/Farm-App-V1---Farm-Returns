@@ -13,7 +13,7 @@ import { animalAssertionHistory } from "../animal-snapshot";
 import type { AnimalCostSummary } from "../../animal-plan";
 import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
 import { ACTION_COPY } from "./display-states";
-import { formatDate, formatDayMonth, formatEuro, formatKg } from "./format";
+import { formatDate, formatDayMonth, formatKg, formatMoney } from "./format";
 
 export type TimelineClass = "FACT" | "OBSERVATION" | "INTENT" | "DERIVED" | "RECOMMENDATION" | "COST";
 
@@ -149,7 +149,7 @@ export function buildAnimalTimeline(outputs: CattleOutputs, animalId: string, di
         id: `cost:${c.entryId}`,
         at: `${c.effectiveDate}T00:00:00Z`,
         dateLabel: formatDate(c.effectiveDate),
-        title: `${CATEGORY[c.category] ?? "Cost"} ${formatEuro(c.amount)}`,
+        title: `${CATEGORY[c.category] ?? "Cost"} ${formatMoney(c.amount, c.currency)}`,
         detail: c.attribution === "ALLOCATED" ? `Allocated — ${c.allocationBasis ?? "basis not stated"}` : (c.note ?? "Direct"),
         infoClass: "COST",
         marker: null,

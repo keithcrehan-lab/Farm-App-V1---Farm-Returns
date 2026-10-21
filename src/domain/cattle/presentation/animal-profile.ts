@@ -88,14 +88,17 @@ export interface AnimalProfileVM {
   goal: { state: DisplayState; typeLabel: string | null; targetWeightLabel: string | null; targetWeightKg: number | null; targetDate: string | null; targetDateLabel: string | null; goalType: string | null };
   health: {
     withdrawal: { state: DisplayState; label: string; until: string | null; untilLabel: string | null; product: string };
-    programmes: { label: string; state: DisplayState }[];
-    obligations: { label: string; state: DisplayState }[];
+    /** EVALUATED (possibly empty) vs UNAVAILABLE (the C8 context wasn't produced): never collapsed into an empty list. */
+    programmes: Evaluated<{ label: string; state: DisplayState }>;
+    obligations: Evaluated<{ label: string; state: DisplayState }>;
     medicines: { date: string; label: string; product: string; withdrawal: DisplayState; withdrawalEndLabel: string | null }[];
     status: "HEALTH_RECORDS" | "HEALTH_UNAVAILABLE";
   };
   recommendation: { state: DisplayState; text: string | null };
   work: { state: "PLANNING_OK" | "PLANNING_FAILED"; primary: WorkVM | null; others: WorkVM[]; closed: WorkVM[]; failureCodes: string[] };
   timeline: TimelineEntryVM[];
+  /** Record families the timeline couldn't include because their evaluation didn't run. */
+  timelineGaps: string[];
   costSummary: AnimalCostSummary | null;
 }
 
@@ -137,6 +140,9 @@ function pointVM(p: PerformancePoint): ChartPointVM {
 function seriesOf(outputs: CattleOutputs, animalId: string) {
   return outputs.weights?.series.find((s) => s.animalId === animalId) ?? null;
 }
+
+/** A collection that was evaluated (and may be empty) or wasn't evaluated at all. */
+export type Evaluated<T> = { state: "EVALUATED"; items: T[] } | { state: "UNAVAILABLE" };
 
 export function performanceOf(outputs: CattleOutputs, animalId: string): AnimalPerformance | null {
   return outputs.performance?.animals.find((a) => a.animalId === animalId) ?? null;
@@ -196,8 +202,10 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
   const gate = health?.withdrawalGate.entries[0] ?? null;
   const rec = outputs.recommendations.ok ? outputs.recommendations.result.animals.find((a) => a.animalId === animalId) ?? null : null;
   const ctx = rec?.context ?? null;
-  const programmes = ctx && ctx.programmes.state === "SUPPLIED" ? ctx.programmes.occurrences.filter((o) => o.state !== "NOT_APPLICABLE").map((o) => ({ label: directory.programmeLabels[o.programmeId] ?? "Unnamed programme", state: displayOf(PROGRAMME_DISPLAY, o.state, "PROGRAMME") })) : [];
-  const obligations = ctx && ctx.obligations.state === "SUPPLIED" ? ctx.obligations.records.filter((o) => o.state !== "NOT_APPLICABLE").map((o) => ({ label: directory.obligationLabels[o.obligationId] ?? "Unnamed requirement", state: displayOf(OBLIGATION_DISPLAY, o.state, "OBLIGATION") })) : [];
+  const programmes: Evaluated<{ label: string; state: DisplayState }> =
+    ctx && ctx.programmes.state === "SUPPLIED" ? { state: "EVALUATED", items: ctx.programmes.occurrences.filter((o) => o.state !== "NOT_APPLICABLE").map((o) => ({ label: directory.programmeLabels[o.programmeId] ?? "Unnamed programme", state: displayOf(PROGRAMME_DISPLAY, o.state, "PROGRAMME") })) } : { state: "UNAVAILABLE" };
+  const obligations: Evaluated<{ label: string; state: DisplayState }> =
+    ctx && ctx.obligations.state === "SUPPLIED" ? { state: "EVALUATED", items: ctx.obligations.records.filter((o) => o.state !== "NOT_APPLICABLE").map((o) => ({ label: directory.obligationLabels[o.obligationId] ?? "Unnamed requirement", state: displayOf(OBLIGATION_DISPLAY, o.state, "OBLIGATION") })) } : { state: "UNAVAILABLE" };
   const medicines = (health?.medicineLedger.entries ?? [])
     .filter((e) => e.status === "LIVE")
     .map((e) => {
@@ -218,6 +226,8 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
       ? { label: "Direct cost to date", value: null, unit: null, state: { code: "COST:NONE_RECORDED", label: "No costs recorded", tone: "unknown", detail: "No direct costs are recorded for this animal yet. That isn't €0." }, caption: null }
       : costs.state !== "RECORDED" || costs.total === null
         ? { label: "Direct cost to date", value: null, unit: null, state: { code: `COST:${costs.state}`, label: costs.state === "MIXED_CURRENCY" ? "Costs in mixed currencies" : "A cost record can't be read", tone: "review", detail: null }, caption: null }
+        : costs.currency !== "EUR"
+          ? { label: "Direct cost to date", value: null, unit: null, state: { code: "COST:NOT_IN_EURO", label: "Costs not in euro", tone: "review", detail: `Costs are recorded in ${costs.currency}; no exchange rate is used, so no euro total is shown.` }, caption: null }
         : {
             label: "Direct cost to date",
             value: formatEuro(costs.total),
@@ -309,11 +319,17 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
       medicines,
       status: health ? "HEALTH_RECORDS" : "HEALTH_UNAVAILABLE",
     },
-    recommendation: rec ? { state: displayOf(RECOMMENDATION_DISPLAY, rec.record.outcome, "RECOMMENDATION"), text: rec.record.recommendedAction?.description ?? null } : { state: RECOMMENDATION_DISPLAY.INSUFFICIENT_EVIDENCE, text: null },
+    recommendation: rec ? { state: displayOf(RECOMMENDATION_DISPLAY, rec.record.outcome, "RECOMMENDATION"), text: rec.record.recommendedAction?.description ?? null } : { state: EVALUATION_UNAVAILABLE, text: null },
     work: outputs.plan.ok
       ? { state: "PLANNING_OK", primary: work.open[0] ?? null, others: work.open.slice(1), closed: work.closed, failureCodes: [] }
       : { state: "PLANNING_FAILED", primary: null, others: [], closed: work.closed, failureCodes: outputs.plan.issues.map((i) => i.code) },
     timeline: buildAnimalTimeline(outputs, animalId, directory, costs),
+    timelineGaps: [
+      ...(outputs.weights === null ? ["weighings (weight records couldn't be read)"] : []),
+      ...(health === null ? ["health records (couldn't be read)"] : []),
+      ...(goalProj === null ? ["goals (couldn't be read)"] : []),
+      ...(!outputs.plan.ok ? ["work (the planning run failed)"] : []),
+    ],
     costSummary: costs,
   };
 }

@@ -240,3 +240,16 @@ describe("plan economics — exact definitions", () => {
     expect(amount(e.currentEstimatedValue)).toBe("1700");
   });
 });
+
+describe("plan economics — euro only (audit F006)", () => {
+  it("a single non-euro cost ledger never enters euro arithmetic; mixed currencies don't either", () => {
+    const gbp = summariseAnimalCosts([entry({ entryId: "c1", amount: "600", currency: "GBP" })], A, "2026-10-16");
+    expect(gbp).toMatchObject({ state: "RECORDED", currency: "GBP", total: "600" });
+    const e = computeAnimalPlanEconomics(input({ costs: gbp }));
+    expect(e.recordedDirectCosts).toEqual({ state: "UNKNOWN", reasons: ["COSTS_NOT_IN_EURO"] });
+    for (const m of [e.totalDirectCostBySale, e.projectedDirectProfit, e.currentSellNowMargin, e.returnFromHolding, e.costPerKgNow, e.costPerKgAtSale]) expect(m.state).toBe("UNKNOWN");
+    expect(amount(e.projectedSaleValue)).toBe("1855"); // euro-only figures are unaffected
+    const mixed = summariseAnimalCosts([entry({ entryId: "c1", amount: "4" }), entry({ entryId: "c2", amount: "5", currency: "GBP" })], A, "2026-10-16");
+    expect(computeAnimalPlanEconomics(input({ costs: mixed })).recordedDirectCosts).toEqual({ state: "UNKNOWN", reasons: ["COSTS_IN_MIXED_CURRENCY"] });
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GOAL_DISPLAY, ADMINISTRATION_WITHDRAWAL_DISPLAY, BLOCKER_DISPLAY, COMPLETION_DISPLAY, GAIN_DISPLAY, IDENTITY_DISPLAY, JOB_STATUS_DISPLAY, LATEST_WEIGHT_DISPLAY, MEMBERSHIP_DISPLAY, OBLIGATION_DISPLAY, PREDICTION_DISPLAY, PRIORITY_DISPLAY, PROGRAMME_DISPLAY, READINESS_DISPLAY, RECOMMENDATION_DISPLAY, TARGET_DISPLAY, TREND_DISPLAY, WITHDRAWAL_DISPLAY, displayOf, reasonSentence, type DisplayState } from "./display-states";
-import { ageInMonths, formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatSignedKg } from "./format";
+import { ageInMonths, formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatMoney, formatSignedKg } from "./format";
 import { OBLIGATION_STATES } from "../regulatory";
 import { PROGRAMME_OCCURRENCE_STATES } from "../programmes";
 import { SYSTEM_PRIORITY_TIERS } from "../../plan";
@@ -85,6 +85,8 @@ describe("C10 display formatting — documented rounding only", () => {
     expect(formatEuro("-41.6", { signed: true })).toBe("−€42");
     expect(formatEuro("113", { signed: true })).toBe("+€113");
     expect(formatEuroPerKg("3.8249")).toBe("€3.82/kg");
+    expect(formatMoney("236.4", "EUR")).toBe("€236");
+    expect(formatMoney("1236.4", "GBP")).toBe("GBP 1,236"); // never a € sign on another currency
   });
   it("dates are the UTC calendar date of the supplied value — no zone conversion", () => {
     expect(formatDate("2026-10-16T23:59:59Z")).toBe("16 Oct 2026");

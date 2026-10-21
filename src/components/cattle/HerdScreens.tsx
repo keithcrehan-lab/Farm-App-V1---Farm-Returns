@@ -8,30 +8,18 @@
  */
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useTransition } from "react";
 import type { AnimalRowVM, GroupVM, HerdVM } from "@/domain/cattle/presentation";
 import type { CattleDemoScenario } from "@/server/cattle-demo/demo-replay";
 import { loadCattleHerd } from "@/app/(app)/cattle/actions";
 import { useCattleDemoSession } from "./session/CattleDemoSessionProvider";
-import { BackLink, DemoNotice, Pending, SectionHeading, StateGlyph, StateLabel, TONE_TEXT, cattleStyles } from "./ui";
+import { useDemoView } from "./session/use-demo-view";
+import { BackLink, DemoNotice, SectionHeading, ViewStatus, busyClass, StateGlyph, StateLabel, TONE_TEXT, cattleStyles } from "./ui";
 
 const q = (scenario: CattleDemoScenario) => (scenario === "STANDARD" ? "" : `?scenario=${scenario}`);
 
-function useHerd(initial: HerdVM, scenario: CattleDemoScenario): { herd: HerdVM; pending: boolean } {
-  const { session } = useCattleDemoSession();
-  const [herd, setHerd] = useState(initial);
-  const [pending, start] = useTransition();
-  const loaded = useRef(JSON.stringify({ version: 1, events: [] }));
-  useEffect(() => {
-    const key = JSON.stringify(session);
-    if (key === loaded.current) return;
-    loaded.current = key;
-    start(async () => {
-      const r = await loadCattleHerd(session, scenario);
-      if (r.ok) setHerd(r.value);
-    });
-  }, [session, scenario]);
-  return { herd, pending };
+function useHerd(initial: HerdVM, scenario: CattleDemoScenario): { herd: HerdVM; pending: boolean; failed: boolean } {
+  const { view, pending, failed } = useDemoView(initial, `herd:${scenario}`, (session) => loadCattleHerd(session, scenario));
+  return { herd: view, pending, failed };
 }
 
 function PlanningFailed({ codes }: { codes: string[] }) {
@@ -92,12 +80,12 @@ function DemoControls({ scenario }: { scenario: CattleDemoScenario }) {
 }
 
 export function HerdScreen({ initial, scenario }: { initial: HerdVM; scenario: CattleDemoScenario }) {
-  const { herd, pending } = useHerd(initial, scenario);
+  const { herd, pending, failed } = useHerd(initial, scenario);
   return (
-    <div className="mx-auto max-w-4xl pb-10">
+    <div className={`mx-auto max-w-4xl pb-10 ${busyClass(pending, failed)}`} aria-busy={pending}>
       <div className="flex items-baseline justify-between gap-3">
         <h1 className="font-display text-[40px] font-semibold leading-none tracking-tight text-fr-v2-graphite">Cattle</h1>
-        {pending ? <Pending label="Recalculating…" /> : <span className="text-[13px] text-fr-v2-muted">{herd.asOfLabel}</span>}
+        <ViewStatus pending={pending} failed={failed} idle={<span className="text-[13px] text-fr-v2-muted">{herd.asOfLabel}</span>} />
       </div>
       <p className="mt-2 text-[15px] text-fr-v2-charcoal">
         {herd.animalCount === 0 ? "No animals recorded." : `${herd.animalCount} animals in ${herd.groups.length} groups`}
@@ -163,7 +151,7 @@ function AnimalRow({ a, scenario }: { a: AnimalRowVM; scenario: CattleDemoScenar
 }
 
 export function GroupScreen({ initial, groupRef, scenario }: { initial: HerdVM; groupRef: string; scenario: CattleDemoScenario }) {
-  const { herd, pending } = useHerd(initial, scenario);
+  const { herd, pending, failed } = useHerd(initial, scenario);
   const g = herd.groups.find((x) => x.groupRef === groupRef);
   if (!g) {
     return (
@@ -174,10 +162,10 @@ export function GroupScreen({ initial, groupRef, scenario }: { initial: HerdVM; 
     );
   }
   return (
-    <div className="mx-auto max-w-4xl pb-10">
+    <div className={`mx-auto max-w-4xl pb-10 ${busyClass(pending, failed)}`} aria-busy={pending}>
       <div className="flex items-center justify-between">
         <BackLink href={`/cattle${q(scenario)}`} label="Cattle" />
-        {pending ? <Pending label="Recalculating…" /> : null}
+        <ViewStatus pending={pending} failed={failed} />
       </div>
       <div className="mt-1 text-[13px] font-medium uppercase tracking-[0.08em] text-fr-v2-plum">Group</div>
       <h1 className="font-display text-[44px] font-semibold leading-none tracking-tight text-fr-v2-graphite">{g.name}</h1>

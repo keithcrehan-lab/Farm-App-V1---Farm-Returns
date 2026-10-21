@@ -16,7 +16,8 @@ import { moreNavItems } from "@/components/shell/nav-items";
 import { GroupScreen, HerdScreen } from "./HerdScreens";
 import { PerformanceChart } from "./PerformanceChart";
 import { RecordWeightSheet } from "./RecordWeightSheet";
-import { CattleDemoSessionProvider } from "./session/CattleDemoSessionProvider";
+import { CattleDemoSessionProvider, useCattleDemoSession } from "./session/CattleDemoSessionProvider";
+import { useDemoView } from "./session/use-demo-view";
 import type { CattleDemoSession } from "./session/demo-session";
 
 const EMPTY: CattleDemoSession = { version: 1, events: [] };
@@ -62,7 +63,7 @@ describe("C10 screens", { timeout: 60_000 }, () => {
   });
 
   it("the back-dated option says, before saving, that it won't close today's job", () => {
-    render(<RecordWeightSheet open onClose={() => {}} onSave={() => {}} tag="1427" lastKg={521} asOfDate="2026-10-16" />);
+    render(<RecordWeightSheet open onClose={() => {}} onSave={() => null} tag="1427" lastKg={521} asOfDate="2026-10-16" />);
     fireEvent.click(screen.getByRole("button", { name: "An earlier day" }));
     expect(screen.getByText(/doesn't close today/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save weight" })).toBeDisabled(); // no date chosen yet
@@ -147,7 +148,7 @@ describe("C10 screens", { timeout: 60_000 }, () => {
   });
 
   it("record-weight sheet focuses the scale reading first", () => {
-    render(<RecordWeightSheet open onClose={() => {}} onSave={() => {}} tag="1427" lastKg={521} asOfDate="2026-10-16" />);
+    render(<RecordWeightSheet open onClose={() => {}} onSave={() => null} tag="1427" lastKg={521} asOfDate="2026-10-16" />);
     expect(document.activeElement).toBe(screen.getByLabelText("Scale reading"));
   });
 
@@ -171,6 +172,135 @@ describe("C10 screens", { timeout: 60_000 }, () => {
       fireEvent.change(screen.getByLabelText("Planned sale date"), { target: { value: "2026-10-28" } });
     });
     expect(screen.getByText(/inside the medicine withdrawal \(meat\), which runs until 30 Oct 2026/)).toBeInTheDocument();
+  });
+
+  it("planning-run failure: health says programmes couldn't be checked, never 'not in any programme' (audit F005)", () => {
+    wrap(<AnimalProfileScreen initial={demoAnimalView(EMPTY, "1427", "PLANNING_RUN_FAILURE")!} tag="1427" scenario="PLANNING_RUN_FAILURE" />);
+    expect(screen.getByText(/Couldn't be checked — the evaluation didn't run/)).toBeInTheDocument();
+    expect(screen.queryByText(/Not in any declared veterinary programme/)).toBeNull();
+    expect(screen.getByText(/Not shown: weighings/)).toBeInTheDocument();
+  });
+
+  it("record-weight sheet submits the reading unchanged (audit F007)", () => {
+    const onSave = vi.fn(() => null);
+    render(<RecordWeightSheet open onClose={() => {}} onSave={onSave} tag="1427" lastKg={521} asOfDate="2026-10-16" />);
+    fireEvent.change(screen.getByLabelText("Scale reading"), { target: { value: "548.24" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save weight" }));
+    expect(onSave).toHaveBeenCalledWith({ kg: 548.24, observedDate: null });
+  });
+
+  it("save plan → leave → reopen → save keeps the saved target, not the original (audit F008)", async () => {
+    const Spy = () => {
+      const s = useCattleDemoSession();
+      return <span data-testid="events">{JSON.stringify(s.session.events)}</span>;
+    };
+    const Harness = ({ show }: { show: boolean }) => (
+      <CattleDemoSessionProvider>
+        <Spy />
+        {show ? <AnimalPlanScreen initial={demoAnimalView(EMPTY, "1427")!} tag="1427" scenario="STANDARD" /> : null}
+      </CattleDemoSessionProvider>
+    );
+    const { rerender } = render(<Harness show />);
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Target weight (goal)"), { target: { value: "620" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save plan" }));
+    });
+    rerender(<Harness show={false} />);
+    await act(async () => {
+      rerender(<Harness show />);
+    });
+    expect(screen.getByLabelText("Target weight (goal)")).toHaveValue("620");
+    expect(screen.getByText("Saved to this demo session")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save plan" }));
+    });
+    const events = JSON.parse(screen.getByTestId("events").textContent!) as { kind: string; targetKg: number }[];
+    expect(events.map((e) => [e.kind, e.targetKg])).toEqual([["SAVE_PLAN_GOAL", 620], ["SAVE_PLAN_GOAL", 620]]);
+  });
+
+  it("changing scenario shows that scenario's herd at once, and a late response for an old key is dropped (audit F009)", async () => {
+    const { rerender } = wrap(<HerdScreen initial={demoHerdView(EMPTY)} scenario="STANDARD" />);
+    expect(screen.getByText(/12 animals in 2 groups/)).toBeInTheDocument();
+    rerender(
+      <CattleDemoSessionProvider>
+        <HerdScreen initial={demoHerdView(EMPTY, "EMPTY_HERD")} scenario="EMPTY_HERD" />
+      </CattleDemoSessionProvider>,
+    );
+    expect(screen.queryByText(/12 animals/)).toBeNull();
+    expect(screen.getByText("No animals recorded.")).toBeInTheDocument();
+  });
+
+  it("useDemoView drops a late response for a superseded key", async () => {
+    const resolvers: Record<string, (v: { ok: true; value: string }) => void> = {};
+    const Probe = ({ id }: { id: string }) => {
+      const { view, pending } = useDemoView(`initial-${id}`, id, () => new Promise((r) => (resolvers[id] = r)));
+      return <span data-testid="probe">{`${view}|${pending}`}</span>;
+    };
+    const Add = () => {
+      const s = useCattleDemoSession();
+      return <button type="button" onClick={() => s.addEvent({ kind: "RECORD_WEIGHT", tag: "1427", kg: 530, observedDate: null })}>add</button>;
+    };
+    const ui = (id: string) => (
+      <CattleDemoSessionProvider>
+        <Add />
+        <Probe id={id} />
+      </CattleDemoSessionProvider>
+    );
+    const { rerender } = render(ui("A"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "add" }));
+    });
+    expect(screen.getByTestId("probe")).toHaveTextContent("initial-A|true");
+    rerender(ui("B")); // identity changes before A's response arrives
+    await act(async () => {
+      resolvers.A({ ok: true, value: "stale-A" });
+    });
+    expect(screen.getByTestId("probe")).toHaveTextContent("initial-B|true"); // A's late answer is ignored
+    await act(async () => {
+      resolvers.B({ ok: true, value: "fresh-B" });
+    });
+    expect(screen.getByTestId("probe")).toHaveTextContent("fresh-B|false");
+  });
+
+  it("a full session refuses saves and says so — no success message (audit F010)", async () => {
+    const Fill = () => {
+      const s = useCattleDemoSession();
+      return (
+        <button type="button" onClick={() => { for (let i = 0; i < 40; i++) s.addEvent({ kind: "RECORD_WEIGHT", tag: "1431", kg: 500 + i, observedDate: null }); }}>
+          fill
+        </button>
+      );
+    };
+    loadCattleAnimal.mockImplementation(() => new Promise(() => {})); // keep the view as is; this test is about the refusal
+    projectCattleWeight.mockImplementation(async (session: CattleDemoSession, tag: string, date: string) => ({ ok: true, value: demoProjection(EMPTY, tag, date) }));
+    render(
+      <CattleDemoSessionProvider>
+        <Fill />
+        <AnimalPlanScreen initial={demoAnimalView(EMPTY, "1427")!} tag="1427" scenario="STANDARD" />
+      </CattleDemoSessionProvider>,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "fill" }));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Target weight (goal)"), { target: { value: "630" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save plan" }));
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(/session is full, so the plan wasn't saved/);
+    expect(screen.queryByText(/Saved to this demo session/)).toBeNull();
+    expect(screen.getByLabelText("Target weight (goal)")).toHaveValue("630");
+  });
+
+  it("record-weight refusal keeps the sheet open with the reading", () => {
+    render(<RecordWeightSheet open onClose={() => {}} onSave={() => "This demonstration session is full, so the weight wasn't recorded."} tag="1427" lastKg={521} asOfDate="2026-10-16" />);
+    fireEvent.change(screen.getByLabelText("Scale reading"), { target: { value: "549" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save weight" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/weight wasn't recorded/);
+    expect(screen.getByLabelText("Scale reading")).toHaveValue("549");
   });
 
   it("real-account state shows no synthetic data", () => {

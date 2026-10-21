@@ -17,14 +17,21 @@
  */
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { addDays, computeAnimalPlanEconomics, daysBetween, isPlanDate, type AnimalPlanAssumptions, type MarketScenario, type Money } from "@/domain/animal-plan";
 import { formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatSignedKg, saleWithdrawalNotice } from "@/domain/cattle/presentation";
 import type { DemoAnimalView, DemoProjection } from "@/server/cattle-demo/demo-service";
 import type { CattleDemoScenario } from "@/server/cattle-demo/demo-replay";
 import { loadCattleAnimal, projectCattleWeight } from "@/app/(app)/cattle/actions";
 import { useCattleDemoSession } from "./session/CattleDemoSessionProvider";
-import { BackLink, DemoNotice, Disclosure, Pending, SectionHeading, StateGlyph, cattleStyles } from "./ui";
+import { useDemoView } from "./session/use-demo-view";
+import { BackLink, DemoNotice, Disclosure, Pending, SectionHeading, StateGlyph, ViewStatus, cattleStyles } from "./ui";
+
+interface PlanForm {
+  assumptions: AnimalPlanAssumptions;
+  martId: string;
+  targetKg: string;
+}
 
 const ISSUE_TEXT: Record<string, string> = {
   SALE_DATE_INVALID: "Choose a real sale date.",
@@ -40,6 +47,8 @@ const ISSUE_TEXT: Record<string, string> = {
 
 const REASON_TEXT: Record<string, string> = {
   NO_COSTS_RECORDED: "no costs recorded yet",
+  COSTS_NOT_IN_EURO: "costs aren't recorded in euro (no exchange rate is used)",
+  COSTS_IN_MIXED_CURRENCY: "costs are in mixed currencies",
   CONCENTRATE_QUANTITY_NOT_ENTERED: "concentrate per day not entered",
   CONCENTRATE_PRICE_NOT_ENTERED: "concentrate price not entered",
   FORAGE_COST_NOT_ENTERED: "forage cost not entered",
@@ -176,46 +185,47 @@ function PlanTimeline({ asOf, housingDate, saleDate, housedNow }: { asOf: string
 
 export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnimalView; tag: string; scenario: CattleDemoScenario }) {
   const { session, addEvent, planDraft, setPlanDraft } = useCattleDemoSession();
-  const [view, setView] = useState(initial);
-  const [loading, startLoading] = useTransition();
-  const loaded = useRef(JSON.stringify({ version: 1, events: [] }));
+  const identity = `plan:${tag}:${scenario}`;
+  const { view, pending: loading, failed } = useDemoView(initial, identity, (s) => loadCattleAnimal(s, tag, scenario));
+  // The form: the session draft when there is one (it also holds what was last saved), else the server defaults.
+  const defaults: PlanForm = { assumptions: initial.plan.defaults, martId: initial.plan.defaultMartId, targetKg: initial.profile.goal.targetWeightKg !== null ? String(initial.profile.goal.targetWeightKg) : "" };
   const existing = planDraft(tag);
-  const [a, setA] = useState<AnimalPlanAssumptions>(existing?.assumptions ?? initial.plan.defaults);
-  const [martId, setMartId] = useState(existing?.martId ?? initial.plan.defaultMartId);
-  const [targetKg, setTargetKg] = useState(initial.profile.goal.targetWeightKg !== null ? String(initial.profile.goal.targetWeightKg) : "");
+  const [form, setForm] = useState<PlanForm>(existing ? { assumptions: existing.assumptions, martId: existing.martId, targetKg: existing.targetKg } : defaults);
+  const a = form.assumptions;
+  const martId = form.martId;
+  const targetKg = form.targetKg;
+  const update = (patch: Partial<PlanForm>) => {
+    const next = { ...form, ...patch };
+    setForm(next);
+    setPlanDraft(tag, { ...next, saved: existing?.saved ?? null });
+  };
   const [projections, setProjections] = useState<Record<string, DemoProjection>>({});
   const [projecting, startProjecting] = useTransition();
-  const [savedFlash, setSavedFlash] = useState(false);
+  const [saveResult, setSaveResult] = useState<"SAVED" | "REFUSED" | null>(null);
 
-  // The profile / plan base follows the session (a saved plan becomes a new goal version).
+  // C5 projection for the chosen sale date — cached per identity + session + date, so a recorded weight or another scenario re-projects.
+  const projectionKey = `${identity}\u0000${JSON.stringify(session)}\u0000${a.saleDate}`;
   useEffect(() => {
-    const key = JSON.stringify(session);
-    if (key === loaded.current) return;
-    loaded.current = key;
-    setProjections({});
-    startLoading(async () => {
-      const r = await loadCattleAnimal(session, tag, scenario);
-      if (r.ok) setView(r.value);
-    });
-  }, [session, tag, scenario]);
-
-  // C5 projection for the chosen sale date (server; cached per date for this session).
-  useEffect(() => {
-    if (!isPlanDate(a.saleDate) || projections[a.saleDate]) return;
+    if (!isPlanDate(a.saleDate) || projections[projectionKey]) return;
     const date = a.saleDate;
+    const key = projectionKey;
+    let current = true;
     const t = setTimeout(() => {
       startProjecting(async () => {
         const r = await projectCattleWeight(session, tag, date, scenario);
-        if (r.ok) setProjections((p) => ({ ...p, [date]: r.value }));
+        if (current && r.ok) setProjections((p) => ({ ...p, [key]: r.value }));
       });
     }, 120);
-    return () => clearTimeout(t);
-  }, [a.saleDate, projections, session, tag, scenario]);
+    return () => {
+      current = false;
+      clearTimeout(t);
+    };
+  }, [a.saleDate, projectionKey, projections, session, tag, scenario]);
 
   const plan = view.plan;
   const profile = view.profile;
   const valuation = plan.valuations[martId];
-  const projection = projections[a.saleDate];
+  const projection = projections[projectionKey];
   const economics = useMemo(
     () =>
       computeAnimalPlanEconomics({
@@ -230,12 +240,8 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
     [a, plan, projection, valuation, profile.animalId],
   );
 
-  const draftDirty = JSON.stringify({ a, martId }) !== JSON.stringify(existing?.saved ? { a: existing.saved.assumptions, martId: existing.saved.martId } : { a: initial.plan.defaults, martId: initial.plan.defaultMartId });
-  const set = (patch: Partial<AnimalPlanAssumptions>) => {
-    const next = { ...a, ...patch };
-    setA(next);
-    setPlanDraft(tag, { assumptions: next, martId, saved: existing?.saved ?? null });
-  };
+  const draftDirty = JSON.stringify(form) !== JSON.stringify(existing?.saved ?? defaults);
+  const set = (patch: Partial<AnimalPlanAssumptions>) => update({ assumptions: { ...a, ...patch } });
   const housedNow = plan.currentlyHoused === true;
   const withdrawalNotice = saleWithdrawalNotice(profile.health.withdrawal, a.saleDate);
   const fixture = economics.valuationStanding === "FIXTURE";
@@ -250,16 +256,20 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
   const goalTypeChange = profile.goal.goalType !== savedGoalType ? (profile.goal.goalType ? `Saving changes ${tag}'s goal from ${(profile.goal.typeLabel ?? profile.goal.goalType).toLowerCase()} to finishing.` : `Saving declares a finishing goal for ${tag}.`) : null;
   const save = () => {
     if (invalid.length > 0 || !targetValid) return;
-    addEvent({ kind: "SAVE_PLAN_GOAL", tag, goalType: savedGoalType, targetKg: targetKg === "" ? null : Number(targetKg), targetDate: a.saleDate });
-    setPlanDraft(tag, { assumptions: a, martId, saved: { assumptions: a, martId } });
-    setSavedFlash(true);
+    // A full session refuses the action: nothing is marked saved and the form keeps the values.
+    if (addEvent({ kind: "SAVE_PLAN_GOAL", tag, goalType: savedGoalType, targetKg: targetKg === "" ? null : Number(targetKg), targetDate: a.saleDate }) === null) {
+      setSaveResult("REFUSED");
+      return;
+    }
+    setPlanDraft(tag, { ...form, saved: form });
+    setSaveResult("SAVED");
   };
 
   return (
     <article className="mx-auto max-w-5xl pb-12" aria-labelledby="plan-title">
       <div className="flex items-center justify-between gap-3">
         <BackLink href={profileHref} label={`Animal ${tag}`} />
-        {loading || projecting ? <Pending label={projecting ? "Projecting weight…" : "Recalculating…"} /> : null}
+        {failed ? <ViewStatus pending={false} failed /> : loading || projecting ? <Pending label={projecting ? "Projecting weight…" : "Recalculating…"} /> : null}
       </div>
       <div className="mt-1 text-[13px] font-medium uppercase tracking-[0.08em] text-fr-v2-plum">Animal plan</div>
       <h1 id="plan-title" className="font-display text-[40px] font-semibold leading-tight tracking-tight text-fr-v2-graphite">
@@ -323,7 +333,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
               </button>
             </div>
           </div>
-          <NumberField id="target-kg" label="Target weight (goal)" unit="kg" value={targetKg} onChange={setTargetKg} step={10} />
+          <NumberField id="target-kg" label="Target weight (goal)" unit="kg" value={targetKg} onChange={(v) => update({ targetKg: v })} step={10} />
           {!targetValid ? <p className="text-sm text-[#b23a2b]">Target weight must be a number of kilograms.</p> : null}
 
           <div className="space-y-4 pt-2">
@@ -356,7 +366,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
 
           <div className="space-y-4 pt-2">
             <div className="text-[13px] font-semibold text-fr-v2-graphite">Market</div>
-            <Segmented label="Mart" value={martId} options={plan.marts.map((m) => [m.martId, m.martName] as const)} onChange={(v) => { setMartId(v); setPlanDraft(tag, { assumptions: a, martId: v, saved: existing?.saved ?? null }); }} />
+            <Segmented label="Mart" value={martId} options={plan.marts.map((m) => [m.martId, m.martName] as const)} onChange={(v) => update({ martId: v })} />
             <Segmented<MarketScenario> label="Sale price scenario" value={a.scenario} options={[["LOW", "Low"], ["BASE", "As now"], ["HIGH", "High"]] as const} onChange={(v) => set({ scenario: v })} />
             <p className="text-[12px] text-fr-v2-muted">Low and high use the bottom and top of the observed range; &ldquo;as now&rdquo; assumes today&apos;s average holds. Prices can move either way.</p>
           </div>
@@ -366,8 +376,13 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
             <button type="button" onClick={save} disabled={invalid.length > 0 || !targetValid} className="min-h-12 rounded-[8px] bg-fr-v2-forest px-6 text-base font-semibold text-white disabled:opacity-40">
               Save plan
             </button>
+            {saveResult === "REFUSED" && draftDirty ? (
+              <span className="text-sm text-[#b23a2b]" role="alert">
+                This demonstration session is full, so the plan wasn&apos;t saved. Reset the demo on the Cattle page to continue.
+              </span>
+            ) : null}
             <span className="text-sm text-fr-v2-muted" role="status">
-              {savedFlash && !draftDirty ? "Saved to this demo session — the goal now uses this date and weight." : draftDirty ? "Unsaved changes" : existing?.saved ? "Saved to this demo session" : "Not saved"}
+              {saveResult === "REFUSED" && draftDirty ? null : saveResult === "SAVED" && !draftDirty ? "Saved to this demo session — the goal now uses this date and weight." : draftDirty ? "Unsaved changes" : existing?.saved ? "Saved to this demo session" : "Not saved"}
             </span>
           </div>
         </section>

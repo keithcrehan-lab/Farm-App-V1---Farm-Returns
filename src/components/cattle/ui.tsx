@@ -168,3 +168,18 @@ export function Pending({ label }: { label: string }) {
 }
 
 export const cattleStyles = styles;
+
+/** Pending / failed status of a demonstration view (see `useDemoView`). Content stays visible but is marked busy. */
+export function ViewStatus({ pending, failed, idle = null }: { pending: boolean; failed: boolean; idle?: React.ReactNode }) {
+  if (failed) {
+    return (
+      <span className="text-sm text-[#b23a2b]" role="alert">
+        Couldn&apos;t recalculate — the figures shown are from before your last change.
+      </span>
+    );
+  }
+  return pending ? <Pending label="Recalculating with the cattle engine…" /> : <>{idle}</>;
+}
+
+/** Dim content that no longer matches the current session while it recalculates. */
+export const busyClass = (pending: boolean, failed: boolean) => (pending || failed ? "opacity-60 transition-opacity motion-reduce:transition-none" : "transition-opacity motion-reduce:transition-none");

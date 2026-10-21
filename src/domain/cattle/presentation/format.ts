@@ -59,6 +59,14 @@ export function formatEuro(amount: string | number, opts: { signed?: boolean } =
   return `${sign}€${group(String(Math.abs(r)))}`;
 }
 
+/** A ledger amount in its own currency: `€42` for EUR, otherwise the ISO code (`GBP 42`) — never a € sign on another currency. */
+export function formatMoney(amount: string | number, currency: string): string {
+  if (currency === "EUR") return formatEuro(amount);
+  const n = typeof amount === "string" ? Number(amount) : amount;
+  const r = roundHalfAway(n, 0);
+  return `${r < 0 ? MINUS : ""}${currency} ${group(String(Math.abs(r)))}`;
+}
+
 export function formatEuroPerKg(amount: string | number): string {
   const n = typeof amount === "string" ? Number(amount) : amount;
   const r = roundHalfAway(n, 2);

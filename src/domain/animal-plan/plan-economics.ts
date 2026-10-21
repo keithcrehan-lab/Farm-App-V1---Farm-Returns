@@ -35,6 +35,9 @@ import { costPerKgLiveweight, type AnimalCostSummary } from "./cost-ledger";
 import type { MartValuation } from "./mart-valuation";
 import { comparePlanDates, daysBetween, isPlanDate } from "./plan-dates";
 
+/** The only currency the plan computes in. */
+export const PLAN_CURRENCY = "EUR";
+
 export const MARKET_SCENARIOS = ["LOW", "BASE", "HIGH"] as const;
 export type MarketScenario = (typeof MARKET_SCENARIOS)[number];
 
@@ -167,9 +170,12 @@ export function computeAnimalPlanEconomics(input: AnimalPlanEconomicsInput): Ani
   const forecastHousingCost = housed.state === "KNOWN" && new Decimal(housed.amount).isZero() ? known(new Decimal(0)) : combine([housed, housingRate], ([h, r]) => h.times(r));
   const forecastDirectHoldingCost = combine([forecastFeedCost, forecastHousingCost], ([f, h]) => f.plus(h));
 
+  // The plan is a euro model (€/tonne, €/day, €/kg prices): a cost total in any other currency is never mixed in — no exchange rate is sourced.
   const recordedDirectCosts: Money =
     input.costs.state === "RECORDED" && input.costs.total !== null
-      ? known(new Decimal(input.costs.total))
+      ? input.costs.currency === PLAN_CURRENCY
+        ? known(new Decimal(input.costs.total))
+        : unknown("COSTS_NOT_IN_EURO")
       : unknown(input.costs.state === "NONE_RECORDED" ? "NO_COSTS_RECORDED" : input.costs.state === "MIXED_CURRENCY" ? "COSTS_IN_MIXED_CURRENCY" : "COST_LEDGER_INVALID");
   const totalDirectCostBySale = combine([recordedDirectCosts, forecastDirectHoldingCost], ([r, h]) => r.plus(h));
 
@@ -191,7 +197,7 @@ export function computeAnimalPlanEconomics(input: AnimalPlanEconomicsInput): Ani
   const projectedDirectProfit = combine([projectedSaleValue, recordedDirectCosts, forecastDirectHoldingCost], ([s, r, h]) => s.minus(r).minus(h));
   const currentSellNowMargin = combine([currentEstimatedValue, recordedDirectCosts], ([c, r]) => c.minus(r));
   const returnFromHolding = combine([projectedDirectProfit, currentSellNowMargin], ([p, n]) => p.minus(n));
-  const perKgNow = costPerKgLiveweight(input.costs, input.currentWeightKg);
+  const perKgNow = recordedDirectCosts.state === "KNOWN" ? costPerKgLiveweight(input.costs, input.currentWeightKg) : null;
   const costPerKgNow: Money = perKgNow !== null ? known(new Decimal(perKgNow)) : unknown(...reasonsOf(recordedDirectCosts, currentKg));
   const costPerKgAtSale = combine([totalDirectCostBySale, projectedKg], ([t, kg]) => t.dividedBy(kg));
 

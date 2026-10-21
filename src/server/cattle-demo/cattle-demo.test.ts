@@ -91,6 +91,13 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     // The failed evaluation is unknown — never "not weighed" / "needs another weight" / "no date to project to".
     for (const s of [p.weight.state, p.gain.state, p.performanceState, p.projection.state]) expect(s.code).toBe("EVALUATION:UNAVAILABLE");
     expect(p.chart.unavailable).toBe(true);
+    // Audit F005: compliance that wasn't evaluated is unavailable, not "no programmes"; the timeline names what it can't show.
+    expect(p.health.programmes).toEqual({ state: "UNAVAILABLE" });
+    expect(p.health.obligations).toEqual({ state: "UNAVAILABLE" });
+    expect(p.recommendation.state.code).toBe("EVALUATION:UNAVAILABLE");
+    expect(p.timelineGaps.join(" ")).toMatch(/weighings .*work/);
+    expect(view("1427").health.programmes).toMatchObject({ state: "EVALUATED", items: [{ state: { code: "PROGRAMME:COMPLETED" } }] });
+    expect(view("1427").timelineGaps).toEqual([]);
     expect(herd.groups.flatMap((g) => g.members).every((a) => a.weightState.code === "EVALUATION:UNAVAILABLE")).toBe(true);
   });
 
@@ -98,6 +105,12 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     const herd = demoHerdView(EMPTY, "EMPTY_HERD");
     expect(herd.animalCount).toBe(0);
     expect(herd.openWorkCount).toBe(0);
+  });
+
+  it("a fractional scale reading is recorded exactly as entered (audit F007)", () => {
+    const p = view("1427", weigh("1427", 548.24));
+    expect(p.weight.kg).toBe(548.24);
+    expect(p.chart.points.at(-1)?.kg).toBe(548.24);
   });
 
   it("saving a plan declares a new C6 goal version (sale date and target weight)", () => {

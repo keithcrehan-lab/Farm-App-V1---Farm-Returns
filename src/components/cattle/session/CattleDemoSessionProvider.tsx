@@ -16,8 +16,10 @@ import { CATTLE_DEMO_SESSION_MAX_EVENTS, EMPTY_CATTLE_DEMO_SESSION, type CattleD
 interface PlanDraft {
   assumptions: AnimalPlanAssumptions;
   martId: string;
-  /** The assumptions last saved in this session (`null` = never saved). */
-  saved: { assumptions: AnimalPlanAssumptions; martId: string } | null;
+  /** The target weight field as typed ("" = none). */
+  targetKg: string;
+  /** The form last saved in this session (`null` = never saved). */
+  saved: { assumptions: AnimalPlanAssumptions; martId: string; targetKg: string } | null;
 }
 
 type NewEvent = CattleDemoEvent extends infer E ? (E extends unknown ? Omit<E, "eventId"> : never) : never;

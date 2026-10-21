@@ -25,7 +25,8 @@ export function RecordWeightSheet({
 }: {
   open: boolean;
   onClose: () => void;
-  onSave: (v: RecordWeightValue) => void;
+  /** Returns null when the weight was accepted, or a message when it was refused (the sheet stays open). */
+  onSave: (v: RecordWeightValue) => string | null;
   tag: string;
   lastKg: number | null;
   asOfDate: string;
@@ -33,6 +34,7 @@ export function RecordWeightSheet({
   const [text, setText] = useState(lastKg !== null ? String(Math.round(lastKg)) : "");
   const [when, setWhen] = useState<"TODAY" | "EARLIER">("TODAY");
   const [date, setDate] = useState("");
+  const [refused, setRefused] = useState<string | null>(null);
   const kg = Number(text);
   const kgValid = text.trim() !== "" && Number.isFinite(kg) && kg > 0 && kg <= 2000;
   const dateValid = when === "TODAY" || (/^\d{4}-\d{2}-\d{2}$/.test(date) && date < asOfDate);
@@ -43,7 +45,7 @@ export function RecordWeightSheet({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (kgValid && dateValid) onSave({ kg: Math.round(kg * 10) / 10, observedDate: when === "TODAY" ? null : date });
+          if (kgValid && dateValid) setRefused(onSave({ kg, observedDate: when === "TODAY" ? null : date }));
         }}
       >
         <label htmlFor="cattle-weight-kg" className="text-sm text-fr-v2-muted">
@@ -99,6 +101,11 @@ export function RecordWeightSheet({
           ) : null}
         </fieldset>
 
+        {refused ? (
+          <p className="mt-4 text-sm text-[#b23a2b]" role="alert">
+            {refused}
+          </p>
+        ) : null}
         <div className="mt-6 flex gap-3">
           <button type="button" onClick={onClose} className="min-h-12 rounded-[8px] px-4 text-base font-medium text-fr-v2-graphite">
             Cancel

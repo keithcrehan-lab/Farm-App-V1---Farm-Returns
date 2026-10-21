@@ -13,7 +13,7 @@
  */
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import type { DemoAnimalView } from "@/server/cattle-demo/demo-service";
 import type { CattleDemoScenario } from "@/server/cattle-demo/demo-replay";
 import { loadCattleAnimal } from "@/app/(app)/cattle/actions";
@@ -22,41 +22,35 @@ import { PerformanceChart } from "./PerformanceChart";
 import { PhotoGallery, PrimaryPhoto } from "./photos/AnimalPhotos";
 import { RecordWeightSheet } from "./RecordWeightSheet";
 import { useCattleDemoSession } from "./session/CattleDemoSessionProvider";
-import { BackLink, DemoNotice, Metric, Pending, SectionHeading, StateLabel } from "./ui";
+import { useDemoView } from "./session/use-demo-view";
+import { BackLink, DemoNotice, Metric, SectionHeading, StateLabel, ViewStatus, busyClass } from "./ui";
 import { WorkPanel } from "./WorkPanel";
 
+const SESSION_FULL = "This demonstration session is full, so the weight wasn't recorded. Reset the demo on the Cattle page to continue.";
+
 export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoAnimalView; tag: string; scenario: CattleDemoScenario }) {
-  const { session, addEvent } = useCattleDemoSession();
-  const [view, setView] = useState(initial);
-  const [pending, startTransition] = useTransition();
+  const { addEvent } = useCattleDemoSession();
+  const { view, pending, failed } = useDemoView(initial, `animal:${tag}:${scenario}`, (session) => loadCattleAnimal(session, tag, scenario));
   const [sheet, setSheet] = useState(false);
   const [changes, setChanges] = useState<{ points: string[]; resolved: string[]; timeline: Set<string> }>({ points: [], resolved: [], timeline: new Set() });
-  const [error, setError] = useState<string | null>(null);
-  const previous = useRef(initial);
-  const loadedFor = useRef<string>(JSON.stringify({ version: 1, events: [] }));
-
-  useEffect(() => {
-    const key = JSON.stringify(session);
-    if (key === loadedFor.current) return;
-    loadedFor.current = key;
-    startTransition(async () => {
-      const r = await loadCattleAnimal(session, tag, scenario);
-      if (!r.ok) {
-        setError("The demonstration couldn't recalculate. Nothing was saved.");
-        return;
-      }
-      const before = previous.current.profile;
-      const after = r.value.profile;
-      const oldIds = new Set(before.chart.points.flatMap((p) => p.recordIds));
+  // What a recalculation changed for THIS animal (adjusting state from the previous render; another animal resets it).
+  const [shown, setShown] = useState(view);
+  if (shown !== view) {
+    setShown(view);
+    if (shown.profile.animalId !== view.profile.animalId) setChanges({ points: [], resolved: [], timeline: new Set() });
+    else {
+      const before = shown.profile;
+      const after = view.profile;
+      const oldIds = new Set(before.chart.points.flatMap((x) => x.recordIds));
       const openBefore = new Set([before.work.primary, ...before.work.others].filter(Boolean).map((w) => w!.jobId));
-      const resolved = after.work.closed.filter((c) => openBefore.has(c.jobId)).map((c) => c.title);
       const oldTimeline = new Set(before.timeline.map((e) => e.id));
-      setChanges({ points: after.chart.points.flatMap((p) => p.recordIds).filter((id) => !oldIds.has(id)), resolved, timeline: new Set(after.timeline.filter((e) => !oldTimeline.has(e.id)).map((e) => e.id)) });
-      previous.current = r.value;
-      setError(null);
-      setView(r.value);
-    });
-  }, [session, tag, scenario]);
+      setChanges({
+        points: after.chart.points.flatMap((x) => x.recordIds).filter((id) => !oldIds.has(id)),
+        resolved: after.work.closed.filter((c) => openBefore.has(c.jobId)).map((c) => c.title),
+        timeline: new Set(after.timeline.filter((e) => !oldTimeline.has(e.id)).map((e) => e.id)),
+      });
+    }
+  }
 
   const p = view.profile;
   const groupHref = p.identity.group.groupRef ? `/cattle/groups/${encodeURIComponent(p.identity.group.groupRef)}${scenario === "STANDARD" ? "" : `?scenario=${scenario}`}` : "/cattle";
@@ -64,10 +58,10 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
   const weightKey = useMemo(() => `${p.weight.observedAt}-${p.weight.kg}`, [p.weight.observedAt, p.weight.kg]);
 
   return (
-    <article className="mx-auto max-w-5xl pb-10" aria-labelledby="animal-title">
+    <article className={`mx-auto max-w-5xl pb-10 ${busyClass(pending, failed)}`} aria-labelledby="animal-title" aria-busy={pending}>
       <div className="flex items-center justify-between gap-3">
         <BackLink href={groupHref} label={p.identity.group.value ?? "Cattle"} />
-        {pending ? <Pending label="Recalculating with the cattle engine…" /> : null}
+        <ViewStatus pending={pending} failed={failed} />
       </div>
 
       {/* Identity */}
@@ -93,11 +87,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
       <div className="mt-4">
         <DemoNotice />
       </div>
-      {error ? (
-        <p className="mt-3 text-sm text-[#b23a2b]" role="alert">
-          {error}
-        </p>
-      ) : null}
+
 
       {/* Current state */}
       <section aria-label="Current state" className="mt-6 grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-[1.4fr_1fr_1fr]">
@@ -175,7 +165,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
           <section aria-labelledby="activity-h">
             <SectionHeading id="activity-h" title="Recent activity" />
             <div className="mt-2">
-              <TimelineSection entries={p.timeline} freshIds={changes.timeline} />
+              <TimelineSection entries={p.timeline} freshIds={changes.timeline} gaps={p.timelineGaps} />
             </div>
           </section>
         </div>
@@ -214,8 +204,10 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
         lastKg={p.weight.kg}
         asOfDate={p.asOf.effectiveAt.slice(0, 10)}
         onSave={(v) => {
+          // A full session refuses the action: the sheet stays open with the reading, and says so.
+          if (addEvent({ kind: "RECORD_WEIGHT", tag, kg: v.kg, observedDate: v.observedDate }) === null) return SESSION_FULL;
           setSheet(false);
-          addEvent({ kind: "RECORD_WEIGHT", tag, kg: v.kg, observedDate: v.observedDate });
+          return null;
         }}
       />
     </article>

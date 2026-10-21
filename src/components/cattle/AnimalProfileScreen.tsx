@@ -102,7 +102,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
       </section>
       <div className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <StateLabel state={p.performanceState} />
-        {p.target.label ? <span className="text-sm text-fr-v2-muted">{p.target.label}{p.target.bandLabel ? ` (band ${p.target.bandLabel})` : ""}</span> : null}
+        {p.target.label ? <span className="text-sm text-fr-v2-muted">{p.target.label}</span> : null}
         {p.performanceState.detail && p.target.label === null ? <span className="text-sm text-fr-v2-muted">{p.performanceState.detail}</span> : null}
       </div>
 
@@ -144,7 +144,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
               </div>
               <div>
                 <dt className="text-fr-v2-muted">Goal</dt>
-                <dd className="text-fr-v2-graphite">{p.goal.typeLabel ? `${p.goal.typeLabel}${p.goal.targetWeightLabel ? `, ${p.goal.targetWeightLabel}` : ""}${p.goal.targetDateLabel ? ` by ${p.goal.targetDateLabel}` : ""}` : <StateLabel state={p.goal.state} detail />}</dd>
+                <dd className="text-fr-v2-graphite">{p.goal.summary.state === "TEXT" ? p.goal.summary.text : <StateLabel state={p.goal.summary.display} detail />}</dd>
               </div>
               <div>
                 <dt className="text-fr-v2-muted">Projection</dt>

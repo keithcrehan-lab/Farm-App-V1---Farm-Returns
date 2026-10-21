@@ -4,6 +4,9 @@
  * table-driven. Every case runs the real frozen engines (C1 ledger + snapshot,
  * C4 series, C5 performance) over one changed record — the way the audit
  * reproduced each defect — then reads the view-model AND the rendered screen.
+ *
+ * Audit 97274 (the last block): F005 an unresolved goal target weight, F013 a
+ * derived weight's timeline badge, F014 a zero projected weight in the plan.
  */
 
 import { cleanup, render, screen } from "@testing-library/react";
@@ -21,6 +24,7 @@ import {
   completionBasisLabel,
   housingObservationOf,
   listedItems,
+  planSaveIntent,
   planScreenView,
   previousWeightLine,
   unseal,
@@ -31,7 +35,7 @@ import {
   type WeightChartVM,
 } from "@/domain/cattle/presentation";
 import type { AnimalLocationKind } from "@/domain/cattle/animal-ledger";
-import { outputsWithLocation, outputsWithWeights, weightObs } from "@/server/cattle-demo/c10-engine-fixtures";
+import { outputsWithGoal, outputsWithLocation, outputsWithWeights, weightObs } from "@/server/cattle-demo/c10-engine-fixtures";
 import { animalIdOf } from "@/server/cattle-demo/demo-herd";
 import { replayCattleDemo } from "@/server/cattle-demo/demo-replay";
 import { DEMO_DIRECTORY, animalViewFrom, demoAnimalView, demoProjection } from "@/server/cattle-demo/demo-service";
@@ -39,6 +43,7 @@ import type { CattleDemoSession } from "./session/demo-session";
 import { CattleDemoSessionProvider } from "./session/CattleDemoSessionProvider";
 import { AnimalPlanScreen } from "./AnimalPlanScreen";
 import { AnimalProfileScreen } from "./AnimalProfileScreen";
+import { TimelineSection } from "./AnimalSections";
 import { PerformanceChart } from "./PerformanceChart";
 import { RecordWeightSheet } from "./RecordWeightSheet";
 
@@ -233,6 +238,8 @@ describe("F013 — measurement basis survives the boundary ('Weighed' only for a
     expect(row.weightDate).toBe(measured ? "1 Oct" : `1 Oct · ${caption.split(" · ")[0].toLowerCase()}`);
     const entry = listedItems(p.timeline).find((e) => e.id === `weight:SYNTH-W-FIXTURE-${T}-2`)!;
     expect(entry.title).toBe(timelineTitle);
+    // The badge is C4's information class: an external figure is calculated, never an observation (audit 97274 F013).
+    expect([entry.infoClass, entry.classLabel]).toEqual(basis === "DERIVED" ? ["DERIVED", "Calculated"] : ["OBSERVATION", "Observation"]);
     if (p.chart.state !== "CHART") throw new Error(p.chart.state);
     const point = p.chart.points.find((x) => x.recordIds.includes(`SYNTH-W-FIXTURE-${T}-2`))!;
     expect(point.stateLabel === "Weighed").toBe(measured);
@@ -325,5 +332,74 @@ describe("provenance sweep — distinctions the owners make stay distinct on scr
     expect(p.chart.projection.state).toBe("SHOWN");
     expect(p.chart.legend.map((l) => l.label)).toContain("Projected (prediction)");
     expect(p.chart.points.every((x) => x.stateLabel !== "Projected")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("audit 97274 — goal target, derived-weight badge, zero projection", { timeout: 120_000 }, () => {
+  const T = "1433";
+  const DATE = "2026-12-04";
+  const goalCases: [string, { value: number; unit: "KILOGRAM" | "POUND" } | null, string | null, string, string][] = [
+    ["KNOWN (kg)", { value: 620, unit: "KILOGRAM" }, DATE, "Finishing, 620 kg by 4 Dec 2026", "SHOWN"],
+    ["UNRESOLVED (lb, no C6 conversion)", { value: 1000, unit: "POUND" }, DATE, "Finishing, target weight 1000 lb recorded (can't be converted to kg) by 4 Dec 2026", "UNRESOLVED"],
+    ["NOT_SET", null, DATE, "Finishing, no target weight set by 4 Dec 2026", "NOT_SHOWN"],
+    ["NOT_SET weight and date", null, null, "Finishing, no target weight set, no target date set", "NOT_SHOWN"],
+  ];
+
+  it.each(goalCases)("F005 %s: the profile goal line, the chart and the plan keep the target's state", (_name, targetWeight, targetDate, line, overlay) => {
+    const o = outputsWithGoal(T, { type: "FINISHING", targetWeight, targetDate });
+    const view = viewOf(o, T);
+    const p = view.profile;
+    expect(p.goal.summary).toEqual({ state: "TEXT", text: line });
+    if (p.chart.state !== "CHART") throw new Error(p.chart.state);
+    expect(p.chart.goalTarget.state).toBe(overlay);
+    const text = textOf(<AnimalProfileScreen initial={view} tag={T} scenario="STANDARD" />);
+    expect(text).toContain(line);
+    if (overlay === "UNRESOLVED") {
+      expect(text).toContain("Goal target 1000 lb isn't drawn — it can't be converted to kilograms.");
+      // The plan: the goal-weight row is unknown, the box isn't pre-filled, and saving says it replaces the recorded target.
+      expect(planSaveIntent(p.goal.read, T).change).toBe("1433's recorded goal target (1000 lb) can't be converted to kg, so it isn't filled in above; saving replaces it with the target weight entered here.");
+      const vm = planScreenView({ inputs: view.plan.inputs, assumptions: view.plan.defaults, martId: view.plan.defaultMartId, projection: undefined, profile: p });
+      expect([...vm.rows].find((r) => r.key === "goalWeight")?.value).toMatchObject({ state: "UNKNOWN" });
+      const plan = textOf(<AnimalPlanScreen initial={view} tag={T} scenario="STANDARD" />);
+      expect(plan).toContain("can't be converted to kg, so it isn't filled in above");
+    } else {
+      expect(planSaveIntent(p.goal.read, T).change).toBeNull();
+    }
+  });
+
+  it("F005: an unresolved goal target is never rendered like an unset one", () => {
+    const lb = textOf(<AnimalProfileScreen initial={viewOf(outputsWithGoal(T, { type: "FINISHING", targetWeight: { value: 1000, unit: "POUND" }, targetDate: DATE }), T)} tag={T} scenario="STANDARD" />);
+    const none = textOf(<AnimalProfileScreen initial={viewOf(outputsWithGoal(T, { type: "FINISHING", targetWeight: null, targetDate: DATE }), T)} tag={T} scenario="STANDARD" />);
+    expect(lb).not.toContain("no target weight set");
+    expect(none).not.toContain("1000 lb");
+    expect(lb).not.toMatch(/Goal\s*Finishing by 4 Dec 2026/);
+  });
+
+  it("F013: the rendered timeline badges a derived (external) weight 'Calculated', a weighing 'Observation'", () => {
+    const o = outputsWithWeights(T, [weightObs(1, T, "2026-09-01T09:00:00Z", 470), weightObs(2, T, "2026-10-01T09:00:00Z", 500, { method: "DERIVED_EXTERNAL" })]);
+    const p = buildAnimalProfile(o, animalIdOf(T), DEMO_DIRECTORY, costsOf(T));
+    render(<TimelineSection timeline={p.timeline} freshIds={new Set()} gapNote={null} />);
+    const derived = screen.getByText("External figure 500 kg").closest("li")!;
+    expect(derived.textContent).toContain("Calculated");
+    expect(derived.textContent).not.toContain("Observation");
+    const weighed = screen.getByText("Weighed 470 kg").closest("li")!;
+    expect(weighed.textContent).toContain("Observation");
+  });
+
+  it("F014: the auditor's path — C5 projects 0 kg — leaves every per-kg and sale figure unknown, never €Infinity", () => {
+    const session: CattleDemoSession = { version: 1, events: [{ kind: "RECORD_WEIGHT", eventId: "f014", tag: "1427", kg: 252.76504613367055, observedDate: null }] };
+    const projection = demoProjection(session, "1427", "2027-12-04");
+    expect(projection).toMatchObject({ state: "PROJECTED", kg: 0 }); // the frozen C5 output itself is unchanged
+    const view = demoAnimalView(session, "1427")!;
+    const vm = planScreenView({ inputs: view.plan.inputs, assumptions: { ...view.plan.defaults, saleDate: "2027-12-04" }, martId: view.plan.defaultMartId, projection, profile: view.profile });
+    const rows = [...vm.rows];
+    for (const key of ["projectedWeightKg", "costPerKgAtSale", "projectedSaleValue", "projectedDirectProfit", "returnFromHolding"]) {
+      const cell = rows.find((r) => r.key === key)!.value;
+      expect(cell.state, key).toBe("UNKNOWN");
+    }
+    expect(JSON.stringify(vm)).not.toMatch(/Infinity|NaN/);
+    expect(rows.find((r) => r.key === "costPerKgAtSale")!.value).toMatchObject({ state: "UNKNOWN" });
+    expect(JSON.stringify(rows.find((r) => r.key === "projectedWeightKg")!.value)).toContain("the projected weight is zero or less");
   });
 });

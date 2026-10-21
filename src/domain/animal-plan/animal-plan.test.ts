@@ -219,6 +219,23 @@ describe("plan economics — exact definitions", () => {
     expect(noValuation.valuationStanding).toBe("NONE");
   });
 
+  it("a zero, negative or non-finite projected weight is never a figure — cost per kg at sale fails closed (audit 97274 F014)", () => {
+    const figures = (e: ReturnType<typeof computeAnimalPlanEconomics>) =>
+      Object.entries(e).filter((kv): kv is [string, { state: "KNOWN"; amount?: string; value?: string }] => typeof kv[1] === "object" && kv[1] !== null && (kv[1] as { state?: string }).state === "KNOWN");
+    for (const [kg, reason] of [[0, "PROJECTION_NOT_POSITIVE"], [-12.5, "PROJECTION_NOT_POSITIVE"], [Number.NaN, "PROJECTION_INVALID"], [Number.POSITIVE_INFINITY, "PROJECTION_INVALID"]] as const) {
+      const e = computeAnimalPlanEconomics(input({ projection: { state: "PROJECTED", kg } }));
+      expect(e.projectedWeightKg).toEqual({ state: "UNKNOWN", reasons: [reason] });
+      for (const k of ["projectedAdditionalKg", "projectedSaleValue", "costPerKgAtSale", "projectedDirectProfit", "returnFromHolding"] as const) expect(e[k]).toEqual({ state: "UNKNOWN", reasons: [reason] });
+      // Every KNOWN figure that remains is a finite number.
+      for (const [, m] of figures(e)) expect(Number.isFinite(Number(m.amount ?? m.value))).toBe(true);
+      // Figures that don't use the projection are unaffected.
+      expect(e.costPerKgNow.state).toBe("KNOWN");
+      expect(e.totalDirectCostBySale.state).toBe("KNOWN");
+    }
+    // A positive projection still divides exactly.
+    expect(computeAnimalPlanEconomics(input({ projection: { state: "PROJECTED", kg: 0.5 } })).costPerKgAtSale.state).toBe("KNOWN");
+  });
+
   it("invalid dates and numbers are reported and computed nothing", () => {
     const before = computeAnimalPlanEconomics(input({ assumptions: assumptions({ saleDate: "2026-10-01" }) }));
     expect(before.validity).toEqual({ state: "INVALID", issues: ["SALE_DATE_NOT_AFTER_TODAY"] });

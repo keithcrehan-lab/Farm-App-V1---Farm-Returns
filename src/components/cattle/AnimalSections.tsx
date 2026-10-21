@@ -110,8 +110,12 @@ const CLASS_STYLE: Record<TimelineClass, string> = {
   OBSERVATION: "bg-fr-v2-forest/10 text-fr-v2-forest",
   INTENT: "bg-fr-v2-plum-tint text-fr-v2-plum",
   DERIVED: "bg-fr-v2-cobalt-tint text-fr-v2-cobalt",
+  PREDICTION: "bg-fr-v2-cobalt-tint text-fr-v2-cobalt",
+  RULE: "bg-fr-v2-stone text-fr-v2-charcoal",
+  OBLIGATION: "bg-fr-v2-harvest-tint text-fr-v2-harvest-ink",
   RECOMMENDATION: "bg-fr-v2-harvest-tint text-fr-v2-harvest-ink",
   COST: "bg-fr-v2-stone text-fr-v2-charcoal",
+  RECORD: "bg-fr-v2-stone text-fr-v2-charcoal",
 };
 
 export function TimelineSection({ timeline, freshIds, gapNote }: { timeline: Listing<TimelineEntryVM>; freshIds: Set<string>; gapNote: string | null }) {

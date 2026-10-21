@@ -10,6 +10,7 @@
  */
 
 import { animalAssertionHistory } from "../animal-snapshot";
+import type { WeightSeriesEntry } from "../weights";
 import type { AnimalCostRead } from "../../animal-plan";
 import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
 import { ACTION_COPY } from "./display-states";
@@ -17,16 +18,42 @@ import { formatDate, formatDayMonth, formatKg, formatMoney } from "./format";
 import { WEIGHT_METHOD_LABEL, weightRecordTitle } from "./weight-view";
 import { completionBasisLabel } from "./work-view";
 
-export type TimelineClass = "FACT" | "OBSERVATION" | "INTENT" | "DERIVED" | "RECOMMENDATION" | "COST";
+export type TimelineClass = "FACT" | "OBSERVATION" | "INTENT" | "DERIVED" | "PREDICTION" | "RULE" | "OBLIGATION" | "RECOMMENDATION" | "COST" | "RECORD";
 
 export const TIMELINE_CLASS_LABEL: Readonly<Record<TimelineClass, string>> = {
   FACT: "Fact",
   OBSERVATION: "Observation",
   INTENT: "Plan / intent",
   DERIVED: "Calculated",
+  PREDICTION: "Prediction",
+  RULE: "Rule",
+  OBLIGATION: "Obligation",
   RECOMMENDATION: "Work",
   COST: "Cost record",
+  RECORD: "Record",
 };
+
+/** The shared cattle information class (C0), as the C4 weights barrel publishes it. */
+type CattleInformationClass = WeightSeriesEntry["informationClass"];
+
+/**
+ * The owner's information class, exactly (C4 weights, C3 health): a DERIVED_VALUE is "Calculated", never
+ * an observation; `null` (a C3 retraction has no class) is a plain "Record" — never promoted to a fact.
+ */
+const CLASS_OF_INFORMATION = {
+  FACT: "FACT",
+  OBSERVATION: "OBSERVATION",
+  INTENT: "INTENT",
+  RULE: "RULE",
+  DERIVED_VALUE: "DERIVED",
+  PREDICTION: "PREDICTION",
+  OBLIGATION_OR_CONSTRAINT: "OBLIGATION",
+  RECOMMENDATION: "RECOMMENDATION",
+} as const satisfies Record<CattleInformationClass, TimelineClass>;
+
+export function timelineClassOf(c: CattleInformationClass | null): TimelineClass {
+  return c === null ? "RECORD" : CLASS_OF_INFORMATION[c];
+}
 
 export interface TimelineEntryVM {
   id: string;
@@ -85,7 +112,7 @@ export function buildAnimalTimeline(outputs: CattleOutputs, animalId: string, di
         // "Weighed" only for a measured record; an estimate / external figure / unrecorded method says so (C4 basis).
         title: weightRecordTitle(kg, w.measurementBasis, w.observation.method),
         detail: WEIGHT_METHOD_LABEL[w.observation.method] ?? "Method not recorded",
-        infoClass: "OBSERVATION",
+        infoClass: timelineClassOf(w.informationClass),
         marker: w.status === "SUPERSEDED" ? "SUPERSEDED" : w.inCompetition || (series?.latest.state === "EVIDENCE_CONFLICT" && series.latest.recordIds.includes(w.recordId)) ? "CONFLICT" : null,
       }),
     );
@@ -100,7 +127,7 @@ export function buildAnimalTimeline(outputs: CattleOutputs, animalId: string, di
         at: h.occurredAt,
         title: HEALTH_KIND[h.kind] ?? "Health record",
         detail: null,
-        infoClass: h.informationClass === "OBSERVATION" ? "OBSERVATION" : "FACT",
+        infoClass: timelineClassOf(h.informationClass),
         marker: h.status === "SUPERSEDED" ? "SUPERSEDED" : h.inCompetition ? "CONFLICT" : null,
       }),
     );

@@ -131,12 +131,14 @@ const REASON_TEXT: Readonly<Record<string, string>> = {
   PROJECTION_EVIDENCE_CONFLICT: "no weight projection (recent weights disagree)",
   PROJECTION_UNSUPPORTED: "no weight projection (weights can't be used for gain)",
   PROJECTION_INVALID: "no weight projection (a weight record is invalid)",
+  PROJECTION_NOT_POSITIVE: "no usable weight projection (the projected weight is zero or less)",
   PROJECTION_WEIGHTS_INVALID: "no weight projection (a weight record couldn't be read)",
   PROJECTION_PERFORMANCE_INVALID: "no weight projection (performance couldn't be worked out)",
   PROJECTION_SALE_DATE_NOT_AFTER_TODAY: "the sale date must be after today",
   PROJECTION_UNKNOWN_ANIMAL: "animal not found",
   PROJECTION_NO_PREDICTION: "no weight projection",
   PROJECTION_REQUEST_FAILED: "the projection couldn't be loaded",
+  RESULT_NOT_FINITE: "can't be worked out from these figures",
   GOAL_UNAVAILABLE: "the goal records couldn't be read",
   GOAL_UNRESOLVED: "the goal records disagree or can't be read",
 };
@@ -194,9 +196,10 @@ export function planSaveIntent(goal: GoalRead, tag: string): { goalType: "SALE" 
       ? `${tag}'s current goal couldn't be determined (${goal.display.label.toLowerCase()}). Saving declares a finishing goal with this date and weight.`
       : goal.state === "NONE"
         ? `Saving declares a finishing goal for ${tag}.`
-        : goal.goalType !== goalType
-          ? `Saving changes ${tag}'s goal from ${goal.typeLabel.toLowerCase()} to finishing.`
-          : null;
+        : [
+            ...(goal.goalType !== goalType ? [`Saving changes ${tag}'s goal from ${goal.typeLabel.toLowerCase()} to finishing.`] : []),
+            ...(goal.targetWeight.state === "UNRESOLVED" ? [`${tag}'s recorded goal target (${goal.targetWeight.recorded}) can't be converted to kg, so it isn't filled in above; saving replaces it with the target weight entered here.`] : []),
+          ].join(" ") || null;
   return { goalType, change };
 }
 

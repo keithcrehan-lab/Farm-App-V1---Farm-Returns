@@ -70,7 +70,8 @@ export type GoalRead =
       state: "ACTIVE";
       goalType: string;
       typeLabel: string;
-      targetWeight: { state: "KNOWN"; kg: number } | { state: "NOT_SET" } | { state: "UNRESOLVED" };
+      /** UNRESOLVED: a target was recorded (`recorded`, e.g. "1000 lb") but C6 has no kg for it (UNSUPPORTED unit). */
+      targetWeight: { state: "KNOWN"; kg: number } | { state: "NOT_SET" } | { state: "UNRESOLVED"; recorded: string };
       targetDate: string | null;
     }
   | { state: "NONE" }
@@ -102,11 +103,16 @@ export interface AnimalProfileVM {
     recent: FieldVM;
     trend: DisplayState;
   };
+  /** `label`: "Target 1.20 kg/day (band 1.00 – 1.40 kg/day)" — the band only when C5 gives one. */
   target: { state: DisplayState; label: string | null; bandLabel: string | null; source: string | null };
   /** The weight chart: CHART / NOT_CHARTABLE / EMPTY / UNAVAILABLE (`weightChartOf`) — never an empty plot. */
   chart: WeightChartVM;
   projection: { state: DisplayState; label: string | null; at: string | null; assumptions: Details<string> };
-  goal: { state: DisplayState; read: GoalRead; typeLabel: string | null; targetWeightLabel: string | null; targetDateLabel: string | null };
+  /**
+   * `summary`: the goal as one resolved line (ACTIVE: type, target weight — known, not set or
+   * unresolved — and target date), or the goal state when there is no active goal.
+   */
+  goal: { state: DisplayState; read: GoalRead; summary: { state: "TEXT"; text: string } | { state: "STATE"; display: DisplayState } };
   health: {
     /** `EVALUATION_UNAVAILABLE` when C3 produced no projection for the animal. */
     withdrawal: { state: DisplayState; label: string; until: string | null; untilLabel: string | null; product: string };
@@ -146,6 +152,15 @@ const field = <T>(label: string, r: AnimalResolution<T> | null | undefined, rend
 };
 
 const GOAL_TYPE_LABEL: Readonly<Record<string, string>> = { FINISHING: "Finishing", SALE: "Sale", RETAIN: "Keep on farm", BREEDING: "Breeding", REPLACEMENT: "Replacement" };
+const WEIGHT_UNIT_LABEL: Readonly<Record<string, string>> = { KILOGRAM: "kg", POUND: "lb" };
+
+/** "Finishing, 620 kg by 20 Nov 2026" — a recorded target with no kg conversion, or no target set, is said so (never left out). */
+export function goalSummaryText(g: Extract<GoalRead, { state: "ACTIVE" }>): string {
+  const w = g.targetWeight;
+  const weight = w.state === "KNOWN" ? formatKg(w.kg) : w.state === "UNRESOLVED" ? `target weight ${w.recorded} recorded (can't be converted to kg)` : "no target weight set";
+  return `${g.typeLabel}, ${weight}${g.targetDate ? ` by ${formatDate(g.targetDate)}` : ", no target date set"}`;
+}
+
 const SEX_LABEL: Readonly<Record<string, string>> = { MALE: "Male", FEMALE: "Female" };
 function seriesOf(outputs: CattleOutputs, animalId: string) {
   return outputs.weights?.series.find((s) => s.animalId === animalId) ?? null;
@@ -222,6 +237,8 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
   const headline = headlinePerformance(perf);
   const targetDef = comparison && outputs.performance ? outputs.performance.targetDefinitions.find((t) => t.targetId === comparison.targetId) : undefined;
 
+  const bandLabel = comparison && comparison.lowerBound !== null && comparison.upperBound !== null ? (comparison.metric === "ADG" ? `${formatAdg(comparison.lowerBound)} – ${formatAdg(comparison.upperBound)}` : `${formatKg(comparison.lowerBound)} – ${formatKg(comparison.upperBound)}`) : null;
+
   const goalProj = outputs.goals[animalId] ?? null;
   const goalState = goalProj ? displayOf(GOAL_DISPLAY, goalProj.status, "GOAL") : EVALUATION_UNAVAILABLE;
   const active = goalProj?.status === "ACTIVE" ? goalProj.activeGoals[0]?.declaration ?? null : null;
@@ -236,7 +253,7 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
               state: "ACTIVE",
               goalType: active.goalType,
               typeLabel: GOAL_TYPE_LABEL[active.goalType] ?? active.goalType,
-              targetWeight: goalKg !== null ? { state: "KNOWN", kg: goalKg } : active.targetWeight ? { state: "UNRESOLVED" } : { state: "NOT_SET" },
+              targetWeight: goalKg !== null ? { state: "KNOWN", kg: goalKg } : active.targetWeight ? { state: "UNRESOLVED", recorded: `${active.targetWeight.value} ${WEIGHT_UNIT_LABEL[active.targetWeight.unit] ?? active.targetWeight.unit}` } : { state: "NOT_SET" },
               targetDate: active.targetDate ?? null,
             }
           : { state: "UNRESOLVED", display: goalState };
@@ -344,12 +361,12 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
     },
     target: {
       state: headline,
-      label: comparison && comparison.targetValue !== null ? (comparison.metric === "ADG" ? `Target ${formatAdg(comparison.targetValue)}` : `Target ${formatKg(comparison.targetValue)}`) : null,
-      bandLabel: comparison && comparison.lowerBound !== null && comparison.upperBound !== null ? (comparison.metric === "ADG" ? `${formatAdg(comparison.lowerBound)} – ${formatAdg(comparison.upperBound)}` : `${formatKg(comparison.lowerBound)} – ${formatKg(comparison.upperBound)}`) : null,
+      label: comparison && comparison.targetValue !== null ? `Target ${comparison.metric === "ADG" ? formatAdg(comparison.targetValue) : formatKg(comparison.targetValue)}${bandLabel === null ? "" : ` (band ${bandLabel})`}` : null,
+      bandLabel,
       source: targetDef?.versions[0] ? `${targetDef.versions[0].provenance.sourceRef?.sourceId ?? "Unsourced"} · ${targetDef.versions[0].reviewState.toLowerCase()}` : null,
     },
     // The chart plots C4 weights through C5: its four states are decided in `weightChartOf`, never by the chart component.
-    chart: weightChartOf(series, perf, goalKg),
+    chart: weightChartOf(series, perf, goalRead.state === "ACTIVE" ? goalRead.targetWeight : { state: "NOT_SET" }),
     projection: {
       state: !perfEvaluated ? EVALUATION_UNAVAILABLE : prediction ? displayOf(PREDICTION_DISPLAY, prediction.state, "PREDICTION") : PREDICTION_DISPLAY.NOT_REQUESTED,
       label: prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null ? `${formatKg(prediction.projectedKg)} by ${formatDate(prediction.at)}` : null,
@@ -359,9 +376,7 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
     goal: {
       state: goalState,
       read: goalRead,
-      typeLabel: goalRead.state === "ACTIVE" ? goalRead.typeLabel : null,
-      targetWeightLabel: goalKg !== null ? formatKg(goalKg) : null,
-      targetDateLabel: active?.targetDate ? formatDate(active.targetDate) : null,
+      summary: goalRead.state === "ACTIVE" ? { state: "TEXT", text: goalSummaryText(goalRead) } : { state: "STATE", display: goalRead.state === "UNRESOLVED" ? goalRead.display : goalState },
     },
     health: {
       withdrawal: {

@@ -16,6 +16,7 @@
  *   returnFromHolding        = projectedDirectProfit − currentSellNowMargin
  *   costPerKgNow             = recordedDirectCosts ÷ currentWeight
  *   costPerKgAtSale          = (recordedDirectCosts + forecastDirectHoldingCost) ÷ projectedWeightAtSale
+ *                              (UNKNOWN unless the projected weight is positive; no non-finite result is ever KNOWN)
  *
  * "Direct" means: only the recorded animal cost entries (direct and explicitly
  * allocated) and the forecast feed / housing entered here. Labour, land,
@@ -147,8 +148,9 @@ export const HOUSING_DEPENDENT_RESULTS = [
 
 const NUMBER_RE = /^\d{1,7}(\.\d{1,4})?$/;
 
-const known = (d: Decimal): Money => ({ state: "KNOWN", amount: d.toFixed() });
 const unknown = (...reasons: string[]): Money => ({ state: "UNKNOWN", reasons: [...new Set(reasons)].sort() });
+/** A non-finite result (an undefined division, an overflow) is never a known figure. */
+const known = (d: Decimal): Money => (d.isFinite() ? { state: "KNOWN", amount: d.toFixed() } : unknown("RESULT_NOT_FINITE"));
 const reasonsOf = (...ms: Money[]): string[] => ms.flatMap((m) => (m.state === "UNKNOWN" ? m.reasons : []));
 const dec = (m: Money): Decimal | null => (m.state === "KNOWN" ? new Decimal(m.amount) : null);
 
@@ -212,7 +214,9 @@ export function computeAnimalPlanEconomics(input: AnimalPlanEconomicsInput): Ani
   const currentEstimatedValue: Money = v.state === "ESTIMATED" && v.estimate !== null ? known(new Decimal(v.estimate.central)) : unknown(`VALUATION_${v.state}`);
 
   const projectedWeightKg: Quantity =
-    invalid ? { state: "UNKNOWN", reasons: ["PLAN_INPUT_INVALID"] } : input.projection.state === "PROJECTED" && Number.isFinite(input.projection.kg) ? { state: "KNOWN", value: new Decimal(input.projection.kg).toFixed() } : { state: "UNKNOWN", reasons: [input.projection.state === "NOT_PROJECTED" ? `PROJECTION_${input.projection.reason}` : "PROJECTION_INVALID"] };
+    invalid ? { state: "UNKNOWN", reasons: ["PLAN_INPUT_INVALID"] } : input.projection.state === "PROJECTED" && Number.isFinite(input.projection.kg) && input.projection.kg > 0
+        ? { state: "KNOWN", value: new Decimal(input.projection.kg).toFixed() }
+        : { state: "UNKNOWN", reasons: [input.projection.state === "NOT_PROJECTED" ? `PROJECTION_${input.projection.reason}` : input.projection.state === "PROJECTED" && Number.isFinite(input.projection.kg) ? "PROJECTION_NOT_POSITIVE" : "PROJECTION_INVALID"] };
   const projectedKg: Money = projectedWeightKg.state === "KNOWN" ? known(new Decimal(projectedWeightKg.value)) : unknown(...projectedWeightKg.reasons);
   const w = input.currentWeight;
   const currentKg: Money = w.state === "KNOWN" ? (Number.isFinite(w.kg) && w.kg > 0 ? known(new Decimal(w.kg)) : unknown("CURRENT_WEIGHT_INVALID")) : unknown(`CURRENT_WEIGHT_${w.reason}`);
@@ -226,7 +230,8 @@ export function computeAnimalPlanEconomics(input: AnimalPlanEconomicsInput): Ani
   const returnFromHolding = combine([projectedDirectProfit, currentSellNowMargin], ([p, n]) => p.minus(n));
   const perKgNow = recordedDirectCosts.state === "KNOWN" && input.costs.state !== "UNAVAILABLE" ? costPerKgLiveweight(input.costs, w.state === "KNOWN" ? w.kg : null) : null;
   const costPerKgNow: Money = perKgNow !== null ? known(new Decimal(perKgNow)) : unknown(...reasonsOf(recordedDirectCosts, currentKg));
-  const costPerKgAtSale = combine([totalDirectCostBySale, projectedKg], ([t, kg]) => t.dividedBy(kg));
+  // Per kg only over a positive weight: a zero / negative denominator is undefined, never a figure.
+  const costPerKgAtSale = projectedKg.state === "KNOWN" && !new Decimal(projectedKg.amount).isPositive() ? unknown("PROJECTION_NOT_POSITIVE") : combine([totalDirectCostBySale, projectedKg], ([t, kg]) => t.dividedBy(kg));
 
   const valuationStanding: AnimalPlanEconomics["valuationStanding"] =
     v.provider === null || v.state !== "ESTIMATED" ? "NONE" : !v.provider.isLive ? "FIXTURE" : v.freshness?.state === "STALE" ? "LIVE_STALE" : "LIVE_CURRENT";

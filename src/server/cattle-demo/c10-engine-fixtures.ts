@@ -8,13 +8,14 @@
  */
 
 import { createAnimalLedger, type AnimalLocationKind } from "@/domain/cattle/animal-ledger";
+import { projectProductionGoals } from "@/domain/cattle/goals";
 import { projectAnimalSnapshot } from "@/domain/cattle/animal-snapshot";
 import { evaluatePerformance } from "@/domain/cattle/performance";
 import { buildWeightReadContract } from "@/domain/cattle/weights";
 import type { CattleOutputs } from "@/domain/cattle/presentation";
 import type { CattleDemoSession } from "@/components/cattle/session/demo-session";
 import { hash } from "./demo-catalogue";
-import { animalIdOf, weightRecord } from "./demo-herd";
+import { animalIdOf, goalDeclaration, goalIdOf, weightRecord } from "./demo-herd";
 import { replayCattleDemo, sessionInputs } from "./demo-replay";
 
 type Rec = Record<string, unknown>;
@@ -62,5 +63,19 @@ export function outputsWithLocation(tag: string, kind: AnimalLocationKind | null
   if (!s.ok) throw new Error(`C1 snapshot failed: ${JSON.stringify(s.issues)}`);
   o.ledgers = o.ledgers.map((l) => (l.animalId === animalId ? rebuilt.ledger : l));
   o.snapshots[animalId] = s.snapshot;
+  return o;
+}
+
+/**
+ * The animal's outputs with its C6 goal re-projected (`projectProductionGoals`) from exactly one
+ * declaration: `targetWeight` as recorded (any unit — a POUND target has no C6 kg conversion), or none.
+ */
+export function outputsWithGoal(tag: string, goal: { type: string; targetWeight: { value: number; unit: "KILOGRAM" | "POUND" } | null; targetDate: string | null }): CattleOutputs {
+  const animalId = animalIdOf(tag);
+  const o = animalOutputs(tag);
+  const declaration = { ...goalDeclaration({ goalId: goalIdOf(tag), version: "1", supersedes: [], animalId, type: goal.type, targetKg: null, targetDate: goal.targetDate, validFrom: "2026-05-01T00:00:00Z", receivedAt: "2026-05-01T00:00:00Z" }), targetWeight: goal.targetWeight };
+  const g = projectProductionGoals(structuredClone({ declarations: [declaration], query: { subject: { kind: "ANIMAL", animalId }, effectiveAt: o.viewpoint.effectiveAt, knowledgeCutoff: o.viewpoint.knowledgeCutoff } }) as never, hash);
+  if (!g.ok) throw new Error(`C6 rejected the fixture: ${JSON.stringify(g.issues)}`);
+  o.goals[animalId] = g.projection;
   return o;
 }

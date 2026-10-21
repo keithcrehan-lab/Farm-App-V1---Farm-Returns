@@ -18,6 +18,10 @@
  *               on a domain-declared array other than a `Details` list.
  *  R6 WORDING — no component-written absence wording ("no …", "nothing …",
  *               "not recorded", …) outside the reviewed allowlist below.
+ *  R7 OMISSION — no `cond ? text : ""` (or `cond ? "" : text`): a component
+ *               must not silently drop a part of a sentence when a value is
+ *               missing — presentation decides what the line says (the F005
+ *               goal-weight bypass of audit 97274).
  *
  * Each rule is first proven to fire on planted fixtures — including the
  * exact F005 bypass (`points.length === 0 → "No weights recorded"`) — so a
@@ -60,7 +64,7 @@ const hasAbsenceWording = (text: string) => [...text.matchAll(ABSENCE)].some((m)
 const normalise = (text: string) => text.replace(/&apos;/g, "'").replace(/&ldquo;|&rdquo;/g, '"').trim();
 
 interface Violation {
-  rule: "R1" | "R2" | "R3" | "R4" | "R5" | "R6";
+  rule: "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7";
   file: string;
   where: string;
 }
@@ -202,6 +206,14 @@ function checkBoundary(files: readonly string[], virtual: Readonly<Record<string
       // R6
       const literal = ts.isJsxText(n) ? n.text : ts.isStringLiteral(n) && !ts.isImportDeclaration(n.parent) && !ts.isJsxAttribute(n.parent) ? n.text : ts.isNoSubstitutionTemplateLiteral(n) ? n.text : ts.isTemplateHead(n) || ts.isTemplateMiddle(n) || ts.isTemplateTail(n) ? n.text : null;
       if (literal !== null && literal.trim() !== "" && hasAbsenceWording(literal) && !allowed(rel, literal)) out.push({ rule: "R6", file: rel, where: `component-written wording ${JSON.stringify(normalise(literal))}` });
+      // R7
+      const emptyText = (x: ts.Expression) => (ts.isStringLiteral(x) || ts.isNoSubstitutionTemplateLiteral(x)) && x.text === "";
+      // Only a condition on a possibly-missing value (`x ?`, `x === null ?`, …) and never inside a JSX attribute (class toggles).
+      const nullable = (x: ts.Expression) => checker.getTypeAtLocation(x).isUnion() && (checker.getTypeAtLocation(x) as ts.UnionType).types.some((u) => u.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined));
+      const nullTest = (c: ts.Expression): boolean =>
+        ts.isParenthesizedExpression(c) ? nullTest(c.expression) : ts.isPrefixUnaryExpression(c) && c.operator === ts.SyntaxKind.ExclamationToken ? nullTest(c.operand) : ts.isBinaryExpression(c) && [ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken].includes(c.operatorToken.kind) ? nullable(c.left) || nullable(c.right) : nullable(c);
+      const inAttribute = (x: ts.Node): boolean => (x.parent === undefined ? false : ts.isJsxAttribute(x.parent) ? true : inAttribute(x.parent));
+      if (ts.isConditionalExpression(n) && (emptyText(n.whenFalse) || emptyText(n.whenTrue)) && nullTest(n.condition) && !inAttribute(n)) out.push({ rule: "R7", file: rel, where: `omits text when \`${n.condition.getText(sf)}\` is unset` });
       ts.forEachChild(n, visit);
     };
     visit(sf);
@@ -229,6 +241,10 @@ export function RawImport() {
   "ReadsSealed.tsx": `import { unseal, type PlanInputs, type SealedInput } from "@/domain/cattle/presentation";
 export function ReadsSealed({ inputs }: { inputs: SealedInput<PlanInputs> }) {
   return <span>{inputs.__value.asOfDate}{unseal(inputs).asOfDate}</span>;
+}`,
+  // The 97274 F005 shape: a null target-weight label silently dropped from the goal line.
+  "OmitsGoal.tsx": `export function OmitsGoal({ type, weight }: { type: string; weight: string | null }) {
+  return <span>{\`\${type}\${weight ? \`, \${weight}\` : ""}\`}</span>;
 }`,
   "Fallback.tsx": `import type { FieldVM } from "@/domain/cattle/presentation";
 export function Fallback({ f }: { f: FieldVM }) {
@@ -259,6 +275,7 @@ describe("cattle component boundary (TypeScript checker)", () => {
     expect(has("ReadsSealed.tsx", "R3", /__value/)).toBe(true);
     expect(has("ReadsSealed.tsx", "R3", /unseal/)).toBe(true);
     expect(has("Fallback.tsx", "R4", /Unknown breed/)).toBe(true);
+    expect(has("OmitsGoal.tsx", "R7", /weight/)).toBe(true);
   });
 
   it("every farmer-facing cattle component receives only admitted presentation states (R1)", () => {
@@ -283,5 +300,9 @@ describe("cattle component boundary (TypeScript checker)", () => {
 
   it("no component writes absence wording outside the reviewed allowlist (R6)", () => {
     expect(real.filter((v) => v.rule === "R6")).toEqual([]);
+  });
+
+  it("no component silently drops part of a line when a value is missing (R7)", () => {
+    expect(real.filter((v) => v.rule === "R7")).toEqual([]);
   });
 });

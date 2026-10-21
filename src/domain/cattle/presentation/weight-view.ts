@@ -182,7 +182,10 @@ export interface ChartPointVM {
 }
 
 export type ChartOverlay = { state: "SHOWN"; at: string; kg: number; label: string; dateLabel: string; from: { at: string; kg: number } } | { state: "NOT_SHOWN" };
-export type GoalOverlay = { state: "SHOWN"; kg: number; label: string } | { state: "NOT_SHOWN" };
+/** The active goal's target weight as the chart needs it (UNRESOLVED: recorded, no kg conversion). */
+export type GoalTargetWeightRead = { state: "KNOWN"; kg: number } | { state: "NOT_SET" } | { state: "UNRESOLVED"; recorded: string };
+/** UNRESOLVED: a goal target exists but can't be drawn — said in `note`, never silently dropped. */
+export type GoalOverlay = { state: "SHOWN"; kg: number; label: string } | { state: "UNRESOLVED"; note: string } | { state: "NOT_SHOWN" };
 
 export type WeightChartVM =
   | {
@@ -247,7 +250,7 @@ export function chartPointOf(p: PerformancePoint): ChartPointVM {
  * EMPTY only when C4 has no observation in view and C5 has no point; records that exist but can't be
  * plotted (an unsupported unit, excluded records) are NOT_CHARTABLE — never "no weights recorded".
  */
-export function weightChartOf(series: Pick<AnimalWeightSeries, "observations"> | null, perf: Pick<AnimalPerformance, "points" | "prediction"> | null, goalTargetKg: number | null): WeightChartVM {
+export function weightChartOf(series: Pick<AnimalWeightSeries, "observations"> | null, perf: Pick<AnimalPerformance, "points" | "prediction"> | null, goalTarget: GoalTargetWeightRead): WeightChartVM {
   if (series === null || perf === null) return { state: "UNAVAILABLE", display: UNAVAILABLE_DISPLAY.WEIGHT_HISTORY };
   const points = nonEmpty(perf.points.map(chartPointOf));
   if (points === null) {
@@ -282,7 +285,12 @@ export function weightChartOf(series: Pick<AnimalWeightSeries, "observations"> |
     points,
     line: details(line),
     projection,
-    goalTarget: goalTargetKg === null ? { state: "NOT_SHOWN" } : { state: "SHOWN", kg: goalTargetKg, label: formatKg(goalTargetKg) },
+    goalTarget:
+      goalTarget.state === "KNOWN"
+        ? { state: "SHOWN", kg: goalTarget.kg, label: formatKg(goalTarget.kg) }
+        : goalTarget.state === "UNRESOLVED"
+          ? { state: "UNRESOLVED", note: `Goal target ${goalTarget.recorded} isn't drawn — it can't be converted to kilograms.` }
+          : { state: "NOT_SHOWN" },
     legend: details(legend),
     notCharted,
   };

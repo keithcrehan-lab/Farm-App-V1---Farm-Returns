@@ -8,7 +8,7 @@
 
 import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
 import { headlinePerformance, performanceOf } from "./animal-profile";
-import { ACTION_COPY, IDENTITY_DISPLAY, LATEST_WEIGHT_DISPLAY, MEMBERSHIP_DISPLAY, displayOf, type DisplayState } from "./display-states";
+import { ACTION_COPY, EVALUATION_UNAVAILABLE, IDENTITY_DISPLAY, LATEST_WEIGHT_DISPLAY, MEMBERSHIP_DISPLAY, displayOf, type DisplayState } from "./display-states";
 import { formatDate, formatDayMonth, formatKg, formatUtcTime, plural } from "./format";
 import { animalWork } from "./work-view";
 
@@ -73,9 +73,9 @@ export function animalRow(outputs: CattleOutputs, animalId: string, directory: C
     tagState: tag ? displayOf(IDENTITY_DISPLAY, tag.state, "IDENTITY") : IDENTITY_DISPLAY.UNKNOWN,
     subtitle: [breed ?? "Breed not recorded", sex ?? "Sex not recorded"].join(" · "),
     weightLabel: latest?.state === "KNOWN" && latest.kg !== null ? formatKg(latest.kg) : null,
-    weightState: latest ? displayOf(LATEST_WEIGHT_DISPLAY, latest.state, "WEIGHT") : LATEST_WEIGHT_DISPLAY.NONE,
+    weightState: outputs.weights === null ? EVALUATION_UNAVAILABLE : latest ? displayOf(LATEST_WEIGHT_DISPLAY, latest.state, "WEIGHT") : LATEST_WEIGHT_DISPLAY.NONE,
     weightDate: latest?.state === "KNOWN" && latest.observedAt ? formatDayMonth(latest.observedAt) : null,
-    performance: headlinePerformance(performanceOf(outputs, animalId)),
+    performance: headlinePerformance(performanceOf(outputs, animalId), outputs.performance !== null),
     nextWork: next ? { title: next.title, tone: next.blockers.length > 0 ? "unknown" : next.priority.tone, readiness: next.readiness } : null,
     membership,
   };

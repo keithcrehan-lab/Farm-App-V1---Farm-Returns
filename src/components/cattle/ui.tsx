@@ -132,7 +132,7 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>("input, button, [tabindex]");
+    const first = ref.current?.querySelector<HTMLElement>("input") ?? ref.current?.querySelector<HTMLElement>("button, [tabindex]");
     first?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();

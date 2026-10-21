@@ -5051,6 +5051,8 @@ Authority: `.agent/campaigns/cattle-engine-v1/C10_BRIEF.md` (human C10 overnight
 - Projection: only C5's labelled PREDICTION (`LINEAR_EXTRAPOLATION_OF_PERIOD_ADG`); feed / housing inputs never change it.
 - Economics: `projectedDirectProfit = projectedSaleValue − recordedDirectCosts − forecastDirectHoldingCost`; `currentSellNowMargin = currentEstimatedMarketValue − recordedDirectCosts`; `returnFromHolding = projectedDirectProfit − currentSellNowMargin`; unknown inputs ⇒ UNKNOWN with reasons, never zero.
 - Valuation: provider result carries mart, report date, freshness (caller-supplied stale-after days), comparable category, basis, observed range, central derivation, live vs fixture; €/kg × liveweight is labelled DERIVED.
+- Failed evaluation: a null C4 / C5 output (fail-closed upstream) renders `EVALUATION:UNAVAILABLE` ("Couldn't be read") for weight, gain, target, trend and projection — never "not weighed" or "needs another weight"; the chart is not drawn.
+- Withdrawal and sale date: `saleWithdrawalNotice` reads the C3 withdrawal gate's own `inWithdrawalUntil` against the planned sale date (the end's calendar day counts as inside); IN_WITHDRAWAL without an end, UNKNOWN and EVIDENCE_CONFLICT always show a check-first notice. A notice, not a legal determination; it does not block saving.
 
 ### Known limitations
 

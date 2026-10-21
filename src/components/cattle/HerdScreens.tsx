@@ -194,7 +194,7 @@ export function GroupScreen({ initial, groupRef, scenario }: { initial: HerdVM; 
           <ul className="mt-3 space-y-1">
             {g.workCounts.map((w) => (
               <li key={w.label} className="text-[17px] text-fr-v2-graphite">
-                <span className="font-semibold tabular-nums">{w.label.split(" ")[0]}</span> {w.label.split(" ").slice(1).join(" ")}
+                {w.label}
               </li>
             ))}
           </ul>

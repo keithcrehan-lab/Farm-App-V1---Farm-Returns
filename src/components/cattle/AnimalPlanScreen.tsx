@@ -19,7 +19,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { addDays, computeAnimalPlanEconomics, daysBetween, isPlanDate, type AnimalPlanAssumptions, type MarketScenario, type Money } from "@/domain/animal-plan";
-import { formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatSignedKg } from "@/domain/cattle/presentation";
+import { formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatSignedKg, saleWithdrawalNotice } from "@/domain/cattle/presentation";
 import type { DemoAnimalView, DemoProjection } from "@/server/cattle-demo/demo-service";
 import type { CattleDemoScenario } from "@/server/cattle-demo/demo-replay";
 import { loadCattleAnimal, projectCattleWeight } from "@/app/(app)/cattle/actions";
@@ -49,11 +49,21 @@ const REASON_TEXT: Record<string, string> = {
   PLAN_INPUT_INVALID: "fix the plan inputs",
   PER_HEAD_PRICE_NOT_PROJECTABLE_TO_SALE_WEIGHT: "a per-head price can't be moved to a new weight",
   PROJECTION_PENDING: "projecting…",
+  // Each projection reason keeps its own meaning (C5 derivation states and the C10 service's refusals).
+  PROJECTION_INSUFFICIENT_EVIDENCE: "no weight projection (needs two usable weights)",
+  PROJECTION_EVIDENCE_CONFLICT: "no weight projection (recent weights disagree)",
+  PROJECTION_UNSUPPORTED: "no weight projection (weights can't be used for gain)",
+  PROJECTION_INVALID: "no weight projection (a weight record is invalid)",
+  PROJECTION_WEIGHTS_INVALID: "no weight projection (a weight record couldn't be read)",
+  PROJECTION_PERFORMANCE_INVALID: "no weight projection (performance couldn't be worked out)",
+  PROJECTION_SALE_DATE_NOT_AFTER_TODAY: "the sale date must be after today",
+  PROJECTION_UNKNOWN_ANIMAL: "animal not found",
+  PROJECTION_NO_PREDICTION: "no weight projection",
 };
 
 function reasonText(codes: string[]): string {
   return codes
-    .map((c) => REASON_TEXT[c] ?? (c.startsWith("PROJECTION_") ? "no weight projection (needs two usable weights)" : c.startsWith("VALUATION_") ? "no market estimate" : c.toLowerCase().replace(/_/g, " ")))
+    .map((c) => REASON_TEXT[c] ?? (c.startsWith("PROJECTION_") ? "no weight projection" : c.startsWith("VALUATION_") ? "no market estimate" : c.toLowerCase().replace(/_/g, " ")))
     .filter((v, i, a) => a.indexOf(v) === i)
     .join("; ");
 }
@@ -61,7 +71,7 @@ function reasonText(codes: string[]): string {
 function MoneyValue({ m, signed = false, perKg = false, large = false }: { m: Money; signed?: boolean; perKg?: boolean; large?: boolean }) {
   if (m.state === "UNKNOWN") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-sm text-fr-v2-muted">
+      <span className="inline-flex items-baseline gap-1.5 text-left text-sm text-fr-v2-muted">
         <StateGlyph tone="unknown" />
         Unknown — {reasonText(m.reasons)}
       </span>
@@ -78,11 +88,11 @@ function MoneyValue({ m, signed = false, perKg = false, large = false }: { m: Mo
 function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-t border-fr-v2-rule py-2.5">
-      <dt className="min-w-0 text-sm text-fr-v2-charcoal">
+      <dt className="min-w-[42%] text-sm text-fr-v2-charcoal">
         {label}
         {hint ? <span className="block text-[12px] text-fr-v2-muted">{hint}</span> : null}
       </dt>
-      <dd className="shrink-0 text-right">{children}</dd>
+      <dd className="min-w-0 text-right">{children}</dd>
     </div>
   );
 }
@@ -227,6 +237,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
     setPlanDraft(tag, { assumptions: next, martId, saved: existing?.saved ?? null });
   };
   const housedNow = plan.currentlyHoused === true;
+  const withdrawalNotice = saleWithdrawalNotice(profile.health.withdrawal, a.saleDate);
   const fixture = economics.valuationStanding === "FIXTURE";
   const ret = economics.returnFromHolding;
   const retTone = ret.state === "KNOWN" && economics.valuationStanding === "LIVE_CURRENT" ? (Number(ret.amount) >= 0 ? "text-fr-v2-forest" : "text-[#b23a2b]") : "text-fr-v2-graphite";
@@ -234,9 +245,12 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
   const profileHref = `/cattle/animals/${encodeURIComponent(tag)}${scenario === "STANDARD" ? "" : `?scenario=${scenario}`}`;
   const targetValid = targetKg === "" || (Number.isFinite(Number(targetKg)) && Number(targetKg) > 0 && Number(targetKg) <= 2000);
 
+  // A sale plan is saved as a Sale goal when one is declared, otherwise as Finishing; any other type change is stated before saving.
+  const savedGoalType = profile.goal.goalType === "SALE" ? "SALE" : "FINISHING";
+  const goalTypeChange = profile.goal.goalType !== savedGoalType ? (profile.goal.goalType ? `Saving changes ${tag}'s goal from ${(profile.goal.typeLabel ?? profile.goal.goalType).toLowerCase()} to finishing.` : `Saving declares a finishing goal for ${tag}.`) : null;
   const save = () => {
     if (invalid.length > 0 || !targetValid) return;
-    addEvent({ kind: "SAVE_PLAN_GOAL", tag, goalType: profile.goal.goalType === "SALE" ? "SALE" : "FINISHING", targetKg: targetKg === "" ? null : Number(targetKg), targetDate: a.saleDate });
+    addEvent({ kind: "SAVE_PLAN_GOAL", tag, goalType: savedGoalType, targetKg: targetKg === "" ? null : Number(targetKg), targetDate: a.saleDate });
     setPlanDraft(tag, { assumptions: a, martId, saved: { assumptions: a, martId } });
     setSavedFlash(true);
   };
@@ -281,6 +295,12 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
               <li key={i}>{ISSUE_TEXT[i] ?? i}</li>
             ))}
           </ul>
+        ) : null}
+        {withdrawalNotice ? (
+          <p className={`mt-3 flex items-start gap-2 border-l-2 pl-3 text-sm ${withdrawalNotice.tone === "risk" ? "border-[#b23a2b] text-[#b23a2b]" : "border-fr-v2-rule text-fr-v2-charcoal"}`} role="status">
+            <StateGlyph tone={withdrawalNotice.tone} />
+            <span>{withdrawalNotice.text}</span>
+          </p>
         ) : null}
         <PlanTimeline asOf={plan.asOfDate} housingDate={a.housingDate} saleDate={a.saleDate} housedNow={housedNow} />
       </section>
@@ -341,6 +361,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
             <p className="text-[12px] text-fr-v2-muted">Low and high use the bottom and top of the observed range; &ldquo;as now&rdquo; assumes today&apos;s average holds. Prices can move either way.</p>
           </div>
 
+          {goalTypeChange ? <p className="pt-2 text-sm text-fr-v2-charcoal">{goalTypeChange}</p> : null}
           <div className="flex flex-wrap items-center gap-3 pt-3">
             <button type="button" onClick={save} disabled={invalid.length > 0 || !targetValid} className="min-h-12 rounded-[8px] bg-fr-v2-forest px-6 text-base font-semibold text-white disabled:opacity-40">
               Save plan
@@ -384,12 +405,11 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
             <Row label="Total direct cost by sale">
               <MoneyValue m={economics.totalDirectCostBySale} />
             </Row>
-            <Row label="Cost per kg liveweight" hint="Now · at sale">
-              <span className="inline-flex gap-2">
-                <MoneyValue m={economics.costPerKgNow} perKg />
-                <span className="text-fr-v2-muted">·</span>
-                <MoneyValue m={economics.costPerKgAtSale} perKg />
-              </span>
+            <Row label="Cost per kg liveweight now">
+              <MoneyValue m={economics.costPerKgNow} perKg />
+            </Row>
+            <Row label="Cost per kg liveweight at sale">
+              <MoneyValue m={economics.costPerKgAtSale} perKg />
             </Row>
             <Row label="Projected direct profit at sale" hint="Sale value − recorded costs − forecast costs">
               <MoneyValue m={economics.projectedDirectProfit} />

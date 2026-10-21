@@ -3,6 +3,7 @@ import type { CattleDemoSession } from "@/components/cattle/session/demo-session
 import { parseCattleDemoSession } from "@/components/cattle/session/demo-session";
 import { demoAnimalView, demoHerdView, demoProjection, isCattleDemoMode } from "./demo-service";
 import { replayCattleDemo } from "./demo-replay";
+import { saleWithdrawalNotice } from "@/domain/cattle/presentation";
 import { animalIdOf } from "./demo-herd";
 
 const EMPTY: CattleDemoSession = { version: 1, events: [] };
@@ -56,9 +57,15 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     expect(withdrawal.health.withdrawal.state.code).toBe("WITHDRAWAL:IN_WITHDRAWAL");
     expect(withdrawal.health.withdrawal.untilLabel).toMatch(/^Until 30 Oct 2026/);
     expect(withdrawal.recommendation.state.code).toBe("RECOMMENDATION:NO_RECOMMENDATION");
+    // The plan reads the same C3 end against a chosen sale date: inside (incl. the end day) → notice; after → none.
+    expect(saleWithdrawalNotice(withdrawal.health.withdrawal, "2026-10-25")?.tone).toBe("risk");
+    expect(saleWithdrawalNotice(withdrawal.health.withdrawal, "2026-10-30")?.tone).toBe("risk");
+    expect(saleWithdrawalNotice(withdrawal.health.withdrawal, "2026-10-31")).toBeNull();
+    expect(saleWithdrawalNotice(view("1427").health.withdrawal, "2026-10-25")).toBeNull();
     const unknownWithdrawal = view("1455");
     expect(unknownWithdrawal.health.withdrawal.state.code).toBe("WITHDRAWAL:UNKNOWN");
     expect(unknownWithdrawal.health.withdrawal.state.tone).toBe("unknown");
+    expect(saleWithdrawalNotice(unknownWithdrawal.health.withdrawal, "2027-06-01")?.tone).toBe("unknown");
     expect(view("1458").work.primary?.priority.code).toBe("PRIORITY:HARD_OBLIGATION");
     expect(view("1452").work.primary?.window?.label).toMatch(/^Recommended window/);
     expect(view("1452").work.primary?.hardDeadline).toBeNull();
@@ -81,6 +88,10 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     const p = demoAnimalView(EMPTY, "1427", "PLANNING_RUN_FAILURE")!.profile;
     expect(p.work.state).toBe("PLANNING_FAILED");
     expect(p.metrics.weight.value).toBeNull();
+    // The failed evaluation is unknown — never "not weighed" / "needs another weight" / "no date to project to".
+    for (const s of [p.weight.state, p.gain.state, p.performanceState, p.projection.state]) expect(s.code).toBe("EVALUATION:UNAVAILABLE");
+    expect(p.chart.unavailable).toBe(true);
+    expect(herd.groups.flatMap((g) => g.members).every((a) => a.weightState.code === "EVALUATION:UNAVAILABLE")).toBe(true);
   });
 
   it("an empty herd shows no animals and no work", () => {

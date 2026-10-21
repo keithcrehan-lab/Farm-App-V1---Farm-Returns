@@ -17,7 +17,7 @@ import { cattleStyles } from "./ui";
 
 const W = 640;
 const H = 220;
-const PAD = { left: 44, right: 20, top: 18, bottom: 30 };
+const PAD = { left: 52, right: 20, top: 26, bottom: 34 };
 
 function t(iso: string): number {
   return Date.parse(iso.length === 10 ? `${iso}T12:00:00Z` : iso.replace(/\.(\d{3})\d*Z$/, ".$1Z"));
@@ -71,6 +71,13 @@ export function PerformanceChart({ chart, highlightIds = [] }: { chart: AnimalPr
     setSelected(best);
   };
 
+  if (chart.unavailable) {
+    return (
+      <div className={`flex h-40 items-center justify-center px-6 text-center text-sm text-fr-v2-muted ${cattleStyles.hatch}`}>
+        A weight record couldn&apos;t be read, so the weights weren&apos;t evaluated — the chart isn&apos;t drawn until it&apos;s fixed.
+      </div>
+    );
+  }
   if (points.length === 0 || geometry === null) {
     return (
       <div className={`flex h-40 items-center justify-center text-sm text-fr-v2-muted ${cattleStyles.hatch}`}>
@@ -125,20 +132,20 @@ export function PerformanceChart({ chart, highlightIds = [] }: { chart: AnimalPr
         {ticks.map((v) => (
           <g key={v}>
             <line x1={PAD.left} x2={W - PAD.right} y1={y(v)} y2={y(v)} stroke="var(--fr-v2-rule)" strokeWidth={1} />
-            <text x={PAD.left - 8} y={y(v) + 4} textAnchor="end" className="fill-fr-v2-muted text-[11px] tabular-nums">
+            <text x={PAD.left - 8} y={y(v) + 4} textAnchor="end" className="fill-fr-v2-muted text-[20px] md:text-[12px] tabular-nums">
               {v}
             </text>
           </g>
         ))}
         {monthTicks.map((m) => (
-          <text key={`${m.label}-${m.x}`} x={m.x} y={H - 10} textAnchor="middle" className="fill-fr-v2-muted text-[11px]">
+          <text key={`${m.label}-${m.x}`} x={m.x} y={H - 8} textAnchor="middle" className="fill-fr-v2-muted text-[20px] md:text-[12px]">
             {m.label}
           </text>
         ))}
         {chart.goalTarget ? (
           <g>
             <line x1={PAD.left} x2={W - PAD.right} y1={y(chart.goalTarget.kg)} y2={y(chart.goalTarget.kg)} stroke="var(--fr-v2-plum)" strokeWidth={1} strokeDasharray="2 4" />
-            <text x={W - PAD.right} y={y(chart.goalTarget.kg) - 6} textAnchor="end" className="fill-fr-v2-plum text-[11px]">
+            <text x={W - PAD.right} y={y(chart.goalTarget.kg) - 6} textAnchor="end" className="fill-fr-v2-plum text-[20px] md:text-[12px]" stroke="var(--fr-v2-paper)" strokeWidth={5} paintOrder="stroke" strokeLinejoin="round">
               Goal {chart.goalTarget.label}
             </text>
           </g>
@@ -149,7 +156,7 @@ export function PerformanceChart({ chart, highlightIds = [] }: { chart: AnimalPr
           <g aria-label={`Projected ${chart.projection.label} by ${chart.projection.dateLabel} — a prediction, not a weighing`}>
             <path d={`M${x(last.at)},${y(last.kg as number)} L${x(chart.projection.at)},${y(chart.projection.kg)}`} fill="none" stroke="var(--fr-v2-cobalt)" strokeWidth={2} strokeDasharray="5 5" />
             <circle cx={x(chart.projection.at)} cy={y(chart.projection.kg)} r={5} fill="var(--fr-v2-paper)" stroke="var(--fr-v2-cobalt)" strokeWidth={2} />
-            <text x={x(chart.projection.at)} y={y(chart.projection.kg) - 10} textAnchor="end" className="fill-fr-v2-cobalt text-[11px]">
+            <text x={x(chart.projection.at)} y={y(chart.projection.kg) + (chart.goalTarget && Math.abs(y(chart.goalTarget.kg) - y(chart.projection.kg)) < 24 ? 28 : -12)} textAnchor="end" className="fill-fr-v2-cobalt text-[20px] md:text-[12px]" stroke="var(--fr-v2-paper)" strokeWidth={5} paintOrder="stroke" strokeLinejoin="round">
               Projected {chart.projection.label}
             </text>
           </g>
@@ -183,11 +190,11 @@ export function PerformanceChart({ chart, highlightIds = [] }: { chart: AnimalPr
           );
         })}
       </svg>
-      <div className="mt-2 flex items-center justify-between gap-2">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <button type="button" className="min-h-11 min-w-11 rounded-[8px] px-3 text-sm font-medium text-fr-v2-forest disabled:text-fr-v2-muted/50" disabled={selected <= 0} onClick={() => setSelected((s) => Math.max(0, s - 1))} aria-label="Previous weighing">
           ‹ Earlier
         </button>
-        <ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[12px] text-fr-v2-muted" aria-label="Chart key">
+        <ul className="order-last flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[12px] text-fr-v2-muted sm:order-none sm:w-auto" aria-label="Chart key">
           <li className="flex items-center gap-1.5">
             <span aria-hidden className="h-2 w-2 rounded-full bg-fr-v2-forest" /> Weighed
           </li>

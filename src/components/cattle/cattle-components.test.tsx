@@ -23,9 +23,9 @@ const EMPTY: CattleDemoSession = { version: 1, events: [] };
 const wrap = (ui: React.ReactNode) => render(<CattleDemoSessionProvider>{ui}</CattleDemoSessionProvider>);
 
 beforeEach(() => {
-  loadCattleAnimal.mockImplementation(async (session: CattleDemoSession, tag: string) => ({ ok: true, value: demoAnimalView(session, tag) }));
-  projectCattleWeight.mockImplementation(async (session: CattleDemoSession, tag: string, date: string) => ({ ok: true, value: demoProjection(session, tag, date) }));
-  loadCattleHerd.mockImplementation(async (session: CattleDemoSession) => ({ ok: true, value: demoHerdView(session) }));
+  loadCattleAnimal.mockImplementation(async (session: CattleDemoSession, tag: string, scenario?: "STANDARD") => ({ ok: true, value: demoAnimalView(session, tag, scenario) }));
+  projectCattleWeight.mockImplementation(async (session: CattleDemoSession, tag: string, date: string, scenario?: "STANDARD") => ({ ok: true, value: demoProjection(session, tag, date, scenario) }));
+  loadCattleHerd.mockImplementation(async (session: CattleDemoSession, scenario?: "STANDARD") => ({ ok: true, value: demoHerdView(session, scenario) }));
 });
 afterEach(() => {
   cleanup();
@@ -136,6 +136,41 @@ describe("C10 screens", { timeout: 60_000 }, () => {
     });
     expect(screen.getByRole("alert")).toHaveTextContent(/housing date is on or after the sale date/);
     expect(screen.getByRole("button", { name: "Save plan" })).toBeDisabled();
+  });
+
+  it("animal plan: a retained animal is told, before saving, that its goal type will change", async () => {
+    const tag = "1452";
+    await act(async () => {
+      wrap(<AnimalPlanScreen initial={demoAnimalView(EMPTY, tag)!} tag={tag} scenario="STANDARD" />);
+    });
+    expect(screen.getByText("Saving changes 1452's goal from keep on farm to finishing.")).toBeInTheDocument();
+  });
+
+  it("record-weight sheet focuses the scale reading first", () => {
+    render(<RecordWeightSheet open onClose={() => {}} onSave={() => {}} tag="1427" lastKg={521} asOfDate="2026-10-16" />);
+    expect(document.activeElement).toBe(screen.getByLabelText("Scale reading"));
+  });
+
+  it("planning-run failure: the plan says a record couldn't be read, not that weights are missing", async () => {
+    await act(async () => {
+      wrap(<AnimalPlanScreen initial={demoAnimalView(EMPTY, "1427", "PLANNING_RUN_FAILURE")!} tag="1427" scenario="PLANNING_RUN_FAILURE" />);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    expect(screen.getAllByText(/a weight record couldn't be read/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/needs two usable weights/)).toBeNull();
+  });
+
+  it("animal plan: a sale date inside the medicine withdrawal is flagged", async () => {
+    await act(async () => {
+      wrap(<AnimalPlanScreen initial={demoAnimalView(EMPTY, "1447")!} tag="1447" scenario="STANDARD" />);
+    });
+    expect(screen.queryByText(/inside the medicine withdrawal/)).toBeNull(); // goal date 18 Dec is after it
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Planned sale date"), { target: { value: "2026-10-28" } });
+    });
+    expect(screen.getByText(/inside the medicine withdrawal \(meat\), which runs until 30 Oct 2026/)).toBeInTheDocument();
   });
 
   it("real-account state shows no synthetic data", () => {

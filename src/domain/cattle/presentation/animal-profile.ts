@@ -10,10 +10,11 @@
 import type { AnimalResolution } from "../animal-snapshot";
 import type { AnimalPerformance, PerformancePoint } from "../performance";
 import type { WeightSeriesEntry } from "../weights";
-import { costPerKgLiveweight, utcDateOfInstant, type AnimalCostSummary } from "../../animal-plan";
+import { costPerKgLiveweight, isPlanDate, utcDateOfInstant, type AnimalCostSummary } from "../../animal-plan";
 import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
 import {
   ADMINISTRATION_WITHDRAWAL_DISPLAY,
+  EVALUATION_UNAVAILABLE,
   GAIN_DISPLAY,
   GOAL_DISPLAY,
   IDENTITY_DISPLAY,
@@ -82,11 +83,11 @@ export interface AnimalProfileVM {
     trace: { formula: string; start: string | null; end: string | null; days: string | null } | null;
   };
   target: { state: DisplayState; label: string | null; bandLabel: string | null; source: string | null };
-  chart: { points: ChartPointVM[]; projection: { at: string; kg: number; label: string; dateLabel: string } | null; goalTarget: { kg: number; label: string; date: string | null } | null };
+  chart: { unavailable: boolean; points: ChartPointVM[]; projection: { at: string; kg: number; label: string; dateLabel: string } | null; goalTarget: { kg: number; label: string; date: string | null } | null };
   projection: { state: DisplayState; label: string | null; at: string | null; assumptions: string[] };
   goal: { state: DisplayState; typeLabel: string | null; targetWeightLabel: string | null; targetWeightKg: number | null; targetDate: string | null; targetDateLabel: string | null; goalType: string | null };
   health: {
-    withdrawal: { state: DisplayState; label: string; untilLabel: string | null; product: string };
+    withdrawal: { state: DisplayState; label: string; until: string | null; untilLabel: string | null; product: string };
     programmes: { label: string; state: DisplayState }[];
     obligations: { label: string; state: DisplayState }[];
     medicines: { date: string; label: string; product: string; withdrawal: DisplayState; withdrawalEndLabel: string | null }[];
@@ -142,7 +143,8 @@ export function performanceOf(outputs: CattleOutputs, animalId: string): AnimalP
 }
 
 /** The headline performance state: the single target comparison, or why there isn't one. */
-export function headlinePerformance(perf: AnimalPerformance | null): DisplayState {
+export function headlinePerformance(perf: AnimalPerformance | null, evaluated = true): DisplayState {
+  if (!evaluated) return EVALUATION_UNAVAILABLE;
   if (perf === null) return displayOf(TARGET_DISPLAY, "INSUFFICIENT_EVIDENCE", "TARGET");
   if (perf.targetOutcome === "NO_TARGET" || perf.comparisons.length === 0) return TARGET_DISPLAY.NO_TARGET;
   // More than one known target: each is shown in detail; the headline is the first by target id (C5 order), never a blend.
@@ -169,13 +171,16 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
   // Weight (C4) and performance (C5).
   const series = seriesOf(outputs, animalId);
   const latest = series?.latest ?? null;
-  const weightState = latest ? displayOf(LATEST_WEIGHT_DISPLAY, latest.state, "WEIGHT") : LATEST_WEIGHT_DISPLAY.NONE;
+  // A null C4 / C5 output means the evaluation didn't run (fail-closed upstream) — unknown, never "no weights".
+  const weightsEvaluated = outputs.weights !== null;
+  const perfEvaluated = outputs.performance !== null;
+  const weightState = !weightsEvaluated ? EVALUATION_UNAVAILABLE : latest ? displayOf(LATEST_WEIGHT_DISPLAY, latest.state, "WEIGHT") : LATEST_WEIGHT_DISPLAY.NONE;
   const perf = performanceOf(outputs, animalId);
   const period = perf?.period ?? null;
-  const gainState = period ? displayOf(GAIN_DISPLAY, period.state, "GAIN") : GAIN_DISPLAY.INSUFFICIENT_EVIDENCE;
+  const gainState = !perfEvaluated ? EVALUATION_UNAVAILABLE : period ? displayOf(GAIN_DISPLAY, period.state, "GAIN") : GAIN_DISPLAY.INSUFFICIENT_EVIDENCE;
   const lastInterval = perf ? [...perf.intervals].reverse().find((i) => i.state === "DERIVED") ?? null : null;
   const comparison = perf?.comparisons[0] ?? null;
-  const headline = headlinePerformance(perf);
+  const headline = headlinePerformance(perf, perfEvaluated);
   const targetDef = comparison && outputs.performance ? outputs.performance.targetDefinitions.find((t) => t.targetId === comparison.targetId) : undefined;
 
   const goalProj = outputs.goals[animalId] ?? null;
@@ -260,8 +265,8 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
       state: gainState,
       adgKgPerDay: period?.state === "DERIVED" ? period.adgKgPerDay : null,
       periodLabel: period?.state === "DERIVED" && period.gainKg !== null && period.from && period.to ? `${formatSignedKg(period.gainKg)} from ${formatDayMonth(period.from)} to ${formatDayMonth(period.to)}` : null,
-      recentLabel: lastInterval && lastInterval.gainKg !== null && lastInterval.from && lastInterval.to && lastInterval.adgKgPerDay !== null ? `${formatSignedKg(lastInterval.gainKg)} since ${formatDayMonth(lastInterval.from)} (${formatAdg(lastInterval.adgKgPerDay)})` : null,
-      trend: perf ? displayOf(TREND_DISPLAY, perf.trend.state, "TREND") : TREND_DISPLAY.INSUFFICIENT_EVIDENCE,
+      recentLabel: lastInterval && lastInterval.gainKg !== null && lastInterval.from && lastInterval.to && lastInterval.adgKgPerDay !== null ? `${formatSignedKg(lastInterval.gainKg)} from ${formatDayMonth(lastInterval.from)} to ${formatDayMonth(lastInterval.to)} (${formatAdg(lastInterval.adgKgPerDay)})` : null,
+      trend: !perfEvaluated ? EVALUATION_UNAVAILABLE : perf ? displayOf(TREND_DISPLAY, perf.trend.state, "TREND") : TREND_DISPLAY.INSUFFICIENT_EVIDENCE,
       trace: period?.trace ? { formula: period.trace.formula, start: period.from, end: period.to, days: period.elapsedDays !== null ? period.elapsedDays.toFixed(3) : null } : null,
     },
     target: {
@@ -271,12 +276,13 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
       source: targetDef?.versions[0] ? `${targetDef.versions[0].provenance.sourceRef?.sourceId ?? "Unsourced"} · ${targetDef.versions[0].reviewState.toLowerCase()}` : null,
     },
     chart: {
+      unavailable: !perfEvaluated,
       points,
       projection: prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null ? { at: prediction.at, kg: prediction.projectedKg, label: formatKg(prediction.projectedKg), dateLabel: formatDate(prediction.at) } : null,
       goalTarget: goalKg !== null ? { kg: goalKg, label: formatKg(goalKg), date: active?.targetDate ?? null } : null,
     },
     projection: {
-      state: prediction ? displayOf(PREDICTION_DISPLAY, prediction.state, "PREDICTION") : PREDICTION_DISPLAY.NOT_REQUESTED,
+      state: !perfEvaluated ? EVALUATION_UNAVAILABLE : prediction ? displayOf(PREDICTION_DISPLAY, prediction.state, "PREDICTION") : PREDICTION_DISPLAY.NOT_REQUESTED,
       label: prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null ? `${formatKg(prediction.projectedKg)} by ${formatDate(prediction.at)}` : null,
       at: prediction?.at ?? null,
       assumptions: prediction?.assumptions ?? [],
@@ -294,6 +300,7 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
       withdrawal: {
         state: gate ? displayOf(WITHDRAWAL_DISPLAY, gate.state, "WITHDRAWAL") : WITHDRAWAL_DISPLAY.UNKNOWN,
         label: gate ? displayOf(WITHDRAWAL_DISPLAY, gate.state, "WITHDRAWAL").label : "Withdrawal unknown",
+        until: gate?.state === "IN_WITHDRAWAL" ? gate.inWithdrawalUntil : null,
         untilLabel: gate?.state === "IN_WITHDRAWAL" && gate.inWithdrawalUntil ? `Until ${formatDate(gate.inWithdrawalUntil)} (engine calculation from the product record)` : null,
         product: gate ? (directory.foodProductLabels[gate.foodProduct] ?? "Food product") : "Food product",
       },
@@ -317,3 +324,20 @@ export function liveObservations(outputs: CattleOutputs, animalId: string): Weig
 }
 
 export const viewpointDate = (outputs: CattleOutputs): string | null => utcDateOfInstant(outputs.viewpoint.effectiveAt);
+
+/**
+ * The C3 withdrawal gate read against a planned sale date. Reports the frozen engine's own end instant;
+ * adds no rule of its own. Conservative: a sale on the calendar day the withdrawal ends counts as inside it.
+ * Not a legal determination — a notice for the farmer to check before a sale for slaughter.
+ */
+export function saleWithdrawalNotice(w: AnimalProfileVM["health"]["withdrawal"], saleDate: string): { tone: "risk" | "unknown"; text: string } | null {
+  if (!isPlanDate(saleDate)) return null;
+  const product = w.product.toLowerCase();
+  if (w.state.code === "WITHDRAWAL:CLEAR") return null;
+  if (w.state.code === "WITHDRAWAL:IN_WITHDRAWAL") {
+    const end = w.until ? utcDateOfInstant(w.until) : null;
+    if (end === null) return { tone: "unknown", text: `In a medicine withdrawal (${product}) with no known end. Check the medicine records before any sale for slaughter.` };
+    return saleDate <= end ? { tone: "risk", text: `This sale date is inside the medicine withdrawal (${product}), which runs until ${formatDate(w.until as string)}. Don't sell for slaughter before it ends.` } : null;
+  }
+  return { tone: "unknown", text: `Medicine withdrawal (${product}) is ${w.state.code === "WITHDRAWAL:EVIDENCE_CONFLICT" ? "disputed by conflicting records" : "unknown"}. Check the medicine records before any sale for slaughter.` };
+}

@@ -99,6 +99,18 @@ export const TREND_DISPLAY = {
   UNSUPPORTED: ds("TREND", "UNSUPPORTED", "Unit not supported", "review"),
 } as const satisfies Table<TrendState>;
 
+/**
+ * A frozen evaluation that produced no output (C4 weights or C5 performance returned null because an
+ * input record couldn't be read). Not a state of any frozen vocabulary: it says the value is unknown
+ * because the calculation didn't run — never "none", never zero.
+ */
+export const EVALUATION_UNAVAILABLE: DisplayState = {
+  code: "EVALUATION:UNAVAILABLE",
+  label: "Couldn't be read",
+  tone: "unknown",
+  detail: "A record couldn't be read, so this wasn't worked out. It's unknown — not missing and not zero.",
+};
+
 /** C5 — the labelled weight PREDICTION (NOT_REQUESTED: C10 asked for none — no future date to project to). */
 export const PREDICTION_DISPLAY = {
   PROJECTED: ds("PREDICTION", "PROJECTED", "Projected", "info", "A straight-line projection of recent daily gain — a prediction, not a weighing."),

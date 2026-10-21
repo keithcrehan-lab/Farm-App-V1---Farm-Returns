@@ -4,7 +4,8 @@
  * management groups, chosen so the reference experience exercises real engine
  * states: on track / ahead / behind, evidence conflict, one weight, no weight,
  * no goal, in withdrawal, unknown withdrawal, an overdue synthetic obligation,
- * a due programme action and an unresolved group membership.
+ * a due programme action, an unresolved group membership and an unrecorded
+ * location (current housing unknown).
  *
  * Display labels (tag numbers, breed labels, group / field / shed names) are
  * demonstration data. Every engine-facing id is `SYNTH-*`.
@@ -46,7 +47,8 @@ export interface DemoAnimalSpec {
   sex: "MALE" | "FEMALE";
   breed: string;
   group: string;
-  location: string;
+  /** `null` = no location recorded (C1 location UNKNOWN: current housing unknown). */
+  location: string | null;
   /** [observedAt, kg] scale weights. */
   weights: [string, number][];
   goal: { type: "FINISHING" | "SALE" | "RETAIN"; targetKg: number | null; targetDate: string | null } | null;
@@ -114,7 +116,7 @@ export const DEMO_ANIMALS: readonly DemoAnimalSpec[] = [
     sex: "MALE",
     breed: "Hereford cross",
     group: GROUP_FINISHERS,
-    location: "SYNTH-FIELD-6",
+    location: null,
     weights: series([
       ["2026-06-04T10:00:00Z", 371],
       ["2026-07-03T10:00:00Z", 392],
@@ -285,7 +287,7 @@ function ledgerOf(spec: DemoAnimalSpec): AnimalLedger {
     { assertionId: `${id}-breed`, animalId: id, kind: "BREED", value: { codeSystem: null, code: null, label: spec.breed, components: [] }, provenance: prov() },
     { assertionId: `${id}-tag`, animalId: id, kind: "EXTERNAL_IDENTIFIER", value: { scheme: DEMO_TAG_SCHEME, identifier: spec.tag }, validFrom: born, validTo: null, provenance: prov() },
     { assertionId: `${id}-present`, animalId: id, kind: "LIFECYCLE_STATUS", value: "PRESENT", validFrom: born, validTo: null, provenance: prov() },
-    { assertionId: `${id}-location`, animalId: id, kind: "LOCATION", value: { kind: spec.location.startsWith("SYNTH-SHED") ? "HOUSING" : "FIELD", ref: spec.location }, validFrom: groupFrom, validTo: null, provenance: prov(groupFrom) },
+    ...(spec.location === null ? [] : [{ assertionId: `${id}-location`, animalId: id, kind: "LOCATION", value: { kind: spec.location.startsWith("SYNTH-SHED") ? "HOUSING" : "FIELD", ref: spec.location }, validFrom: groupFrom, validTo: null, provenance: prov(groupFrom) }]),
     { assertionId: `${id}-group`, animalId: id, kind: "MANAGEMENT_GROUP", value: spec.group, validFrom: groupFrom, validTo: null, provenance: prov(groupFrom) },
   ];
   if (spec.membershipConflict) {

@@ -111,6 +111,21 @@ export const EVALUATION_UNAVAILABLE: DisplayState = {
   detail: "A record couldn't be read, so this wasn't worked out. It's unknown — not missing and not zero.",
 };
 
+/**
+ * The other "couldn't be worked out" states, one per C10 surface that aggregates an owner output.
+ * Like `EVALUATION_UNAVAILABLE` they are not states of any frozen vocabulary; each says the value
+ * is unknown because its evaluation produced nothing — never an empty group, no work or no cost.
+ */
+export const UNAVAILABLE_DISPLAY = {
+  EVALUATION: EVALUATION_UNAVAILABLE,
+  GROUP_SCOPE: ds("SCOPE", "UNAVAILABLE", "Couldn't be checked", "unknown", "The group's membership couldn't be worked out, so which animals are in it — and how many — is unknown, not zero."),
+  PLANNING: ds("PLANNING", "UNAVAILABLE", "Work couldn't be worked out", "unknown", "The planning run stopped rather than guess, so jobs are unknown — that doesn't mean nothing needs doing."),
+  COSTS: ds("COST", "UNAVAILABLE", "Costs couldn't be read", "unknown", "The cost records couldn't be read for this date, so the cost is unknown — not €0 and not \"none recorded\"."),
+} as const;
+
+/** Every unavailable display code (the C10 invariant's tests assert these, never a known-empty state). */
+export const UNAVAILABLE_CODES: readonly string[] = Object.values(UNAVAILABLE_DISPLAY).map((d) => d.code);
+
 /** C5 — the labelled weight PREDICTION (NOT_REQUESTED: C10 asked for none — no future date to project to). */
 export const PREDICTION_DISPLAY = {
   PROJECTED: ds("PREDICTION", "PROJECTED", "Projected", "info", "A straight-line projection of recent daily gain — a prediction, not a weighing."),

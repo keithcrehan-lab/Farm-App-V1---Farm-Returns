@@ -89,7 +89,13 @@ export interface AnimalCostSummary {
   entries: AnimalCostEntry[];
 }
 
-const AMOUNT_RE = /^\d{1,9}(\.\d{1,4})?$/;
+/**
+ * What a caller has for an animal's costs: the summary, or UNAVAILABLE when no summary could be
+ * produced (e.g. the valuation date couldn't be read). UNAVAILABLE is never "none recorded".
+ */
+export type AnimalCostRead = AnimalCostSummary | { state: "UNAVAILABLE"; reason: string };
+
+const AMOUNT_RE =/^\d{1,9}(\.\d{1,4})?$/;
 const CURRENCY_RE = /^[A-Z]{3}$/;
 
 export function costEntryIssues(e: AnimalCostEntry): CostEntryIssueCode[] {

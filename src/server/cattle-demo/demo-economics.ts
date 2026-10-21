@@ -92,15 +92,20 @@ export const DEMO_MART_PROVIDER: MartValuationProvider = {
 
 export const DEMO_DEFAULT_MART = "SYNTH-MART-BLESSINGTON";
 
-/** Default plan-draft assumptions (demonstration values; the farmer edits them). */
-export function demoDefaultAssumptions(saleDate: string, housed: boolean): AnimalPlanAssumptions {
+/**
+ * Default plan-draft assumptions (demonstration values; the farmer edits them). `housed` is the
+ * OBSERVED housing state; no default ever assumes where an animal of unknown housing is now
+ * (`assumedCurrentHousing: null` — the farmer has to state it).
+ */
+export function demoDefaultAssumptions(saleDate: string, housed: boolean | null): AnimalPlanAssumptions {
   return {
     saleDate,
     concentrateKgPerDay: "4",
     concentratePricePerTonne: "340",
     forageCostPerDay: "1.20",
-    housingDate: housed ? null : "2026-11-08",
+    housingDate: housed === true ? null : "2026-11-08",
     housingCostPerDay: "0.55",
     scenario: "BASE",
+    assumedCurrentHousing: null,
   };
 }

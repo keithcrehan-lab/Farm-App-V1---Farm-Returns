@@ -74,7 +74,7 @@ function Timing({ work }: { work: WorkVM }) {
 }
 
 export function WorkPanel({ work, onRecordWeight, resolvedTitles }: { work: AnimalProfileVM["work"]; onRecordWeight: (() => void) | null; resolvedTitles: string[] }) {
-  if (work.state === "PLANNING_FAILED") {
+  if (work.open.state === "UNAVAILABLE") {
     return (
       <div className={`px-4 py-4 ${cattleStyles.hatch}`} role="status">
         <p className="font-semibold text-fr-v2-graphite">We couldn&apos;t work out this animal&apos;s jobs.</p>
@@ -83,7 +83,7 @@ export function WorkPanel({ work, onRecordWeight, resolvedTitles }: { work: Anim
       </div>
     );
   }
-  const p = work.primary;
+  const { primary: p, others } = work.open.value;
   return (
     <div>
       {resolvedTitles.length > 0 ? (
@@ -124,11 +124,11 @@ export function WorkPanel({ work, onRecordWeight, resolvedTitles }: { work: Anim
           </div>
         </div>
       )}
-      {work.others.length > 0 ? (
+      {others.length > 0 ? (
         <div className="mt-4 border-t border-fr-v2-rule pt-2">
-          <Disclosure label={`${work.others.length} more open job${work.others.length === 1 ? "" : "s"}`}>
+          <Disclosure label={`${others.length} more open job${others.length === 1 ? "" : "s"}`}>
             <ul className="divide-y divide-fr-v2-rule">
-              {work.others.map((o) => (
+              {others.map((o) => (
                 <li key={o.jobId} className="py-3">
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="font-medium text-fr-v2-graphite">{o.title}</span>

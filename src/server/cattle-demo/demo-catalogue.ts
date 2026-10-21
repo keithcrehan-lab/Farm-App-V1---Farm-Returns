@@ -34,28 +34,15 @@ export const DEMO_FOOD_PRODUCT = "SYNTH-FOOD-MEAT";
 // ---------------------------------------------------------------------------
 
 /**
- * The frozen default data-gap registry with ONE synthetic, labelled change:
- * `RECORD_WEIGHT` also triggers when the latest weight is 28 days old. The
- * default registry ships no staleness interval (an animal with any weight
- * never raises the job); a staleness interval is a supplied policy, and this
- * one is demonstration data only — not a production or scientific policy.
+ * The demonstration runs the FROZEN default candidate-action registry
+ * unchanged. In particular C10 adds no weight-staleness interval: the default
+ * registry raises `RECORD_WEIGHT` only when no usable weight is in view
+ * (`staleAfter: null`). How old the latest weight is may be shown as
+ * information (its date), but it is never turned into work until a
+ * separately authorised policy owns a staleness rule (an open product
+ * decision, recorded in the C10 report).
  */
-export const DEMO_STALE_WEIGHT_DAYS = 28;
-
-export const DEMO_ACTION_REGISTRY: CandidateActionRegistry = {
-  registryId: "SYNTH-DEMO-REGISTRY",
-  version: "1",
-  definitions: DEFAULT_CANDIDATE_ACTION_REGISTRY.definitions.map((d) =>
-    d.actionKind === "RECORD_WEIGHT"
-      ? {
-          ...structuredClone(d),
-          description: "Record a weight observation for the animal (no weight in view, or the latest is older than the demonstration staleness setting)",
-          trigger: { kind: "WEIGHT_MISSING_OR_STALE" as const, staleAfter: { amount: DEMO_STALE_WEIGHT_DAYS, unit: "DAY" as const } },
-          assumptions: ["SYNTH demonstration staleness setting (28 days); not a production policy"],
-        }
-      : structuredClone(d),
-  ),
-};
+export const DEMO_ACTION_REGISTRY: CandidateActionRegistry = DEFAULT_CANDIDATE_ACTION_REGISTRY;
 
 // ---------------------------------------------------------------------------
 // C2 — one synthetic obligation (DATE_OF_BIRTH anchor, window +1..+30 DAY)

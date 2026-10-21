@@ -41,11 +41,12 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
     else {
       const before = shown.profile;
       const after = view.profile;
-      const oldIds = new Set(before.chart.points.flatMap((x) => x.recordIds));
-      const openBefore = new Set([before.work.primary, ...before.work.others].filter(Boolean).map((w) => w!.jobId));
+      const chartIds = (c: typeof before.chart) => (c.state === "KNOWN" ? c.value.points.flatMap((x) => x.recordIds) : []);
+      const oldIds = new Set(chartIds(before.chart));
+      const openBefore = new Set(before.work.open.state === "KNOWN" ? [before.work.open.value.primary, ...before.work.open.value.others].filter((w) => w !== null).map((w) => w.jobId) : []);
       const oldTimeline = new Set(before.timeline.map((e) => e.id));
       setChanges({
-        points: after.chart.points.flatMap((x) => x.recordIds).filter((id) => !oldIds.has(id)),
+        points: chartIds(after.chart).filter((id) => !oldIds.has(id)),
         resolved: after.work.closed.filter((c) => openBefore.has(c.jobId)).map((c) => c.title),
         timeline: new Set(after.timeline.filter((e) => !oldTimeline.has(e.id)).map((e) => e.id)),
       });
@@ -109,7 +110,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
             <SectionHeading id="attention-h" title="What needs attention" />
             <div className="mt-4">
               <WorkPanel work={p.work} onRecordWeight={() => setSheet(true)} resolvedTitles={changes.resolved} />
-              {p.work.primary?.actionKind !== "RECORD_WEIGHT" ? (
+              {p.work.open.state !== "KNOWN" || p.work.open.value.primary?.actionKind !== "RECORD_WEIGHT" ? (
                 <button type="button" onClick={() => setSheet(true)} className="mt-4 min-h-11 rounded-[8px] border border-fr-v2-rule px-4 text-sm font-medium text-fr-v2-graphite">
                   Record a weight
                 </button>

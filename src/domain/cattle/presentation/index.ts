@@ -5,6 +5,7 @@
  */
 
 export * from "./animal-profile";
+export * from "./availability";
 export * from "./cattle-outputs";
 export * from "./display-states";
 export * from "./format";

@@ -4,11 +4,16 @@
  * unresolved (never silently placed in a group). Group figures are COUNTS of
  * per-animal states and per-animal Plan jobs — never group-level work, never
  * an average of unresolved values.
+ *
+ * Availability (`availability.ts`): a group whose C4 scope didn't resolve has
+ * an UNAVAILABLE scope — never "0 animals"; work counts and an animal's next
+ * job are UNAVAILABLE when the planning run failed — never "no work".
  */
 
 import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
 import { headlinePerformance, performanceOf } from "./animal-profile";
-import { ACTION_COPY, EVALUATION_UNAVAILABLE, IDENTITY_DISPLAY, LATEST_WEIGHT_DISPLAY, MEMBERSHIP_DISPLAY, displayOf, type DisplayState } from "./display-states";
+import { known, unavailable, type Availability } from "./availability";
+import { ACTION_COPY, EVALUATION_UNAVAILABLE, IDENTITY_DISPLAY, LATEST_WEIGHT_DISPLAY, MEMBERSHIP_DISPLAY, UNAVAILABLE_DISPLAY, displayOf, type DisplayState } from "./display-states";
 import { formatDate, formatDayMonth, formatKg, formatUtcTime, plural } from "./format";
 import { animalWork } from "./work-view";
 
@@ -21,24 +26,29 @@ export interface AnimalRowVM {
   weightState: DisplayState;
   weightDate: string | null;
   performance: DisplayState;
-  /** The animal's first open job in Plan priority order. */
-  nextWork: { title: string; tone: DisplayState["tone"]; readiness: DisplayState } | null;
+  /** The animal's first open job in Plan priority order (`null` = none open); UNAVAILABLE when the planning run failed. */
+  nextWork: Availability<{ title: string; tone: DisplayState["tone"]; readiness: DisplayState } | null>;
   membership: DisplayState;
+}
+
+export interface GroupScopeVM {
+  /** May legitimately be 0 (a resolved, empty group). */
+  memberCount: number;
+  locationLabel: string;
+  members: AnimalRowVM[];
+  /** Animals this group's scope could not resolve (shown, never dropped). */
+  unresolved: AnimalRowVM[];
+  /** Per-animal performance states counted (unresolved counted separately, never averaged). */
+  performanceCounts: { state: DisplayState; count: number }[];
 }
 
 export interface GroupVM {
   groupRef: string;
   name: string;
-  locationLabel: string;
-  memberCount: number;
-  members: AnimalRowVM[];
-  /** Animals this group's scope could not resolve (shown, never dropped). */
-  unresolved: AnimalRowVM[];
-  /** Per-animal work counted by kind ("3 need weighing"). */
-  workCounts: { label: string; count: number; actionKind: string | null }[];
-  /** Per-animal performance states counted (unresolved counted separately, never averaged). */
-  performanceCounts: { state: DisplayState; count: number }[];
-  scopeState: "RESOLVED" | "SCOPE_FAILED";
+  /** The C4 scope resolution; UNAVAILABLE when it produced nothing (never an empty group). */
+  scope: Availability<GroupScopeVM>;
+  /** Per-animal work counted by kind ("3 need weighing"); UNAVAILABLE when the scope or the planning run failed. */
+  workCounts: Availability<{ label: string; count: number; actionKind: string | null }[]>;
 }
 
 export interface HerdVM {
@@ -47,7 +57,8 @@ export interface HerdVM {
   animalCount: number;
   groups: GroupVM[];
   planning: { state: "PLANNING_OK" | "PLANNING_FAILED"; failureCodes: string[] };
-  openWorkCount: number;
+  /** UNAVAILABLE when the planning run failed (never "0 open jobs"). */
+  openWorkCount: Availability<number>;
 }
 
 const WORK_COUNT_LABEL: Readonly<Record<string, [string, string]>> = {
@@ -59,24 +70,28 @@ const WORK_COUNT_LABEL: Readonly<Record<string, [string, string]>> = {
 };
 
 export function animalRow(outputs: CattleOutputs, animalId: string, directory: CattleDirectory, membership: DisplayState): AnimalRowVM {
+  // A missing owner output (snapshot, series, performance entry) is unknown — never "not recorded" / "not weighed".
   const snap = outputs.snapshots[animalId] ?? null;
   const tag = snap?.externalIdentifiers.byScheme.find((s) => s.scheme === directory.tagScheme) ?? null;
   const series = outputs.weights?.series.find((s) => s.animalId === animalId) ?? null;
   const latest = series?.latest ?? null;
-  const work = animalWork(outputs, animalId, directory);
-  const next = work.open[0] ?? null;
   const breed = snap?.breed.state === "KNOWN" ? snap.breed.value?.label ?? null : null;
   const sex = snap?.sex.state === "KNOWN" ? (snap.sex.value === "MALE" ? "Male" : "Female") : null;
+  let nextWork: AnimalRowVM["nextWork"] = unavailable(UNAVAILABLE_DISPLAY.PLANNING);
+  if (outputs.plan.ok) {
+    const next = animalWork(outputs, animalId, directory).open[0] ?? null;
+    nextWork = known(next ? { title: next.title, tone: next.blockers.length > 0 ? "unknown" : next.priority.tone, readiness: next.readiness } : null);
+  }
   return {
     animalId,
     tag: tag?.state === "KNOWN" ? tag.value : null,
-    tagState: tag ? displayOf(IDENTITY_DISPLAY, tag.state, "IDENTITY") : IDENTITY_DISPLAY.UNKNOWN,
-    subtitle: [breed ?? "Breed not recorded", sex ?? "Sex not recorded"].join(" · "),
+    tagState: snap === null ? EVALUATION_UNAVAILABLE : tag ? displayOf(IDENTITY_DISPLAY, tag.state, "IDENTITY") : IDENTITY_DISPLAY.UNKNOWN,
+    subtitle: snap === null ? "Details couldn't be read" : [breed ?? "Breed not recorded", sex ?? "Sex not recorded"].join(" · "),
     weightLabel: latest?.state === "KNOWN" && latest.kg !== null ? formatKg(latest.kg) : null,
-    weightState: outputs.weights === null ? EVALUATION_UNAVAILABLE : latest ? displayOf(LATEST_WEIGHT_DISPLAY, latest.state, "WEIGHT") : LATEST_WEIGHT_DISPLAY.NONE,
+    weightState: series === null ? EVALUATION_UNAVAILABLE : displayOf(LATEST_WEIGHT_DISPLAY, series.latest.state, "WEIGHT"),
     weightDate: latest?.state === "KNOWN" && latest.observedAt ? formatDayMonth(latest.observedAt) : null,
-    performance: headlinePerformance(performanceOf(outputs, animalId), outputs.performance !== null),
-    nextWork: next ? { title: next.title, tone: next.blockers.length > 0 ? "unknown" : next.priority.tone, readiness: next.readiness } : null,
+    performance: headlinePerformance(performanceOf(outputs, animalId)),
+    nextWork,
     membership,
   };
 }
@@ -84,7 +99,7 @@ export function animalRow(outputs: CattleOutputs, animalId: string, directory: C
 export function buildHerd(outputs: CattleOutputs, directory: CattleDirectory): HerdVM {
   const groups: GroupVM[] = outputs.groups.map(({ groupRef, scope }) => {
     const name = directory.groupLabels[groupRef] ?? "Unnamed group";
-    if (scope === null) return { groupRef, name, locationLabel: "", memberCount: 0, members: [], unresolved: [], workCounts: [], performanceCounts: [], scopeState: "SCOPE_FAILED" };
+    if (scope === null) return { groupRef, name, scope: unavailable(UNAVAILABLE_DISPLAY.GROUP_SCOPE), workCounts: unavailable(UNAVAILABLE_DISPLAY.GROUP_SCOPE) };
     const members = scope.members.map((id) => animalRow(outputs, id, directory, MEMBERSHIP_DISPLAY.MEMBER));
     const unresolved = [
       ...scope.unknown.map((id) => animalRow(outputs, id, directory, MEMBERSHIP_DISPLAY.UNKNOWN)),
@@ -93,8 +108,10 @@ export function buildHerd(outputs: CattleOutputs, directory: CattleDirectory): H
     ];
     const locations = new Set(
       scope.members.map((id) => {
-        const loc = outputs.snapshots[id]?.location;
-        return loc?.state === "KNOWN" && loc.value ? (directory.locationLabels[loc.value.ref] ?? "Unnamed location") : "Location not recorded";
+        const snap = outputs.snapshots[id] ?? null;
+        if (snap === null) return "Location couldn't be read";
+        const loc = snap.location;
+        return loc.state === "KNOWN" && loc.value ? (directory.locationLabels[loc.value.ref] ?? "Unnamed location") : "Location not recorded";
       }),
     );
     const counts = new Map<string, { count: number; actionKind: string | null }>();
@@ -109,18 +126,23 @@ export function buildHerd(outputs: CattleOutputs, directory: CattleDirectory): H
     return {
       groupRef,
       name,
-      locationLabel: locations.size === 1 ? [...locations][0] : locations.size === 0 ? "No animals" : "Several locations",
-      memberCount: scope.members.length,
-      members,
-      unresolved,
-      workCounts: [...counts.entries()]
-        .map(([key, v]) => {
-          const words = v.actionKind ? WORK_COUNT_LABEL[v.actionKind] : undefined;
-          return { label: words ? `${plural(v.count, "animal")} ${v.count === 1 ? words[0] : words[1]}` : `${plural(v.count, "animal")}: ${ACTION_COPY[key]?.short ?? key}`, count: v.count, actionKind: v.actionKind };
-        })
-        .sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : 1)),
-      performanceCounts: [...perf.values()].sort((a, b) => b.count - a.count || (a.state.code < b.state.code ? -1 : 1)),
-      scopeState: "RESOLVED",
+      scope: known({
+        memberCount: scope.members.length,
+        locationLabel: locations.size === 1 ? [...locations][0] : locations.size === 0 ? "No animals" : "Several locations",
+        members,
+        unresolved,
+        performanceCounts: [...perf.values()].sort((a, b) => b.count - a.count || (a.state.code < b.state.code ? -1 : 1)),
+      }),
+      workCounts: !outputs.plan.ok
+        ? unavailable(UNAVAILABLE_DISPLAY.PLANNING)
+        : known(
+            [...counts.entries()]
+              .map(([key, v]) => {
+                const words = v.actionKind ? WORK_COUNT_LABEL[v.actionKind] : undefined;
+                return { label: words ? `${plural(v.count, "animal")} ${v.count === 1 ? words[0] : words[1]}` : `${plural(v.count, "animal")}: ${ACTION_COPY[key]?.short ?? key}`, count: v.count, actionKind: v.actionKind };
+              })
+              .sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : 1)),
+          ),
     };
   });
   const open = outputs.jobs.filter((j) => !["COMPLETED", "OBSOLETE", "CANCELLED"].includes(j.job.status)).length;
@@ -130,6 +152,6 @@ export function buildHerd(outputs: CattleOutputs, directory: CattleDirectory): H
     animalCount: outputs.ledgers.length,
     groups,
     planning: outputs.plan.ok ? { state: "PLANNING_OK", failureCodes: [] } : { state: "PLANNING_FAILED", failureCodes: outputs.plan.issues.map((i) => i.code) },
-    openWorkCount: open,
+    openWorkCount: outputs.plan.ok ? known(open) : unavailable(UNAVAILABLE_DISPLAY.PLANNING),
   };
 }

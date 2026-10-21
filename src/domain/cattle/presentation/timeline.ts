@@ -10,7 +10,7 @@
  */
 
 import { animalAssertionHistory } from "../animal-snapshot";
-import type { AnimalCostSummary } from "../../animal-plan";
+import type { AnimalCostRead } from "../../animal-plan";
 import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
 import { ACTION_COPY } from "./display-states";
 import { formatDate, formatDayMonth, formatKg, formatMoney } from "./format";
@@ -67,7 +67,7 @@ function jobTitle(actionKey: string, directory: CattleDirectory): string {
   return obligation ? (directory.obligationLabels[obligation] ?? "Requirement") : "Cattle work";
 }
 
-export function buildAnimalTimeline(outputs: CattleOutputs, animalId: string, directory: CattleDirectory, costs: AnimalCostSummary | null): TimelineEntryVM[] {
+export function buildAnimalTimeline(outputs: CattleOutputs, animalId: string, directory: CattleDirectory, costs: AnimalCostRead): TimelineEntryVM[] {
   const out: TimelineEntryVM[] = [];
   const cutoff = outputs.viewpoint.knowledgeCutoff;
 
@@ -142,8 +142,8 @@ export function buildAnimalTimeline(outputs: CattleOutputs, animalId: string, di
     }
   }
 
-  // C10 cost entries.
-  for (const c of costs?.entries ?? []) {
+  // C10 cost entries (an UNAVAILABLE cost read is listed as a timeline gap by the profile, never as "no costs").
+  for (const c of costs.state === "UNAVAILABLE" ? [] : costs.entries) {
     out.push(
       entry({
         id: `cost:${c.entryId}`,

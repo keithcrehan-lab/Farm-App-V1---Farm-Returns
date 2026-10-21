@@ -26,6 +26,19 @@ function t(iso: string): number {
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function PerformanceChart({ chart, highlightIds = [] }: { chart: AnimalProfileVM["chart"]; highlightIds?: string[] }) {
+  if (chart.state === "UNAVAILABLE") {
+    return (
+      <div className={`flex h-40 items-center justify-center px-6 text-center text-sm text-fr-v2-muted ${cattleStyles.hatch}`}>
+        A weight record couldn&apos;t be read, so the weights weren&apos;t evaluated — the chart isn&apos;t drawn until it&apos;s fixed.
+      </div>
+    );
+  }
+  return <WeightChart chart={chart.value} highlightIds={highlightIds} />;
+}
+
+type ChartData = Extract<AnimalProfileVM["chart"], { state: "KNOWN" }>["value"];
+
+function WeightChart({ chart, highlightIds }: { chart: ChartData; highlightIds: string[] }) {
   const points = chart.points;
   const usable = points.filter((p) => p.kg !== null);
   // Selection is tied to the series length: when a new weighing arrives, the latest point is selected.
@@ -71,13 +84,6 @@ export function PerformanceChart({ chart, highlightIds = [] }: { chart: AnimalPr
     setSelected(best);
   };
 
-  if (chart.unavailable) {
-    return (
-      <div className={`flex h-40 items-center justify-center px-6 text-center text-sm text-fr-v2-muted ${cattleStyles.hatch}`}>
-        A weight record couldn&apos;t be read, so the weights weren&apos;t evaluated — the chart isn&apos;t drawn until it&apos;s fixed.
-      </div>
-    );
-  }
   if (points.length === 0 || geometry === null) {
     return (
       <div className={`flex h-40 items-center justify-center text-sm text-fr-v2-muted ${cattleStyles.hatch}`}>

@@ -5,16 +5,16 @@
  * and compliance, direct costs, and the activity timeline.
  */
 
-import type { AnimalCostSummary } from "@/domain/animal-plan";
-import { TIMELINE_CLASS_LABEL, formatEuro, type AnimalProfileVM, type TimelineClass, type TimelineEntryVM } from "@/domain/cattle/presentation";
+import type { AnimalCostRead } from "@/domain/animal-plan";
+import { TIMELINE_CLASS_LABEL, UNAVAILABLE_DISPLAY, formatEuro, type AnimalProfileVM, type TimelineClass, type TimelineEntryVM } from "@/domain/cattle/presentation";
 import { Disclosure, StateLabel, cattleStyles } from "./ui";
 
 export function HealthSection({ health }: { health: AnimalProfileVM["health"] }) {
-  if (health.status === "HEALTH_UNAVAILABLE") {
-    return <p className={`px-3 py-3 text-sm text-fr-v2-charcoal ${cattleStyles.hatch}`}>Health records couldn&apos;t be read for this animal, so withdrawal and treatment status are unknown.</p>;
-  }
   return (
     <dl className="divide-y divide-fr-v2-rule">
+      {health.medicines.state === "UNAVAILABLE" ? (
+        <div className={`px-3 py-3 text-sm text-fr-v2-charcoal ${cattleStyles.hatch}`}>Health records couldn&apos;t be read for this animal, so withdrawal and treatment status are unknown.</div>
+      ) : null}
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3">
         <dt className="text-sm text-fr-v2-muted">Medicine withdrawal ({health.withdrawal.product.toLowerCase()})</dt>
         <dd className="text-right">
@@ -28,7 +28,7 @@ export function HealthSection({ health }: { health: AnimalProfileVM["health"] })
           <dd className="text-right text-sm text-fr-v2-charcoal">Couldn&apos;t be checked — the evaluation didn&apos;t run, so their status is unknown.</dd>
         </div>
       ) : null}
-      {(health.programmes.state === "EVALUATED" ? health.programmes.items : []).map((p) => (
+      {(health.programmes.state === "KNOWN" ? health.programmes.value : []).map((p) => (
         <div key={p.label} className="flex items-baseline justify-between gap-4 py-3">
           <dt className="text-sm text-fr-v2-muted">{p.label}</dt>
           <dd>
@@ -36,7 +36,7 @@ export function HealthSection({ health }: { health: AnimalProfileVM["health"] })
           </dd>
         </div>
       ))}
-      {(health.obligations.state === "EVALUATED" ? health.obligations.items : []).map((o) => (
+      {(health.obligations.state === "KNOWN" ? health.obligations.value : []).map((o) => (
         <div key={o.label} className="flex items-baseline justify-between gap-4 py-3">
           <dt className="text-sm text-fr-v2-muted">{o.label}</dt>
           <dd>
@@ -44,14 +44,14 @@ export function HealthSection({ health }: { health: AnimalProfileVM["health"] })
           </dd>
         </div>
       ))}
-      {health.programmes.state === "EVALUATED" && health.programmes.items.length === 0 ? (
+      {health.programmes.state === "KNOWN" && health.programmes.value.length === 0 ? (
         <div className="py-3 text-sm text-fr-v2-muted">Not in any declared veterinary programme.</div>
       ) : null}
-      {health.medicines.length > 0 ? (
+      {health.medicines.state === "KNOWN" && health.medicines.value.length > 0 ? (
         <div className="py-3">
-          <Disclosure label={`${health.medicines.length} medicine record${health.medicines.length === 1 ? "" : "s"}`}>
+          <Disclosure label={`${health.medicines.value.length} medicine record${health.medicines.value.length === 1 ? "" : "s"}`}>
             <ul className="space-y-2 text-sm">
-              {health.medicines.map((m) => (
+              {health.medicines.value.map((m) => (
                 <li key={`${m.date}${m.product}`} className="flex flex-wrap items-baseline justify-between gap-x-3">
                   <span>
                     {m.label} · {m.product}
@@ -69,8 +69,9 @@ export function HealthSection({ health }: { health: AnimalProfileVM["health"] })
 
 const CATEGORY_LABEL: Record<string, string> = { FEED: "Feed", MEDICINE: "Medicine", VETERINARY: "Veterinary", BEDDING: "Bedding", OTHER: "Other" };
 
-export function CostSection({ costs }: { costs: AnimalCostSummary | null }) {
-  if (costs === null || costs.state === "NONE_RECORDED") {
+export function CostSection({ costs }: { costs: AnimalCostRead }) {
+  if (costs.state === "UNAVAILABLE") return <p className={`px-3 py-3 text-sm text-fr-v2-charcoal ${cattleStyles.hatch}`}>{UNAVAILABLE_DISPLAY.COSTS.detail}</p>;
+  if (costs.state === "NONE_RECORDED") {
     return <p className="text-sm text-fr-v2-charcoal">No direct costs are recorded for this animal. Until they are, its cost — and any projected direct profit — is unknown, not €0.</p>;
   }
   if (costs.state === "RECORDED" && costs.currency !== "EUR") return <p className="text-sm text-fr-v2-charcoal">Costs are recorded in {costs.currency}. No exchange rate is used, so no euro total is shown.</p>;

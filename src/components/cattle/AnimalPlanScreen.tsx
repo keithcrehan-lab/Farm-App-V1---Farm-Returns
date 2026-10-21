@@ -14,11 +14,17 @@
  *   scenario (low / base / high) applies to the sale-time price only.
  * - Save: sale date and target weight become a new C6 goal version in the
  *   demo session; feed / housing stay a session draft. Nothing is persisted.
+ *   A refused save always says so; the screen never implies an unsaved plan
+ *   was saved.
+ * - Housing: the recorded (observed) housing state when known. When it isn't,
+ *   housing-dependent figures stay unknown until the farmer states a planning
+ *   assumption; figures then carry an "assumed housing" mark, and the record
+ *   is never changed.
  */
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { addDays, computeAnimalPlanEconomics, daysBetween, isPlanDate, type AnimalPlanAssumptions, type MarketScenario, type Money } from "@/domain/animal-plan";
+import { HOUSING_DEPENDENT_RESULTS, addDays, computeAnimalPlanEconomics, daysBetween, isPlanDate, type AnimalPlanAssumptions, type AnimalPlanEconomics, type HousingAssumption, type MarketScenario, type Money } from "@/domain/animal-plan";
 import { formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatSignedKg, saleWithdrawalNotice } from "@/domain/cattle/presentation";
 import type { DemoAnimalView, DemoProjection } from "@/server/cattle-demo/demo-service";
 import type { CattleDemoScenario } from "@/server/cattle-demo/demo-replay";
@@ -38,7 +44,7 @@ const ISSUE_TEXT: Record<string, string> = {
   SALE_DATE_NOT_AFTER_TODAY: "The sale date has to be after today.",
   HOUSING_DATE_INVALID: "Choose a real housing date.",
   HOUSING_DATE_AFTER_SALE_DATE: "The housing date is on or after the sale date — move one of them.",
-  HOUSING_DATE_BEFORE_TODAY: "The housing date is in the past, but the animal isn't recorded as housed.",
+  HOUSING_DATE_BEFORE_TODAY: "The housing date is in the past — choose today or later.",
   CONCENTRATE_QUANTITY_INVALID: "Concentrate per day must be a number of kilograms (0 or more).",
   CONCENTRATE_PRICE_INVALID: "Concentrate price must be a number of euro per tonne.",
   FORAGE_COST_INVALID: "Forage / grazing cost must be a number of euro per day.",
@@ -53,7 +59,8 @@ const REASON_TEXT: Record<string, string> = {
   CONCENTRATE_PRICE_NOT_ENTERED: "concentrate price not entered",
   FORAGE_COST_NOT_ENTERED: "forage cost not entered",
   HOUSING_COST_NOT_ENTERED: "housing cost not entered",
-  HOUSING_STATE_UNKNOWN: "housing status unknown",
+  CURRENT_HOUSING_UNKNOWN: "the animal's current housing status isn't known",
+  COSTS_UNAVAILABLE: "the cost records couldn't be read",
   CURRENT_WEIGHT_UNKNOWN: "current weight unknown",
   PLAN_INPUT_INVALID: "fix the plan inputs",
   PER_HEAD_PRICE_NOT_PROJECTABLE_TO_SALE_WEIGHT: "a per-head price can't be moved to a new weight",
@@ -68,7 +75,17 @@ const REASON_TEXT: Record<string, string> = {
   PROJECTION_SALE_DATE_NOT_AFTER_TODAY: "the sale date must be after today",
   PROJECTION_UNKNOWN_ANIMAL: "animal not found",
   PROJECTION_NO_PREDICTION: "no weight projection",
+  PROJECTION_REQUEST_FAILED: "the projection couldn't be loaded",
+  GOAL_UNAVAILABLE: "the goal records couldn't be read",
 };
+
+const HOUSING_DEPENDENT: ReadonlySet<keyof AnimalPlanEconomics> = new Set(HOUSING_DEPENDENT_RESULTS);
+
+/** Marks a figure that rests on the farmer's housing assumption rather than a record. */
+function AssumedMark({ economics, field }: { economics: AnimalPlanEconomics; field: keyof AnimalPlanEconomics }) {
+  if (economics.housing.basis !== "ASSUMED" || !HOUSING_DEPENDENT.has(field)) return null;
+  return <span className="ml-1.5 rounded-[4px] bg-fr-v2-plum-tint px-1.5 py-0.5 text-[11px] font-medium text-fr-v2-plum">Assumed housing</span>;
+}
 
 function reasonText(codes: string[]): string {
   return codes
@@ -149,10 +166,18 @@ function Segmented<T extends string>({ label, value, options, onChange }: { labe
   );
 }
 
-/** now → housing → sale, proportional, with day counts. */
-function PlanTimeline({ asOf, housingDate, saleDate, housedNow }: { asOf: string; housingDate: string | null; saleDate: string; housedNow: boolean }) {
+/** now → housing → sale, proportional, with day counts. `housedNow` null = not known and not assumed: no split is drawn. */
+function PlanTimeline({ asOf, housingDate, saleDate, housedNow, assumed }: { asOf: string; housingDate: string | null; saleDate: string; housedNow: boolean | null; assumed: boolean }) {
   if (!isPlanDate(saleDate) || saleDate <= asOf) return null;
   const total = daysBetween(asOf, saleDate);
+  if (housedNow === null) {
+    return (
+      <div className="mt-4">
+        <div className={`h-2 w-full rounded-full ${cattleStyles.hatch}`} />
+        <p className="mt-2 text-[12px] text-fr-v2-muted">{total} days to sale · housing now unknown, so days at grass and housed aren&apos;t split</p>
+      </div>
+    );
+  }
   const h = !housedNow && housingDate && isPlanDate(housingDate) && housingDate > asOf && housingDate < saleDate ? daysBetween(asOf, housingDate) : null;
   const pct = h === null ? null : (h / total) * 100;
   return (
@@ -178,6 +203,7 @@ function PlanTimeline({ asOf, housingDate, saleDate, housedNow }: { asOf: string
       </div>
       <p className="text-[12px] text-fr-v2-muted">
         {total} days to sale{housedNow ? " · housed throughout" : h !== null ? ` · ${h} at grass, ${total - h} housed` : " · not housed before sale"}
+        {assumed ? " (assumed housing)" : ""}
       </p>
     </div>
   );
@@ -198,6 +224,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
     const next = { ...form, ...patch };
     setForm(next);
     setPlanDraft(tag, { ...next, saved: existing?.saved ?? null });
+    setSaveResult(null);
   };
   const [projections, setProjections] = useState<Record<string, DemoProjection>>({});
   const [projecting, startProjecting] = useTransition();
@@ -212,8 +239,9 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
     let current = true;
     const t = setTimeout(() => {
       startProjecting(async () => {
-        const r = await projectCattleWeight(session, tag, date, scenario);
-        if (current && r.ok) setProjections((p) => ({ ...p, [key]: r.value }));
+        const r = await projectCattleWeight(session, tag, date, scenario).catch(() => ({ ok: false as const }));
+        // A failed request is its own reason ("couldn't be loaded"), never a perpetual "projecting…".
+        if (current) setProjections((p) => ({ ...p, [key]: r.ok ? r.value : { state: "NOT_PROJECTED", saleDate: date, reason: "REQUEST_FAILED" } }));
       });
     }, 120);
     return () => {
@@ -234,15 +262,16 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
         currentlyHoused: plan.currentlyHoused,
         currentWeightKg: plan.currentWeightKg,
         projection: projection === undefined ? { state: "NOT_PROJECTED", reason: "PENDING" } : projection.state === "PROJECTED" ? { state: "PROJECTED", kg: projection.kg } : { state: "NOT_PROJECTED", reason: projection.reason },
-        costs: plan.costs ?? { animalId: profile.animalId, asOfDate: plan.asOfDate, state: "NONE_RECORDED", currency: null, total: null, direct: null, allocated: null, byCategory: [], entryCount: 0, futureEntryIds: [], issues: [], entries: [] },
+        costs: plan.costs,
         valuation,
       }),
-    [a, plan, projection, valuation, profile.animalId],
+    [a, plan, projection, valuation],
   );
 
   const draftDirty = JSON.stringify(form) !== JSON.stringify(existing?.saved ?? defaults);
   const set = (patch: Partial<AnimalPlanAssumptions>) => update({ assumptions: { ...a, ...patch } });
-  const housedNow = plan.currentlyHoused === true;
+  const housing = economics.housing;
+  const housedNow = housing.basis === "OBSERVED" ? housing.observed : housing.basis === "ASSUMED" ? housing.assumption === "HOUSED" : null;
   const withdrawalNotice = saleWithdrawalNotice(profile.health.withdrawal, a.saleDate);
   const fixture = economics.valuationStanding === "FIXTURE";
   const ret = economics.returnFromHolding;
@@ -264,6 +293,17 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
     setPlanDraft(tag, { ...form, saved: form });
     setSaveResult("SAVED");
   };
+  // The save status never implies an unsaved plan was saved: a refusal is reported whatever the draft state.
+  const saveStatus =
+    saveResult === "REFUSED"
+      ? null
+      : saveResult === "SAVED" && !draftDirty
+        ? "Saved to this demo session — the goal now uses this date and weight."
+        : draftDirty
+          ? "Unsaved changes"
+          : existing?.saved
+            ? "Saved to this demo session"
+            : "Not saved";
 
   return (
     <article className="mx-auto max-w-5xl pb-12" aria-labelledby="plan-title">
@@ -290,6 +330,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
         </h2>
         <div className={`mt-1 ${retTone}`}>
           {ret.state === "KNOWN" ? <MoneyValue m={ret} signed large /> : <MoneyValue m={ret} />}
+          <AssumedMark economics={economics} field="returnFromHolding" />
         </div>
         <p className="mt-2 text-[15px] text-fr-v2-charcoal">
           {economics.projectedDirectProfit.state === "KNOWN" && economics.currentSellNowMargin.state === "KNOWN"
@@ -312,7 +353,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
             <span>{withdrawalNotice.text}</span>
           </p>
         ) : null}
-        <PlanTimeline asOf={plan.asOfDate} housingDate={a.housingDate} saleDate={a.saleDate} housedNow={housedNow} />
+        <PlanTimeline asOf={plan.asOfDate} housingDate={a.housingDate} saleDate={a.saleDate} housedNow={housedNow} assumed={housing.basis === "ASSUMED"} />
       </section>
 
       <div className="mt-8 grid grid-cols-1 gap-x-12 gap-y-8 lg:grid-cols-[1fr_1.15fr]">
@@ -346,8 +387,25 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
 
           <div className="space-y-4 pt-2">
             <div className="text-[13px] font-semibold text-fr-v2-graphite">Housing</div>
-            {housedNow ? (
-              <p className="text-sm text-fr-v2-charcoal">Recorded as housed now ({profile.identity.location.value ?? "location unnamed"}), so housing costs run every day to sale.</p>
+            {housing.basis !== "OBSERVED" ? (
+              <div className="space-y-3">
+                <p className={`px-3 py-2 text-sm text-fr-v2-charcoal ${cattleStyles.hatch}`} role="note">
+                  {housing.basis === "UNKNOWN"
+                    ? "Can't calculate housing costs yet — the animal's current housing status isn't known. Choose an assumption for this plan to see a scenario."
+                    : "The animal's current housing status isn't recorded. Housing figures below use your assumption — the record isn't changed."}
+                </p>
+                <Segmented<"NONE" | HousingAssumption>
+                  label="Assume for this plan"
+                  value={a.assumedCurrentHousing ?? "NONE"}
+                  options={[["NONE", "No assumption"], ["OUTDOORS", "Outdoors now"], ["HOUSED", "Housed now"]] as const}
+                  onChange={(v) => set({ assumedCurrentHousing: v === "NONE" ? null : v })}
+                />
+              </div>
+            ) : null}
+            {housedNow === true ? (
+              <p className="text-sm text-fr-v2-charcoal">
+                {housing.basis === "OBSERVED" ? `Recorded as housed now (${profile.identity.location.value ?? "location unnamed"}), so housing costs run every day to sale.` : "Assumed housed now, so housing costs run every day to sale."}
+              </p>
             ) : (
               <div>
                 <label htmlFor="housing-date" className="text-sm text-fr-v2-charcoal">
@@ -376,13 +434,13 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
             <button type="button" onClick={save} disabled={invalid.length > 0 || !targetValid} className="min-h-12 rounded-[8px] bg-fr-v2-forest px-6 text-base font-semibold text-white disabled:opacity-40">
               Save plan
             </button>
-            {saveResult === "REFUSED" && draftDirty ? (
+            {saveResult === "REFUSED" ? (
               <span className="text-sm text-[#b23a2b]" role="alert">
                 This demonstration session is full, so the plan wasn&apos;t saved. Reset the demo on the Cattle page to continue.
               </span>
             ) : null}
             <span className="text-sm text-fr-v2-muted" role="status">
-              {saveResult === "REFUSED" && draftDirty ? null : saveResult === "SAVED" && !draftDirty ? "Saved to this demo session — the goal now uses this date and weight." : draftDirty ? "Unsaved changes" : existing?.saved ? "Saved to this demo session" : "Not saved"}
+              {saveStatus}
             </span>
           </div>
         </section>
@@ -401,14 +459,20 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
                 <MoneyValue m={{ state: "UNKNOWN", reasons: projection === undefined ? ["PROJECTION_PENDING"] : economics.projectedWeightKg.reasons }} />
               )}
             </Row>
-            {profile.goal.targetWeightKg !== null ? <Row label="Goal weight">{formatKg(profile.goal.targetWeightKg)}</Row> : null}
+            {profile.goal.targetWeightKg !== null ? (
+              <Row label="Goal weight">{formatKg(profile.goal.targetWeightKg)}</Row>
+            ) : profile.goal.state.code === "EVALUATION:UNAVAILABLE" ? (
+              <Row label="Goal weight">
+                <MoneyValue m={{ state: "UNKNOWN", reasons: ["GOAL_UNAVAILABLE"] }} />
+              </Row>
+            ) : null}
             <Row label="Estimated value now" hint={valuation?.state === "ESTIMATED" && valuation.estimate ? `Range ${formatEuro(valuation.estimate.low)} – ${formatEuro(valuation.estimate.high)}` : undefined}>
               <MoneyValue m={economics.currentEstimatedValue} />
             </Row>
             <Row label="Projected sale value" hint={economics.salePrice.state === "KNOWN" ? `${formatEuroPerKg(economics.salePrice.amount)} × projected weight` : undefined}>
               <MoneyValue m={economics.projectedSaleValue} />
             </Row>
-            <Row label="Recorded direct costs to date" hint={plan.costs?.state === "RECORDED" ? `${plan.costs.entryCount} entries, incl. allocated` : undefined}>
+            <Row label="Recorded direct costs to date" hint={plan.costs.state === "RECORDED" ? `${plan.costs.entryCount} entr${plan.costs.entryCount === 1 ? "y" : "ies"}, incl. allocated` : undefined}>
               <MoneyValue m={economics.recordedDirectCosts} />
             </Row>
             <Row label="Forecast feed to sale" hint={economics.remainingDays !== null ? `${economics.remainingDays} days` : undefined}>
@@ -416,24 +480,29 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
             </Row>
             <Row label="Forecast housing to sale" hint={economics.housedDays !== null ? `${economics.housedDays} housed days` : undefined}>
               <MoneyValue m={economics.forecastHousingCost} />
+              <AssumedMark economics={economics} field="forecastHousingCost" />
             </Row>
             <Row label="Total direct cost by sale">
               <MoneyValue m={economics.totalDirectCostBySale} />
+              <AssumedMark economics={economics} field="totalDirectCostBySale" />
             </Row>
             <Row label="Cost per kg liveweight now">
               <MoneyValue m={economics.costPerKgNow} perKg />
             </Row>
             <Row label="Cost per kg liveweight at sale">
               <MoneyValue m={economics.costPerKgAtSale} perKg />
+              <AssumedMark economics={economics} field="costPerKgAtSale" />
             </Row>
             <Row label="Projected direct profit at sale" hint="Sale value − recorded costs − forecast costs">
               <MoneyValue m={economics.projectedDirectProfit} />
+              <AssumedMark economics={economics} field="projectedDirectProfit" />
             </Row>
             <Row label="Sell-now margin" hint="Value now − recorded costs">
               <MoneyValue m={economics.currentSellNowMargin} />
             </Row>
             <Row label="Return from holding" hint="Projected direct profit − sell-now margin">
               <MoneyValue m={economics.returnFromHolding} signed />
+              <AssumedMark economics={economics} field="returnFromHolding" />
             </Row>
           </dl>
           <Disclosure label="What “projected direct profit” includes">
@@ -449,7 +518,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
             {valuation === undefined || valuation.state !== "ESTIMATED" ? (
               <p className={`mt-3 px-3 py-3 text-sm text-fr-v2-charcoal ${cattleStyles.hatch}`}>
                 No estimate from this mart:{" "}
-                {valuation?.reasons.map((r) => ({ NO_COMPARABLE_WEIGHT_BAND: "no comparable weight band in the report", MART_VALUATION_NEEDS_KNOWN_LIVEWEIGHT: "the animal's current weight is unknown", ANIMAL_SEX_UNKNOWN: "the animal's sex isn't recorded", WEIGHT_NEEDED_TO_CHOOSE_CATEGORY: "a current weight is needed to choose the category" })[r] ?? r.toLowerCase().replace(/_/g, " ")).join("; ") ?? "provider unavailable"}
+                {valuation?.reasons.map((r) => ({ NO_COMPARABLE_WEIGHT_BAND: "no comparable weight band in the report", MART_VALUATION_NEEDS_KNOWN_LIVEWEIGHT: "the animal's current weight is unknown", ANIMAL_SEX_UNKNOWN: "the animal's sex isn't recorded", ANIMAL_RECORD_UNAVAILABLE: "the animal's record couldn't be read", WEIGHT_NEEDED_TO_CHOOSE_CATEGORY: "a current weight is needed to choose the category" })[r] ?? r.toLowerCase().replace(/_/g, " ")).join("; ") ?? "provider unavailable"}
                 . Values that depend on it stay unknown.
               </p>
             ) : (

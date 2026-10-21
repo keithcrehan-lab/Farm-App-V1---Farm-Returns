@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  HOUSING_DEPENDENT_RESULTS,
   computeAnimalPlanEconomics,
   summariseAnimalCosts,
   valueAnimalAtMart,
@@ -130,6 +131,7 @@ const assumptions = (o: Partial<AnimalPlanAssumptions> = {}): AnimalPlanAssumpti
   housingDate: "2026-11-01",
   housingCostPerDay: "0.60",
   scenario: "BASE",
+  assumedCurrentHousing: null,
   ...o,
 });
 const input = (o: Partial<AnimalPlanEconomicsInput> = {}): AnimalPlanEconomicsInput => ({
@@ -231,6 +233,89 @@ describe("plan economics — exact definitions", () => {
     expect(outdoors.housedDays).toBe(0);
     expect(amount(outdoors.forecastHousingCost)).toBe("0");
     expect(computeAnimalPlanEconomics(input({ currentlyHoused: null, assumptions: assumptions({ housingDate: null }) })).forecastHousingCost.state).toBe("UNKNOWN");
+  });
+
+  it("unavailable costs are their own reason — never 'no costs recorded' (C10 availability invariant)", () => {
+    const e = computeAnimalPlanEconomics(input({ costs: { state: "UNAVAILABLE", reason: "VALUATION_DATE_UNREADABLE" } }));
+    expect(e.recordedDirectCosts).toEqual({ state: "UNKNOWN", reasons: ["COSTS_UNAVAILABLE"] });
+    for (const m of [e.totalDirectCostBySale, e.projectedDirectProfit, e.currentSellNowMargin, e.returnFromHolding, e.costPerKgNow, e.costPerKgAtSale]) expect(m.state).toBe("UNKNOWN");
+  });
+});
+
+describe("plan economics — unknown housing is never 'outdoors' (audit F011)", () => {
+  // Every result HOUSING_DEPENDENT_RESULTS names, as a comparable value.
+  const dependent = (e: ReturnType<typeof computeAnimalPlanEconomics>) =>
+    Object.fromEntries(HOUSING_DEPENDENT_RESULTS.map((k) => [k, e[k] === null || typeof e[k] === "number" ? e[k] : amount(e[k] as { state: string; amount?: string })]));
+
+  it("known outdoors: housed from the planned date; observed basis", () => {
+    const e = computeAnimalPlanEconomics(input({ currentlyHoused: false }));
+    expect(e.housing).toEqual({ observed: false, basis: "OBSERVED", assumption: null });
+    expect([e.housedDays, e.outdoorDays, amount(e.forecastHousingCost), amount(e.projectedDirectProfit)]).toEqual([14, 16, "8.4", "1171.6"]);
+  });
+
+  it("known housed: housed every remaining day; observed basis", () => {
+    const e = computeAnimalPlanEconomics(input({ currentlyHoused: true }));
+    expect(e.housing).toEqual({ observed: true, basis: "OBSERVED", assumption: null });
+    expect([e.housedDays, e.outdoorDays, amount(e.forecastHousingCost)]).toEqual([30, 0, "18"]);
+    expect(amount(e.projectedDirectProfit)).toBe("1162"); // 1855 − 600 − (75 + 18)
+  });
+
+  it("unknown with no assumption: every housing-dependent figure is unknown, with or without a planned housing date", () => {
+    for (const housingDate of ["2026-11-01", null]) {
+      const e = computeAnimalPlanEconomics(input({ currentlyHoused: null, assumptions: assumptions({ housingDate }) }));
+      expect(e.validity).toEqual({ state: "VALID" });
+      expect(e.housing).toEqual({ observed: null, basis: "UNKNOWN", assumption: null });
+      expect([e.housedDays, e.outdoorDays]).toEqual([null, null]);
+      for (const k of ["forecastHousingCost", "forecastDirectHoldingCost", "totalDirectCostBySale", "projectedDirectProfit", "returnFromHolding", "costPerKgAtSale"] as const) {
+        expect(e[k], `${k} / ${housingDate}`).toEqual({ state: "UNKNOWN", reasons: expect.arrayContaining(["CURRENT_HOUSING_UNKNOWN"]) });
+      }
+      // Figures that don't depend on housing still compute.
+      expect([amount(e.forecastFeedCost), amount(e.recordedDirectCosts), amount(e.projectedSaleValue), amount(e.currentSellNowMargin), amount(e.costPerKgNow)]).toEqual(["75", "600", "1855", "1150", "1.2"]);
+    }
+  });
+
+  it("unknown with an explicit OUTDOORS assumption: the scenario computes, marked ASSUMED, the observed state unchanged", () => {
+    const e = computeAnimalPlanEconomics(input({ currentlyHoused: null, assumptions: assumptions({ assumedCurrentHousing: "OUTDOORS" }) }));
+    expect(e.housing).toEqual({ observed: null, basis: "ASSUMED", assumption: "OUTDOORS" });
+    // Same figures as the observed-outdoors case — but labelled as resting on the assumption.
+    expect(dependent(e)).toEqual(dependent(computeAnimalPlanEconomics(input({ currentlyHoused: false }))));
+  });
+
+  it("unknown with an explicit HOUSED assumption: housed every day, marked ASSUMED", () => {
+    const e = computeAnimalPlanEconomics(input({ currentlyHoused: null, assumptions: assumptions({ assumedCurrentHousing: "HOUSED" }) }));
+    expect(e.housing).toEqual({ observed: null, basis: "ASSUMED", assumption: "HOUSED" });
+    expect(dependent(e)).toEqual(dependent(computeAnimalPlanEconomics(input({ currentlyHoused: true }))));
+  });
+
+  it("changing or removing the assumption changes or withdraws the dependent figures; profit and cost propagate", () => {
+    const at = (assumedCurrentHousing: AnimalPlanAssumptions["assumedCurrentHousing"]) => computeAnimalPlanEconomics(input({ currentlyHoused: null, assumptions: assumptions({ assumedCurrentHousing }) }));
+    const outdoors = at("OUTDOORS");
+    const housed = at("HOUSED");
+    const removed = at(null);
+    expect([amount(outdoors.forecastHousingCost), amount(housed.forecastHousingCost)]).toEqual(["8.4", "18"]);
+    // The 9.6 housing difference reaches holding cost, total cost, profit and return — exactly.
+    expect([amount(outdoors.forecastDirectHoldingCost), amount(housed.forecastDirectHoldingCost)]).toEqual(["83.4", "93"]);
+    expect([amount(outdoors.totalDirectCostBySale), amount(housed.totalDirectCostBySale)]).toEqual(["683.4", "693"]);
+    expect([amount(outdoors.projectedDirectProfit), amount(housed.projectedDirectProfit)]).toEqual(["1171.6", "1162"]);
+    expect([amount(outdoors.returnFromHolding), amount(housed.returnFromHolding)]).toEqual(["21.6", "12"]);
+    expect(Number(amount(outdoors.costPerKgAtSale))).toBeCloseTo(683.4 / 530, 15);
+    expect(Number(amount(housed.costPerKgAtSale))).toBeCloseTo(693 / 530, 15);
+    expect(removed.housing.basis).toBe("UNKNOWN");
+    expect(removed.projectedDirectProfit.state).toBe("UNKNOWN");
+    expect(removed.returnFromHolding.state).toBe("UNKNOWN");
+  });
+
+  it("an observed housing state always wins over an assumption (the assumption never overrides a record)", () => {
+    const e = computeAnimalPlanEconomics(input({ currentlyHoused: true, assumptions: assumptions({ assumedCurrentHousing: "OUTDOORS" }) }));
+    expect(e.housing).toEqual({ observed: true, basis: "OBSERVED", assumption: null });
+    expect(e.housedDays).toBe(30);
+  });
+
+  it("the housing-dependent list names exactly the results that change with housing", () => {
+    const a = computeAnimalPlanEconomics(input({ currentlyHoused: false }));
+    const b = computeAnimalPlanEconomics(input({ currentlyHoused: true }));
+    const changed = (Object.keys(a) as (keyof typeof a)[]).filter((k) => k !== "housing" && JSON.stringify(a[k]) !== JSON.stringify(b[k])).sort();
+    expect(changed).toEqual([...HOUSING_DEPENDENT_RESULTS].sort());
   });
 
   it("a per-head price cannot be projected to a different sale weight", () => {

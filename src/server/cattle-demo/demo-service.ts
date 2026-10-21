@@ -11,7 +11,7 @@ import { buildWeightReadContract } from "@/domain/cattle/weights";
 import { evaluatePerformance } from "@/domain/cattle/performance";
 import { buildAnimalProfile, buildHerd, type AnimalProfileVM, type CattleDirectory, type HerdVM } from "@/domain/cattle/presentation";
 import { ageInMonths } from "@/domain/cattle/presentation";
-import { summariseAnimalCosts, utcDateOfInstant, valueAnimalAtMart, type AnimalCostSummary, type AnimalPlanAssumptions, type MartRef, type MartValuation } from "@/domain/animal-plan";
+import { summariseAnimalCosts, utcDateOfInstant, valueAnimalAtMart, type AnimalCostRead, type AnimalPlanAssumptions, type MartRef, type MartValuation } from "@/domain/animal-plan";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type { CattleDemoSession } from "@/components/cattle/session/demo-session";
 import { DEMO_FOOD_PRODUCT, DEMO_OBLIGATION_ID, DEMO_PRODUCT_ID, DEMO_PROGRAMME_ID, hash } from "./demo-catalogue";
@@ -40,19 +40,20 @@ export function demoHerdView(session: CattleDemoSession, scenario: CattleDemoSce
   return buildHerd(replayCattleDemo(session, { scenario }), DEMO_DIRECTORY);
 }
 
-function costsFor(outputs: DemoEngineOutputs, animalId: string): AnimalCostSummary | null {
+function costsFor(outputs: DemoEngineOutputs, animalId: string): AnimalCostRead {
   const date = utcDateOfInstant(outputs.viewpoint.effectiveAt);
-  return date === null ? null : summariseAnimalCosts(DEMO_COST_ENTRIES, animalId, date);
+  return date === null ? { state: "UNAVAILABLE", reason: "VALUATION_DATE_UNREADABLE" } : summariseAnimalCosts(DEMO_COST_ENTRIES, animalId, date);
 }
 
 export interface AnimalPlanBaseVM {
   asOfDate: string;
   currentWeightKg: number | null;
+  /** OBSERVED housing now (C1 location): `null` = unknown — never read as outdoors (the plan asks for an assumption). */
   currentlyHoused: boolean | null;
   defaults: AnimalPlanAssumptions;
   /** The planned sale date is the declared goal's target date when one exists. */
   saleDateSource: "GOAL" | "DEFAULT";
-  costs: AnimalCostSummary | null;
+  costs: AnimalCostRead;
   marts: MartRef[];
   defaultMartId: string;
   /** One valuation per mart, all from the fixture provider. */
@@ -84,7 +85,9 @@ export function demoAnimalView(session: CattleDemoSession, tag: string, scenario
   const valuations: Record<string, MartValuation> = {};
   for (const m of marts) {
     const request = { animalId, martId: m.martId, liveweightKg: profile.weight.kg, sex, breedLabel: profile.identity.breed.value, ageMonths: months, asOfDate };
-    valuations[m.martId] = valueAnimalAtMart(DEMO_MART_PROVIDER.findComparable(request), request, DEMO_MART_STALE_AFTER_DAYS);
+    // Without the C1 snapshot the animal's details are unknown (not "not recorded"): no comparable is looked up.
+    const comparable = snap ? DEMO_MART_PROVIDER.findComparable(request) : ({ state: "UNAVAILABLE", provider: DEMO_MART_PROVIDER.describe(), reason: "ANIMAL_RECORD_UNAVAILABLE" } as const);
+    valuations[m.martId] = valueAnimalAtMart(comparable, request, DEMO_MART_STALE_AFTER_DAYS);
   }
   const housed = profile.identity.location.housed;
   const goalDate = profile.goal.targetDate;
@@ -95,7 +98,7 @@ export function demoAnimalView(session: CattleDemoSession, tag: string, scenario
       asOfDate,
       currentWeightKg: profile.weight.kg,
       currentlyHoused: housed,
-      defaults: demoDefaultAssumptions(goalDate && goalDate > asOfDate ? goalDate : fallbackSale, housed === true),
+      defaults: demoDefaultAssumptions(goalDate && goalDate > asOfDate ? goalDate : fallbackSale, housed),
       saleDateSource: goalDate && goalDate > asOfDate ? "GOAL" : "DEFAULT",
       costs,
       marts,

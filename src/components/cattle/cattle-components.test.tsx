@@ -41,7 +41,7 @@ describe("C10 screens", { timeout: 60_000 }, () => {
     expect(screen.getByText(/Demonstration herd\./)).toBeInTheDocument();
     expect(screen.getByText("521")).toBeInTheDocument();
     expect(screen.getByText("On track")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 3, name: "Record weight" })).toBeInTheDocument();
+    expect(screen.getByText("No open jobs for this animal")).toBeInTheDocument(); // a 32-day-old weight raises no work (no staleness rule)
     expect(screen.getAllByText("Observation").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Cost record").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /View animal plan/ })).toHaveAttribute("href", "/cattle/animals/1427/plan");
@@ -49,16 +49,17 @@ describe("C10 screens", { timeout: 60_000 }, () => {
   });
 
   it("Record weight: sheet → save → engine recalculation → job resolves", async () => {
-    wrap(<AnimalProfileScreen initial={demoAnimalView(EMPTY, "1427")!} tag="1427" scenario="STANDARD" />);
+    wrap(<AnimalProfileScreen initial={demoAnimalView(EMPTY, "1442")!} tag="1442" scenario="STANDARD" />);
+    expect(screen.getByRole("heading", { level: 3, name: "Record weight" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Record weight" }));
-    const dialog = screen.getByRole("dialog", { name: /Record weight · 1427/ });
-    fireEvent.change(within(dialog).getByLabelText("Scale reading"), { target: { value: "548" } });
+    const dialog = screen.getByRole("dialog", { name: /Record weight · 1442/ });
+    fireEvent.change(within(dialog).getByLabelText("Scale reading"), { target: { value: "400" } });
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Save weight" }));
     });
-    expect(loadCattleAnimal).toHaveBeenCalledWith({ version: 1, events: [expect.objectContaining({ kind: "RECORD_WEIGHT", tag: "1427", kg: 548, observedDate: null })] }, "1427", "STANDARD");
+    expect(loadCattleAnimal).toHaveBeenCalledWith({ version: 1, events: [expect.objectContaining({ kind: "RECORD_WEIGHT", tag: "1442", kg: 400, observedDate: null })] }, "1442", "STANDARD");
     expect(await screen.findByText(/closed by your new record/)).toBeInTheDocument();
-    expect(screen.getByText("548")).toBeInTheDocument();
+    expect(screen.getAllByText("400").length).toBeGreaterThan(0);
     expect(screen.getByText("No open jobs for this animal")).toBeInTheDocument();
   });
 
@@ -100,7 +101,7 @@ describe("C10 screens", { timeout: 60_000 }, () => {
     const herd = demoHerdView(EMPTY);
     const { unmount } = wrap(<HerdScreen initial={herd} scenario="STANDARD" />);
     expect(screen.getByRole("link", { name: /Finishers/ })).toHaveAttribute("href", "/cattle/groups/SYNTH-GROUP-FINISHERS");
-    expect(screen.getAllByText(/3 animals need weighing/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/2 animals need weighing/).length).toBeGreaterThan(0);
     unmount();
     wrap(<GroupScreen initial={herd} groupRef="SYNTH-GROUP-FINISHERS" scenario="STANDARD" />);
     expect(screen.getByRole("link", { name: /1427/ })).toHaveAttribute("href", "/cattle/animals/1427");
@@ -229,7 +230,7 @@ describe("C10 screens", { timeout: 60_000 }, () => {
       </CattleDemoSessionProvider>,
     );
     expect(screen.queryByText(/12 animals/)).toBeNull();
-    expect(screen.getByText("No animals recorded.")).toBeInTheDocument();
+    expect(screen.getByText(/^No animals recorded\./)).toBeInTheDocument();
   });
 
   it("useDemoView drops a late response for a superseded key", async () => {
@@ -293,6 +294,95 @@ describe("C10 screens", { timeout: 60_000 }, () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/session is full, so the plan wasn't saved/);
     expect(screen.queryByText(/Saved to this demo session/)).toBeNull();
     expect(screen.getByLabelText("Target weight (goal)")).toHaveValue("630");
+  });
+
+  it("a refused save of an UNCHANGED plan is reported too — never silent, never 'saved' (audit F010)", async () => {
+    const Fill = () => {
+      const s = useCattleDemoSession();
+      return (
+        <button type="button" onClick={() => { for (let i = 0; i < 40; i++) s.addEvent({ kind: "RECORD_WEIGHT", tag: "1431", kg: 500 + i, observedDate: null }); }}>
+          fill
+        </button>
+      );
+    };
+    loadCattleAnimal.mockImplementation(() => new Promise(() => {}));
+    render(
+      <CattleDemoSessionProvider>
+        <Fill />
+        <AnimalPlanScreen initial={demoAnimalView(EMPTY, "1427")!} tag="1427" scenario="STANDARD" />
+      </CattleDemoSessionProvider>,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "fill" }));
+    });
+    expect(screen.getByText("Not saved")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save plan" })); // the defaults, untouched
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(/session is full, so the plan wasn't saved/);
+    expect(screen.queryByText(/Saved to this demo session/)).toBeNull();
+    // Editing afterwards clears the refusal (the next save attempt reports its own outcome).
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Target weight (goal)"), { target: { value: "650" } });
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+  });
+
+  it("a successful save says so, and only then (audit F010)", async () => {
+    await act(async () => {
+      wrap(<AnimalPlanScreen initial={demoAnimalView(EMPTY, "1427")!} tag="1427" scenario="STANDARD" />);
+    });
+    expect(screen.getByText("Not saved")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save plan" }));
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText(/Saved to this demo session — the goal now uses this date and weight/)).toBeInTheDocument();
+  });
+
+  it("unknown housing: housing figures say why they're unknown; an explicit assumption enables a marked scenario; removing it withdraws it (audit F011)", async () => {
+    await act(async () => {
+      wrap(<AnimalPlanScreen initial={demoAnimalView(EMPTY, "1433")!} tag="1433" scenario="STANDARD" />);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    const row = (label: string) => screen.getByText(label).closest("div")!.textContent ?? "";
+    expect(screen.getByText(/Can't calculate housing costs yet — the animal's current housing status isn't known/)).toBeInTheDocument();
+    expect(row("Forecast housing to sale")).toMatch(/Unknown — the animal's current housing status isn't known/);
+    expect(row("Projected direct profit at sale")).toMatch(/current housing status isn't known/);
+    expect(screen.getByText(/housing now unknown, so days at grass and housed aren.t split/)).toBeInTheDocument(); // the timeline doesn't split unknown housing
+    expect(screen.queryByText("Assumed housing")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Outdoors now" }));
+    });
+    expect(row("Forecast housing to sale")).toMatch(/€/);
+    expect(row("Forecast housing to sale")).toMatch(/Assumed housing/);
+    expect(row("Projected direct profit at sale")).toMatch(/Assumed housing/);
+    expect(row("Forecast feed to sale")).not.toMatch(/Assumed housing/); // feed doesn't depend on housing
+    expect(screen.getByText(/Housing figures below use your assumption — the record isn't changed/)).toBeInTheDocument();
+    expect(screen.getByText(/\(assumed housing\)/)).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Housed now" }));
+    });
+    expect(screen.getByText("Assumed housed now, so housing costs run every day to sale.")).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "No assumption" }));
+    });
+    expect(row("Forecast housing to sale")).toMatch(/current housing status isn't known/);
+    expect(screen.queryByText("Assumed housing")).toBeNull();
+  });
+
+  it("recorded housing never shows the assumption control", async () => {
+    await act(async () => {
+      wrap(<AnimalPlanScreen initial={demoAnimalView(EMPTY, "1427")!} tag="1427" scenario="STANDARD" />);
+    });
+    expect(screen.queryByRole("button", { name: "Outdoors now" })).toBeNull();
+    expect(screen.queryByText("Assumed housing")).toBeNull();
   });
 
   it("record-weight refusal keeps the sheet open with the reading", () => {

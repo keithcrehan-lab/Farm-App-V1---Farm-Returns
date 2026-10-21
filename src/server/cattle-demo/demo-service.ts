@@ -9,9 +9,9 @@ import "server-only";
 
 import { buildWeightReadContract } from "@/domain/cattle/weights";
 import { evaluatePerformance } from "@/domain/cattle/performance";
-import { buildAnimalProfile, buildHerd, type AnimalProfileVM, type CattleDirectory, type HerdVM } from "@/domain/cattle/presentation";
+import { buildAnimalProfile, buildHerd, currentWeightInput, type AnimalProfileVM, type CattleDirectory, type CattleOutputs, type HerdVM } from "@/domain/cattle/presentation";
 import { ageInMonths } from "@/domain/cattle/presentation";
-import { summariseAnimalCosts, utcDateOfInstant, valueAnimalAtMart, type AnimalCostRead, type AnimalPlanAssumptions, type MartRef, type MartValuation } from "@/domain/animal-plan";
+import { summariseAnimalCosts, utcDateOfInstant, valueAnimalAtMart, type AnimalCostRead, type AnimalPlanAssumptions, type CurrentWeightRead, type HousingObservation, type MartRef, type MartValuation } from "@/domain/animal-plan";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type { CattleDemoSession } from "@/components/cattle/session/demo-session";
 import { DEMO_FOOD_PRODUCT, DEMO_OBLIGATION_ID, DEMO_PRODUCT_ID, DEMO_PROGRAMME_ID, hash } from "./demo-catalogue";
@@ -47,12 +47,17 @@ function costsFor(outputs: DemoEngineOutputs, animalId: string): AnimalCostRead 
 
 export interface AnimalPlanBaseVM {
   asOfDate: string;
-  currentWeightKg: number | null;
-  /** OBSERVED housing now (C1 location): `null` = unknown — never read as outdoors (the plan asks for an assumption). */
-  currentlyHoused: boolean | null;
+  /** The current weight with its unknown reason kept (never a bare `null`). */
+  currentWeight: CurrentWeightRead;
+  /** OBSERVED housing now (C1 location), explicitly — UNKNOWN is never read as outdoors (the plan asks for an assumption). */
+  currentHousing: HousingObservation;
   defaults: AnimalPlanAssumptions;
-  /** The planned sale date is the declared goal's target date when one exists. */
-  saleDateSource: "GOAL" | "DEFAULT";
+  /**
+   * Where the starting sale date came from: the declared goal's target date; a suggestion because
+   * C6 says there is no goal date (NO_GOAL_DATE); or a suggestion because the goal couldn't be
+   * determined (GOAL_UNRESOLVED — never presented as "no goal").
+   */
+  saleDateSource: "GOAL" | "NO_GOAL_DATE" | "GOAL_UNRESOLVED";
   costs: AnimalCostRead;
   marts: MartRef[];
   defaultMartId: string;
@@ -66,8 +71,7 @@ export interface DemoAnimalView {
 }
 
 export function demoAnimalView(session: CattleDemoSession, tag: string, scenario: CattleDemoScenario = "STANDARD"): DemoAnimalView | null {
-  const spec = DEMO_ANIMALS.find((a) => a.tag === tag);
-  if (!spec) return null;
+  if (!DEMO_ANIMALS.some((a) => a.tag === tag)) return null;
   const animalId = animalIdOf(tag);
   const first = replayCattleDemo(session, { scenario, animalIds: [animalId] });
   // Project to the declared goal's target date (C5 `projectionAt`) when it is still ahead.
@@ -75,7 +79,14 @@ export function demoAnimalView(session: CattleDemoSession, tag: string, scenario
   const firstDate = utcDateOfInstant(first.viewpoint.effectiveAt) ?? "";
   const projectionAt = goalDecl?.targetDate && goalDecl.targetDate > firstDate ? `${goalDecl.targetDate}T12:00:00Z` : null;
   const outputs = projectionAt === null ? first : replayCattleDemo(session, { scenario, animalIds: [animalId], projectionAt });
-  const costs = costsFor(outputs, animalId);
+  return animalViewFrom(outputs, animalId, costsFor(outputs, animalId));
+}
+
+/**
+ * The profile + plan view of one animal from engine outputs (the single path both the demo and the
+ * availability tests use, so a mutated owner output reaches the plan exactly as it would in use).
+ */
+export function animalViewFrom(outputs: DemoEngineOutputs | CattleOutputs, animalId: string, costs: AnimalCostRead): DemoAnimalView {
   const profile = buildAnimalProfile(outputs, animalId, DEMO_DIRECTORY, costs);
   const asOfDate = utcDateOfInstant(outputs.viewpoint.effectiveAt) ?? "";
   const snap = outputs.snapshots[animalId];
@@ -84,22 +95,24 @@ export function demoAnimalView(session: CattleDemoSession, tag: string, scenario
   const marts = DEMO_MART_PROVIDER.listMarts();
   const valuations: Record<string, MartValuation> = {};
   for (const m of marts) {
-    const request = { animalId, martId: m.martId, liveweightKg: profile.weight.kg, sex, breedLabel: profile.identity.breed.value, ageMonths: months, asOfDate };
+    const request = { animalId, martId: m.martId, liveweightKg: profile.weight.state === "KNOWN" ? profile.weight.kg : null, sex, breedLabel: profile.identity.breed.value, ageMonths: months, asOfDate };
     // Without the C1 snapshot the animal's details are unknown (not "not recorded"): no comparable is looked up.
     const comparable = snap ? DEMO_MART_PROVIDER.findComparable(request) : ({ state: "UNAVAILABLE", provider: DEMO_MART_PROVIDER.describe(), reason: "ANIMAL_RECORD_UNAVAILABLE" } as const);
     valuations[m.martId] = valueAnimalAtMart(comparable, request, DEMO_MART_STALE_AFTER_DAYS);
   }
-  const housed = profile.identity.location.housed;
-  const goalDate = profile.goal.targetDate;
+  const housing = profile.identity.location.housing;
+  const goal = profile.goal.read;
+  const goalDate = goal.state === "ACTIVE" ? goal.targetDate : null;
   const fallbackSale = "2026-12-04";
+  const fromGoal = goalDate !== null && goalDate > asOfDate;
   return {
     profile,
     plan: {
       asOfDate,
-      currentWeightKg: profile.weight.kg,
-      currentlyHoused: housed,
-      defaults: demoDefaultAssumptions(goalDate && goalDate > asOfDate ? goalDate : fallbackSale, housed),
-      saleDateSource: goalDate && goalDate > asOfDate ? "GOAL" : "DEFAULT",
+      currentWeight: currentWeightInput(profile.weight),
+      currentHousing: housing,
+      defaults: demoDefaultAssumptions(fromGoal && goalDate !== null ? goalDate : fallbackSale, housing),
+      saleDateSource: fromGoal ? "GOAL" : goal.state === "UNRESOLVED" ? "GOAL_UNRESOLVED" : "NO_GOAL_DATE",
       costs,
       marts,
       defaultMartId: DEMO_DEFAULT_MART,

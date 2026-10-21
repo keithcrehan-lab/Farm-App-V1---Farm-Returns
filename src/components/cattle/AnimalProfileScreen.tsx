@@ -56,7 +56,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
   const p = view.profile;
   const groupHref = p.identity.group.groupRef ? `/cattle/groups/${encodeURIComponent(p.identity.group.groupRef)}${scenario === "STANDARD" ? "" : `?scenario=${scenario}`}` : "/cattle";
   const planHref = `/cattle/animals/${encodeURIComponent(tag)}/plan${scenario === "STANDARD" ? "" : `?scenario=${scenario}`}`;
-  const weightKey = useMemo(() => `${p.weight.observedAt}-${p.weight.kg}`, [p.weight.observedAt, p.weight.kg]);
+  const weightKey = useMemo(() => (p.weight.state === "KNOWN" ? `${p.weight.observedAt}-${p.weight.kg}` : p.weight.state), [p.weight]);
 
   return (
     <article className={`mx-auto max-w-5xl pb-10 ${busyClass(pending, failed)}`} aria-labelledby="animal-title" aria-busy={pending}>
@@ -80,7 +80,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
             {p.identity.group.value ? p.identity.group.value : <StateLabel state={p.identity.group.state} />}
             {" · "}
             {p.identity.location.value ?? p.identity.location.state.label}
-            {p.identity.location.housed === true ? " (housed)" : ""}
+            {p.identity.location.housing.state === "KNOWN" && p.identity.location.housing.housed ? " (housed)" : ""}
           </p>
         </div>
       </header>
@@ -138,7 +138,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
               </div>
               <div>
                 <dt className="text-fr-v2-muted">Most recent</dt>
-                <dd className="text-fr-v2-graphite">{p.gain.recentLabel ?? "—"}</dd>
+                <dd className="text-fr-v2-graphite">{p.gain.recent.state === "UNAVAILABLE" ? <StateLabel state={p.gain.recent.display} detail /> : (p.gain.recent.value ?? "No interval worked out yet")}</dd>
               </div>
               <div>
                 <dt className="text-fr-v2-muted">Goal</dt>
@@ -181,7 +181,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
           <section aria-labelledby="cost-h">
             <SectionHeading id="cost-h" title="Direct costs" />
             <div className="mt-1">
-              <CostSection costs={p.costSummary} />
+              <CostSection costs={p.costs} />
             </div>
           </section>
           <section aria-labelledby="photos-h">
@@ -198,11 +198,11 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
       </footer>
 
       <RecordWeightSheet
-        key={`${sheet}-${p.weight.kg}`}
+        key={`${sheet}-${weightKey}`}
         open={sheet}
         onClose={() => setSheet(false)}
         tag={tag}
-        lastKg={p.weight.kg}
+        previous={p.weight}
         asOfDate={p.asOf.effectiveAt.slice(0, 10)}
         onSave={(v) => {
           // A full session refuses the action: the sheet stays open with the reading, and says so.

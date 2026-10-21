@@ -13,10 +13,9 @@
  * an empty list.
  */
 
-import type { AnimalResolution } from "../animal-snapshot";
+import { animalAssertionHistory, type AnimalResolution } from "../animal-snapshot";
 import type { AnimalPerformance, PerformancePoint } from "../performance";
-import type { WeightSeriesEntry } from "../weights";
-import { costPerKgLiveweight, isPlanDate, utcDateOfInstant, type AnimalCostRead } from "../../animal-plan";
+import { isPlanDate, utcDateOfInstant, type AnimalCostRead, type CurrentWeightRead, type HousingObservation } from "../../animal-plan";
 import { known, unavailable, type Availability } from "./availability";
 import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
 import {
@@ -39,6 +38,7 @@ import {
   type DisplayState,
 } from "./display-states";
 import { ageInMonths, formatAdg, formatAge, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatSignedKg, formatUtcTime } from "./format";
+import { costView, type CostVM } from "./cost-view";
 import { buildAnimalTimeline, type TimelineEntryVM } from "./timeline";
 import { animalWork, type WorkVM } from "./work-view";
 
@@ -72,21 +72,49 @@ export interface MetricVM {
   caption: string | null;
 }
 
+/**
+ * The animal's latest weight, explicitly (C4 `latest`, or UNAVAILABLE when C4 produced no series for
+ * the animal). Each state is its own: a conflict or an unavailable evaluation is never "no weight".
+ */
+export type LatestWeightVM =
+  | { state: "KNOWN"; kg: number; observedAt: string; display: DisplayState }
+  | { state: "NONE"; display: DisplayState }
+  | { state: "CONFLICT"; candidatesKg: number[]; observedAt: string | null; display: DisplayState }
+  | { state: "UNSUPPORTED"; display: DisplayState }
+  | { state: "UNAVAILABLE"; display: DisplayState };
+
+/**
+ * The animal's goal, explicitly: an ACTIVE goal (its target weight KNOWN, NOT_SET or UNRESOLVED),
+ * known NONE, or UNRESOLVED (goals conflict, a goal record can't be read, or goals couldn't be read)
+ * — never "no goal" unless C6 says so.
+ */
+export type GoalRead =
+  | {
+      state: "ACTIVE";
+      goalType: string;
+      typeLabel: string;
+      targetWeight: { state: "KNOWN"; kg: number } | { state: "NOT_SET" } | { state: "UNRESOLVED" };
+      targetDate: string | null;
+    }
+  | { state: "NONE" }
+  | { state: "UNRESOLVED"; display: DisplayState };
+
 export interface AnimalProfileVM {
   animalId: string;
   title: string;
   tag: FieldVM;
-  identity: { breed: FieldVM; sex: FieldVM; age: FieldVM; group: FieldVM & { groupRef: string | null }; location: FieldVM & { housed: boolean | null }; status: FieldVM };
+  identity: { breed: FieldVM; sex: FieldVM; age: FieldVM; group: FieldVM & { groupRef: string | null }; location: FieldVM & { housing: HousingObservation }; status: FieldVM };
   asOf: { effectiveAt: string; knowledgeCutoff: string; label: string };
   metrics: { weight: MetricVM; gain: MetricVM; cost: MetricVM };
   /** The headline performance state (target comparison, or why there is none). */
   performanceState: DisplayState;
-  weight: { state: DisplayState; kg: number | null; observedAt: string | null; candidatesKg: number[] };
+  weight: LatestWeightVM;
   gain: {
     state: DisplayState;
     adgKgPerDay: number | null;
     periodLabel: string | null;
-    recentLabel: string | null;
+    /** The most recent derived interval (`null` = none derived); UNAVAILABLE when C5 produced nothing. */
+    recent: Availability<string | null>;
     trend: DisplayState;
     trace: { formula: string; start: string | null; end: string | null; days: string | null } | null;
   };
@@ -94,7 +122,7 @@ export interface AnimalProfileVM {
   /** UNAVAILABLE when C5 didn't run or produced no entry for the animal (never an empty chart). */
   chart: Availability<{ points: ChartPointVM[]; projection: { at: string; kg: number; label: string; dateLabel: string } | null; goalTarget: { kg: number; label: string; date: string | null } | null }>;
   projection: { state: DisplayState; label: string | null; at: string | null; assumptions: string[] };
-  goal: { state: DisplayState; typeLabel: string | null; targetWeightLabel: string | null; targetWeightKg: number | null; targetDate: string | null; targetDateLabel: string | null; goalType: string | null };
+  goal: { state: DisplayState; read: GoalRead; typeLabel: string | null; targetWeightLabel: string | null; targetDateLabel: string | null };
   health: {
     /** `EVALUATION_UNAVAILABLE` when C3 produced no projection for the animal. */
     withdrawal: { state: DisplayState; label: string; until: string | null; untilLabel: string | null; product: string };
@@ -116,6 +144,8 @@ export interface AnimalProfileVM {
   /** Record families the timeline couldn't include because their evaluation didn't run. */
   timelineGaps: string[];
   costSummary: AnimalCostRead;
+  /** The display reading of `costSummary` (the only one components use). */
+  costs: CostVM;
 }
 
 /** `r` is `undefined` only when the C1 snapshot itself is missing: unknown because it wasn't produced, not "not recorded". */
@@ -186,16 +216,20 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
   const group = { ...field("Group", groupRes, (v) => directory.groupLabels[v] ?? "Unnamed group"), groupRef };
   if (groupRes?.state === "CONFLICTING_EVIDENCE") group.state = MEMBERSHIP_DISPLAY.EVIDENCE_CONFLICT;
   const locRes = snap?.location;
-  const location = { ...field("Location", locRes, (v) => directory.locationLabels[v.ref] ?? (v.kind === "HOUSING" ? "Housed (unnamed)" : "Unnamed location")), housed: locRes?.state === "KNOWN" && locRes.value ? locRes.value.kind === "HOUSING" : null };
+  const housing: HousingObservation =
+    locRes === undefined
+      ? { state: "UNKNOWN", reason: "RECORD_UNAVAILABLE" }
+      : locRes.state === "KNOWN" && locRes.value
+        ? { state: "KNOWN", housed: locRes.value.kind === "HOUSING" }
+        : { state: "UNKNOWN", reason: locRes.state === "CONFLICTING_EVIDENCE" ? "RECORDS_DISAGREE" : locRes.state === "INVALID_EVIDENCE" ? "RECORD_INVALID" : "NOT_RECORDED" };
+  const location = { ...field("Location", locRes, (v) => directory.locationLabels[v.ref] ?? (v.kind === "HOUSING" ? "Housed (unnamed)" : "Unnamed location")), housing };
 
   // Weight (C4) and performance (C5).
   const series = seriesOf(outputs, animalId);
-  const latest = series?.latest ?? null;
   // A null C4 / C5 output — or no entry for this animal (C4 / C5 emit one per requested animal) — means the
   // evaluation didn't run for it (fail-closed upstream): unknown, never "no weights".
   const perf = performanceOf(outputs, animalId);
   const perfEvaluated = perf !== null;
-  const weightState = series === null ? EVALUATION_UNAVAILABLE : displayOf(LATEST_WEIGHT_DISPLAY, series.latest.state, "WEIGHT");
   const period = perf?.period ?? null;
   const gainState = !perfEvaluated ? EVALUATION_UNAVAILABLE : period ? displayOf(GAIN_DISPLAY, period.state, "GAIN") : GAIN_DISPLAY.INSUFFICIENT_EVIDENCE;
   const lastInterval = perf ? [...perf.intervals].reverse().find((i) => i.state === "DERIVED") ?? null : null;
@@ -207,6 +241,20 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
   const goalState = goalProj ? displayOf(GOAL_DISPLAY, goalProj.status, "GOAL") : EVALUATION_UNAVAILABLE;
   const active = goalProj?.status === "ACTIVE" ? goalProj.activeGoals[0]?.declaration ?? null : null;
   const goalKg = active?.targetWeight?.canonical && active.targetWeight.canonical.state === "KNOWN" ? active.targetWeight.canonical.kg : null;
+  const goalRead: GoalRead =
+    goalProj === null
+      ? { state: "UNRESOLVED", display: EVALUATION_UNAVAILABLE }
+      : goalProj.status === "NONE"
+        ? { state: "NONE" }
+        : goalProj.status === "ACTIVE" && active
+          ? {
+              state: "ACTIVE",
+              goalType: active.goalType,
+              typeLabel: GOAL_TYPE_LABEL[active.goalType] ?? active.goalType,
+              targetWeight: goalKg !== null ? { state: "KNOWN", kg: goalKg } : active.targetWeight ? { state: "UNRESOLVED" } : { state: "NOT_SET" },
+              targetDate: active.targetDate ?? null,
+            }
+          : { state: "UNRESOLVED", display: goalState };
 
   const prediction = perf?.prediction ?? null;
   const points = (perf?.points ?? []).map(pointVM);
@@ -238,25 +286,12 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
 
   const work = animalWork(outputs, animalId, directory);
   const withdrawalState = health === null ? EVALUATION_UNAVAILABLE : gate ? displayOf(WITHDRAWAL_DISPLAY, gate.state, "WITHDRAWAL") : WITHDRAWAL_DISPLAY.UNKNOWN;
+  const weight = latestWeightOf(series);
+  const cv = costView(costs, weight.state === "KNOWN" ? weight.kg : null);
   const costMetric: MetricVM =
-    costs.state === "UNAVAILABLE"
-      ? { label: "Direct cost to date", value: null, unit: null, state: UNAVAILABLE_DISPLAY.COSTS, caption: null }
-      : costs.state === "NONE_RECORDED"
-      ? { label: "Direct cost to date", value: null, unit: null, state: { code: "COST:NONE_RECORDED", label: "No costs recorded", tone: "unknown", detail: "No direct costs are recorded for this animal yet. That isn't €0." }, caption: null }
-      : costs.state !== "RECORDED" || costs.total === null
-        ? { label: "Direct cost to date", value: null, unit: null, state: { code: `COST:${costs.state}`, label: costs.state === "MIXED_CURRENCY" ? "Costs in mixed currencies" : "A cost record can't be read", tone: "review", detail: null }, caption: null }
-        : costs.currency !== "EUR"
-          ? { label: "Direct cost to date", value: null, unit: null, state: { code: "COST:NOT_IN_EURO", label: "Costs not in euro", tone: "review", detail: `Costs are recorded in ${costs.currency}; no exchange rate is used, so no euro total is shown.` }, caption: null }
-        : {
-            label: "Direct cost to date",
-            value: formatEuro(costs.total),
-            unit: null,
-            state: { code: "COST:RECORDED", label: "Recorded costs only", tone: "neutral", detail: `${costs.entryCount} recorded entr${costs.entryCount === 1 ? "y" : "ies"}; overheads not included.` },
-            caption: (() => {
-              const perKg = costPerKgLiveweight(costs, latest?.state === "KNOWN" ? latest.kg : null);
-              return perKg === null ? null : `${formatEuroPerKg(perKg)} of liveweight`;
-            })(),
-          };
+    cv.state === "RECORDED"
+      ? { label: "Direct cost to date", value: formatEuro(cv.total), unit: null, state: cv.display, caption: cv.perKgLiveweight === null ? null : `${formatEuroPerKg(cv.perKgLiveweight)} of liveweight` }
+      : { label: "Direct cost to date", value: null, unit: null, state: cv.display, caption: null };
 
   return {
     animalId,
@@ -274,10 +309,10 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
     metrics: {
       weight: {
         label: "Current weight",
-        value: latest?.state === "KNOWN" && latest.kg !== null ? formatKg(latest.kg).replace(" kg", "") : null,
-        unit: latest?.state === "KNOWN" ? "kg" : null,
-        state: weightState,
-        caption: latest?.state === "KNOWN" && latest.observedAt ? `Weighed ${formatDayMonth(latest.observedAt)}` : latest?.state === "EVIDENCE_CONFLICT" ? latest.candidateKg.map((k) => formatKg(k)).join(" or ") : null,
+        value: weight.state === "KNOWN" ? formatKg(weight.kg).replace(" kg", "") : null,
+        unit: weight.state === "KNOWN" ? "kg" : null,
+        state: weight.display,
+        caption: weight.state === "KNOWN" ? `Weighed ${formatDayMonth(weight.observedAt)}` : weight.state === "CONFLICT" ? weight.candidatesKg.map((k) => formatKg(k)).join(" or ") : null,
       },
       gain: {
         label: "Daily gain",
@@ -289,12 +324,14 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
       cost: costMetric,
     },
     performanceState: headline,
-    weight: { state: weightState, kg: latest?.state === "KNOWN" ? latest.kg : null, observedAt: latest?.observedAt ?? null, candidatesKg: latest?.candidateKg ?? [] },
+    weight,
     gain: {
       state: gainState,
       adgKgPerDay: period?.state === "DERIVED" ? period.adgKgPerDay : null,
       periodLabel: period?.state === "DERIVED" && period.gainKg !== null && period.from && period.to ? `${formatSignedKg(period.gainKg)} from ${formatDayMonth(period.from)} to ${formatDayMonth(period.to)}` : null,
-      recentLabel: lastInterval && lastInterval.gainKg !== null && lastInterval.from && lastInterval.to && lastInterval.adgKgPerDay !== null ? `${formatSignedKg(lastInterval.gainKg)} from ${formatDayMonth(lastInterval.from)} to ${formatDayMonth(lastInterval.to)} (${formatAdg(lastInterval.adgKgPerDay)})` : null,
+      recent: !perfEvaluated
+        ? unavailable()
+        : known(lastInterval && lastInterval.gainKg !== null && lastInterval.from && lastInterval.to && lastInterval.adgKgPerDay !== null ? `${formatSignedKg(lastInterval.gainKg)} from ${formatDayMonth(lastInterval.from)} to ${formatDayMonth(lastInterval.to)} (${formatAdg(lastInterval.adgKgPerDay)})` : null),
       trend: !perfEvaluated ? EVALUATION_UNAVAILABLE : perf ? displayOf(TREND_DISPLAY, perf.trend.state, "TREND") : TREND_DISPLAY.INSUFFICIENT_EVIDENCE,
       trace: period?.trace ? { formula: period.trace.formula, start: period.from, end: period.to, days: period.elapsedDays !== null ? period.elapsedDays.toFixed(3) : null } : null,
     },
@@ -320,11 +357,9 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
     },
     goal: {
       state: goalState,
-      goalType: active?.goalType ?? null,
-      typeLabel: active ? (GOAL_TYPE_LABEL[active.goalType] ?? active.goalType) : null,
-      targetWeightKg: goalKg,
+      read: goalRead,
+      typeLabel: goalRead.state === "ACTIVE" ? goalRead.typeLabel : null,
       targetWeightLabel: goalKg !== null ? formatKg(goalKg) : null,
-      targetDate: active?.targetDate ?? null,
       targetDateLabel: active?.targetDate ? formatDate(active.targetDate) : null,
     },
     health: {
@@ -345,19 +380,16 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
       : { open: unavailable(UNAVAILABLE_DISPLAY.PLANNING), closed: work.closed, failureCodes: outputs.plan.issues.map((i) => i.code) },
     timeline: buildAnimalTimeline(outputs, animalId, directory, costs),
     timelineGaps: [
-      ...(outputs.weights === null ? ["weighings (weight records couldn't be read)"] : []),
+      ...(series === null ? ["weighings (weight records couldn't be read)"] : []),
       ...(health === null ? ["health records (couldn't be read)"] : []),
       ...(goalProj === null ? ["goals (couldn't be read)"] : []),
       ...(!outputs.plan.ok ? ["work (the planning run failed)"] : []),
       ...(costs.state === "UNAVAILABLE" ? ["costs (couldn't be read)"] : []),
+      ...timelineHistoryGaps(outputs, animalId),
     ],
     costSummary: costs,
+    costs: cv,
   };
-}
-
-/** For callers that need the canonical latest-weight entries of an animal (e.g. the chart's record ids). */
-export function liveObservations(outputs: CattleOutputs, animalId: string): WeightSeriesEntry[] {
-  return seriesOf(outputs, animalId)?.observations ?? [];
 }
 
 export const viewpointDate = (outputs: CattleOutputs): string | null => utcDateOfInstant(outputs.viewpoint.effectiveAt);
@@ -377,4 +409,70 @@ export function saleWithdrawalNotice(w: AnimalProfileVM["health"]["withdrawal"],
     return saleDate <= end ? { tone: "risk", text: `This sale date is inside the medicine withdrawal (${product}), which runs until ${formatDate(w.until as string)}. Don't sell for slaughter before it ends.` } : null;
   }
   return { tone: "unknown", text: `Medicine withdrawal (${product}) is ${w.state.code === "WITHDRAWAL:EVIDENCE_CONFLICT" ? "disputed by conflicting records" : "unknown"}. Check the medicine records before any sale for slaughter.` };
+}
+
+const WEIGHT_STATE: Readonly<Record<string, LatestWeightVM["state"]>> = { KNOWN: "KNOWN", NONE: "NONE", EVIDENCE_CONFLICT: "CONFLICT", UNSUPPORTED: "UNSUPPORTED" };
+
+/** The explicit latest weight of a C4 series (`null` series = C4 produced nothing for the animal: UNAVAILABLE). */
+export function latestWeightOf(series: { latest: { state: string; kg: number | null; observedAt: string | null; candidateKg: number[] } } | null): LatestWeightVM {
+  if (series === null) return { state: "UNAVAILABLE", display: EVALUATION_UNAVAILABLE };
+  const l = series.latest;
+  const display = displayOf(LATEST_WEIGHT_DISPLAY, l.state as keyof typeof LATEST_WEIGHT_DISPLAY, "WEIGHT");
+  const state = WEIGHT_STATE[l.state];
+  if (state === "KNOWN" && l.kg !== null && Number.isFinite(l.kg) && l.observedAt !== null) return { state, kg: l.kg, observedAt: l.observedAt, display };
+  if (state === "NONE") return { state, display };
+  if (state === "CONFLICT") return { state, candidatesKg: [...l.candidateKg], observedAt: l.observedAt, display };
+  if (state === "UNSUPPORTED") return { state, display };
+  // A KNOWN state without a usable value (or an unlisted state) is not a weight: unknown, never "none".
+  return { state: "UNAVAILABLE", display: EVALUATION_UNAVAILABLE };
+}
+
+/** The current weight a plan may use, with each unknown reason kept (never one generic "unknown"). */
+export function currentWeightInput(w: LatestWeightVM): CurrentWeightRead {
+  switch (w.state) {
+    case "KNOWN":
+      return { state: "KNOWN", kg: w.kg };
+    case "NONE":
+      return { state: "UNKNOWN", reason: "NOT_WEIGHED" };
+    case "CONFLICT":
+      return { state: "UNKNOWN", reason: "WEIGHTS_DISAGREE" };
+    case "UNSUPPORTED":
+      return { state: "UNKNOWN", reason: "UNIT_NOT_SUPPORTED" };
+    case "UNAVAILABLE":
+      return { state: "UNKNOWN", reason: "WEIGHTS_UNAVAILABLE" };
+  }
+}
+
+/**
+ * The record-weight sheet's "previous weight" line. Absence wording ("No earlier weight recorded.")
+ * is reserved for C4's confirmed NONE; a conflict, an unsupported unit and an unavailable evaluation
+ * each say what they are. The previous weight is never invented, averaged or picked from a conflict.
+ */
+export function previousWeightLine(w: LatestWeightVM): { tone: DisplayState["tone"]; text: string } {
+  switch (w.state) {
+    case "KNOWN":
+      return { tone: "neutral", text: `Last recorded ${formatKgExact(w.kg)} on ${formatDayMonth(w.observedAt)}.` };
+    case "NONE":
+      return { tone: "unknown", text: "No earlier weight recorded." };
+    case "CONFLICT":
+      return { tone: "conflict", text: `Previous weight couldn't be determined — records disagree${w.candidatesKg.length > 0 ? ` (${w.candidatesKg.map((k) => formatKgExact(k)).join(" or ")})` : ""}.` };
+    case "UNSUPPORTED":
+      return { tone: "review", text: "Previous weight couldn't be used — it's in a unit that can't be converted to kilograms." };
+    case "UNAVAILABLE":
+      return { tone: "unknown", text: "Previous weight couldn't be checked." };
+  }
+}
+
+/** A canonical weight shown without losing its recorded decimals (up to 2 places, trailing zeros dropped). */
+export function formatKgExact(kg: number): string {
+  return `${Number(kg.toFixed(2)).toString()} kg`;
+}
+
+/** C1 history families the timeline couldn't read (an unreadable ledger is a gap, never "no history"). */
+function timelineHistoryGaps(outputs: CattleOutputs, animalId: string): string[] {
+  const ledger = outputs.ledgers.find((l) => l.animalId === animalId);
+  if (!ledger) return ["group and location history (couldn't be read)"];
+  return animalAssertionHistory(ledger, "MANAGEMENT_GROUP", outputs.viewpoint.knowledgeCutoff) === null || animalAssertionHistory(ledger, "LOCATION", outputs.viewpoint.knowledgeCutoff) === null
+    ? ["group and location history (couldn't be read)"]
+    : [];
 }

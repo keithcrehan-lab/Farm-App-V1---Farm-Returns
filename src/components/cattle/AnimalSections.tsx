@@ -5,8 +5,7 @@
  * and compliance, direct costs, and the activity timeline.
  */
 
-import type { AnimalCostRead } from "@/domain/animal-plan";
-import { TIMELINE_CLASS_LABEL, UNAVAILABLE_DISPLAY, formatEuro, type AnimalProfileVM, type TimelineClass, type TimelineEntryVM } from "@/domain/cattle/presentation";
+import { TIMELINE_CLASS_LABEL, formatEuro, type AnimalProfileVM, type CostVM, type TimelineClass, type TimelineEntryVM } from "@/domain/cattle/presentation";
 import { Disclosure, StateLabel, cattleStyles } from "./ui";
 
 export function HealthSection({ health }: { health: AnimalProfileVM["health"] }) {
@@ -67,29 +66,22 @@ export function HealthSection({ health }: { health: AnimalProfileVM["health"] })
   );
 }
 
-const CATEGORY_LABEL: Record<string, string> = { FEED: "Feed", MEDICINE: "Medicine", VETERINARY: "Veterinary", BEDDING: "Bedding", OTHER: "Other" };
-
-export function CostSection({ costs }: { costs: AnimalCostRead }) {
-  if (costs.state === "UNAVAILABLE") return <p className={`px-3 py-3 text-sm text-fr-v2-charcoal ${cattleStyles.hatch}`}>{UNAVAILABLE_DISPLAY.COSTS.detail}</p>;
-  if (costs.state === "NONE_RECORDED") {
-    return <p className="text-sm text-fr-v2-charcoal">No direct costs are recorded for this animal. Until they are, its cost — and any projected direct profit — is unknown, not €0.</p>;
-  }
-  if (costs.state === "RECORDED" && costs.currency !== "EUR") return <p className="text-sm text-fr-v2-charcoal">Costs are recorded in {costs.currency}. No exchange rate is used, so no euro total is shown.</p>;
-  if (costs.state !== "RECORDED") return <p className="text-sm text-fr-v2-charcoal">A cost record can&apos;t be read ({costs.state === "MIXED_CURRENCY" ? "mixed currencies" : "invalid entry"}), so no total is shown.</p>;
-  const missing = costs.byCategory.filter((c) => c.amount === null).map((c) => CATEGORY_LABEL[c.category].toLowerCase());
+export function CostSection({ costs }: { costs: CostVM }) {
+  if (costs.state === "UNAVAILABLE") return <p className={`px-3 py-3 text-sm text-fr-v2-charcoal ${cattleStyles.hatch}`}>{costs.text}</p>;
+  if (costs.state !== "RECORDED") return <p className="text-sm text-fr-v2-charcoal">{costs.text}</p>;
   return (
     <div>
       <dl className="divide-y divide-fr-v2-rule">
-        {costs.byCategory.map((c) => (
+        {costs.categories.map((c) => (
           <div key={c.category} className="flex items-baseline justify-between gap-4 py-2.5">
-            <dt className="text-sm text-fr-v2-graphite">{CATEGORY_LABEL[c.category]}</dt>
+            <dt className="text-sm text-fr-v2-graphite">{c.label}</dt>
             <dd className="text-right text-sm tabular-nums">
-              {c.amount === null ? (
+              {c.amount.state === "NONE_RECORDED" ? (
                 <span className="text-fr-v2-muted">None recorded</span>
               ) : (
                 <>
-                  <span className="font-medium text-fr-v2-graphite">{formatEuro(c.amount)}</span>
-                  {c.allocatedAmount !== null ? <span className="ml-2 text-[12px] text-fr-v2-muted">{c.directAmount === null ? "allocated" : `incl. ${formatEuro(c.allocatedAmount)} allocated`}</span> : null}
+                  <span className="font-medium text-fr-v2-graphite">{formatEuro(c.amount.value)}</span>
+                  {c.amount.allocated !== null ? <span className="ml-2 text-[12px] text-fr-v2-muted">{c.amount.allAllocated ? "allocated" : `incl. ${formatEuro(c.amount.allocated)} allocated`}</span> : null}
                 </>
               )}
             </dd>
@@ -97,11 +89,11 @@ export function CostSection({ costs }: { costs: AnimalCostRead }) {
         ))}
         <div className="flex items-baseline justify-between gap-4 py-3">
           <dt className="text-sm font-semibold text-fr-v2-graphite">Recorded direct costs</dt>
-          <dd className="text-lg font-semibold tabular-nums text-fr-v2-graphite">{formatEuro(costs.total ?? "0")}</dd>
+          <dd className="text-lg font-semibold tabular-nums text-fr-v2-graphite">{formatEuro(costs.total)}</dd>
         </div>
       </dl>
       <p className="mt-1 text-[12px] text-fr-v2-muted">
-        {formatEuro(costs.direct ?? "0")} charged directly · {formatEuro(costs.allocated ?? "0")} allocated from shared costs. Recorded entries only{missing.length > 0 ? ` — nothing recorded for ${missing.join(", ")}` : ""}. Labour, land, finance and overheads are not included. Demonstration figures.
+        {formatEuro(costs.direct)} charged directly · {formatEuro(costs.allocated)} allocated from shared costs. Recorded entries only{costs.noneRecorded.length > 0 ? ` — nothing recorded for ${costs.noneRecorded.join(", ")}` : ""}. Labour, land, finance and overheads are not included. Demonstration figures.
       </p>
     </div>
   );

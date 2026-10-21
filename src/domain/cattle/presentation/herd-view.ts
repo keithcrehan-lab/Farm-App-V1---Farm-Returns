@@ -47,7 +47,7 @@ export interface GroupVM {
   name: string;
   /** The C4 scope resolution; UNAVAILABLE when it produced nothing (never an empty group). */
   scope: Availability<GroupScopeVM>;
-  /** Per-animal work counted by kind ("3 need weighing"); UNAVAILABLE when the scope or the planning run failed. */
+  /** Per-animal work counted by kind ("3 need weighing"; KNOWN empty = nothing needs attention); UNAVAILABLE when the scope or the planning run failed. */
   workCounts: Availability<{ label: string; count: number; actionKind: string | null }[]>;
 }
 
@@ -75,8 +75,9 @@ export function animalRow(outputs: CattleOutputs, animalId: string, directory: C
   const tag = snap?.externalIdentifiers.byScheme.find((s) => s.scheme === directory.tagScheme) ?? null;
   const series = outputs.weights?.series.find((s) => s.animalId === animalId) ?? null;
   const latest = series?.latest ?? null;
-  const breed = snap?.breed.state === "KNOWN" ? snap.breed.value?.label ?? null : null;
-  const sex = snap?.sex.state === "KNOWN" ? (snap.sex.value === "MALE" ? "Male" : "Female") : null;
+  // Each identity part says what it is: recorded, not recorded, disputed or unreadable — never "not recorded" for a conflict.
+  const part = (name: string, r: { state: keyof typeof IDENTITY_DISPLAY; value: unknown }, render: () => string | null) =>
+    r.state === "KNOWN" ? (render() ?? `${name} recorded (no label)`) : r.state === "UNKNOWN" ? `${name} not recorded` : r.state === "CONFLICTING_EVIDENCE" ? `${name}: records disagree` : `${name}: record can't be read`;
   let nextWork: AnimalRowVM["nextWork"] = unavailable(UNAVAILABLE_DISPLAY.PLANNING);
   if (outputs.plan.ok) {
     const next = animalWork(outputs, animalId, directory).open[0] ?? null;
@@ -86,7 +87,10 @@ export function animalRow(outputs: CattleOutputs, animalId: string, directory: C
     animalId,
     tag: tag?.state === "KNOWN" ? tag.value : null,
     tagState: snap === null ? EVALUATION_UNAVAILABLE : tag ? displayOf(IDENTITY_DISPLAY, tag.state, "IDENTITY") : IDENTITY_DISPLAY.UNKNOWN,
-    subtitle: snap === null ? "Details couldn't be read" : [breed ?? "Breed not recorded", sex ?? "Sex not recorded"].join(" · "),
+    subtitle:
+      snap === null
+        ? "Details couldn't be read"
+        : [part("Breed", snap.breed, () => snap.breed.value?.label ?? snap.breed.value?.code ?? null), part("Sex", snap.sex, () => (snap.sex.value === "MALE" ? "Male" : snap.sex.value === "FEMALE" ? "Female" : null))].join(" · "),
     weightLabel: latest?.state === "KNOWN" && latest.kg !== null ? formatKg(latest.kg) : null,
     weightState: series === null ? EVALUATION_UNAVAILABLE : displayOf(LATEST_WEIGHT_DISPLAY, series.latest.state, "WEIGHT"),
     weightDate: latest?.state === "KNOWN" && latest.observedAt ? formatDayMonth(latest.observedAt) : null,
@@ -111,7 +115,8 @@ export function buildHerd(outputs: CattleOutputs, directory: CattleDirectory): H
         const snap = outputs.snapshots[id] ?? null;
         if (snap === null) return "Location couldn't be read";
         const loc = snap.location;
-        return loc.state === "KNOWN" && loc.value ? (directory.locationLabels[loc.value.ref] ?? "Unnamed location") : "Location not recorded";
+        if (loc.state === "KNOWN" && loc.value) return directory.locationLabels[loc.value.ref] ?? "Unnamed location";
+        return loc.state === "CONFLICTING_EVIDENCE" ? "Location records disagree" : loc.state === "INVALID_EVIDENCE" ? "Location record can't be read" : "Location not recorded";
       }),
     );
     const counts = new Map<string, { count: number; actionKind: string | null }>();

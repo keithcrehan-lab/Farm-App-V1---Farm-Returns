@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { isPlanDate } from "@/domain/animal-plan";
 
 export const CATTLE_DEMO_SESSION_VERSION = 1;
 /** Hard cap: a demonstration session is small by construction. */
@@ -15,11 +16,7 @@ export const CATTLE_DEMO_SESSION_MAX_EVENTS = 40;
 
 const tag = z.string().regex(/^\d{3,6}$/);
 const eventId = z.string().regex(/^[A-Za-z0-9-]{1,64}$/);
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => {
-  const [y, m, d] = s.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
-}, "invalid calendar date");
+const isoDate = z.string().refine((s) => isPlanDate(s), "invalid calendar date");
 
 const recordWeight = z
   .object({

@@ -118,10 +118,13 @@ export const EVALUATION_UNAVAILABLE: DisplayState = {
  */
 export const UNAVAILABLE_DISPLAY = {
   EVALUATION: EVALUATION_UNAVAILABLE,
-  GROUP_SCOPE: ds("SCOPE", "UNAVAILABLE", "Couldn't be checked", "unknown", "The group's membership couldn't be worked out, so which animals are in it — and how many — is unknown, not zero."),
-  PLANNING: ds("PLANNING", "UNAVAILABLE", "Work couldn't be worked out", "unknown", "The planning run stopped rather than guess, so jobs are unknown — that doesn't mean nothing needs doing."),
+  GROUP_SCOPE: ds("SCOPE", "UNAVAILABLE", "Membership couldn't be checked", "unknown", "The group's membership couldn't be worked out, so which animals are in it — and how many — is unknown, not zero."),
+  PLANNING: ds("PLANNING", "UNAVAILABLE", "Work couldn't be checked", "unknown", "The planning run stopped rather than guess, so jobs are unknown — that doesn't mean nothing needs doing."),
   COSTS: ds("COST", "UNAVAILABLE", "Costs couldn't be read", "unknown", "The cost records couldn't be read for this date, so the cost is unknown — not €0 and not \"none recorded\"."),
 } as const;
+
+/** A KNOWN empty work list: the planning run worked and raised nothing open (distinct from PLANNING unavailable). */
+export const NO_OPEN_WORK: DisplayState = ds("WORK", "NONE_OPEN", "Nothing currently needs attention", "good");
 
 /** Every unavailable display code (the C10 invariant's tests assert these, never a known-empty state). */
 export const UNAVAILABLE_CODES: readonly string[] = Object.values(UNAVAILABLE_DISPLAY).map((d) => d.code);

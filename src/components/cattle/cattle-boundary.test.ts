@@ -63,6 +63,45 @@ describe("C10 boundary — consumes frozen outputs, owns no cattle decision", ()
   });
 });
 
+describe("C10 invariants B and C — components hold no numeric or date derivation", () => {
+  // Layout geometry (chart scales, bar proportions) lives in PerformanceChart / plan-timeline only.
+  const GEOMETRY = new Set(["src/components/cattle/PerformanceChart.tsx"]);
+
+  it("no component rounds, truncates or re-parses a value (display rounding is format.ts; editing is numeric-input.ts)", () => {
+    for (const f of COMPONENTS.filter((x) => !GEOMETRY.has(x))) {
+      const src = readFileSync(path.join(ROOT, f), "utf8");
+      expect(src, f).not.toMatch(/Math\.(round|floor|ceil|trunc)\(|\.toFixed\(|parseInt\(|parseFloat\(/);
+    }
+  });
+
+  it("no component derives plan days or dates (the canonical PlanIntervals do: plan-intervals.ts)", () => {
+    for (const f of COMPONENTS) {
+      const src = readFileSync(path.join(ROOT, f), "utf8");
+      expect(src, f).not.toMatch(/\bdaysBetween\b|\bderivePlanIntervals\b|\bcomparePlanDates\b|\baddDays\([^)]*\)\s*[<>]/);
+      // Calendar arithmetic is allowed only for chart axis geometry.
+      if (!GEOMETRY.has(f)) expect(src, f).not.toMatch(/Date\.UTC\(|getTime\(\)/);
+    }
+  });
+
+  it("only plan-intervals.ts computes plan intervals inside the C10 domain", () => {
+    for (const f of [...ANIMAL_PLAN, ...PRESENTATION].filter((x) => !/plan-intervals\.ts$|plan-dates\.ts$/.test(x))) {
+      const src = readFileSync(path.join(ROOT, f), "utf8");
+      // mart-valuation measures a report's age (not a plan interval).
+      if (/mart-valuation\.ts$/.test(f)) continue;
+      expect(src, f).not.toMatch(/\bdaysBetween\(/);
+    }
+  });
+});
+
+describe("C10 invariant A — weight / housing / goal cross into components explicitly", () => {
+  it("no component receives a bare nullable weight, housing or goal value", () => {
+    for (const f of COMPONENTS) {
+      const src = readFileSync(path.join(ROOT, f), "utf8");
+      expect(src, f).not.toMatch(/\blastKg\b|currentWeightKg|currentlyHoused|targetWeightKg/);
+    }
+  });
+});
+
 describe("C10 photos — session store", () => {
   const urls = () => {
     let n = 0;

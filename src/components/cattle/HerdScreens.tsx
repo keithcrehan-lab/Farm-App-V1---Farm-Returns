@@ -9,7 +9,7 @@
  */
 
 import Link from "next/link";
-import type { AnimalRowVM, GroupScopeVM, GroupVM, HerdVM } from "@/domain/cattle/presentation";
+import { NO_OPEN_WORK, type AnimalRowVM, type GroupScopeVM, type GroupVM, type HerdVM } from "@/domain/cattle/presentation";
 import type { CattleDemoScenario } from "@/server/cattle-demo/demo-replay";
 import { loadCattleHerd } from "@/app/(app)/cattle/actions";
 import { useCattleDemoSession } from "./session/CattleDemoSessionProvider";
@@ -43,6 +43,13 @@ function ScopeUnavailable({ group }: { group: GroupVM }) {
       <p className="mt-1 text-sm text-fr-v2-charcoal">{group.scope.display.detail}</p>
     </div>
   );
+}
+
+/** A group's work: the counts, "nothing currently needs attention" (KNOWN empty) or why it's unknown — never silence. */
+function WorkCounts({ workCounts, className }: { workCounts: GroupVM["workCounts"]; className: string }) {
+  if (workCounts.state === "UNAVAILABLE") return <StateLabel state={workCounts.display} className={className} />;
+  if (workCounts.value.length === 0) return <p className={`${className} text-sm text-fr-v2-muted`}>{NO_OPEN_WORK.label}.</p>;
+  return <p className={`${className} text-[15px] text-fr-v2-harvest-ink`}>{workCounts.value.map((w) => w.label).join(" · ")}</p>;
 }
 
 function PerformanceStrip({ scope }: { scope: GroupScopeVM }) {
@@ -125,9 +132,7 @@ export function HerdScreen({ initial, scenario }: { initial: HerdVM; scenario: C
                     <StateLabel state={g.scope.display} />
                   )}
                 </div>
-                {g.workCounts.state === "KNOWN" && g.workCounts.value.length > 0 ? (
-                  <p className="mt-1.5 text-[15px] text-fr-v2-harvest-ink">{g.workCounts.value.map((w) => w.label).join(" · ")}</p>
-                ) : null}
+                {g.scope.state === "KNOWN" ? <WorkCounts workCounts={g.workCounts} className="mt-1.5 block" /> : null}
                 {g.scope.state === "KNOWN" ? (
                   <>
                     <PerformanceStrip scope={g.scope.value} />
@@ -150,7 +155,7 @@ function AnimalRow({ a, scenario }: { a: AnimalRowVM; scenario: CattleDemoScenar
   return (
     <li className="border-t border-fr-v2-rule">
       <Link href={`/cattle/animals/${encodeURIComponent(a.tag ?? a.animalId)}${q(scenario)}`} className="grid min-h-[72px] grid-cols-[minmax(64px,auto)_1fr_auto] items-center gap-x-4 py-3 hover:bg-fr-v2-stone/50">
-        <span className="font-display text-[28px] font-semibold leading-none tabular-nums text-fr-v2-graphite">{a.tag ?? "—"}</span>
+        <span className="font-display text-[28px] font-semibold leading-none tabular-nums text-fr-v2-graphite">{a.tag ?? <StateLabel state={a.tagState} />}</span>
         <span className="min-w-0">
           <span className="block truncate text-sm text-fr-v2-muted">{a.subtitle}</span>
           <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
@@ -212,20 +217,24 @@ export function GroupScreen({ initial, groupRef, scenario }: { initial: HerdVM; 
 function GroupMembers({ scope, workCounts, scenario }: { scope: GroupScopeVM; workCounts: GroupVM["workCounts"]; scenario: CattleDemoScenario }) {
   return (
     <>
-      {workCounts.state === "KNOWN" && workCounts.value.length > 0 ? (
-        <section aria-labelledby="group-work" className="mt-6">
-          <SectionHeading id="group-work" title="Across the group" />
-          <ul className="mt-3 space-y-1">
-            {workCounts.value.map((w) => (
-              <li key={w.label} className="text-[17px] text-fr-v2-graphite">
-                {w.label}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-1 text-[12px] text-fr-v2-muted">Counted from each animal&apos;s own jobs — the work stays per animal.</p>
-          <PerformanceStrip scope={scope} />
-        </section>
-      ) : null}
+      <section aria-labelledby="group-work" className="mt-6">
+        <SectionHeading id="group-work" title="Across the group" />
+        {workCounts.state === "KNOWN" && workCounts.value.length > 0 ? (
+          <>
+            <ul className="mt-3 space-y-1">
+              {workCounts.value.map((w) => (
+                <li key={w.label} className="text-[17px] text-fr-v2-graphite">
+                  {w.label}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-[12px] text-fr-v2-muted">Counted from each animal&apos;s own jobs — the work stays per animal.</p>
+          </>
+        ) : (
+          <WorkCounts workCounts={workCounts} className="mt-3 block" />
+        )}
+        <PerformanceStrip scope={scope} />
+      </section>
       <section aria-labelledby="group-animals" className="mt-8">
         <SectionHeading id="group-animals" title="Animals" />
         {scope.memberCount === 0 ? <p className="mt-3 text-[15px] text-fr-v2-charcoal">No animals are recorded in this group.</p> : null}

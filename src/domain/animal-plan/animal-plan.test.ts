@@ -134,11 +134,14 @@ const assumptions = (o: Partial<AnimalPlanAssumptions> = {}): AnimalPlanAssumpti
   assumedCurrentHousing: null,
   ...o,
 });
+const OUTDOORS_NOW = { state: "KNOWN", housed: false } as const;
+const HOUSED_NOW = { state: "KNOWN", housed: true } as const;
+const HOUSING_NOT_RECORDED = { state: "UNKNOWN", reason: "NOT_RECORDED" } as const;
 const input = (o: Partial<AnimalPlanEconomicsInput> = {}): AnimalPlanEconomicsInput => ({
   asOfDate: "2026-10-16",
   assumptions: assumptions(),
-  currentlyHoused: false,
-  currentWeightKg: 500,
+  currentHousing: OUTDOORS_NOW,
+  currentWeight: { state: "KNOWN", kg: 500 },
   projection: { state: "PROJECTED", kg: 530 },
   costs: COSTS,
   valuation: VALUATION,
@@ -228,11 +231,11 @@ describe("plan economics — exact definitions", () => {
   });
 
   it("a housed animal is housed for every remaining day; no housing date while outdoors ⇒ no housing cost", () => {
-    expect(computeAnimalPlanEconomics(input({ currentlyHoused: true })).housedDays).toBe(30);
+    expect(computeAnimalPlanEconomics(input({ currentHousing: HOUSED_NOW })).housedDays).toBe(30);
     const outdoors = computeAnimalPlanEconomics(input({ assumptions: assumptions({ housingDate: null, housingCostPerDay: null }) }));
     expect(outdoors.housedDays).toBe(0);
     expect(amount(outdoors.forecastHousingCost)).toBe("0");
-    expect(computeAnimalPlanEconomics(input({ currentlyHoused: null, assumptions: assumptions({ housingDate: null }) })).forecastHousingCost.state).toBe("UNKNOWN");
+    expect(computeAnimalPlanEconomics(input({ currentHousing: HOUSING_NOT_RECORDED, assumptions: assumptions({ housingDate: null }) })).forecastHousingCost.state).toBe("UNKNOWN");
   });
 
   it("unavailable costs are their own reason — never 'no costs recorded' (C10 availability invariant)", () => {
@@ -248,23 +251,23 @@ describe("plan economics — unknown housing is never 'outdoors' (audit F011)", 
     Object.fromEntries(HOUSING_DEPENDENT_RESULTS.map((k) => [k, e[k] === null || typeof e[k] === "number" ? e[k] : amount(e[k] as { state: string; amount?: string })]));
 
   it("known outdoors: housed from the planned date; observed basis", () => {
-    const e = computeAnimalPlanEconomics(input({ currentlyHoused: false }));
-    expect(e.housing).toEqual({ observed: false, basis: "OBSERVED", assumption: null });
+    const e = computeAnimalPlanEconomics(input({ currentHousing: OUTDOORS_NOW }));
+    expect(e.housing).toEqual({ observed: OUTDOORS_NOW, basis: "OBSERVED", assumption: null, housedNow: false });
     expect([e.housedDays, e.outdoorDays, amount(e.forecastHousingCost), amount(e.projectedDirectProfit)]).toEqual([14, 16, "8.4", "1171.6"]);
   });
 
   it("known housed: housed every remaining day; observed basis", () => {
-    const e = computeAnimalPlanEconomics(input({ currentlyHoused: true }));
-    expect(e.housing).toEqual({ observed: true, basis: "OBSERVED", assumption: null });
+    const e = computeAnimalPlanEconomics(input({ currentHousing: HOUSED_NOW }));
+    expect(e.housing).toEqual({ observed: HOUSED_NOW, basis: "OBSERVED", assumption: null, housedNow: true });
     expect([e.housedDays, e.outdoorDays, amount(e.forecastHousingCost)]).toEqual([30, 0, "18"]);
     expect(amount(e.projectedDirectProfit)).toBe("1162"); // 1855 − 600 − (75 + 18)
   });
 
   it("unknown with no assumption: every housing-dependent figure is unknown, with or without a planned housing date", () => {
     for (const housingDate of ["2026-11-01", null]) {
-      const e = computeAnimalPlanEconomics(input({ currentlyHoused: null, assumptions: assumptions({ housingDate }) }));
+      const e = computeAnimalPlanEconomics(input({ currentHousing: HOUSING_NOT_RECORDED, assumptions: assumptions({ housingDate }) }));
       expect(e.validity).toEqual({ state: "VALID" });
-      expect(e.housing).toEqual({ observed: null, basis: "UNKNOWN", assumption: null });
+      expect(e.housing).toEqual({ observed: HOUSING_NOT_RECORDED, basis: "UNKNOWN", assumption: null, housedNow: null });
       expect([e.housedDays, e.outdoorDays]).toEqual([null, null]);
       for (const k of ["forecastHousingCost", "forecastDirectHoldingCost", "totalDirectCostBySale", "projectedDirectProfit", "returnFromHolding", "costPerKgAtSale"] as const) {
         expect(e[k], `${k} / ${housingDate}`).toEqual({ state: "UNKNOWN", reasons: expect.arrayContaining(["CURRENT_HOUSING_UNKNOWN"]) });
@@ -275,20 +278,20 @@ describe("plan economics — unknown housing is never 'outdoors' (audit F011)", 
   });
 
   it("unknown with an explicit OUTDOORS assumption: the scenario computes, marked ASSUMED, the observed state unchanged", () => {
-    const e = computeAnimalPlanEconomics(input({ currentlyHoused: null, assumptions: assumptions({ assumedCurrentHousing: "OUTDOORS" }) }));
-    expect(e.housing).toEqual({ observed: null, basis: "ASSUMED", assumption: "OUTDOORS" });
+    const e = computeAnimalPlanEconomics(input({ currentHousing: HOUSING_NOT_RECORDED, assumptions: assumptions({ assumedCurrentHousing: "OUTDOORS" }) }));
+    expect(e.housing).toEqual({ observed: HOUSING_NOT_RECORDED, basis: "ASSUMED", assumption: "OUTDOORS", housedNow: false });
     // Same figures as the observed-outdoors case — but labelled as resting on the assumption.
-    expect(dependent(e)).toEqual(dependent(computeAnimalPlanEconomics(input({ currentlyHoused: false }))));
+    expect(dependent(e)).toEqual(dependent(computeAnimalPlanEconomics(input({ currentHousing: OUTDOORS_NOW }))));
   });
 
   it("unknown with an explicit HOUSED assumption: housed every day, marked ASSUMED", () => {
-    const e = computeAnimalPlanEconomics(input({ currentlyHoused: null, assumptions: assumptions({ assumedCurrentHousing: "HOUSED" }) }));
-    expect(e.housing).toEqual({ observed: null, basis: "ASSUMED", assumption: "HOUSED" });
-    expect(dependent(e)).toEqual(dependent(computeAnimalPlanEconomics(input({ currentlyHoused: true }))));
+    const e = computeAnimalPlanEconomics(input({ currentHousing: HOUSING_NOT_RECORDED, assumptions: assumptions({ assumedCurrentHousing: "HOUSED" }) }));
+    expect(e.housing).toEqual({ observed: HOUSING_NOT_RECORDED, basis: "ASSUMED", assumption: "HOUSED", housedNow: true });
+    expect(dependent(e)).toEqual(dependent(computeAnimalPlanEconomics(input({ currentHousing: HOUSED_NOW }))));
   });
 
   it("changing or removing the assumption changes or withdraws the dependent figures; profit and cost propagate", () => {
-    const at = (assumedCurrentHousing: AnimalPlanAssumptions["assumedCurrentHousing"]) => computeAnimalPlanEconomics(input({ currentlyHoused: null, assumptions: assumptions({ assumedCurrentHousing }) }));
+    const at = (assumedCurrentHousing: AnimalPlanAssumptions["assumedCurrentHousing"]) => computeAnimalPlanEconomics(input({ currentHousing: HOUSING_NOT_RECORDED, assumptions: assumptions({ assumedCurrentHousing }) }));
     const outdoors = at("OUTDOORS");
     const housed = at("HOUSED");
     const removed = at(null);
@@ -306,15 +309,15 @@ describe("plan economics — unknown housing is never 'outdoors' (audit F011)", 
   });
 
   it("an observed housing state always wins over an assumption (the assumption never overrides a record)", () => {
-    const e = computeAnimalPlanEconomics(input({ currentlyHoused: true, assumptions: assumptions({ assumedCurrentHousing: "OUTDOORS" }) }));
-    expect(e.housing).toEqual({ observed: true, basis: "OBSERVED", assumption: null });
+    const e = computeAnimalPlanEconomics(input({ currentHousing: HOUSED_NOW, assumptions: assumptions({ assumedCurrentHousing: "OUTDOORS" }) }));
+    expect(e.housing).toEqual({ observed: HOUSED_NOW, basis: "OBSERVED", assumption: null, housedNow: true });
     expect(e.housedDays).toBe(30);
   });
 
   it("the housing-dependent list names exactly the results that change with housing", () => {
-    const a = computeAnimalPlanEconomics(input({ currentlyHoused: false }));
-    const b = computeAnimalPlanEconomics(input({ currentlyHoused: true }));
-    const changed = (Object.keys(a) as (keyof typeof a)[]).filter((k) => k !== "housing" && JSON.stringify(a[k]) !== JSON.stringify(b[k])).sort();
+    const a = computeAnimalPlanEconomics(input({ currentHousing: OUTDOORS_NOW }));
+    const b = computeAnimalPlanEconomics(input({ currentHousing: HOUSED_NOW }));
+    const changed = (Object.keys(a) as (keyof typeof a)[]).filter((k) => k !== "housing" && k !== "intervals" && JSON.stringify(a[k]) !== JSON.stringify(b[k])).sort();
     expect(changed).toEqual([...HOUSING_DEPENDENT_RESULTS].sort());
   });
 

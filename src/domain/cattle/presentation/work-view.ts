@@ -145,7 +145,7 @@ function windowOf(job: PlanJob): WorkVM["window"] {
   return { label, opensAt: w.startIso, dueAt: w.endIso };
 }
 
-function whyOf(job: PlanJob, group: CattlePlanProposalGroup | undefined, record: RecommendationRecord | null, base: { why: string }, directory: CattleDirectory): WhyVM {
+function whyOf(job: PlanJob, group: CattlePlanProposalGroup | undefined, record: RecommendationRecord | null, recordUnavailable: boolean, base: { why: string }, directory: CattleDirectory): WhyVM {
   const items = group?.items ?? [];
   const origins = [...new Set([...(group?.origins ?? []), ...items.flatMap((i) => i.supporting.map((s) => s.origin))])].map((o) => ORIGIN_LABEL[o] ?? o);
   const evidence: string[] = [];
@@ -185,7 +185,11 @@ function whyOf(job: PlanJob, group: CattlePlanProposalGroup | undefined, record:
     evidence: [...new Set(evidence)],
     assumptions: record?.assumptions ?? [],
     limitations: (record?.limitations ?? []).filter((x) => Object.hasOwn(LIMITATION_COPY, x)).map((x) => LIMITATION_COPY[x]),
-    unknowns: record && record.expectedOutcome?.effect.state !== "EFFECT_SUPPORTED" ? ["No model estimates what this changes in weight or money."] : [],
+    unknowns: [
+      ...(record && record.expectedOutcome?.effect.state !== "EFFECT_SUPPORTED" ? ["No model estimates what this changes in weight or money."] : []),
+      // The C8 record behind a recommendation job couldn't be read: its evidence is unknown, not absent.
+      ...(recordUnavailable ? ["The recommendation record couldn't be read, so its evidence and assumptions aren't shown."] : []),
+    ],
     sources,
     completionRule: completionRule(job),
     technical,
@@ -237,7 +241,7 @@ export function workVM(state: CattlePlanJobState, outputs: CattleOutputs, animal
       job.completion === null
         ? null
         : { at: job.completion.at, label: job.completion.basis === "CANONICAL_EVIDENCE" ? "Closed by your records" : job.completion.basis === "FARMER_OVERRIDE" ? "Marked done (override)" : "Marked done" },
-    why: whyOf(job, group, recordOf(outputs, animalId, job), copy, directory),
+    why: whyOf(job, group, recordOf(outputs, animalId, job), actionKindOf(job) !== null && !outputs.recommendations.ok, copy, directory),
   };
 }
 

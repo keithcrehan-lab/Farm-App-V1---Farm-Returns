@@ -18,11 +18,14 @@ import "@testing-library/jest-dom/vitest";
 
 vi.mock("next/navigation", () => ({ notFound: () => { throw new Error("NOT_FOUND"); } }));
 vi.mock("@/app/(app)/cattle/actions", () => ({ loadCattleAnimal: vi.fn(() => new Promise(() => {})), projectCattleWeight: vi.fn(() => new Promise(() => {})), loadCattleHerd: vi.fn(() => new Promise(() => {})) }));
+// The plan screen debounces its projection request; with the request pending forever the plan shows "projecting…".
 
 import { buildAnimalProfile, buildHerd, UNAVAILABLE_CODES, type AnimalProfileVM, type CattleOutputs, type HerdVM } from "@/domain/cattle/presentation";
 import type { AnimalCostRead } from "@/domain/animal-plan";
+import type { DemoAnimalView } from "@/server/cattle-demo/demo-service";
 import { replayCattleDemo } from "@/server/cattle-demo/demo-replay";
-import { DEMO_DIRECTORY, demoAnimalView } from "@/server/cattle-demo/demo-service";
+import { DEMO_DIRECTORY, animalViewFrom, demoAnimalView } from "@/server/cattle-demo/demo-service";
+import { AnimalPlanScreen } from "./AnimalPlanScreen";
 import { animalIdOf } from "@/server/cattle-demo/demo-herd";
 import { AnimalProfileScreen } from "./AnimalProfileScreen";
 import { GroupScreen, HerdScreen } from "./HerdScreens";
@@ -44,9 +47,9 @@ interface Mutation {
   forbidden: RegExp[];
   /** Unavailable wording that must appear instead. */
   required: RegExp[];
-  surface: "PROFILE" | "HERD";
+  surface: "PROFILE" | "HERD" | "PLAN";
   /** Structural view-model assertion. */
-  vm: (herd: HerdVM, profile: AnimalProfileVM) => void;
+  vm: (herd: HerdVM, profile: AnimalProfileVM, plan: DemoAnimalView["plan"]) => void;
 }
 
 const isUnavailable = (a: { state: string; display?: { code: string } }) => a.state === "UNAVAILABLE" && UNAVAILABLE_CODES.includes(a.display!.code);
@@ -62,7 +65,7 @@ const MUTATIONS: Mutation[] = [
       o.groups = o.groups.map((g) => ({ ...g, scope: null }));
     },
     forbidden: [/\b\d+ animals · /, /\b0 animals\b/, /No animals are recorded in this group/, /need weighing/],
-    required: [/Couldn't be checked/, /how many — is unknown, not zero/],
+    required: [/Membership couldn't be checked/, /how many — is unknown, not zero/],
     vm: (herd) => {
       for (const g of herd.groups) {
         expect(isUnavailable(g.scope), g.name).toBe(true);
@@ -79,7 +82,7 @@ const MUTATIONS: Mutation[] = [
       o.plan = { ok: false, issues: [{ code: "CATTLE_PLAN_TEST_FAILURE", ref: null }] } as CattleOutputs["plan"];
     },
     forbidden: [/\b\d+ open jobs?\b/, /need weighing/],
-    required: [/work couldn't be worked out/i],
+    required: [/work couldn't be checked/i],
     vm: (herd) => {
       expect(isUnavailable(herd.openWorkCount)).toBe(true);
       for (const g of herd.groups) expect(isUnavailable(g.workCounts)).toBe(true);
@@ -107,7 +110,7 @@ const MUTATIONS: Mutation[] = [
     forbidden: [/Not weighed yet/, /No weights recorded yet/, /nothing to chart/],
     required: [/Couldn't be read/, /chart isn't drawn/],
     vm: (_h, p) => {
-      expect(p.weight.state.code).toBe("EVALUATION:UNAVAILABLE");
+      expect(p.weight).toMatchObject({ state: "UNAVAILABLE", display: { code: "EVALUATION:UNAVAILABLE" } });
       expect(isUnavailable(p.chart)).toBe(true);
     },
   },
@@ -121,7 +124,7 @@ const MUTATIONS: Mutation[] = [
     forbidden: [/Not weighed yet/, /No weights recorded yet/],
     required: [/Couldn't be read/],
     vm: (_h, p) => {
-      expect(p.weight.state.code).toBe("EVALUATION:UNAVAILABLE");
+      expect(p.weight).toMatchObject({ state: "UNAVAILABLE", display: { code: "EVALUATION:UNAVAILABLE" } });
       expect(isUnavailable(p.chart)).toBe(true);
     },
   },
@@ -230,6 +233,49 @@ const MUTATIONS: Mutation[] = [
       expect(p.timelineGaps).toContain("costs (couldn't be read)");
     },
   },
+  // The animal plan reads the same view-model: an unresolved goal, weight or housing reaches it as such.
+  {
+    name: "C6 goals failed (plan: no goal → goal unknown)",
+    tag: "1445",
+    surface: "PLAN",
+    mutate: (o, id) => {
+      delete o.goals[id];
+    },
+    forbidden: [/No goal date is declared/, /Saving declares a finishing goal for 1445\./],
+    required: [/The goal couldn't be determined/, /current goal couldn't be determined/, /Unknown — the goal records couldn't be read/],
+    vm: (_h, p, plan) => {
+      expect(p.goal.read).toMatchObject({ state: "UNRESOLVED", display: { code: "EVALUATION:UNAVAILABLE" } });
+      expect(plan.saleDateSource).toBe("GOAL_UNRESOLVED");
+    },
+  },
+  {
+    name: "C4 weights failed (plan: not weighed → couldn't be checked)",
+    tag: "1442",
+    surface: "PLAN",
+    mutate: (o) => {
+      o.weights = null;
+    },
+    forbidden: [/no weight recorded yet/],
+    required: [/current weight couldn't be checked/],
+    vm: (_h, p, plan) => {
+      expect(p.weight.state).toBe("UNAVAILABLE");
+      expect(plan.currentWeight).toEqual({ state: "UNKNOWN", reason: "WEIGHTS_UNAVAILABLE" });
+    },
+  },
+  {
+    name: "C1 snapshot failed (plan: housing not recorded → couldn't be checked)",
+    tag: "1433",
+    surface: "PLAN",
+    mutate: (o, id) => {
+      delete o.snapshots[id];
+    },
+    forbidden: [/current housing status isn't recorded/],
+    required: [/current housing status couldn't be checked — the animal's record couldn't be read/],
+    vm: (_h, p, plan) => {
+      expect(p.identity.location.housing).toEqual({ state: "UNKNOWN", reason: "RECORD_UNAVAILABLE" });
+      expect(plan.currentHousing).toEqual({ state: "UNKNOWN", reason: "RECORD_UNAVAILABLE" });
+    },
+  },
 ];
 
 function outputsFor(tag: string, surface: Mutation["surface"]): CattleOutputs {
@@ -237,13 +283,15 @@ function outputsFor(tag: string, surface: Mutation["surface"]): CattleOutputs {
   return structuredClone(raw) as CattleOutputs; // the replay is memoised: never mutate its result
 }
 
-function renderSurface(m: Mutation, herd: HerdVM, profile: AnimalProfileVM): string {
+function renderSurface(m: Mutation, herd: HerdVM, profile: AnimalProfileVM, plan?: DemoAnimalView["plan"]): string {
   const base = demoAnimalView(EMPTY, m.tag)!;
   const text: string[] = [];
   const ui =
     m.surface === "HERD"
       ? [<HerdScreen key="h" initial={herd} scenario="STANDARD" />, <GroupScreen key="g" initial={herd} groupRef={FINISHERS} scenario="STANDARD" />]
-      : [<AnimalProfileScreen key="p" initial={{ ...base, profile }} tag={m.tag} scenario="STANDARD" />];
+      : m.surface === "PLAN"
+        ? [<AnimalPlanScreen key="pl" initial={{ profile, plan: plan ?? base.plan }} tag={m.tag} scenario="STANDARD" />]
+        : [<AnimalProfileScreen key="p" initial={{ ...base, profile }} tag={m.tag} scenario="STANDARD" />];
   for (const u of ui) {
     const { container, unmount } = render(<CattleDemoSessionProvider>{u}</CattleDemoSessionProvider>);
     text.push(container.innerText ?? container.textContent ?? "");
@@ -260,20 +308,21 @@ function build(m: Mutation, mutated: boolean) {
   if (mutated) m.mutate(o, id);
   const standardCosts = demoAnimalView(EMPTY, m.tag)!.profile.costSummary;
   const costs = mutated && m.costs ? m.costs(standardCosts) : standardCosts;
-  return { herd: buildHerd(o, DEMO_DIRECTORY), profile: buildAnimalProfile(o, id, DEMO_DIRECTORY, costs) };
+  const view = animalViewFrom(o, id, costs);
+  return { herd: buildHerd(o, DEMO_DIRECTORY), profile: buildAnimalProfile(o, id, DEMO_DIRECTORY, costs), plan: view.plan };
 }
 
 describe("C10 availability invariant — unavailable never renders as known-empty", { timeout: 120_000 }, () => {
   for (const m of MUTATIONS) {
     it(m.name, () => {
       const standard = build(m, false);
-      const standardText = renderSurface(m, standard.herd, standard.profile);
+      const standardText = renderSurface(m, standard.herd, standard.profile, standard.plan);
       // Non-vacuous: at least one forbidden known-empty wording is genuinely produced by the standard herd here.
       expect(m.forbidden.some((re) => re.test(standardText)), `${m.name}: baseline shows none of ${m.forbidden.join(", ")}`).toBe(true);
 
       const broken = build(m, true);
-      m.vm(broken.herd, broken.profile);
-      const text = renderSurface(m, broken.herd, broken.profile);
+      m.vm(broken.herd, broken.profile, broken.plan);
+      const text = renderSurface(m, broken.herd, broken.profile, broken.plan);
       for (const re of m.forbidden) expect(text, `${m.name}: ${re}`).not.toMatch(re);
       for (const re of m.required) expect(text, `${m.name}: ${re}`).toMatch(re);
     });
@@ -289,6 +338,18 @@ describe("C10 availability invariant — unavailable never renders as known-empt
     expect(herd.groups.every((g) => isUnavailable(g.scope) && isUnavailable(g.workCounts))).toBe(true);
     const text = renderSurface({ ...MUTATIONS[0], surface: "HERD" }, herd, build(MUTATIONS[2], true).profile);
     for (const re of [/\b0 animals\b/, /\b\d+ open jobs?\b/, /No animals are recorded/, /Not weighed yet/]) expect(text).not.toMatch(re);
+  });
+
+  it("known-empty work stays known-empty: a planning run with no open jobs says nothing needs attention, never 'couldn't be checked'", () => {
+    const o = outputsFor("1427", "HERD");
+    o.jobs = [];
+    const herd = buildHerd(o, DEMO_DIRECTORY);
+    expect(herd.openWorkCount).toEqual({ state: "KNOWN", value: 0 });
+    for (const g of herd.groups) expect(g.workCounts).toEqual({ state: "KNOWN", value: [] });
+    const text = renderSurface({ ...MUTATIONS[0], surface: "HERD" }, herd, build(MUTATIONS[2], false).profile);
+    expect(text).toMatch(/Nothing currently needs attention\./);
+    expect(text).toMatch(/· 0 open jobs/);
+    expect(text).not.toMatch(/Work couldn't be checked/i);
   });
 
   it("known-empty stays known-empty: a resolved group with no animals shows 0, not 'couldn't be checked'", () => {

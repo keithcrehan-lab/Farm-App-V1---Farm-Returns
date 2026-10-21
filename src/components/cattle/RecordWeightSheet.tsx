@@ -5,9 +5,16 @@
  * precision controls), "today" by default with an explicit back-dated
  * option whose consequence is stated before saving (a weight dated before
  * the job was raised does not close it — the frozen C9 completion rule).
+ *
+ * The previous weight arrives as the explicit `LatestWeightVM` (invariant A):
+ * its line comes from `previousWeightLine`, so a conflict or an unavailable
+ * evaluation is never "no earlier weight". The entry keeps the canonical
+ * decimal text (invariant B): it starts from the exact previous weight and
+ * the steppers add exactly ±5 kg (`stepDecimalText`) — nothing is rounded.
  */
 
 import { useState } from "react";
+import { canonicalNumberText, isDecimalText, previousWeightLine, stepDecimalText, type LatestWeightVM } from "@/domain/cattle/presentation";
 import { Sheet } from "./ui";
 
 export interface RecordWeightValue {
@@ -20,7 +27,7 @@ export function RecordWeightSheet({
   onClose,
   onSave,
   tag,
-  lastKg,
+  previous,
   asOfDate,
 }: {
   open: boolean;
@@ -28,17 +35,19 @@ export function RecordWeightSheet({
   /** Returns null when the weight was accepted, or a message when it was refused (the sheet stays open). */
   onSave: (v: RecordWeightValue) => string | null;
   tag: string;
-  lastKg: number | null;
+  previous: LatestWeightVM;
   asOfDate: string;
 }) {
-  const [text, setText] = useState(lastKg !== null ? String(Math.round(lastKg)) : "");
+  const previousText = previous.state === "KNOWN" ? canonicalNumberText(previous.kg) : null;
+  const [text, setText] = useState(previousText ?? "");
   const [when, setWhen] = useState<"TODAY" | "EARLIER">("TODAY");
   const [date, setDate] = useState("");
   const [refused, setRefused] = useState<string | null>(null);
   const kg = Number(text);
-  const kgValid = text.trim() !== "" && Number.isFinite(kg) && kg > 0 && kg <= 2000;
+  const kgValid = isDecimalText(text) && Number.isFinite(kg) && kg > 0 && kg <= 2000;
   const dateValid = when === "TODAY" || (/^\d{4}-\d{2}-\d{2}$/.test(date) && date < asOfDate);
-  const step = (d: number) => setText((t) => String(Math.max(1, Math.round((Number(t) || lastKg || 0) + d))));
+  const step = (d: string) => setText((t) => stepDecimalText(t, d, { min: "1", from: previousText }));
+  const line = previousWeightLine(previous);
 
   return (
     <Sheet open={open} onClose={onClose} title={`Record weight · ${tag}`}>
@@ -52,7 +61,7 @@ export function RecordWeightSheet({
           Scale reading
         </label>
         <div className="mt-1 flex items-center gap-2">
-          <button type="button" onClick={() => step(-5)} className="min-h-14 min-w-14 rounded-[8px] border border-fr-v2-rule text-lg font-medium text-fr-v2-graphite" aria-label="Minus 5 kilograms">
+          <button type="button" onClick={() => step("-5")} className="min-h-14 min-w-14 rounded-[8px] border border-fr-v2-rule text-lg font-medium text-fr-v2-graphite" aria-label="Minus 5 kilograms">
             −5
           </button>
           <div className="relative flex-1">
@@ -67,12 +76,15 @@ export function RecordWeightSheet({
             />
             <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-base text-fr-v2-muted">kg</span>
           </div>
-          <button type="button" onClick={() => step(5)} className="min-h-14 min-w-14 rounded-[8px] border border-fr-v2-rule text-lg font-medium text-fr-v2-graphite" aria-label="Plus 5 kilograms">
+          <button type="button" onClick={() => step("5")} className="min-h-14 min-w-14 rounded-[8px] border border-fr-v2-rule text-lg font-medium text-fr-v2-graphite" aria-label="Plus 5 kilograms">
             +5
           </button>
         </div>
         <p id="cattle-weight-hint" className="mt-1.5 text-sm text-fr-v2-muted">
-          {lastKg !== null ? `Last recorded ${Math.round(lastKg)} kg.` : "No earlier weight recorded."} Recorded as a scale weighing.
+          <span data-previous-weight={previous.state} className={line.tone === "conflict" ? "text-fr-v2-clay" : undefined}>
+            {line.text}
+          </span>{" "}
+          Recorded as a scale weighing.
         </p>
 
         <fieldset className="mt-5">

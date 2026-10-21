@@ -5,12 +5,9 @@
  *
  * Definitions (exact decimals, no rounding until display):
  *
- *   remainingDays            = saleDate − asOfDate (whole calendar days)
+ *   remainingDays, housedDays, outdoorDays — read from the ONE interval derivation
+ *                              (`derivePlanIntervals`, plan-intervals.ts); never recomputed here
  *   forecastFeedCost         = remainingDays × (concentrateKgPerDay × concentratePricePerTonne ÷ 1000 + forageCostPerDay)
- *   housedNow                = the OBSERVED housing state (C1 location) when known; else the farmer's
- *                              explicit `assumedCurrentHousing`; else UNKNOWN
- *   housedDays               = remainingDays if housedNow; days from housingDate to saleDate if not housed
- *                              now (0 when no housing date); UNKNOWN when housedNow is UNKNOWN
  *   forecastHousingCost      = housedDays × housingCostPerDay
  *   forecastDirectHoldingCost = forecastFeedCost + forecastHousingCost
  *   projectedSaleValue       = projectedWeightAtSale × scenario €/kg   (LOW / BASE / HIGH = observed low / central / high)
@@ -38,13 +35,13 @@
  * (`HOUSING_DEPENDENT_RESULTS`) is UNKNOWN (`CURRENT_HOUSING_UNKNOWN`) — it is
  * never read as "outdoors" — unless the farmer states an assumption, in which
  * case the result says it is assumption-based (`housing.basis: "ASSUMED"`) and
- * the observed state is reported unchanged (`housing.observed: null`).
+ * the observed state is reported unchanged (`housing.observed`, still UNKNOWN).
  */
 
 import Decimal from "decimal.js";
 import { costPerKgLiveweight, type AnimalCostRead } from "./cost-ledger";
 import type { MartValuation } from "./mart-valuation";
-import { comparePlanDates, daysBetween, isPlanDate } from "./plan-dates";
+import { derivePlanIntervals, type HousingAssumption, type HousingObservation, type PlanDateIssue, type PlanHousing, type PlanIntervals } from "./plan-intervals";
 
 /** The only currency the plan computes in. */
 export const PLAN_CURRENCY = "EUR";
@@ -70,10 +67,12 @@ export interface AnimalPlanAssumptions {
   assumedCurrentHousing: HousingAssumption | null;
 }
 
-export type HousingAssumption = "OUTDOORS" | "HOUSED";
-
-/** Where the plan's housing state came from. */
-export type HousingBasis = "OBSERVED" | "ASSUMED" | "UNKNOWN";
+/**
+ * The animal's current weight, explicitly: the C4 latest KNOWN weight, or UNKNOWN with why
+ * (no weight recorded, the latest weights disagree, the unit isn't supported, or the weights
+ * couldn't be evaluated). Each reason stays its own (`CURRENT_WEIGHT_<reason>`).
+ */
+export type CurrentWeightRead = { state: "KNOWN"; kg: number } | { state: "UNKNOWN"; reason: "NOT_WEIGHED" | "WEIGHTS_DISAGREE" | "UNIT_NOT_SUPPORTED" | "WEIGHTS_UNAVAILABLE" };
 
 export type WeightProjectionInput =
   | { state: "PROJECTED"; kg: number }
@@ -84,10 +83,9 @@ export interface AnimalPlanEconomicsInput {
   /** The viewpoint's calendar date (supplied, never a clock). */
   asOfDate: string;
   assumptions: AnimalPlanAssumptions;
-  /** OBSERVED: C1 location says HOUSING now (`true`), somewhere else (`false`), or unknown (`null`). */
-  currentlyHoused: boolean | null;
-  /** C4 latest KNOWN weight, else `null`. */
-  currentWeightKg: number | null;
+  /** OBSERVED housing now (C1 location): KNOWN, or UNKNOWN with why — never read as outdoors. */
+  currentHousing: HousingObservation;
+  currentWeight: CurrentWeightRead;
   projection: WeightProjectionInput;
   /** The animal's cost summary, or UNAVAILABLE (never read as "none recorded"). */
   costs: AnimalCostRead;
@@ -98,11 +96,7 @@ export type Money = { state: "KNOWN"; amount: string } | { state: "UNKNOWN"; rea
 export type Quantity = { state: "KNOWN"; value: string } | { state: "UNKNOWN"; reasons: string[] };
 
 export type PlanInputIssue =
-  | "SALE_DATE_INVALID"
-  | "SALE_DATE_NOT_AFTER_TODAY"
-  | "HOUSING_DATE_INVALID"
-  | "HOUSING_DATE_AFTER_SALE_DATE"
-  | "HOUSING_DATE_BEFORE_TODAY"
+  | PlanDateIssue
   | "CONCENTRATE_QUANTITY_INVALID"
   | "CONCENTRATE_PRICE_INVALID"
   | "FORAGE_COST_INVALID"
@@ -111,7 +105,10 @@ export type PlanInputIssue =
 export interface AnimalPlanEconomics {
   validity: { state: "VALID" } | { state: "INVALID"; issues: PlanInputIssue[] };
   /** The housing state the figures used: the observed one (echoed unchanged), or the farmer's assumption, or none. */
-  housing: { observed: boolean | null; basis: HousingBasis; assumption: HousingAssumption | null };
+  housing: PlanHousing;
+  /** The canonical intervals every day count here (and the plan timeline) comes from. */
+  intervals: PlanIntervals;
+  /** From `intervals` (`null` when the plan inputs are invalid or the split is unknown). */
   remainingDays: number | null;
   housedDays: number | null;
   outdoorDays: number | null;
@@ -175,26 +172,13 @@ export function computeAnimalPlanEconomics(input: AnimalPlanEconomicsInput): Ani
   const a = input.assumptions;
   const issues: PlanInputIssue[] = [];
 
-  // Dates.
-  let remainingDays: number | null = null;
-  if (!isPlanDate(a.saleDate)) issues.push("SALE_DATE_INVALID");
-  else if (!isPlanDate(input.asOfDate) || comparePlanDates(a.saleDate, input.asOfDate) <= 0) issues.push("SALE_DATE_NOT_AFTER_TODAY");
-  else remainingDays = daysBetween(input.asOfDate, a.saleDate);
-
-  // Housing now: observed when known; else the farmer's explicit assumption; else unknown (never "outdoors").
-  const observed = input.currentlyHoused;
-  const assumption = observed === null ? (a.assumedCurrentHousing ?? null) : null;
-  const housedNow: boolean | null = observed !== null ? observed : assumption === null ? null : assumption === "HOUSED";
-  const housing: AnimalPlanEconomics["housing"] = { observed, basis: observed !== null ? "OBSERVED" : assumption !== null ? "ASSUMED" : "UNKNOWN", assumption };
-
-  let housedDays: number | null = null;
-  if (a.housingDate !== null && !isPlanDate(a.housingDate)) issues.push("HOUSING_DATE_INVALID");
-  if (remainingDays !== null && housedNow === true) housedDays = remainingDays;
-  else if (remainingDays !== null && a.housingDate !== null && isPlanDate(a.housingDate)) {
-    if (comparePlanDates(a.housingDate, a.saleDate) >= 0) issues.push("HOUSING_DATE_AFTER_SALE_DATE");
-    else if (comparePlanDates(a.housingDate, input.asOfDate) < 0) issues.push("HOUSING_DATE_BEFORE_TODAY");
-    else if (housedNow === false) housedDays = daysBetween(a.housingDate, a.saleDate);
-  } else if (remainingDays !== null && a.housingDate === null && housedNow === false) housedDays = 0;
+  // Dates and housing: the ONE interval derivation (observed housing wins; else the explicit assumption; else unknown — never "outdoors").
+  const intervals = derivePlanIntervals({ asOfDate: input.asOfDate, saleDate: a.saleDate, housingDate: a.housingDate, observed: input.currentHousing, assumption: a.assumedCurrentHousing ?? null });
+  const housing = intervals.housing;
+  if (intervals.state === "INVALID") issues.push(...intervals.issues);
+  const remainingDays = intervals.state === "VALID" ? intervals.totalDays : null;
+  const housedDays = intervals.state === "VALID" && intervals.split.state === "KNOWN" ? intervals.split.housedDays : null;
+  const outdoorDays = intervals.state === "VALID" && intervals.split.state === "KNOWN" ? intervals.split.outdoorDays : null;
 
   // Numbers.
   const concKg = readNumber(a.concentrateKgPerDay, "CONCENTRATE_QUANTITY_INVALID", "CONCENTRATE_QUANTITY_NOT_ENTERED", issues);
@@ -230,7 +214,8 @@ export function computeAnimalPlanEconomics(input: AnimalPlanEconomicsInput): Ani
   const projectedWeightKg: Quantity =
     invalid ? { state: "UNKNOWN", reasons: ["PLAN_INPUT_INVALID"] } : input.projection.state === "PROJECTED" && Number.isFinite(input.projection.kg) ? { state: "KNOWN", value: new Decimal(input.projection.kg).toFixed() } : { state: "UNKNOWN", reasons: [input.projection.state === "NOT_PROJECTED" ? `PROJECTION_${input.projection.reason}` : "PROJECTION_INVALID"] };
   const projectedKg: Money = projectedWeightKg.state === "KNOWN" ? known(new Decimal(projectedWeightKg.value)) : unknown(...projectedWeightKg.reasons);
-  const currentKg: Money = input.currentWeightKg !== null && Number.isFinite(input.currentWeightKg) && input.currentWeightKg > 0 ? known(new Decimal(input.currentWeightKg)) : unknown("CURRENT_WEIGHT_UNKNOWN");
+  const w = input.currentWeight;
+  const currentKg: Money = w.state === "KNOWN" ? (Number.isFinite(w.kg) && w.kg > 0 ? known(new Decimal(w.kg)) : unknown("CURRENT_WEIGHT_INVALID")) : unknown(`CURRENT_WEIGHT_${w.reason}`);
   const additional = combine([projectedKg, currentKg], ([p, c]) => p.minus(c));
   const projectedAdditionalKg: Quantity = additional.state === "KNOWN" ? { state: "KNOWN", value: additional.amount } : additional;
 
@@ -239,7 +224,7 @@ export function computeAnimalPlanEconomics(input: AnimalPlanEconomicsInput): Ani
   const projectedDirectProfit = combine([projectedSaleValue, recordedDirectCosts, forecastDirectHoldingCost], ([s, r, h]) => s.minus(r).minus(h));
   const currentSellNowMargin = combine([currentEstimatedValue, recordedDirectCosts], ([c, r]) => c.minus(r));
   const returnFromHolding = combine([projectedDirectProfit, currentSellNowMargin], ([p, n]) => p.minus(n));
-  const perKgNow = recordedDirectCosts.state === "KNOWN" && input.costs.state !== "UNAVAILABLE" ? costPerKgLiveweight(input.costs, input.currentWeightKg) : null;
+  const perKgNow = recordedDirectCosts.state === "KNOWN" && input.costs.state !== "UNAVAILABLE" ? costPerKgLiveweight(input.costs, w.state === "KNOWN" ? w.kg : null) : null;
   const costPerKgNow: Money = perKgNow !== null ? known(new Decimal(perKgNow)) : unknown(...reasonsOf(recordedDirectCosts, currentKg));
   const costPerKgAtSale = combine([totalDirectCostBySale, projectedKg], ([t, kg]) => t.dividedBy(kg));
 
@@ -249,9 +234,10 @@ export function computeAnimalPlanEconomics(input: AnimalPlanEconomicsInput): Ani
   return {
     validity: invalid ? { state: "INVALID", issues: [...new Set(issues)] } : { state: "VALID" },
     housing,
+    intervals,
     remainingDays: invalid ? null : remainingDays,
     housedDays: invalid ? null : housedDays,
-    outdoorDays: invalid || remainingDays === null || housedDays === null ? null : remainingDays - housedDays,
+    outdoorDays: invalid ? null : outdoorDays,
     forecastFeedCost,
     forecastHousingCost,
     forecastDirectHoldingCost,

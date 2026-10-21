@@ -20,12 +20,16 @@
  *   housing-dependent figures stay unknown until the farmer states a planning
  *   assumption; figures then carry an "assumed housing" mark, and the record
  *   is never changed.
+ * - Timeline: drawn from `economics.intervals` (the one interval derivation
+ *   the money figures use) through `planTimeline` — no date arithmetic here.
+ * - Numbers: inputs keep their exact decimal text; steppers add exact steps
+ *   (`stepDecimalText`); only display formatting rounds.
  */
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { HOUSING_DEPENDENT_RESULTS, addDays, computeAnimalPlanEconomics, daysBetween, isPlanDate, type AnimalPlanAssumptions, type AnimalPlanEconomics, type HousingAssumption, type MarketScenario, type Money } from "@/domain/animal-plan";
-import { formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatSignedKg, saleWithdrawalNotice } from "@/domain/cattle/presentation";
+import { HOUSING_DEPENDENT_RESULTS, addDays, computeAnimalPlanEconomics, isPlanDate, type AnimalPlanAssumptions, type AnimalPlanEconomics, type HousingAssumption, type HousingObservation, type MarketScenario, type Money, type PlanIntervals } from "@/domain/animal-plan";
+import { canonicalNumberText, formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatSignedKg, planTimeline, saleWithdrawalNotice, stepDecimalText } from "@/domain/cattle/presentation";
 import type { DemoAnimalView, DemoProjection } from "@/server/cattle-demo/demo-service";
 import type { CattleDemoScenario } from "@/server/cattle-demo/demo-replay";
 import { loadCattleAnimal, projectCattleWeight } from "@/app/(app)/cattle/actions";
@@ -61,7 +65,11 @@ const REASON_TEXT: Record<string, string> = {
   HOUSING_COST_NOT_ENTERED: "housing cost not entered",
   CURRENT_HOUSING_UNKNOWN: "the animal's current housing status isn't known",
   COSTS_UNAVAILABLE: "the cost records couldn't be read",
-  CURRENT_WEIGHT_UNKNOWN: "current weight unknown",
+  CURRENT_WEIGHT_NOT_WEIGHED: "no weight recorded yet",
+  CURRENT_WEIGHT_WEIGHTS_DISAGREE: "current weight couldn't be determined — records disagree",
+  CURRENT_WEIGHT_UNIT_NOT_SUPPORTED: "current weight is in a unit that can't be converted",
+  CURRENT_WEIGHT_WEIGHTS_UNAVAILABLE: "current weight couldn't be checked",
+  CURRENT_WEIGHT_INVALID: "current weight can't be used",
   PLAN_INPUT_INVALID: "fix the plan inputs",
   PER_HEAD_PRICE_NOT_PROJECTABLE_TO_SALE_WEIGHT: "a per-head price can't be moved to a new weight",
   PROJECTION_PENDING: "projecting…",
@@ -77,6 +85,7 @@ const REASON_TEXT: Record<string, string> = {
   PROJECTION_NO_PREDICTION: "no weight projection",
   PROJECTION_REQUEST_FAILED: "the projection couldn't be loaded",
   GOAL_UNAVAILABLE: "the goal records couldn't be read",
+  GOAL_UNRESOLVED: "the goal records disagree or can't be read",
 };
 
 const HOUSING_DEPENDENT: ReadonlySet<keyof AnimalPlanEconomics> = new Set(HOUSING_DEPENDENT_RESULTS);
@@ -123,20 +132,16 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   );
 }
 
-function NumberField({ id, label, unit, value, onChange, step }: { id: string; label: string; unit: string; value: string; onChange: (v: string) => void; step: number }) {
-  const bump = (d: number) => {
-    const n = Number(value === "" ? "0" : value);
-    if (!Number.isFinite(n)) return;
-    const next = Math.max(0, Math.round((n + d) * 100) / 100);
-    onChange(String(next));
-  };
+/** `step` is an exact decimal string; stepping never rounds the entered value (invariant B). */
+function NumberField({ id, label, unit, value, onChange, step }: { id: string; label: string; unit: string; value: string; onChange: (v: string) => void; step: string }) {
+  const bump = (d: string) => onChange(stepDecimalText(value, d, { min: "0" }));
   return (
     <div>
       <label htmlFor={id} className="text-sm text-fr-v2-charcoal">
         {label}
       </label>
       <div className="mt-1 flex items-center gap-2">
-        <button type="button" onClick={() => bump(-step)} className="min-h-11 min-w-11 rounded-[8px] border border-fr-v2-rule text-fr-v2-graphite" aria-label={`Decrease ${label}`}>
+        <button type="button" onClick={() => bump(`-${step}`)} className="min-h-11 min-w-11 rounded-[8px] border border-fr-v2-rule text-fr-v2-graphite" aria-label={`Decrease ${label}`}>
           −
         </button>
         <div className="relative flex-1">
@@ -166,55 +171,66 @@ function Segmented<T extends string>({ label, value, options, onChange }: { labe
   );
 }
 
-/** now → housing → sale, proportional, with day counts. `housedNow` null = not known and not assumed: no split is drawn. */
-function PlanTimeline({ asOf, housingDate, saleDate, housedNow, assumed }: { asOf: string; housingDate: string | null; saleDate: string; housedNow: boolean | null; assumed: boolean }) {
-  if (!isPlanDate(saleDate) || saleDate <= asOf) return null;
-  const total = daysBetween(asOf, saleDate);
-  if (housedNow === null) {
+/** now → housing → sale, laid out from the canonical intervals (`planTimeline`); `null` dates draw nothing. */
+function PlanTimeline({ intervals }: { intervals: PlanIntervals }) {
+  const t = planTimeline(intervals);
+  if (t.state === "NONE") return null;
+  if (t.state === "UNSPLIT") {
     return (
       <div className="mt-4">
         <div className={`h-2 w-full rounded-full ${cattleStyles.hatch}`} />
-        <p className="mt-2 text-[12px] text-fr-v2-muted">{total} days to sale · housing now unknown, so days at grass and housed aren&apos;t split</p>
+        <p className="mt-2 text-[12px] text-fr-v2-muted">{t.summary}</p>
       </div>
     );
   }
-  const h = !housedNow && housingDate && isPlanDate(housingDate) && housingDate > asOf && housingDate < saleDate ? daysBetween(asOf, housingDate) : null;
-  const pct = h === null ? null : (h / total) * 100;
   return (
-    <div className="mt-4" aria-label={`Now to sale: ${total} days${h !== null ? `, housed after ${h} days` : ""}`}>
+    <div className="mt-4" aria-label={t.ariaLabel}>
       <div className="relative h-2 w-full overflow-hidden rounded-full bg-fr-v2-teal-tint">
-        {housedNow ? <div className="absolute inset-0 bg-fr-v2-clay/40" /> : pct !== null ? <div className="absolute inset-y-0 right-0 bg-fr-v2-clay/40 transition-all duration-200 motion-reduce:transition-none" style={{ left: `${pct}%` }} /> : null}
+        {t.segments
+          .filter((g) => g.kind === "HOUSED")
+          .map((g) => (
+            <div key={g.startPct} className="absolute inset-y-0 bg-fr-v2-clay/40 transition-all duration-200 motion-reduce:transition-none" style={{ left: `${g.startPct}%`, width: `${g.widthPct}%` }} />
+          ))}
       </div>
       <div className="relative mt-2 h-10 text-[12px]">
         <span className="absolute left-0 text-fr-v2-graphite">
           <span className="block font-semibold">Now</span>
-          {formatDayMonth(asOf)}
+          {t.nowLabel}
         </span>
-        {pct !== null && pct > 18 && pct < 82 ? (
-          <span className="absolute -translate-x-1/2 text-center text-fr-v2-clay transition-all duration-200 motion-reduce:transition-none" style={{ left: `${pct}%` }}>
+        {t.housedMarker !== null && t.housedMarker.pct > 18 && t.housedMarker.pct < 82 ? (
+          <span className="absolute -translate-x-1/2 text-center text-fr-v2-clay transition-all duration-200 motion-reduce:transition-none" style={{ left: `${t.housedMarker.pct}%` }}>
             <span className="block font-semibold">Housed</span>
-            {formatDayMonth(housingDate as string)}
+            {t.housedMarker.label}
           </span>
         ) : null}
         <span className="absolute right-0 text-right text-fr-v2-graphite">
           <span className="block font-semibold">Sale</span>
-          {formatDayMonth(saleDate)}
+          {t.saleLabel}
         </span>
       </div>
-      <p className="text-[12px] text-fr-v2-muted">
-        {total} days to sale{housedNow ? " · housed throughout" : h !== null ? ` · ${h} at grass, ${total - h} housed` : " · not housed before sale"}
-        {assumed ? " (assumed housing)" : ""}
-      </p>
+      <p className="text-[12px] text-fr-v2-muted">{t.summary}</p>
     </div>
   );
 }
+
+const HOUSING_UNKNOWN_TEXT: Record<Extract<HousingObservation, { state: "UNKNOWN" }>["reason"], string> = {
+  NOT_RECORDED: "isn't recorded",
+  RECORDS_DISAGREE: "couldn't be determined — the location records disagree",
+  RECORD_INVALID: "can't be read from its location record",
+  RECORD_UNAVAILABLE: "couldn't be checked — the animal's record couldn't be read",
+};
 
 export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnimalView; tag: string; scenario: CattleDemoScenario }) {
   const { session, addEvent, planDraft, setPlanDraft } = useCattleDemoSession();
   const identity = `plan:${tag}:${scenario}`;
   const { view, pending: loading, failed } = useDemoView(initial, identity, (s) => loadCattleAnimal(s, tag, scenario));
   // The form: the session draft when there is one (it also holds what was last saved), else the server defaults.
-  const defaults: PlanForm = { assumptions: initial.plan.defaults, martId: initial.plan.defaultMartId, targetKg: initial.profile.goal.targetWeightKg !== null ? String(initial.profile.goal.targetWeightKg) : "" };
+  const initialGoal = initial.profile.goal.read;
+  const defaults: PlanForm = {
+    assumptions: initial.plan.defaults,
+    martId: initial.plan.defaultMartId,
+    targetKg: initialGoal.state === "ACTIVE" && initialGoal.targetWeight.state === "KNOWN" ? (canonicalNumberText(initialGoal.targetWeight.kg) ?? "") : "",
+  };
   const existing = planDraft(tag);
   const [form, setForm] = useState<PlanForm>(existing ? { assumptions: existing.assumptions, martId: existing.martId, targetKg: existing.targetKg } : defaults);
   const a = form.assumptions;
@@ -259,8 +275,8 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
       computeAnimalPlanEconomics({
         asOfDate: plan.asOfDate,
         assumptions: a,
-        currentlyHoused: plan.currentlyHoused,
-        currentWeightKg: plan.currentWeightKg,
+        currentHousing: plan.currentHousing,
+        currentWeight: plan.currentWeight,
         projection: projection === undefined ? { state: "NOT_PROJECTED", reason: "PENDING" } : projection.state === "PROJECTED" ? { state: "PROJECTED", kg: projection.kg } : { state: "NOT_PROJECTED", reason: projection.reason },
         costs: plan.costs,
         valuation,
@@ -271,7 +287,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
   const draftDirty = JSON.stringify(form) !== JSON.stringify(existing?.saved ?? defaults);
   const set = (patch: Partial<AnimalPlanAssumptions>) => update({ assumptions: { ...a, ...patch } });
   const housing = economics.housing;
-  const housedNow = housing.basis === "OBSERVED" ? housing.observed : housing.basis === "ASSUMED" ? housing.assumption === "HOUSED" : null;
+  const housedNow = housing.housedNow;
   const withdrawalNotice = saleWithdrawalNotice(profile.health.withdrawal, a.saleDate);
   const fixture = economics.valuationStanding === "FIXTURE";
   const ret = economics.returnFromHolding;
@@ -281,8 +297,17 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
   const targetValid = targetKg === "" || (Number.isFinite(Number(targetKg)) && Number(targetKg) > 0 && Number(targetKg) <= 2000);
 
   // A sale plan is saved as a Sale goal when one is declared, otherwise as Finishing; any other type change is stated before saving.
-  const savedGoalType = profile.goal.goalType === "SALE" ? "SALE" : "FINISHING";
-  const goalTypeChange = profile.goal.goalType !== savedGoalType ? (profile.goal.goalType ? `Saving changes ${tag}'s goal from ${(profile.goal.typeLabel ?? profile.goal.goalType).toLowerCase()} to finishing.` : `Saving declares a finishing goal for ${tag}.`) : null;
+  // An unresolved goal is said to be unresolved — never "no goal".
+  const goal = profile.goal.read;
+  const savedGoalType = goal.state === "ACTIVE" && goal.goalType === "SALE" ? "SALE" : "FINISHING";
+  const goalTypeChange =
+    goal.state === "UNRESOLVED"
+      ? `${tag}'s current goal couldn't be determined (${goal.display.label.toLowerCase()}). Saving declares a finishing goal with this date and weight.`
+      : goal.state === "NONE"
+        ? `Saving declares a finishing goal for ${tag}.`
+        : goal.goalType !== savedGoalType
+          ? `Saving changes ${tag}'s goal from ${goal.typeLabel.toLowerCase()} to finishing.`
+          : null;
   const save = () => {
     if (invalid.length > 0 || !targetValid) return;
     // A full session refuses the action: nothing is marked saved and the form keeps the values.
@@ -317,7 +342,11 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
       </h1>
       <p className="mt-1 text-[15px] text-fr-v2-charcoal">
         If you keep {tag} until then: what it&apos;s likely to weigh, what it will cost, what it might be worth.
-        {plan.saleDateSource === "GOAL" ? " Sale date starts from the declared goal." : " No goal date is declared; the sale date is a starting suggestion."}
+        {plan.saleDateSource === "GOAL"
+          ? " Sale date starts from the declared goal."
+          : plan.saleDateSource === "GOAL_UNRESOLVED"
+            ? " The goal couldn't be determined, so the sale date is a starting suggestion."
+            : " No goal date is declared; the sale date is a starting suggestion."}
       </p>
       <div className="mt-4">
         <DemoNotice>Synthetic animal, fixture mart prices and demonstration costs. Changes stay in this browser session.</DemoNotice>
@@ -353,7 +382,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
             <span>{withdrawalNotice.text}</span>
           </p>
         ) : null}
-        <PlanTimeline asOf={plan.asOfDate} housingDate={a.housingDate} saleDate={a.saleDate} housedNow={housedNow} assumed={housing.basis === "ASSUMED"} />
+        <PlanTimeline intervals={economics.intervals} />
       </section>
 
       <div className="mt-8 grid grid-cols-1 gap-x-12 gap-y-8 lg:grid-cols-[1fr_1.15fr]">
@@ -374,14 +403,14 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
               </button>
             </div>
           </div>
-          <NumberField id="target-kg" label="Target weight (goal)" unit="kg" value={targetKg} onChange={(v) => update({ targetKg: v })} step={10} />
+          <NumberField id="target-kg" label="Target weight (goal)" unit="kg" value={targetKg} onChange={(v) => update({ targetKg: v })} step="10" />
           {!targetValid ? <p className="text-sm text-[#b23a2b]">Target weight must be a number of kilograms.</p> : null}
 
           <div className="space-y-4 pt-2">
             <div className="text-[13px] font-semibold text-fr-v2-graphite">Feed</div>
-            <NumberField id="conc-kg" label="Concentrate per day" unit="kg/day" value={a.concentrateKgPerDay ?? ""} onChange={(v) => set({ concentrateKgPerDay: v === "" ? null : v })} step={0.5} />
-            <NumberField id="conc-price" label="Concentrate price" unit="€/tonne" value={a.concentratePricePerTonne ?? ""} onChange={(v) => set({ concentratePricePerTonne: v === "" ? null : v })} step={10} />
-            <NumberField id="forage" label="Forage / grazing" unit="€/day" value={a.forageCostPerDay ?? ""} onChange={(v) => set({ forageCostPerDay: v === "" ? null : v })} step={0.1} />
+            <NumberField id="conc-kg" label="Concentrate per day" unit="kg/day" value={a.concentrateKgPerDay ?? ""} onChange={(v) => set({ concentrateKgPerDay: v === "" ? null : v })} step="0.5" />
+            <NumberField id="conc-price" label="Concentrate price" unit="€/tonne" value={a.concentratePricePerTonne ?? ""} onChange={(v) => set({ concentratePricePerTonne: v === "" ? null : v })} step="10" />
+            <NumberField id="forage" label="Forage / grazing" unit="€/day" value={a.forageCostPerDay ?? ""} onChange={(v) => set({ forageCostPerDay: v === "" ? null : v })} step="0.1" />
             <p className="text-[12px] text-fr-v2-muted">Feed changes the cost only. It doesn&apos;t change the projected weight: there is no validated feed-response model, so the projection keeps the animal&apos;s recent daily gain.</p>
           </div>
 
@@ -390,9 +419,9 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
             {housing.basis !== "OBSERVED" ? (
               <div className="space-y-3">
                 <p className={`px-3 py-2 text-sm text-fr-v2-charcoal ${cattleStyles.hatch}`} role="note">
-                  {housing.basis === "UNKNOWN"
-                    ? "Can't calculate housing costs yet — the animal's current housing status isn't known. Choose an assumption for this plan to see a scenario."
-                    : "The animal's current housing status isn't recorded. Housing figures below use your assumption — the record isn't changed."}
+                  {housing.observed.state === "UNKNOWN" && housing.basis === "UNKNOWN"
+                    ? `Can't calculate housing costs yet — the animal's current housing status ${HOUSING_UNKNOWN_TEXT[housing.observed.reason]}. Choose an assumption for this plan to see a scenario.`
+                    : `The animal's current housing status ${housing.observed.state === "UNKNOWN" ? HOUSING_UNKNOWN_TEXT[housing.observed.reason] : "isn't recorded"}. Housing figures below use your assumption — the record isn't changed.`}
                 </p>
                 <Segmented<"NONE" | HousingAssumption>
                   label="Assume for this plan"
@@ -419,7 +448,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
                 </div>
               </div>
             )}
-            <NumberField id="housing-cost" label="Housing and bedding" unit="€/day" value={a.housingCostPerDay ?? ""} onChange={(v) => set({ housingCostPerDay: v === "" ? null : v })} step={0.05} />
+            <NumberField id="housing-cost" label="Housing and bedding" unit="€/day" value={a.housingCostPerDay ?? ""} onChange={(v) => set({ housingCostPerDay: v === "" ? null : v })} step="0.05" />
           </div>
 
           <div className="space-y-4 pt-2">
@@ -459,11 +488,11 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
                 <MoneyValue m={{ state: "UNKNOWN", reasons: projection === undefined ? ["PROJECTION_PENDING"] : economics.projectedWeightKg.reasons }} />
               )}
             </Row>
-            {profile.goal.targetWeightKg !== null ? (
-              <Row label="Goal weight">{formatKg(profile.goal.targetWeightKg)}</Row>
-            ) : profile.goal.state.code === "EVALUATION:UNAVAILABLE" ? (
+            {goal.state === "ACTIVE" && goal.targetWeight.state === "KNOWN" ? (
+              <Row label="Goal weight">{formatKg(goal.targetWeight.kg)}</Row>
+            ) : goal.state === "UNRESOLVED" || (goal.state === "ACTIVE" && goal.targetWeight.state === "UNRESOLVED") ? (
               <Row label="Goal weight">
-                <MoneyValue m={{ state: "UNKNOWN", reasons: ["GOAL_UNAVAILABLE"] }} />
+                <MoneyValue m={{ state: "UNKNOWN", reasons: [goal.state === "UNRESOLVED" && goal.display.code === "EVALUATION:UNAVAILABLE" ? "GOAL_UNAVAILABLE" : "GOAL_UNRESOLVED"] }} />
               </Row>
             ) : null}
             <Row label="Estimated value now" hint={valuation?.state === "ESTIMATED" && valuation.estimate ? `Range ${formatEuro(valuation.estimate.low)} – ${formatEuro(valuation.estimate.high)}` : undefined}>
@@ -518,7 +547,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
             {valuation === undefined || valuation.state !== "ESTIMATED" ? (
               <p className={`mt-3 px-3 py-3 text-sm text-fr-v2-charcoal ${cattleStyles.hatch}`}>
                 No estimate from this mart:{" "}
-                {valuation?.reasons.map((r) => ({ NO_COMPARABLE_WEIGHT_BAND: "no comparable weight band in the report", MART_VALUATION_NEEDS_KNOWN_LIVEWEIGHT: "the animal's current weight is unknown", ANIMAL_SEX_UNKNOWN: "the animal's sex isn't recorded", ANIMAL_RECORD_UNAVAILABLE: "the animal's record couldn't be read", WEIGHT_NEEDED_TO_CHOOSE_CATEGORY: "a current weight is needed to choose the category" })[r] ?? r.toLowerCase().replace(/_/g, " ")).join("; ") ?? "provider unavailable"}
+                {valuation?.reasons.map((r) => ({ NO_COMPARABLE_WEIGHT_BAND: "no comparable weight band in the report", MART_VALUATION_NEEDS_KNOWN_LIVEWEIGHT: "the animal's current weight is unknown", ANIMAL_SEX_UNKNOWN: "the animal's sex isn't known", ANIMAL_RECORD_UNAVAILABLE: "the animal's record couldn't be read", WEIGHT_NEEDED_TO_CHOOSE_CATEGORY: "a current weight is needed to choose the category" })[r] ?? r.toLowerCase().replace(/_/g, " ")).join("; ") ?? "provider unavailable"}
                 . Values that depend on it stay unknown.
               </p>
             ) : (

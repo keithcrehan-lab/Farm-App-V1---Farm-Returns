@@ -8,7 +8,7 @@
 
 import "server-only";
 
-import type { AnimalCostEntry, AnimalPlanAssumptions, MartComparableResult, MartProviderDescription, MartRef, MartValuationProvider, MartValuationRequest } from "@/domain/animal-plan";
+import type { AnimalCostEntry, AnimalPlanAssumptions, HousingObservation, MartComparableResult, MartProviderDescription, MartRef, MartValuationProvider, MartValuationRequest } from "@/domain/animal-plan";
 import { animalIdOf } from "./demo-herd";
 
 /** Freshness setting for the fixture provider (a product setting, not science). */
@@ -93,17 +93,17 @@ export const DEMO_MART_PROVIDER: MartValuationProvider = {
 export const DEMO_DEFAULT_MART = "SYNTH-MART-BLESSINGTON";
 
 /**
- * Default plan-draft assumptions (demonstration values; the farmer edits them). `housed` is the
- * OBSERVED housing state; no default ever assumes where an animal of unknown housing is now
+ * Default plan-draft assumptions (demonstration values; the farmer edits them). `housing` is the
+ * OBSERVED housing state (a housing date is suggested unless the animal is recorded as housed); no default ever assumes where an animal of unknown housing is now
  * (`assumedCurrentHousing: null` — the farmer has to state it).
  */
-export function demoDefaultAssumptions(saleDate: string, housed: boolean | null): AnimalPlanAssumptions {
+export function demoDefaultAssumptions(saleDate: string, housing: HousingObservation): AnimalPlanAssumptions {
   return {
     saleDate,
     concentrateKgPerDay: "4",
     concentratePricePerTonne: "340",
     forageCostPerDay: "1.20",
-    housingDate: housed === true ? null : "2026-11-08",
+    housingDate: housing.state === "KNOWN" && housing.housed ? null : "2026-11-08",
     housingCostPerDay: "0.55",
     scenario: "BASE",
     assumedCurrentHousing: null,

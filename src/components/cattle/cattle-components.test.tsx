@@ -21,6 +21,7 @@ import { useDemoView } from "./session/use-demo-view";
 import type { CattleDemoSession } from "./session/demo-session";
 
 const EMPTY: CattleDemoSession = { version: 1, events: [] };
+const KNOWN_521 = { state: "KNOWN", kg: 521, observedAt: "2026-09-14T10:00:00Z", display: { code: "WEIGHT:KNOWN", label: "Weighed", tone: "neutral", detail: null } } as const;
 const wrap = (ui: React.ReactNode) => render(<CattleDemoSessionProvider>{ui}</CattleDemoSessionProvider>);
 
 beforeEach(() => {
@@ -64,7 +65,7 @@ describe("C10 screens", { timeout: 60_000 }, () => {
   });
 
   it("the back-dated option says, before saving, that it won't close today's job", () => {
-    render(<RecordWeightSheet open onClose={() => {}} onSave={() => null} tag="1427" lastKg={521} asOfDate="2026-10-16" />);
+    render(<RecordWeightSheet open onClose={() => {}} onSave={() => null} tag="1427" previous={KNOWN_521} asOfDate="2026-10-16" />);
     fireEvent.click(screen.getByRole("button", { name: "An earlier day" }));
     expect(screen.getByText(/doesn't close today/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save weight" })).toBeDisabled(); // no date chosen yet
@@ -149,7 +150,7 @@ describe("C10 screens", { timeout: 60_000 }, () => {
   });
 
   it("record-weight sheet focuses the scale reading first", () => {
-    render(<RecordWeightSheet open onClose={() => {}} onSave={() => null} tag="1427" lastKg={521} asOfDate="2026-10-16" />);
+    render(<RecordWeightSheet open onClose={() => {}} onSave={() => null} tag="1427" previous={KNOWN_521} asOfDate="2026-10-16" />);
     expect(document.activeElement).toBe(screen.getByLabelText("Scale reading"));
   });
 
@@ -184,7 +185,7 @@ describe("C10 screens", { timeout: 60_000 }, () => {
 
   it("record-weight sheet submits the reading unchanged (audit F007)", () => {
     const onSave = vi.fn(() => null);
-    render(<RecordWeightSheet open onClose={() => {}} onSave={onSave} tag="1427" lastKg={521} asOfDate="2026-10-16" />);
+    render(<RecordWeightSheet open onClose={() => {}} onSave={onSave} tag="1427" previous={KNOWN_521} asOfDate="2026-10-16" />);
     fireEvent.change(screen.getByLabelText("Scale reading"), { target: { value: "548.24" } });
     fireEvent.click(screen.getByRole("button", { name: "Save weight" }));
     expect(onSave).toHaveBeenCalledWith({ kg: 548.24, observedDate: null });
@@ -349,7 +350,7 @@ describe("C10 screens", { timeout: 60_000 }, () => {
       await new Promise((r) => setTimeout(r, 200));
     });
     const row = (label: string) => screen.getByText(label).closest("div")!.textContent ?? "";
-    expect(screen.getByText(/Can't calculate housing costs yet — the animal's current housing status isn't known/)).toBeInTheDocument();
+    expect(screen.getByText(/Can't calculate housing costs yet — the animal's current housing status isn't recorded/)).toBeInTheDocument();
     expect(row("Forecast housing to sale")).toMatch(/Unknown — the animal's current housing status isn't known/);
     expect(row("Projected direct profit at sale")).toMatch(/current housing status isn't known/);
     expect(screen.getByText(/housing now unknown, so days at grass and housed aren.t split/)).toBeInTheDocument(); // the timeline doesn't split unknown housing
@@ -386,7 +387,7 @@ describe("C10 screens", { timeout: 60_000 }, () => {
   });
 
   it("record-weight refusal keeps the sheet open with the reading", () => {
-    render(<RecordWeightSheet open onClose={() => {}} onSave={() => "This demonstration session is full, so the weight wasn't recorded."} tag="1427" lastKg={521} asOfDate="2026-10-16" />);
+    render(<RecordWeightSheet open onClose={() => {}} onSave={() => "This demonstration session is full, so the weight wasn't recorded."} tag="1427" previous={KNOWN_521} asOfDate="2026-10-16" />);
     fireEvent.change(screen.getByLabelText("Scale reading"), { target: { value: "549" } });
     fireEvent.click(screen.getByRole("button", { name: "Save weight" }));
     expect(screen.getByRole("alert")).toHaveTextContent(/weight wasn't recorded/);

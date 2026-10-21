@@ -28,7 +28,7 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     expect(p.metrics.weight).toMatchObject({ value: "521", unit: "kg" });
     expect(p.performanceState.code).toBe("TARGET:ON_TRACK");
     // Decision 4: the latest weight (14 Sep) is 32 days old, but the frozen default registry ships no staleness interval.
-    expect(p.weight.observedAt?.slice(0, 19)).toBe("2026-09-14T10:00:00");
+    expect(p.weight.state === "KNOWN" ? p.weight.observedAt.slice(0, 19) : p.weight.state).toBe("2026-09-14T10:00:00");
     expect(openWork(p)).toEqual({ primary: null, others: [] });
     expect(p.projection.state.code).toBe("PREDICTION:PROJECTED");
   });
@@ -62,15 +62,19 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     expect(view("1431").performanceState.code).toBe("TARGET:AHEAD");
     expect(view("1433").performanceState.code).toBe("TARGET:BEHIND");
     const conflict = view("1438");
-    expect(conflict.weight.state.code).toBe("WEIGHT:EVIDENCE_CONFLICT");
+    expect(conflict.weight).toMatchObject({ state: "CONFLICT", candidatesKg: [498, 512], display: { code: "WEIGHT:EVIDENCE_CONFLICT" } });
     expect(conflict.metrics.weight.value).toBeNull();
-    expect(conflict.weight.candidatesKg).toEqual([498, 512]);
+    // F005: the conflict reaches the plan as its own reason — never "not weighed".
+    expect(demoAnimalView(EMPTY, "1438")!.plan.currentWeight).toEqual({ state: "UNKNOWN", reason: "WEIGHTS_DISAGREE" });
     expect(primary(conflict)?.blockers[0]?.state.code).toBe("BLOCKER:UNKNOWN");
     expect(view("1440").gain.state.code).toBe("GAIN:INSUFFICIENT_EVIDENCE");
     const none = view("1442");
-    expect(none.weight.state.code).toBe("WEIGHT:NONE");
+    expect(none.weight).toMatchObject({ state: "NONE", display: { code: "WEIGHT:NONE" } });
+    expect(demoAnimalView(EMPTY, "1442")!.plan.currentWeight).toEqual({ state: "UNKNOWN", reason: "NOT_WEIGHED" });
     expect(none.chart).toMatchObject({ state: "KNOWN", value: { points: [] } }); // C5 ran: a known-empty series
     expect(view("1445").goal.state.code).toBe("GOAL:NONE");
+    expect(view("1445").goal.read).toEqual({ state: "NONE" });
+    expect(demoAnimalView(EMPTY, "1445")!.plan.saleDateSource).toBe("NO_GOAL_DATE");
     expect(primary(view("1445"))?.actionKind).toBe("DECLARE_PRODUCTION_GOAL");
     const withdrawal = view("1447");
     expect(withdrawal.health.withdrawal.state.code).toBe("WITHDRAWAL:IN_WITHDRAWAL");
@@ -91,7 +95,7 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     // No location recorded: C1 location UNKNOWN, so the plan's observed housing is unknown (never "outdoors").
     const unrecorded = demoAnimalView(EMPTY, "1433")!;
     expect(unrecorded.profile.identity.location.state.code).toBe("IDENTITY:UNKNOWN");
-    expect(unrecorded.plan.currentlyHoused).toBeNull();
+    expect(unrecorded.plan.currentHousing).toEqual({ state: "UNKNOWN", reason: "NOT_RECORDED" });
     expect(unrecorded.plan.defaults.assumedCurrentHousing).toBeNull();
     expect(view("1449").identity.group.state.code).toBe("MEMBERSHIP:EVIDENCE_CONFLICT");
   });
@@ -114,7 +118,8 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     expect(p.work.open).toMatchObject({ state: "UNAVAILABLE", display: { code: "PLANNING:UNAVAILABLE" } });
     expect(p.metrics.weight.value).toBeNull();
     // The failed evaluation is unknown — never "not weighed" / "needs another weight" / "no date to project to".
-    for (const s of [p.weight.state, p.gain.state, p.performanceState, p.projection.state]) expect(s.code).toBe("EVALUATION:UNAVAILABLE");
+    expect(p.weight.state).toBe("UNAVAILABLE");
+    for (const s of [p.weight.display, p.gain.state, p.performanceState, p.projection.state]) expect(s.code).toBe("EVALUATION:UNAVAILABLE");
     expect(p.chart.state).toBe("UNAVAILABLE");
     // Audit F005: compliance that wasn't evaluated is unavailable, not "no programmes"; the timeline names what it can't show.
     expect(p.health.programmes).toMatchObject({ state: "UNAVAILABLE" });
@@ -139,14 +144,14 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
 
   it("a fractional scale reading is recorded exactly as entered (audit F007)", () => {
     const p = view("1427", weigh("1427", 548.24));
-    expect(p.weight.kg).toBe(548.24);
+    expect(p.weight).toMatchObject({ state: "KNOWN", kg: 548.24 });
     expect(points(p)?.at(-1)?.kg).toBe(548.24);
   });
 
   it("saving a plan declares a new C6 goal version (sale date and target weight)", () => {
     const s: CattleDemoSession = { version: 1, events: [{ kind: "SAVE_PLAN_GOAL", eventId: "g1", tag: "1427", goalType: "FINISHING", targetKg: 620, targetDate: "2026-11-20" }] };
     const p = view("1427", s);
-    expect(p.goal).toMatchObject({ targetWeightKg: 620, targetDate: "2026-11-20" });
+    expect(p.goal.read).toMatchObject({ state: "ACTIVE", targetWeight: { state: "KNOWN", kg: 620 }, targetDate: "2026-11-20" });
     expect(p.timeline.some((e) => e.title === "Goal updated: Finishing" && e.infoClass === "INTENT")).toBe(true);
   });
 

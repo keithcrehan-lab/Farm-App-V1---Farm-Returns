@@ -9,7 +9,7 @@
  */
 
 import Link from "next/link";
-import { NO_OPEN_WORK, type AnimalRowVM, type GroupScopeVM, type GroupVM, type HerdVM } from "@/domain/cattle/presentation";
+import type { AnimalRowVM, GroupScopeVM, GroupVM, HerdVM } from "@/domain/cattle/presentation";
 import type { CattleDemoScenario } from "@/server/cattle-demo/demo-replay";
 import { loadCattleHerd } from "@/app/(app)/cattle/actions";
 import { useCattleDemoSession } from "./session/CattleDemoSessionProvider";
@@ -23,7 +23,7 @@ function useHerd(initial: HerdVM, scenario: CattleDemoScenario): { herd: HerdVM;
   return { herd: view, pending, failed };
 }
 
-function PlanningFailed({ codes }: { codes: string[] }) {
+function PlanningFailed({ codes }: { codes: readonly string[] }) {
   return (
     <div className={`mt-4 px-4 py-4 ${cattleStyles.hatch}`} role="status">
       <p className="font-semibold text-fr-v2-graphite">Cattle work couldn&apos;t be calculated.</p>
@@ -45,15 +45,13 @@ function ScopeUnavailable({ group }: { group: GroupVM }) {
   );
 }
 
-/** A group's work: the counts, "nothing currently needs attention" (KNOWN empty) or why it's unknown — never silence. */
+/** A group's work: the counts, the known-empty state (EMPTY) or why it's unknown (UNAVAILABLE) — never silence. */
 function WorkCounts({ workCounts, className }: { workCounts: GroupVM["workCounts"]; className: string }) {
-  if (workCounts.state === "UNAVAILABLE") return <StateLabel state={workCounts.display} className={className} />;
-  if (workCounts.value.length === 0) return <p className={`${className} text-sm text-fr-v2-muted`}>{NO_OPEN_WORK.label}.</p>;
-  return <p className={`${className} text-[15px] text-fr-v2-harvest-ink`}>{workCounts.value.map((w) => w.label).join(" · ")}</p>;
+  if (workCounts.state !== "ITEMS") return <StateLabel state={workCounts.display} className={className} />;
+  return <p className={`${className} text-[15px] text-fr-v2-harvest-ink`}>{workCounts.items.map((w) => w.label).join(" · ")}</p>;
 }
 
 function PerformanceStrip({ scope }: { scope: GroupScopeVM }) {
-  if (scope.memberCount === 0) return null;
   return (
     <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1" aria-label="Performance across the group">
       {scope.performanceCounts.map((c) => (
@@ -108,26 +106,25 @@ export function HerdScreen({ initial, scenario }: { initial: HerdVM; scenario: C
         <ViewStatus pending={pending} failed={failed} idle={<span className="text-[13px] text-fr-v2-muted">{herd.asOfLabel}</span>} />
       </div>
       <p className="mt-2 text-[15px] text-fr-v2-charcoal">
-        {herd.animalCount === 0 ? "No animals recorded." : `${herd.animalCount} animals in ${herd.groups.length} groups`}
-        {herd.openWorkCount.state === "KNOWN" ? ` · ${herd.openWorkCount.value} open job${herd.openWorkCount.value === 1 ? "" : "s"}` : ` · ${herd.openWorkCount.display.label.toLowerCase()}`}
+        {herd.summary}
       </p>
       <div className="mt-4">
         <DemoNotice />
       </div>
       {herd.planning.state === "PLANNING_FAILED" ? <PlanningFailed codes={herd.planning.failureCodes} /> : null}
-      {herd.animalCount === 0 ? (
-        <p className="mt-8 text-[15px] text-fr-v2-charcoal">There are no animals in this herd yet. Nothing is shown as on track, and no work is raised, until animals are recorded.</p>
+      {herd.overview.state !== "ITEMS" ? (
+        <p className="mt-8 text-[15px] text-fr-v2-charcoal" data-herd-state={herd.overview.state}>
+          {herd.overview.display.detail ?? herd.overview.display.label}
+        </p>
       ) : (
         <ul className="mt-6">
-          {herd.groups.map((g) => (
+          {herd.overview.items.map((g) => (
             <li key={g.groupRef} className="border-t border-fr-v2-rule">
               <Link href={`/cattle/groups/${encodeURIComponent(g.groupRef)}${q(scenario)}`} className="group block py-5">
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-[24px] font-semibold tracking-tight text-fr-v2-graphite group-hover:text-fr-v2-forest">{g.name}</span>
                   {g.scope.state === "KNOWN" ? (
-                    <span className="text-sm text-fr-v2-muted">
-                      <span className="tabular-nums font-semibold text-fr-v2-graphite">{g.scope.value.memberCount}</span> animals · {g.scope.value.locationLabel}
-                    </span>
+                    <span className="text-sm text-fr-v2-muted">{g.scope.value.summary}</span>
                   ) : (
                     <StateLabel state={g.scope.display} />
                   )}
@@ -136,7 +133,7 @@ export function HerdScreen({ initial, scenario }: { initial: HerdVM; scenario: C
                 {g.scope.state === "KNOWN" ? (
                   <>
                     <PerformanceStrip scope={g.scope.value} />
-                    {g.scope.value.unresolved.length > 0 ? <p className="mt-2 text-sm text-fr-v2-clay">{g.scope.value.unresolved.length} animal{g.scope.value.unresolved.length === 1 ? "" : "s"} with unresolved group records</p> : null}
+                    {g.scope.value.unresolvedNote ? <p className="mt-2 text-sm text-fr-v2-clay">{g.scope.value.unresolvedNote}</p> : null}
                   </>
                 ) : (
                   <p className="mt-1.5 text-sm text-fr-v2-charcoal">{g.scope.display.detail}</p>
@@ -162,8 +159,8 @@ function AnimalRow({ a, scenario }: { a: AnimalRowVM; scenario: CattleDemoScenar
             <StateLabel state={a.performance} />
             {a.nextWork.state === "UNAVAILABLE" ? (
               <StateLabel state={a.nextWork.display} />
-            ) : a.nextWork.value ? (
-              <span className={`text-sm ${TONE_TEXT[a.nextWork.value.tone]}`}>{a.nextWork.value.title}</span>
+            ) : a.nextWork.state === "JOB" ? (
+              <span className={`text-sm ${TONE_TEXT[a.nextWork.tone]}`}>{a.nextWork.title}</span>
             ) : null}
           </span>
         </span>
@@ -184,7 +181,7 @@ function AnimalRow({ a, scenario }: { a: AnimalRowVM; scenario: CattleDemoScenar
 
 export function GroupScreen({ initial, groupRef, scenario }: { initial: HerdVM; groupRef: string; scenario: CattleDemoScenario }) {
   const { herd, pending, failed } = useHerd(initial, scenario);
-  const g = herd.groups.find((x) => x.groupRef === groupRef);
+  const g = herd.groups.state === "ITEMS" ? herd.groups.items.find((x) => x.groupRef === groupRef) : undefined;
   if (!g) {
     return (
       <div className="mx-auto max-w-4xl">
@@ -202,7 +199,7 @@ export function GroupScreen({ initial, groupRef, scenario }: { initial: HerdVM; 
       <div className="mt-1 text-[13px] font-medium uppercase tracking-[0.08em] text-fr-v2-plum">Group</div>
       <h1 className="font-display text-[44px] font-semibold leading-none tracking-tight text-fr-v2-graphite">{g.name}</h1>
       <p className="mt-2 text-[15px] text-fr-v2-charcoal">
-        {g.scope.state === "KNOWN" ? `${g.scope.value.memberCount} animals · ${g.scope.value.locationLabel}` : <StateLabel state={g.scope.display} />}
+        {g.scope.state === "KNOWN" ? g.scope.value.summary : <StateLabel state={g.scope.display} />}
       </p>
       <div className="mt-4">
         <DemoNotice />
@@ -219,10 +216,10 @@ function GroupMembers({ scope, workCounts, scenario }: { scope: GroupScopeVM; wo
     <>
       <section aria-labelledby="group-work" className="mt-6">
         <SectionHeading id="group-work" title="Across the group" />
-        {workCounts.state === "KNOWN" && workCounts.value.length > 0 ? (
+        {workCounts.state === "ITEMS" ? (
           <>
             <ul className="mt-3 space-y-1">
-              {workCounts.value.map((w) => (
+              {workCounts.items.map((w) => (
                 <li key={w.label} className="text-[17px] text-fr-v2-graphite">
                   {w.label}
                 </li>
@@ -237,12 +234,15 @@ function GroupMembers({ scope, workCounts, scenario }: { scope: GroupScopeVM; wo
       </section>
       <section aria-labelledby="group-animals" className="mt-8">
         <SectionHeading id="group-animals" title="Animals" />
-        {scope.memberCount === 0 ? <p className="mt-3 text-[15px] text-fr-v2-charcoal">No animals are recorded in this group.</p> : null}
-        <ul className="mt-1">
-          {scope.members.map((a) => (
-            <AnimalRow key={a.animalId} a={a} scenario={scenario} />
-          ))}
-        </ul>
+        {scope.members.state === "ITEMS" ? (
+          <ul className="mt-1">
+            {scope.members.items.map((a) => (
+              <AnimalRow key={a.animalId} a={a} scenario={scenario} />
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 text-[15px] text-fr-v2-charcoal">{scope.members.display.label}.</p>
+        )}
       </section>
       {scope.unresolved.length > 0 ? (
         <section aria-labelledby="group-unresolved" className="mt-8">

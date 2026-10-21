@@ -9,7 +9,7 @@
  */
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import type { AnimalPlanAssumptions } from "@/domain/animal-plan";
+import type { AnimalPlanAssumptions } from "@/domain/cattle/presentation";
 import { createSessionPhotoStore, type AnimalPhotoStore } from "../photos/photo-store";
 import { CATTLE_DEMO_SESSION_MAX_EVENTS, EMPTY_CATTLE_DEMO_SESSION, type CattleDemoEvent, type CattleDemoSession } from "./demo-session";
 

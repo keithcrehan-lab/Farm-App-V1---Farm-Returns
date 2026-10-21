@@ -28,11 +28,11 @@ function Why({ work }: { work: WorkVM }) {
         <span className="font-medium">How it closes: </span>
         {w.completionRule}
       </p>
-      {w.assumptions.length + w.limitations.length + w.unknowns.length > 0 ? (
+      {w.caveats.length > 0 ? (
         <div>
           <div className="font-medium">Assumptions and limits</div>
           <ul className="mt-1 list-disc space-y-1 pl-4 text-fr-v2-muted">
-            {[...w.assumptions, ...w.limitations, ...w.unknowns].map((a) => (
+            {w.caveats.map((a) => (
               <li key={a}>{a}</li>
             ))}
           </ul>
@@ -67,23 +67,23 @@ function Why({ work }: { work: WorkVM }) {
 function Timing({ work }: { work: WorkVM }) {
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-      {work.hardDeadline ? <span className="font-semibold text-[#b23a2b]">{work.hardDeadline.label}</span> : null}
-      {work.window ? <span className="text-fr-v2-muted">{work.window.label}</span> : null}
+      {work.hardDeadline.state === "HARD_DEADLINE" ? <span className="font-semibold text-[#b23a2b]">{work.hardDeadline.label}</span> : null}
+      {work.window.state === "RECOMMENDED" ? <span className="text-fr-v2-muted">{work.window.label}</span> : null}
     </div>
   );
 }
 
 export function WorkPanel({ work, onRecordWeight, resolvedTitles }: { work: AnimalProfileVM["work"]; onRecordWeight: (() => void) | null; resolvedTitles: string[] }) {
-  if (work.open.state === "UNAVAILABLE") {
+  const open = work.open;
+  if (open.state === "UNAVAILABLE") {
     return (
       <div className={`px-4 py-4 ${cattleStyles.hatch}`} role="status">
         <p className="font-semibold text-fr-v2-graphite">We couldn&apos;t work out this animal&apos;s jobs.</p>
         <p className="mt-1 text-sm text-fr-v2-charcoal">One of the cattle records couldn&apos;t be read, so the whole planning run stopped rather than guess. No job is shown — that doesn&apos;t mean there&apos;s nothing to do.</p>
-        <p className="mt-2 font-mono text-[11px] text-fr-v2-muted">{work.failureCodes.slice(0, 3).join(" · ")}</p>
+        <p className="mt-2 font-mono text-[11px] text-fr-v2-muted">{open.failureCodes.slice(0, 3).join(" · ")}</p>
       </div>
     );
   }
-  const { primary: p, others } = work.open.value;
   return (
     <div>
       {resolvedTitles.length > 0 ? (
@@ -91,48 +91,23 @@ export function WorkPanel({ work, onRecordWeight, resolvedTitles }: { work: Anim
           <span aria-hidden>✓</span> {resolvedTitles.join(", ")} — closed by your new record.
         </p>
       ) : null}
-      {p === null ? (
-        <div>
-          <p className="text-lg font-semibold text-fr-v2-graphite">No open jobs for this animal</p>
-          <p className="mt-1 text-sm text-fr-v2-muted">Nothing in the records raises work right now. That isn&apos;t a health or performance check.</p>
+      {open.state === "EMPTY" ? (
+        <div data-work-state={open.state}>
+          <p className="text-lg font-semibold text-fr-v2-graphite">{open.display.label}</p>
+          {open.display.detail ? <p className="mt-1 text-sm text-fr-v2-muted">{open.display.detail}</p> : null}
         </div>
       ) : (
-        <div className={cattleStyles.settle} key={p.jobId}>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <StateLabel state={p.priority} />
-            {p.blockers.length > 0 ? <StateLabel state={p.blockers[0].state} /> : <StateLabel state={p.readiness} />}
-          </div>
-          <h3 className="mt-2 text-[26px] font-semibold leading-tight tracking-tight text-fr-v2-graphite">{p.title}</h3>
-          <p className="mt-1 text-[15px] text-fr-v2-charcoal">{p.why.summary}</p>
-          <div className="mt-2">
-            <Timing work={p} />
-          </div>
-          {p.blockers.map((b) => (
-            <p key={b.text} className="mt-2 text-sm text-fr-v2-charcoal">
-              {b.text}
-            </p>
-          ))}
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            {p.actionKind === "RECORD_WEIGHT" && onRecordWeight ? (
-              <button type="button" onClick={onRecordWeight} className="min-h-12 rounded-[8px] bg-fr-v2-forest px-6 text-base font-semibold text-white">
-                Record weight
-              </button>
-            ) : null}
-            <Disclosure label="Why?">
-              <Why work={p} />
-            </Disclosure>
-          </div>
-        </div>
+        <PrimaryJob p={open.primary} onRecordWeight={onRecordWeight} />
       )}
-      {others.length > 0 ? (
+      {open.state === "ITEMS" && open.othersLabel ? (
         <div className="mt-4 border-t border-fr-v2-rule pt-2">
-          <Disclosure label={`${others.length} more open job${others.length === 1 ? "" : "s"}`}>
+          <Disclosure label={open.othersLabel}>
             <ul className="divide-y divide-fr-v2-rule">
-              {others.map((o) => (
+              {open.others.map((o) => (
                 <li key={o.jobId} className="py-3">
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="font-medium text-fr-v2-graphite">{o.title}</span>
-                    <StateLabel state={o.blockers[0]?.state ?? o.readiness} />
+                    <StateLabel state={o.headlineState} />
                   </div>
                   <Timing work={o} />
                   <Disclosure label="Why?">
@@ -151,13 +126,44 @@ export function WorkPanel({ work, onRecordWeight, resolvedTitles }: { work: Anim
               {work.closed.map((c) => (
                 <li key={c.jobId} className="flex items-baseline justify-between gap-3 py-2 text-sm">
                   <span className="text-fr-v2-graphite">{c.title}</span>
-                  <span className="text-fr-v2-muted">{c.completed?.label ?? c.status.label}</span>
+                  <span className="text-fr-v2-muted">{c.completed.label}</span>
                 </li>
               ))}
             </ul>
           </Disclosure>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function PrimaryJob({ p, onRecordWeight }: { p: WorkVM; onRecordWeight: (() => void) | null }) {
+  return (
+    <div className={cattleStyles.settle} key={p.jobId}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <StateLabel state={p.priority} />
+        <StateLabel state={p.headlineState} />
+      </div>
+      <h3 className="mt-2 text-[26px] font-semibold leading-tight tracking-tight text-fr-v2-graphite">{p.title}</h3>
+      <p className="mt-1 text-[15px] text-fr-v2-charcoal">{p.why.summary}</p>
+      <div className="mt-2">
+        <Timing work={p} />
+      </div>
+      {p.blockers.map((b) => (
+        <p key={b.text} className="mt-2 text-sm text-fr-v2-charcoal">
+          {b.text}
+        </p>
+      ))}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        {p.actionKind === "RECORD_WEIGHT" && onRecordWeight ? (
+          <button type="button" onClick={onRecordWeight} className="min-h-12 rounded-[8px] bg-fr-v2-forest px-6 text-base font-semibold text-white">
+            Record weight
+          </button>
+        ) : null}
+        <Disclosure label="Why?">
+          <Why work={p} />
+        </Disclosure>
+      </div>
     </div>
   );
 }

@@ -26,6 +26,7 @@ import {
   type DisplayState,
 } from "./display-states";
 import { formatDate, formatDayMonth } from "./format";
+import { details, type Details } from "./view-state";
 
 export interface WhySource {
   label: string;
@@ -37,17 +38,16 @@ export interface WhyVM {
   /** One sentence: why this matters. */
   summary: string;
   /** Where the work comes from (programme, requirement, record gap, suggestion). */
-  origins: string[];
+  origins: Details<string>;
   /** Plain explanation lines from the owning engine's evidence (C8 explanation, C9 window basis, completion rule). */
-  evidence: string[];
-  assumptions: string[];
-  limitations: string[];
-  unknowns: string[];
-  sources: WhySource[];
+  evidence: Details<string>;
+  /** Assumptions, limitations and unknowns, in that order (each kept, none merged into another). */
+  caveats: Details<string>;
+  sources: Details<WhySource>;
   /** How the work gets marked done. */
   completionRule: string;
   /** Technical provenance (shown only on request). */
-  technical: { label: string; value: string }[];
+  technical: Details<{ label: string; value: string }>;
 }
 
 export interface WorkBlockerVM {
@@ -67,12 +67,14 @@ export interface WorkVM {
   completion: DisplayState;
   open: boolean;
   /** Recommended (never legal) window. */
-  window: { label: string; opensAt: string | null; dueAt: string | null } | null;
-  /** Only when C9 sourced a hard deadline. */
-  hardDeadline: { label: string; dueAt: string } | null;
-  blockers: WorkBlockerVM[];
-  /** When the kernel completed it, and on what basis. */
-  completed: { at: string; label: string } | null;
+  window: { state: "RECOMMENDED"; label: string; opensAt: string | null; dueAt: string | null } | { state: "NONE" };
+  /** Only when C9 sourced a hard deadline — the only "Must be done by". */
+  hardDeadline: { state: "HARD_DEADLINE"; label: string; dueAt: string } | { state: "NONE" };
+  blockers: Details<WorkBlockerVM>;
+  /** The readiness shown with the job: the first open blocker's state, else the kernel readiness. */
+  headlineState: DisplayState;
+  /** When the kernel completed it, and on what basis (records vs a farmer override stay distinct). */
+  completed: { state: "COMPLETED"; at: string; label: string } | { state: "NOT_COMPLETED"; label: string };
   why: WhyVM;
 }
 
@@ -125,6 +127,11 @@ function blockerText(item: CattlePlanWorkItem | undefined, status: string): stri
   return "Cleared.";
 }
 
+/** How a job was closed, kept distinct everywhere it's shown: by records, by a farmer override, or marked done. */
+export function completionBasisLabel(basis: string): string {
+  return basis === "CANONICAL_EVIDENCE" ? "Closed by your records" : basis === "FARMER_OVERRIDE" ? "Marked done (override)" : "Marked done";
+}
+
 function completionRule(job: PlanJob): string {
   const c = job.completionContract;
   if (c.kind === "MANUAL") return "No record can prove this one, so you mark it done yourself.";
@@ -137,12 +144,12 @@ function completionRule(job: PlanJob): string {
 
 function windowOf(job: PlanJob): WorkVM["window"] {
   const w = job.timing.recommendedWindow;
-  if (w === null) return null;
+  if (w === null) return { state: "NONE" };
   const from = w.startIso === null ? null : formatDayMonth(w.startIso);
   // C9 windows are [opens, due): the last day inside is the day before `due`.
   const to = w.endIso === null ? null : formatDayMonth(w.endIso);
   const label = from && to ? `Recommended window ${from} – before ${to}` : to ? `Recommended before ${to}` : from ? `Recommended from ${from}` : "Recommended window";
-  return { label, opensAt: w.startIso, dueAt: w.endIso };
+  return { state: "RECOMMENDED", label, opensAt: w.startIso, dueAt: w.endIso };
 }
 
 function whyOf(job: PlanJob, group: CattlePlanProposalGroup | undefined, record: RecommendationRecord | null, recordUnavailable: boolean, base: { why: string }, directory: CattleDirectory): WhyVM {
@@ -164,7 +171,7 @@ function whyOf(job: PlanJob, group: CattlePlanProposalGroup | undefined, record:
     if (i.timing.hardDeadline) sources.push({ label: i.timing.hardDeadline.authority.sourceId, detail: `deadline authority, version ${i.timing.hardDeadline.authority.version}` });
   }
   for (const s of record?.sourceRefs ?? []) sources.push({ label: s.sourceId, detail: `version ${s.version}` });
-  const technical: WhyVM["technical"] = [
+  const technical: { label: string; value: string }[] = [
     { label: "Plan job", value: job.id },
     { label: "Action key", value: job.actionKey },
     { label: "Priority basis", value: job.systemPriority.basis },
@@ -181,18 +188,18 @@ function whyOf(job: PlanJob, group: CattlePlanProposalGroup | undefined, record:
   void directory;
   return {
     summary: base.why,
-    origins,
-    evidence: [...new Set(evidence)],
-    assumptions: record?.assumptions ?? [],
-    limitations: (record?.limitations ?? []).filter((x) => Object.hasOwn(LIMITATION_COPY, x)).map((x) => LIMITATION_COPY[x]),
-    unknowns: [
+    origins: details(origins),
+    evidence: details([...new Set(evidence)]),
+    caveats: details([
+      ...(record?.assumptions ?? []),
+      ...(record?.limitations ?? []).filter((x) => Object.hasOwn(LIMITATION_COPY, x)).map((x) => LIMITATION_COPY[x]),
       ...(record && record.expectedOutcome?.effect.state !== "EFFECT_SUPPORTED" ? ["No model estimates what this changes in weight or money."] : []),
       // The C8 record behind a recommendation job couldn't be read: its evidence is unknown, not absent.
       ...(recordUnavailable ? ["The recommendation record couldn't be read, so its evidence and assumptions aren't shown."] : []),
-    ],
-    sources,
+    ]),
+    sources: details(sources),
     completionRule: completionRule(job),
-    technical,
+    technical: details(technical),
   };
 }
 
@@ -224,6 +231,7 @@ export function workVM(state: CattlePlanJobState, outputs: CattleOutputs, animal
   }
   const open = !["COMPLETED", "OBSOLETE", "CANCELLED"].includes(job.status);
   const hd = job.timing.hardDeadline;
+  const readiness = displayOf(READINESS_DISPLAY, state.evaluation?.readiness.state ?? "NOT_EVALUATED", "READINESS");
   return {
     jobId: job.id,
     actionKind: actionKindOf(job),
@@ -231,16 +239,17 @@ export function workVM(state: CattlePlanJobState, outputs: CattleOutputs, animal
     shortTitle: copy.short,
     priority: displayOf(PRIORITY_DISPLAY, job.systemPriority.tier, "PRIORITY"),
     status: displayOf(JOB_STATUS_DISPLAY, job.status, "JOB"),
-    readiness: displayOf(READINESS_DISPLAY, state.evaluation?.readiness.state ?? "NOT_EVALUATED", "READINESS"),
+    readiness,
     completion: displayOf(COMPLETION_DISPLAY, state.evaluation?.completion.state ?? "NOT_EVALUATED", "COMPLETION"),
     open,
     window: windowOf(job),
-    hardDeadline: hd === null ? null : { label: `Must be done by ${formatDate(hd.dueIso)}`, dueAt: hd.dueIso },
-    blockers,
+    hardDeadline: hd === null ? { state: "NONE" } : { state: "HARD_DEADLINE", label: `Must be done by ${formatDate(hd.dueIso)}`, dueAt: hd.dueIso },
+    blockers: details(blockers),
+    headlineState: blockers[0]?.state ?? readiness,
     completed:
       job.completion === null
-        ? null
-        : { at: job.completion.at, label: job.completion.basis === "CANONICAL_EVIDENCE" ? "Closed by your records" : job.completion.basis === "FARMER_OVERRIDE" ? "Marked done (override)" : "Marked done" },
+        ? { state: "NOT_COMPLETED", label: displayOf(JOB_STATUS_DISPLAY, job.status, "JOB").label }
+        : { state: "COMPLETED", at: job.completion.at, label: completionBasisLabel(job.completion.basis) },
     why: whyOf(job, group, recordOf(outputs, animalId, job), actionKindOf(job) !== null && !outputs.recommendations.ok, copy, directory),
   };
 }

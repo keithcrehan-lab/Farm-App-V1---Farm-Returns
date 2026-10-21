@@ -41,14 +41,16 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
     else {
       const before = shown.profile;
       const after = view.profile;
-      const chartIds = (c: typeof before.chart) => (c.state === "KNOWN" ? c.value.points.flatMap((x) => x.recordIds) : []);
+      // What changed between two renders (animation only): ids that appeared, jobs that closed.
+      const chartIds = (c: typeof before.chart) => (c.state === "CHART" || c.state === "NOT_CHARTABLE" ? c.points.flatMap((x) => x.recordIds) : []);
       const oldIds = new Set(chartIds(before.chart));
-      const openBefore = new Set(before.work.open.state === "KNOWN" ? [before.work.open.value.primary, ...before.work.open.value.others].filter((w) => w !== null).map((w) => w.jobId) : []);
-      const oldTimeline = new Set(before.timeline.map((e) => e.id));
+      const openBefore = new Set(before.work.open.state === "ITEMS" ? [before.work.open.primary, ...before.work.open.others].map((w) => w.jobId) : []);
+      const timelineIds = (t: typeof before.timeline) => (t.state === "ITEMS" ? t.items.map((e) => e.id) : []);
+      const oldTimeline = new Set(timelineIds(before.timeline));
       setChanges({
         points: chartIds(after.chart).filter((id) => !oldIds.has(id)),
         resolved: after.work.closed.filter((c) => openBefore.has(c.jobId)).map((c) => c.title),
-        timeline: new Set(after.timeline.filter((e) => !oldTimeline.has(e.id)).map((e) => e.id)),
+        timeline: new Set(timelineIds(after.timeline).filter((id) => !oldTimeline.has(id))),
       });
     }
   }
@@ -61,7 +63,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
   return (
     <article className={`mx-auto max-w-5xl pb-10 ${busyClass(pending, failed)}`} aria-labelledby="animal-title" aria-busy={pending}>
       <div className="flex items-center justify-between gap-3">
-        <BackLink href={groupHref} label={p.identity.group.value ?? "Cattle"} />
+        <BackLink href={groupHref} label={p.identity.group.backLabel} />
         <ViewStatus pending={pending} failed={failed} />
       </div>
 
@@ -80,7 +82,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
             {p.identity.group.value ? p.identity.group.value : <StateLabel state={p.identity.group.state} />}
             {" · "}
             {p.identity.location.value ?? p.identity.location.state.label}
-            {p.identity.location.housing.state === "KNOWN" && p.identity.location.housing.housed ? " (housed)" : ""}
+            {p.identity.location.housingNote ? ` ${p.identity.location.housingNote}` : null}
           </p>
         </div>
       </header>
@@ -110,7 +112,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
             <SectionHeading id="attention-h" title="What needs attention" />
             <div className="mt-4">
               <WorkPanel work={p.work} onRecordWeight={() => setSheet(true)} resolvedTitles={changes.resolved} />
-              {p.work.open.state !== "KNOWN" || p.work.open.value.primary?.actionKind !== "RECORD_WEIGHT" ? (
+              {p.work.open.state !== "ITEMS" || p.work.open.primary.actionKind !== "RECORD_WEIGHT" ? (
                 <button type="button" onClick={() => setSheet(true)} className="mt-4 min-h-11 rounded-[8px] border border-fr-v2-rule px-4 text-sm font-medium text-fr-v2-graphite">
                   Record a weight
                 </button>
@@ -138,7 +140,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
               </div>
               <div>
                 <dt className="text-fr-v2-muted">Most recent</dt>
-                <dd className="text-fr-v2-graphite">{p.gain.recent.state === "UNAVAILABLE" ? <StateLabel state={p.gain.recent.display} detail /> : (p.gain.recent.value ?? "No interval worked out yet")}</dd>
+                <dd className="text-fr-v2-graphite">{p.gain.recent.value ?? <StateLabel state={p.gain.recent.state} detail />}</dd>
               </div>
               <div>
                 <dt className="text-fr-v2-muted">Goal</dt>
@@ -166,7 +168,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
           <section aria-labelledby="activity-h">
             <SectionHeading id="activity-h" title="Recent activity" />
             <div className="mt-2">
-              <TimelineSection entries={p.timeline} freshIds={changes.timeline} gaps={p.timelineGaps} />
+              <TimelineSection timeline={p.timeline} freshIds={changes.timeline} gapNote={p.timelineGapNote} />
             </div>
           </section>
         </div>

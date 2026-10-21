@@ -9,9 +9,9 @@ import "server-only";
 
 import { buildWeightReadContract } from "@/domain/cattle/weights";
 import { evaluatePerformance } from "@/domain/cattle/performance";
-import { buildAnimalProfile, buildHerd, currentWeightInput, type AnimalProfileVM, type CattleDirectory, type CattleOutputs, type HerdVM } from "@/domain/cattle/presentation";
+import { buildAnimalProfile, buildHerd, currentWeightInput, details, saleDateSourceText, seal, type AnimalProfileVM, type CattleDirectory, type CattleOutputs, type Details, type HerdVM, type PlanInputs, type SealedInput } from "@/domain/cattle/presentation";
 import { ageInMonths } from "@/domain/cattle/presentation";
-import { summariseAnimalCosts, utcDateOfInstant, valueAnimalAtMart, type AnimalCostRead, type AnimalPlanAssumptions, type CurrentWeightRead, type HousingObservation, type MartRef, type MartValuation } from "@/domain/animal-plan";
+import { summariseAnimalCosts, utcDateOfInstant, valueAnimalAtMart, type AnimalCostRead, type AnimalPlanAssumptions, type MartRef, type MartValuation } from "@/domain/animal-plan";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type { CattleDemoSession } from "@/components/cattle/session/demo-session";
 import { DEMO_FOOD_PRODUCT, DEMO_OBLIGATION_ID, DEMO_PRODUCT_ID, DEMO_PROGRAMME_ID, hash } from "./demo-catalogue";
@@ -47,22 +47,21 @@ function costsFor(outputs: DemoEngineOutputs, animalId: string): AnimalCostRead 
 
 export interface AnimalPlanBaseVM {
   asOfDate: string;
-  /** The current weight with its unknown reason kept (never a bare `null`). */
-  currentWeight: CurrentWeightRead;
-  /** OBSERVED housing now (C1 location), explicitly — UNKNOWN is never read as outdoors (the plan asks for an assumption). */
-  currentHousing: HousingObservation;
   defaults: AnimalPlanAssumptions;
   /**
-   * Where the starting sale date came from: the declared goal's target date; a suggestion because
-   * C6 says there is no goal date (NO_GOAL_DATE); or a suggestion because the goal couldn't be
-   * determined (GOAL_UNRESOLVED — never presented as "no goal").
+   * Where the starting sale date came from, as a sentence: the declared goal's target date; a
+   * suggestion because C6 says there is no goal date; or a suggestion because the goal couldn't be
+   * determined (never presented as "no goal").
    */
-  saleDateSource: "GOAL" | "NO_GOAL_DATE" | "GOAL_UNRESOLVED";
-  costs: AnimalCostRead;
-  marts: MartRef[];
+  saleDateSource: string;
+  marts: Details<MartRef>;
   defaultMartId: string;
-  /** One valuation per mart, all from the fixture provider. */
-  valuations: Record<string, MartValuation>;
+  /**
+   * The owner reads the plan economics use (current weight and housing with their unknown reasons,
+   * the cost summary, one fixture valuation per mart). Sealed: the plan component hands them to
+   * `planScreenView` and never reads them.
+   */
+  inputs: SealedInput<PlanInputs>;
 }
 
 export interface DemoAnimalView {
@@ -109,14 +108,11 @@ export function animalViewFrom(outputs: DemoEngineOutputs | CattleOutputs, anima
     profile,
     plan: {
       asOfDate,
-      currentWeight: currentWeightInput(profile.weight),
-      currentHousing: housing,
       defaults: demoDefaultAssumptions(fromGoal && goalDate !== null ? goalDate : fallbackSale, housing),
-      saleDateSource: fromGoal ? "GOAL" : goal.state === "UNRESOLVED" ? "GOAL_UNRESOLVED" : "NO_GOAL_DATE",
-      costs,
-      marts,
+      saleDateSource: saleDateSourceText(fromGoal ? "GOAL" : goal.state === "UNRESOLVED" ? "GOAL_UNRESOLVED" : "NO_GOAL_DATE"),
+      marts: details(marts),
       defaultMartId: DEMO_DEFAULT_MART,
-      valuations,
+      inputs: seal({ asOfDate, currentWeight: currentWeightInput(profile.weight), currentHousing: housing, costs, valuations }),
     },
   };
 }

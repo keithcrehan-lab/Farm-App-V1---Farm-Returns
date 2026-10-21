@@ -30,11 +30,14 @@ export type HousingBasis = "OBSERVED" | "ASSUMED" | "UNKNOWN";
 
 /**
  * The OBSERVED housing state now (C1 location), explicitly: KNOWN, or UNKNOWN with why
- * (not recorded, records disagree, a record can't be read, or the record itself couldn't be read).
+ * (not recorded, records disagree, a record can't be read, the record itself couldn't be read, or
+ * the recorded location's kind doesn't establish housing — HOLDING, EXTERNAL or OTHER).
  */
 export type HousingObservation =
   | { state: "KNOWN"; housed: boolean }
-  | { state: "UNKNOWN"; reason: "NOT_RECORDED" | "RECORDS_DISAGREE" | "RECORD_INVALID" | "RECORD_UNAVAILABLE" };
+  | { state: "UNKNOWN"; reason: HousingUnknownReason };
+
+export type HousingUnknownReason = "NOT_RECORDED" | "RECORDS_DISAGREE" | "RECORD_INVALID" | "RECORD_UNAVAILABLE" | "LOCATION_NOT_SPECIFIC";
 
 export type PlanDateIssue = "SALE_DATE_INVALID" | "SALE_DATE_NOT_AFTER_TODAY" | "HOUSING_DATE_INVALID" | "HOUSING_DATE_AFTER_SALE_DATE" | "HOUSING_DATE_BEFORE_TODAY";
 

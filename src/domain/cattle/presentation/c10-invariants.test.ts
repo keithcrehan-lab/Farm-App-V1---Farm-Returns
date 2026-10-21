@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { derivePlanIntervals, summariseAnimalCosts, type AnimalCostEntry, type HousingObservation } from "../../animal-plan";
 import { costView } from "./cost-view";
-import { currentWeightInput, latestWeightOf, previousWeightLine, type LatestWeightVM } from "./animal-profile";
+import { currentWeightInput, latestWeightOf, previousWeightLine, type LatestWeightVM } from "./weight-view";
 import { canonicalNumberText, stepDecimalText } from "./numeric-input";
 import { planTimeline } from "./plan-timeline";
 
@@ -10,12 +10,16 @@ import { planTimeline } from "./plan-timeline";
 /** Wording that claims known absence. An unknown / unavailable / conflicting value must never produce it. */
 const FALSE_EMPTY = [/\bno (earlier|previous) weight\b/i, /\bnone\b/i, /\bnot recorded\b/i, /\bnot weighed\b/i, /€0\b/, /\bno costs?\b/i, /\bnothing\b/i, /^0\b/];
 
-const series = (latest: { state: string; kg?: number | null; observedAt?: string | null; candidateKg?: number[] }) => ({
-  latest: { kg: null, observedAt: null, candidateKg: [], ...latest },
-});
+type SeriesRead = NonNullable<Parameters<typeof latestWeightOf>[0]>;
+/** A C4 series shape: `latest` plus the one live record a KNOWN latest weight points at (its basis is the provenance). */
+const series = (latest: { state: string; kg?: number | null; observedAt?: string | null; candidateKg?: number[] }, basis = "MEASURED", method = "SCALE"): SeriesRead =>
+  ({
+    latest: { kg: null, observedAt: null, candidateKg: [], recordIds: latest.state === "KNOWN" ? ["r1"] : [], reasonCodes: [], ...latest },
+    observations: latest.state === "KNOWN" ? [{ recordId: "r1", measurementBasis: basis, observation: { method } }] : [],
+  }) as unknown as SeriesRead;
 
 describe("invariant A — the latest weight crosses the boundary explicitly", () => {
-  const cases: [string, ReturnType<typeof series> | null, LatestWeightVM["state"], string, string][] = [
+  const cases: [string, SeriesRead | null, LatestWeightVM["state"], string, string][] = [
     ["known", series({ state: "KNOWN", kg: 548.24, observedAt: "2026-10-16T09:00:00Z" }), "KNOWN", "Last recorded 548.24 kg on 16 Oct.", "KNOWN"],
     ["known none", series({ state: "NONE" }), "NONE", "No earlier weight recorded.", "NOT_WEIGHED"],
     ["conflict", series({ state: "EVIDENCE_CONFLICT", observedAt: "2026-10-10T09:00:00Z", candidateKg: [498, 512] }), "CONFLICT", "Previous weight couldn't be determined — records disagree (498 kg or 512 kg).", "WEIGHTS_DISAGREE"],
@@ -131,7 +135,8 @@ describe("invariant C — the timeline is the canonical intervals, worded", () =
     if (t.state !== "SPLIT") return;
     expect(t.summary).not.toMatch(/not housed/);
     expect(t.segments).toEqual([{ kind: "HOUSED", startPct: 0, widthPct: 100 }]);
-    expect(t.housedMarker).toBeNull();
+    expect(t.housedMarker).toEqual({ state: "NOT_SHOWN" });
+    expect(t.housedSegments).toEqual([{ kind: "HOUSED", startPct: 0, widthPct: 100 }]);
   });
 
   it("the drawn segments tile the bar exactly in the canonical day proportions", () => {
@@ -140,6 +145,7 @@ describe("invariant C — the timeline is the canonical intervals, worded", () =
     expect(t.segments.map((s) => s.kind)).toEqual(["OUTDOORS", "HOUSED"]);
     expect(t.segments[0].widthPct + t.segments[1].widthPct).toBeCloseTo(100, 10);
     expect(t.segments[1].startPct).toBeCloseTo((23 / 49) * 100, 10);
-    expect(t.housedMarker).toEqual({ pct: (23 / 49) * 100, label: "8 Nov" });
+    expect(t.housedMarker).toEqual({ state: "SHOWN", pct: (23 / 49) * 100, label: "8 Nov" });
+    expect(t.housedSegments).toEqual([t.segments[1]]);
   });
 });

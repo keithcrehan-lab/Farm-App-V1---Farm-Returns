@@ -22,7 +22,7 @@ import type { AdministrationWithdrawalState, WithdrawalGateState } from "../heal
 import type { DerivationState, TargetComparisonState, TrendState } from "../performance";
 import type { ProgrammeOccurrenceState } from "../programmes";
 import type { ObligationState } from "../regulatory";
-import type { LatestWeightState, ScopeMembershipState } from "../weights";
+import type { LatestWeightState, ScopeMembershipState, WeightMeasurementBasis } from "../weights";
 import type { CompletionState, PlanBlockerStatus, PlanJobStatus, ReadinessState, SystemPriorityTier } from "../../plan";
 
 export type DisplayTone = "good" | "neutral" | "info" | "attention" | "risk" | "unknown" | "conflict" | "review";
@@ -59,7 +59,8 @@ export const MEMBERSHIP_DISPLAY = {
 
 /** C4 — the latest known weight. */
 export const LATEST_WEIGHT_DISPLAY = {
-  KNOWN: ds("WEIGHT", "KNOWN", "Weighed", "neutral"),
+  // Basis-neutral: how a KNOWN weight was taken is `WEIGHT_BASIS_DISPLAY` (never "Weighed" for an estimate).
+  KNOWN: ds("WEIGHT", "KNOWN", "Weight recorded", "neutral"),
   NONE: ds("WEIGHT", "NONE", "Not weighed yet", "unknown", "No weight is recorded for this animal."),
   EVIDENCE_CONFLICT: ds("WEIGHT", "EVIDENCE_CONFLICT", "Weights disagree", "conflict", "Different weights were recorded at the same time; neither is used."),
   UNSUPPORTED: ds("WEIGHT", "UNSUPPORTED", "Weight unit not supported", "review", "The latest weight is in a unit that can't be converted to kilograms."),
@@ -121,10 +122,48 @@ export const UNAVAILABLE_DISPLAY = {
   GROUP_SCOPE: ds("SCOPE", "UNAVAILABLE", "Membership couldn't be checked", "unknown", "The group's membership couldn't be worked out, so which animals are in it — and how many — is unknown, not zero."),
   PLANNING: ds("PLANNING", "UNAVAILABLE", "Work couldn't be checked", "unknown", "The planning run stopped rather than guess, so jobs are unknown — that doesn't mean nothing needs doing."),
   COSTS: ds("COST", "UNAVAILABLE", "Costs couldn't be read", "unknown", "The cost records couldn't be read for this date, so the cost is unknown — not €0 and not \"none recorded\"."),
+  WEIGHT_HISTORY: ds("WEIGHT_HISTORY", "UNAVAILABLE", "Weight history couldn't be read", "unknown", "A weight record couldn't be read, so the weights weren't evaluated — the chart isn't drawn until it's fixed."),
+  HEALTH: ds("HEALTH", "UNAVAILABLE", "Health records couldn't be read", "unknown", "Health records couldn't be read for this animal, so withdrawal and treatment status are unknown."),
+  HEALTH_CONTEXT: ds("HEALTH_CONTEXT", "UNAVAILABLE", "Couldn't be checked", "unknown", "The evaluation didn't run, so their status is unknown."),
+  ACTIVITY: ds("ACTIVITY", "UNAVAILABLE", "Activity couldn't be fully read", "unknown", "Some record families couldn't be read, so no activity can be listed as complete."),
 } as const;
 
-/** A KNOWN empty work list: the planning run worked and raised nothing open (distinct from PLANNING unavailable). */
-export const NO_OPEN_WORK: DisplayState = ds("WORK", "NONE_OPEN", "Nothing currently needs attention", "good");
+/**
+ * A KNOWN empty work list: the planning run worked and raised nothing open (distinct from PLANNING
+ * unavailable). Neutral, never "good": no open job isn't a health or performance check.
+ */
+export const NO_OPEN_WORK: DisplayState = ds("WORK", "NONE_OPEN", "Nothing currently needs attention", "neutral", "Nothing in the records raises work right now. That isn't a health or performance check.");
+
+/**
+ * Known-empty collections, each in its own words (the owner evaluated and found none). The
+ * component never writes these: it renders the EMPTY state's display (`view-state.ts`).
+ */
+export const EMPTY_DISPLAY = {
+  WEIGHTS: ds("EMPTY", "WEIGHTS", "No weights recorded yet", "unknown", "Nothing to chart until a weight is recorded."),
+  ANIMAL_WORK: ds("EMPTY", "ANIMAL_WORK", "No open jobs for this animal", "neutral", "Nothing in the records raises work right now. That isn't a health or performance check."),
+  PROGRAMMES: ds("EMPTY", "PROGRAMMES", "Not in any declared veterinary programme", "neutral"),
+  OBLIGATIONS: ds("EMPTY", "OBLIGATIONS", "No recorded requirement applies", "neutral"),
+  MEDICINES: ds("EMPTY", "MEDICINES", "No medicines recorded", "neutral"),
+  ACTIVITY: ds("EMPTY", "ACTIVITY", "No dated records for this animal yet", "unknown"),
+  HERD_ANIMALS: ds("EMPTY", "HERD_ANIMALS", "No animals recorded", "unknown", "There are no animals in this herd yet. Nothing is shown as on track, and no work is raised, until animals are recorded."),
+  HERD_GROUPS: ds("EMPTY", "HERD_GROUPS", "No groups set up", "unknown", "Animals are recorded, but no management group is set up to list them by."),
+  GROUP_ANIMALS: ds("EMPTY", "GROUP_ANIMALS", "No animals are recorded in this group", "unknown"),
+  GAIN_INTERVAL: ds("EMPTY", "GAIN_INTERVAL", "No interval worked out yet", "unknown"),
+} as const;
+
+/** C4 — how a KNOWN weight was obtained (its measurement basis, from the C4 series entry). Never "Weighed" unless MEASURED. */
+export const WEIGHT_BASIS_DISPLAY = {
+  MEASURED: ds("WEIGHT_BASIS", "MEASURED", "Weighed", "neutral"),
+  ESTIMATED: ds("WEIGHT_BASIS", "ESTIMATED", "Estimated weight", "info", "An estimate (not a scale reading)."),
+  DERIVED: ds("WEIGHT_BASIS", "DERIVED", "External figure", "info", "A figure from an outside source, not weighed here."),
+  UNKNOWN: ds("WEIGHT_BASIS", "UNKNOWN", "Method not recorded", "review", "How this weight was taken isn't recorded."),
+} as const satisfies Table<WeightMeasurementBasis>;
+
+/** Records exist but none can be charted (never "no weights"). */
+export const NOT_CHARTABLE_DISPLAY = {
+  UNSUPPORTED: ds("CHART", "NOT_CHARTABLE_UNSUPPORTED", "Weight history can't be charted yet", "review", "One or more records use a weight unit Farm Return can't currently convert to kilograms."),
+  EXCLUDED: ds("CHART", "NOT_CHARTABLE_EXCLUDED", "Weight history can't be charted yet", "review", "The recorded weights can't be used, so there's nothing to plot — the records are still listed."),
+} as const;
 
 /** Every unavailable display code (the C10 invariant's tests assert these, never a known-empty state). */
 export const UNAVAILABLE_CODES: readonly string[] = Object.values(UNAVAILABLE_DISPLAY).map((d) => d.code);

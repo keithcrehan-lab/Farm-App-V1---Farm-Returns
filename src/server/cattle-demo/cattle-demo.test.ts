@@ -3,7 +3,7 @@ import type { CattleDemoSession } from "@/components/cattle/session/demo-session
 import { parseCattleDemoSession } from "@/components/cattle/session/demo-session";
 import { demoAnimalView, demoHerdView, demoProjection, isCattleDemoMode } from "./demo-service";
 import { replayCattleDemo } from "./demo-replay";
-import { saleWithdrawalNotice } from "@/domain/cattle/presentation";
+import { listedItems, saleWithdrawalNotice, unseal } from "@/domain/cattle/presentation";
 import { animalIdOf } from "./demo-herd";
 import { DEMO_ACTION_REGISTRY } from "./demo-catalogue";
 import { DEFAULT_CANDIDATE_ACTION_REGISTRY } from "@/domain/cattle/recommendations";
@@ -16,9 +16,11 @@ const view = (tag: string, session = EMPTY) => {
   return v.profile;
 };
 type Profile = ReturnType<typeof view>;
-const openWork = (p: Profile) => (p.work.open.state === "KNOWN" ? p.work.open.value : null);
-const primary = (p: Profile) => openWork(p)?.primary;
-const points = (p: Profile) => (p.chart.state === "KNOWN" ? p.chart.value.points : null);
+const primary = (p: Profile) => (p.work.open.state === "ITEMS" ? p.work.open.primary : null);
+const points = (p: Profile) => (p.chart.state === "CHART" || p.chart.state === "NOT_CHARTABLE" ? p.chart.points : null);
+const planInputs = (tag: string, scenario?: Parameters<typeof demoAnimalView>[2]) => unseal(demoAnimalView(EMPTY, tag, scenario)!.plan.inputs);
+const timelineTitles = (p: Profile) => listedItems(p.timeline).map((e) => e.title);
+const rowsOf = (herd: ReturnType<typeof demoHerdView>) => listedItems(herd.groups).flatMap((g) => (g.scope.state === "KNOWN" ? listedItems(g.scope.value.members) : []));
 
 describe("C10 demonstration replay — real frozen engines, honest states", { timeout: 60_000 }, () => {
   it("1427: identity, on track against the synthetic target; an old weight raises no work (no C10 staleness rule)", () => {
@@ -29,7 +31,10 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     expect(p.performanceState.code).toBe("TARGET:ON_TRACK");
     // Decision 4: the latest weight (14 Sep) is 32 days old, but the frozen default registry ships no staleness interval.
     expect(p.weight.state === "KNOWN" ? p.weight.observedAt.slice(0, 19) : p.weight.state).toBe("2026-09-14T10:00:00");
-    expect(openWork(p)).toEqual({ primary: null, others: [] });
+    expect(p.work.open).toMatchObject({ state: "EMPTY", display: { code: "EMPTY:ANIMAL_WORK" } });
+    // Provenance: the 14 Sep weight is a scale reading, so — and only so — it reads "Weighed".
+    expect(p.weight).toMatchObject({ state: "KNOWN", basis: { kind: "MEASURED", methodLabel: "Scale" } });
+    expect(p.metrics.weight.caption).toBe("Weighed 14 Sep");
     expect(p.projection.state.code).toBe("PREDICTION:PROJECTED");
   });
 
@@ -39,7 +44,7 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     expect(recordWeight?.trigger).toMatchObject({ kind: "WEIGHT_MISSING_OR_STALE", staleAfter: null });
     // RECORD_WEIGHT only where no usable weight is in view: 1442 (none) and 1438 (readings conflict).
     const herd = demoHerdView(EMPTY);
-    const weighing = herd.groups.flatMap((g) => (g.scope.state === "KNOWN" ? g.scope.value.members : [])).filter((a) => a.nextWork.state === "KNOWN" && a.nextWork.value?.title === "Record weight");
+    const weighing = rowsOf(herd).filter((a) => a.nextWork.state === "JOB" && a.nextWork.title === "Record weight");
     expect(weighing.map((a) => a.tag).sort()).toEqual(["1438", "1442"]);
   });
 
@@ -48,8 +53,8 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     const after = view("1442", weigh("1442", 400));
     expect(after.metrics.weight.value).toBe("400");
     expect(primary(after)).toBeNull();
-    expect(after.work.closed.map((c) => [c.actionKind, c.completed?.label])).toEqual([["RECORD_WEIGHT", "Closed by your records"]]);
-    expect(after.timeline.some((e) => e.title === "Work closed: Record weight")).toBe(true);
+    expect(after.work.closed.map((c) => [c.actionKind, c.completed.label])).toEqual([["RECORD_WEIGHT", "Closed by your records"]]);
+    expect(timelineTitles(after)).toContain("Work closed: Record weight");
     expect(points(after)?.at(-1)?.recordIds).toEqual(["SYNTH-W-SESSION-e1"]);
 
     const backdated = view("1442", weigh("1442", 400, "2026-10-01"));
@@ -65,16 +70,16 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     expect(conflict.weight).toMatchObject({ state: "CONFLICT", candidatesKg: [498, 512], display: { code: "WEIGHT:EVIDENCE_CONFLICT" } });
     expect(conflict.metrics.weight.value).toBeNull();
     // F005: the conflict reaches the plan as its own reason — never "not weighed".
-    expect(demoAnimalView(EMPTY, "1438")!.plan.currentWeight).toEqual({ state: "UNKNOWN", reason: "WEIGHTS_DISAGREE" });
+    expect(planInputs("1438").currentWeight).toEqual({ state: "UNKNOWN", reason: "WEIGHTS_DISAGREE" });
     expect(primary(conflict)?.blockers[0]?.state.code).toBe("BLOCKER:UNKNOWN");
     expect(view("1440").gain.state.code).toBe("GAIN:INSUFFICIENT_EVIDENCE");
     const none = view("1442");
     expect(none.weight).toMatchObject({ state: "NONE", display: { code: "WEIGHT:NONE" } });
-    expect(demoAnimalView(EMPTY, "1442")!.plan.currentWeight).toEqual({ state: "UNKNOWN", reason: "NOT_WEIGHED" });
-    expect(none.chart).toMatchObject({ state: "KNOWN", value: { points: [] } }); // C5 ran: a known-empty series
+    expect(planInputs("1442").currentWeight).toEqual({ state: "UNKNOWN", reason: "NOT_WEIGHED" });
+    expect(none.chart).toMatchObject({ state: "EMPTY", display: { code: "EMPTY:WEIGHTS" } }); // C4 and C5 ran: a known-empty series
     expect(view("1445").goal.state.code).toBe("GOAL:NONE");
     expect(view("1445").goal.read).toEqual({ state: "NONE" });
-    expect(demoAnimalView(EMPTY, "1445")!.plan.saleDateSource).toBe("NO_GOAL_DATE");
+    expect(demoAnimalView(EMPTY, "1445")!.plan.saleDateSource).toBe("No goal date is declared; the sale date is a starting suggestion.");
     expect(primary(view("1445"))?.actionKind).toBe("DECLARE_PRODUCTION_GOAL");
     const withdrawal = view("1447");
     expect(withdrawal.health.withdrawal.state.code).toBe("WITHDRAWAL:IN_WITHDRAWAL");
@@ -90,23 +95,23 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     expect(unknownWithdrawal.health.withdrawal.state.tone).toBe("unknown");
     expect(saleWithdrawalNotice(unknownWithdrawal.health.withdrawal, "2027-06-01")?.tone).toBe("unknown");
     expect(primary(view("1458"))?.priority.code).toBe("PRIORITY:HARD_OBLIGATION");
-    expect(primary(view("1452"))?.window?.label).toMatch(/^Recommended window/);
-    expect(primary(view("1452"))?.hardDeadline).toBeNull();
+    expect(primary(view("1452"))?.window).toMatchObject({ state: "RECOMMENDED", label: expect.stringMatching(/^Recommended window/) });
+    expect(primary(view("1452"))?.hardDeadline).toEqual({ state: "NONE" });
     // No location recorded: C1 location UNKNOWN, so the plan's observed housing is unknown (never "outdoors").
     const unrecorded = demoAnimalView(EMPTY, "1433")!;
     expect(unrecorded.profile.identity.location.state.code).toBe("IDENTITY:UNKNOWN");
-    expect(unrecorded.plan.currentHousing).toEqual({ state: "UNKNOWN", reason: "NOT_RECORDED" });
+    expect(unseal(unrecorded.plan.inputs).currentHousing).toEqual({ state: "UNKNOWN", reason: "NOT_RECORDED" });
     expect(unrecorded.plan.defaults.assumedCurrentHousing).toBeNull();
     expect(view("1449").identity.group.state.code).toBe("MEMBERSHIP:EVIDENCE_CONFLICT");
   });
 
   it("the herd lists unresolved membership in every group it might belong to, and counts per-animal work only", () => {
     const herd = demoHerdView(EMPTY);
-    const finishers = herd.groups.find((g) => g.name === "Finishers")!;
-    if (finishers.scope.state !== "KNOWN" || finishers.workCounts.state !== "KNOWN") throw new Error("scope");
+    const finishers = listedItems(herd.groups).find((g) => g.name === "Finishers")!;
+    if (finishers.scope.state !== "KNOWN" || finishers.workCounts.state !== "ITEMS") throw new Error("scope");
     expect(finishers.scope.value.unresolved.map((a) => [a.tag, a.membership.code])).toEqual([["1449", "MEMBERSHIP:EVIDENCE_CONFLICT"]]);
-    expect(finishers.scope.value.members.map((a) => a.tag)).not.toContain("1449");
-    expect(finishers.workCounts.value.find((w) => w.actionKind === "RECORD_WEIGHT")?.count).toBe(2);
+    expect(listedItems(finishers.scope.value.members).map((a) => a.tag)).not.toContain("1449");
+    expect(finishers.workCounts.items.find((w) => w.actionKind === "RECORD_WEIGHT")?.count).toBe(2);
     expect(herd.planning.state).toBe("PLANNING_OK");
   });
 
@@ -126,18 +131,20 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     expect(p.health.obligations).toMatchObject({ state: "UNAVAILABLE" });
     expect(p.recommendation.state.code).toBe("EVALUATION:UNAVAILABLE");
     expect(p.timelineGaps.join(" ")).toMatch(/weighings .*work/);
-    expect(view("1427").health.programmes).toMatchObject({ state: "KNOWN", value: [{ state: { code: "PROGRAMME:COMPLETED" } }] });
+    expect(view("1427").health.programmes).toMatchObject({ state: "ITEMS", items: [{ state: { code: "PROGRAMME:COMPLETED" } }] });
     expect(view("1427").timelineGaps).toEqual([]);
-    const rows = herd.groups.flatMap((g) => (g.scope.state === "KNOWN" ? g.scope.value.members : []));
+    const rows = rowsOf(herd);
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((a) => a.weightState.code === "EVALUATION:UNAVAILABLE" && a.nextWork.state === "UNAVAILABLE")).toBe(true);
-    expect(herd.groups.every((g) => g.workCounts.state === "UNAVAILABLE")).toBe(true);
+    expect(listedItems(herd.groups).every((g) => g.workCounts.state === "UNAVAILABLE")).toBe(true);
   });
 
   it("an empty herd: groups are known-empty (0 animals); work is whatever the planning run said — here it was rejected, so unavailable, never \"0 jobs\"", () => {
     const herd = demoHerdView(EMPTY, "EMPTY_HERD");
     expect(herd.animalCount).toBe(0);
-    expect(herd.groups.every((g) => g.scope.state === "KNOWN" && g.scope.value.memberCount === 0)).toBe(true);
+    expect(listedItems(herd.groups).every((g) => g.scope.state === "KNOWN" && g.scope.value.memberCount === 0 && g.scope.value.members.state === "EMPTY")).toBe(true);
+    expect(herd.overview).toMatchObject({ state: "EMPTY", display: { code: "EMPTY:HERD_ANIMALS" } });
+    expect(herd.summary).toMatch(/^No animals recorded · work couldn't be checked$/);
     expect(herd.planning.state).toBe("PLANNING_FAILED");
     expect(herd.openWorkCount.state).toBe("UNAVAILABLE");
   });
@@ -145,14 +152,14 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
   it("a fractional scale reading is recorded exactly as entered (audit F007)", () => {
     const p = view("1427", weigh("1427", 548.24));
     expect(p.weight).toMatchObject({ state: "KNOWN", kg: 548.24 });
-    expect(points(p)?.at(-1)?.kg).toBe(548.24);
+    expect(points(p)?.at(-1)?.plot).toEqual({ kind: "VALUE", kg: 548.24 });
   });
 
   it("saving a plan declares a new C6 goal version (sale date and target weight)", () => {
     const s: CattleDemoSession = { version: 1, events: [{ kind: "SAVE_PLAN_GOAL", eventId: "g1", tag: "1427", goalType: "FINISHING", targetKg: 620, targetDate: "2026-11-20" }] };
     const p = view("1427", s);
     expect(p.goal.read).toMatchObject({ state: "ACTIVE", targetWeight: { state: "KNOWN", kg: 620 }, targetDate: "2026-11-20" });
-    expect(p.timeline.some((e) => e.title === "Goal updated: Finishing" && e.infoClass === "INTENT")).toBe(true);
+    expect(listedItems(p.timeline).some((e) => e.title === "Goal updated: Finishing" && e.infoClass === "INTENT")).toBe(true);
   });
 
   it("the projection comes from C5 alone and is the same whatever the plan's feed inputs (it never sees them)", () => {
@@ -167,10 +174,10 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
   });
 
   it("valuations come from the labelled fixture provider and are never live", () => {
-    const v = demoAnimalView(EMPTY, "1427")!.plan.valuations;
+    const v = planInputs("1427").valuations;
     expect(v["SYNTH-MART-BLESSINGTON"]).toMatchObject({ state: "ESTIMATED", reportDate: "2026-10-16", provider: { kind: "DEVELOPMENT_FIXTURE", isLive: false }, estimateDerivation: "DERIVED_FROM_PER_KG_AND_LIVEWEIGHT" });
     expect(v["SYNTH-MART-STALE"].freshness?.state).toBe("STALE");
-    expect(demoAnimalView(EMPTY, "1442")!.plan.valuations["SYNTH-MART-BLESSINGTON"].state).toBe("NO_COMPARABLE");
+    expect(planInputs("1442").valuations["SYNTH-MART-BLESSINGTON"].state).toBe("NO_COMPARABLE");
   });
 
   it("the replay is deterministic and holds no state", () => {

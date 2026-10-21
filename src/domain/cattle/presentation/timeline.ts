@@ -6,7 +6,7 @@
  *
  * Information classes stay visibly distinct (fact, observation, intent,
  * derived, recommendation, cost record): a projection or suggestion is never
- * shown as something that happened.
+ * shown as something that happened, and an estimated weight is never a weighing.
  */
 
 import { animalAssertionHistory } from "../animal-snapshot";
@@ -14,6 +14,8 @@ import type { AnimalCostRead } from "../../animal-plan";
 import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
 import { ACTION_COPY } from "./display-states";
 import { formatDate, formatDayMonth, formatKg, formatMoney } from "./format";
+import { WEIGHT_METHOD_LABEL, weightRecordTitle } from "./weight-view";
+import { completionBasisLabel } from "./work-view";
 
 export type TimelineClass = "FACT" | "OBSERVATION" | "INTENT" | "DERIVED" | "RECOMMENDATION" | "COST";
 
@@ -80,8 +82,9 @@ export function buildAnimalTimeline(outputs: CattleOutputs, animalId: string, di
       entry({
         id: `weight:${w.recordId}`,
         at: w.observedAt,
-        title: kg !== null ? `Weighed ${formatKg(kg)}` : "Weight recorded (unit not convertible)",
-        detail: w.measurementBasis === "MEASURED" ? "Scale reading" : "Estimate",
+        // "Weighed" only for a measured record; an estimate / external figure / unrecorded method says so (C4 basis).
+        title: weightRecordTitle(kg, w.measurementBasis, w.observation.method),
+        detail: WEIGHT_METHOD_LABEL[w.observation.method] ?? "Method not recorded",
         infoClass: "OBSERVATION",
         marker: w.status === "SUPERSEDED" ? "SUPERSEDED" : w.inCompetition || (series?.latest.state === "EVIDENCE_CONFLICT" && series.latest.recordIds.includes(w.recordId)) ? "CONFLICT" : null,
       }),
@@ -138,7 +141,7 @@ export function buildAnimalTimeline(outputs: CattleOutputs, animalId: string, di
     const title = jobTitle(s.job.actionKey, directory);
     out.push(entry({ id: `job:${s.job.id}:created`, at: s.createdAt, title: `Work raised: ${title}`, detail: null, infoClass: "RECOMMENDATION", marker: null }));
     for (const e of s.events) {
-      if (e.type === "COMPLETED") out.push(entry({ id: `job:${s.job.id}:completed:${e.at}`, at: e.at, title: `Work closed: ${title}`, detail: e.basis === "CANONICAL_EVIDENCE" ? "Closed by your records" : "Marked done", infoClass: "RECOMMENDATION", marker: null }));
+      if (e.type === "COMPLETED") out.push(entry({ id: `job:${s.job.id}:completed:${e.at}`, at: e.at, title: `Work closed: ${title}`, detail: completionBasisLabel(e.basis), infoClass: "RECOMMENDATION", marker: null }));
     }
   }
 

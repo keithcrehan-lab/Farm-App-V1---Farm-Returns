@@ -20,7 +20,7 @@ vi.mock("next/navigation", () => ({ notFound: () => { throw new Error("NOT_FOUND
 vi.mock("@/app/(app)/cattle/actions", () => ({ loadCattleAnimal: vi.fn(() => new Promise(() => {})), projectCattleWeight: vi.fn(() => new Promise(() => {})), loadCattleHerd: vi.fn(() => new Promise(() => {})) }));
 // The plan screen debounces its projection request; with the request pending forever the plan shows "projecting…".
 
-import { buildAnimalProfile, buildHerd, UNAVAILABLE_CODES, type AnimalProfileVM, type CattleOutputs, type HerdVM } from "@/domain/cattle/presentation";
+import { buildAnimalProfile, buildHerd, listedItems, unseal, UNAVAILABLE_CODES, type AnimalProfileVM, type CattleOutputs, type HerdVM } from "@/domain/cattle/presentation";
 import type { AnimalCostRead } from "@/domain/animal-plan";
 import type { DemoAnimalView } from "@/server/cattle-demo/demo-service";
 import { replayCattleDemo } from "@/server/cattle-demo/demo-replay";
@@ -53,7 +53,7 @@ interface Mutation {
 }
 
 const isUnavailable = (a: { state: string; display?: { code: string } }) => a.state === "UNAVAILABLE" && UNAVAILABLE_CODES.includes(a.display!.code);
-const rowsOf = (herd: HerdVM) => herd.groups.flatMap((g) => (g.scope.state === "KNOWN" ? g.scope.value.members : []));
+const rowsOf = (herd: HerdVM) => listedItems(herd.groups).flatMap((g) => (g.scope.state === "KNOWN" ? listedItems(g.scope.value.members) : []));
 const rowOf = (herd: HerdVM, tag: string) => rowsOf(herd).find((r) => r.tag === tag);
 
 const MUTATIONS: Mutation[] = [
@@ -67,7 +67,7 @@ const MUTATIONS: Mutation[] = [
     forbidden: [/\b\d+ animals · /, /\b0 animals\b/, /No animals are recorded in this group/, /need weighing/],
     required: [/Membership couldn't be checked/, /how many — is unknown, not zero/],
     vm: (herd) => {
-      for (const g of herd.groups) {
+      for (const g of listedItems(herd.groups)) {
         expect(isUnavailable(g.scope), g.name).toBe(true);
         expect(isUnavailable(g.workCounts), g.name).toBe(true);
         expect(g).not.toHaveProperty("memberCount");
@@ -85,7 +85,7 @@ const MUTATIONS: Mutation[] = [
     required: [/work couldn't be checked/i],
     vm: (herd) => {
       expect(isUnavailable(herd.openWorkCount)).toBe(true);
-      for (const g of herd.groups) expect(isUnavailable(g.workCounts)).toBe(true);
+      for (const g of listedItems(herd.groups)) expect(isUnavailable(g.workCounts)).toBe(true);
       for (const r of rowsOf(herd)) expect(isUnavailable(r.nextWork), r.tag ?? "").toBe(true);
     },
   },
@@ -214,7 +214,7 @@ const MUTATIONS: Mutation[] = [
       o.recommendations = { ok: false, issues: [{ code: "CATTLE_RECOMMENDATION_TEST_FAILURE", ref: null }] } as CattleOutputs["recommendations"];
     },
     forbidden: [/Not in any declared veterinary programme/],
-    required: [/Couldn't be checked — the evaluation didn't run/],
+    required: [/Couldn't be checked/, /The evaluation didn't run, so their status is unknown/],
     vm: (_h, p) => {
       expect(isUnavailable(p.health.programmes)).toBe(true);
       expect(isUnavailable(p.health.obligations)).toBe(true);
@@ -245,7 +245,7 @@ const MUTATIONS: Mutation[] = [
     required: [/The goal couldn't be determined/, /current goal couldn't be determined/, /Unknown — the goal records couldn't be read/],
     vm: (_h, p, plan) => {
       expect(p.goal.read).toMatchObject({ state: "UNRESOLVED", display: { code: "EVALUATION:UNAVAILABLE" } });
-      expect(plan.saleDateSource).toBe("GOAL_UNRESOLVED");
+      expect(plan.saleDateSource).toBe("The goal couldn't be determined, so the sale date is a starting suggestion.");
     },
   },
   {
@@ -259,7 +259,7 @@ const MUTATIONS: Mutation[] = [
     required: [/current weight couldn't be checked/],
     vm: (_h, p, plan) => {
       expect(p.weight.state).toBe("UNAVAILABLE");
-      expect(plan.currentWeight).toEqual({ state: "UNKNOWN", reason: "WEIGHTS_UNAVAILABLE" });
+      expect(unseal(plan.inputs).currentWeight).toEqual({ state: "UNKNOWN", reason: "WEIGHTS_UNAVAILABLE" });
     },
   },
   {
@@ -273,7 +273,7 @@ const MUTATIONS: Mutation[] = [
     required: [/current housing status couldn't be checked — the animal's record couldn't be read/],
     vm: (_h, p, plan) => {
       expect(p.identity.location.housing).toEqual({ state: "UNKNOWN", reason: "RECORD_UNAVAILABLE" });
-      expect(plan.currentHousing).toEqual({ state: "UNKNOWN", reason: "RECORD_UNAVAILABLE" });
+      expect(unseal(plan.inputs).currentHousing).toEqual({ state: "UNKNOWN", reason: "RECORD_UNAVAILABLE" });
     },
   },
 ];
@@ -306,7 +306,7 @@ function build(m: Mutation, mutated: boolean) {
   const id = animalIdOf(m.tag);
   const o = outputsFor(m.tag, m.surface);
   if (mutated) m.mutate(o, id);
-  const standardCosts = demoAnimalView(EMPTY, m.tag)!.profile.costSummary;
+  const standardCosts = unseal(demoAnimalView(EMPTY, m.tag)!.plan.inputs).costs;
   const costs = mutated && m.costs ? m.costs(standardCosts) : standardCosts;
   const view = animalViewFrom(o, id, costs);
   return { herd: buildHerd(o, DEMO_DIRECTORY), profile: buildAnimalProfile(o, id, DEMO_DIRECTORY, costs), plan: view.plan };
@@ -335,7 +335,7 @@ describe("C10 availability invariant — unavailable never renders as known-empt
     o.performance = null;
     const herd = buildHerd(o, DEMO_DIRECTORY);
     expect(isUnavailable(herd.openWorkCount)).toBe(true);
-    expect(herd.groups.every((g) => isUnavailable(g.scope) && isUnavailable(g.workCounts))).toBe(true);
+    expect(listedItems(herd.groups).every((g) => isUnavailable(g.scope) && isUnavailable(g.workCounts))).toBe(true);
     const text = renderSurface({ ...MUTATIONS[0], surface: "HERD" }, herd, build(MUTATIONS[2], true).profile);
     for (const re of [/\b0 animals\b/, /\b\d+ open jobs?\b/, /No animals are recorded/, /Not weighed yet/]) expect(text).not.toMatch(re);
   });
@@ -345,9 +345,9 @@ describe("C10 availability invariant — unavailable never renders as known-empt
     o.jobs = [];
     const herd = buildHerd(o, DEMO_DIRECTORY);
     expect(herd.openWorkCount).toEqual({ state: "KNOWN", value: 0 });
-    for (const g of herd.groups) expect(g.workCounts).toEqual({ state: "KNOWN", value: [] });
+    for (const g of listedItems(herd.groups)) expect(g.workCounts).toMatchObject({ state: "EMPTY", display: { code: "WORK:NONE_OPEN" } });
     const text = renderSurface({ ...MUTATIONS[0], surface: "HERD" }, herd, build(MUTATIONS[2], false).profile);
-    expect(text).toMatch(/Nothing currently needs attention\./);
+    expect(text).toMatch(/Nothing currently needs attention/);
     expect(text).toMatch(/· 0 open jobs/);
     expect(text).not.toMatch(/Work couldn't be checked/i);
   });
@@ -355,8 +355,8 @@ describe("C10 availability invariant — unavailable never renders as known-empt
   it("known-empty stays known-empty: a resolved group with no animals shows 0, not 'couldn't be checked'", () => {
     const o = structuredClone(replayCattleDemo(EMPTY, { scenario: "EMPTY_HERD" })) as CattleOutputs;
     const herd = buildHerd(o, DEMO_DIRECTORY);
-    expect(herd.groups.length).toBeGreaterThan(0);
-    for (const g of herd.groups) expect(g.scope).toMatchObject({ state: "KNOWN", value: { memberCount: 0, members: [], unresolved: [] } });
+    expect(listedItems(herd.groups).length).toBeGreaterThan(0);
+    for (const g of listedItems(herd.groups)) expect(g.scope).toMatchObject({ state: "KNOWN", value: { memberCount: 0, members: { state: "EMPTY", display: { code: "EMPTY:GROUP_ANIMALS" } }, unresolved: [] } });
     expect(rowOf(herd, "1427")).toBeUndefined();
   });
 

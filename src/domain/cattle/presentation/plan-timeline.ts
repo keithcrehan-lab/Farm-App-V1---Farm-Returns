@@ -7,6 +7,7 @@
 
 import type { PlanIntervals } from "../../animal-plan";
 import { formatDayMonth, plural } from "./format";
+import { details, type Details } from "./view-state";
 
 export interface PlanTimelineSegmentVM {
   kind: "OUTDOORS" | "HOUSED";
@@ -30,9 +31,12 @@ export type PlanTimelineVM =
       totalDays: number;
       nowLabel: string;
       saleLabel: string;
-      segments: PlanTimelineSegmentVM[];
-      /** The housing marker between now and sale (`null` when housing starts now or there's none). */
-      housedMarker: { pct: number; label: string } | null;
+      /** Every phase in order; they tile the bar exactly (0 → 100%). */
+      segments: Details<PlanTimelineSegmentVM>;
+      /** The housed stretches drawn on the bar (outdoor time is the bar itself). */
+      housedSegments: Details<PlanTimelineSegmentVM>;
+      /** The housing marker between now and sale (NOT_SHOWN when housing starts now or there's none). */
+      housedMarker: { state: "SHOWN"; pct: number; label: string } | { state: "NOT_SHOWN" };
       summary: string;
       assumed: boolean;
       ariaLabel: string;
@@ -64,13 +68,14 @@ export function planTimeline(intervals: PlanIntervals): PlanTimelineVM {
           ? "housed throughout"
           : `housed from today (${nowLabel}), ${plural(housedDays, "day")} housed`
         : `${outdoorDays} at grass, ${housedDays} housed from ${formatDayMonth(housedFrom as string)}`;
-  const marker = housedFrom !== null && !startsNow ? { pct: (outdoorDays / total) * 100, label: formatDayMonth(housedFrom) } : null;
+  const marker: Extract<PlanTimelineVM, { state: "SPLIT" }>["housedMarker"] = housedFrom !== null && !startsNow ? { state: "SHOWN", pct: (outdoorDays / total) * 100, label: formatDayMonth(housedFrom) } : { state: "NOT_SHOWN" };
   return {
     state: "SPLIT",
     totalDays: total,
     nowLabel,
     saleLabel,
-    segments,
+    segments: details(segments),
+    housedSegments: details(segments.filter((g) => g.kind === "HOUSED")),
     housedMarker: marker,
     summary: `${days} · ${detail}${assumed ? " (assumed housing)" : ""}`,
     assumed,

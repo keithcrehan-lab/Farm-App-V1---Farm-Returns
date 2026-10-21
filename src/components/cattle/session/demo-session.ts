@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import { isPlanDate } from "@/domain/animal-plan";
+import { isPlanDate } from "@/domain/cattle/presentation";
 
 export const CATTLE_DEMO_SESSION_VERSION = 1;
 /** Hard cap: a demonstration session is small by construction. */

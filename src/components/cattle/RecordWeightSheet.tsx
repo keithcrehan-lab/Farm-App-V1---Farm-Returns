@@ -14,7 +14,7 @@
  */
 
 import { useState } from "react";
-import { canonicalNumberText, isDecimalText, previousWeightLine, stepDecimalText, type LatestWeightVM } from "@/domain/cattle/presentation";
+import { isDecimalText, previousWeightLine, stepDecimalText, weightEntryStart, type LatestWeightVM } from "@/domain/cattle/presentation";
 import { Sheet } from "./ui";
 
 export interface RecordWeightValue {
@@ -38,15 +38,15 @@ export function RecordWeightSheet({
   previous: LatestWeightVM;
   asOfDate: string;
 }) {
-  const previousText = previous.state === "KNOWN" ? canonicalNumberText(previous.kg) : null;
-  const [text, setText] = useState(previousText ?? "");
+  const start = weightEntryStart(previous);
+  const [text, setText] = useState(start.initialText);
   const [when, setWhen] = useState<"TODAY" | "EARLIER">("TODAY");
   const [date, setDate] = useState("");
   const [refused, setRefused] = useState<string | null>(null);
   const kg = Number(text);
   const kgValid = isDecimalText(text) && Number.isFinite(kg) && kg > 0 && kg <= 2000;
   const dateValid = when === "TODAY" || (/^\d{4}-\d{2}-\d{2}$/.test(date) && date < asOfDate);
-  const step = (d: string) => setText((t) => stepDecimalText(t, d, { min: "1", from: previousText }));
+  const step = (d: string) => setText((t) => stepDecimalText(t, d, { min: "1", from: start.stepFrom }));
   const line = previousWeightLine(previous);
 
   return (

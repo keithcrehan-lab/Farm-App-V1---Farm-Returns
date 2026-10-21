@@ -5,29 +5,24 @@
  * and compliance, direct costs, and the activity timeline.
  */
 
-import { TIMELINE_CLASS_LABEL, formatEuro, type AnimalProfileVM, type CostVM, type TimelineClass, type TimelineEntryVM } from "@/domain/cattle/presentation";
+import { TIMELINE_CLASS_LABEL, formatEuro, type AnimalProfileVM, type CostVM, type DisplayState, type Listing, type TimelineClass, type TimelineEntryVM, splitItems } from "@/domain/cattle/presentation";
 import { Disclosure, StateLabel, cattleStyles } from "./ui";
 
-export function HealthSection({ health }: { health: AnimalProfileVM["health"] }) {
-  return (
-    <dl className="divide-y divide-fr-v2-rule">
-      {health.medicines.state === "UNAVAILABLE" ? (
-        <div className={`px-3 py-3 text-sm text-fr-v2-charcoal ${cattleStyles.hatch}`}>Health records couldn&apos;t be read for this animal, so withdrawal and treatment status are unknown.</div>
-      ) : null}
+/** One health row per programme / requirement: its state; or the listing's EMPTY / UNAVAILABLE state as one row. */
+function ContextRows({ title, listing }: { title: string; listing: Listing<{ label: string; state: DisplayState }> }) {
+  if (listing.state !== "ITEMS") {
+    return (
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3">
-        <dt className="text-sm text-fr-v2-muted">Medicine withdrawal ({health.withdrawal.product.toLowerCase()})</dt>
+        <dt className="text-sm text-fr-v2-muted">{title}</dt>
         <dd className="text-right">
-          <StateLabel state={health.withdrawal.state} />
-          {health.withdrawal.untilLabel ? <div className="text-sm text-fr-v2-charcoal">{health.withdrawal.untilLabel}</div> : null}
+          <StateLabel state={listing.display} detail={listing.state === "UNAVAILABLE"} />
         </dd>
       </div>
-      {health.programmes.state === "UNAVAILABLE" || health.obligations.state === "UNAVAILABLE" ? (
-        <div className="flex items-baseline justify-between gap-4 py-3">
-          <dt className="text-sm text-fr-v2-muted">Programmes and requirements</dt>
-          <dd className="text-right text-sm text-fr-v2-charcoal">Couldn&apos;t be checked — the evaluation didn&apos;t run, so their status is unknown.</dd>
-        </div>
-      ) : null}
-      {(health.programmes.state === "KNOWN" ? health.programmes.value : []).map((p) => (
+    );
+  }
+  return (
+    <>
+      {listing.items.map((p) => (
         <div key={p.label} className="flex items-baseline justify-between gap-4 py-3">
           <dt className="text-sm text-fr-v2-muted">{p.label}</dt>
           <dd>
@@ -35,22 +30,29 @@ export function HealthSection({ health }: { health: AnimalProfileVM["health"] })
           </dd>
         </div>
       ))}
-      {(health.obligations.state === "KNOWN" ? health.obligations.value : []).map((o) => (
-        <div key={o.label} className="flex items-baseline justify-between gap-4 py-3">
-          <dt className="text-sm text-fr-v2-muted">{o.label}</dt>
-          <dd>
-            <StateLabel state={o.state} />
-          </dd>
-        </div>
-      ))}
-      {health.programmes.state === "KNOWN" && health.programmes.value.length === 0 ? (
-        <div className="py-3 text-sm text-fr-v2-muted">Not in any declared veterinary programme.</div>
-      ) : null}
-      {health.medicines.state === "KNOWN" && health.medicines.value.length > 0 ? (
+    </>
+  );
+}
+
+export function HealthSection({ health }: { health: AnimalProfileVM["health"] }) {
+  const { medicines } = health;
+  return (
+    <dl className="divide-y divide-fr-v2-rule">
+      {medicines.state === "UNAVAILABLE" ? <div className={`px-3 py-3 text-sm text-fr-v2-charcoal ${cattleStyles.hatch}`}>{medicines.display.detail ?? medicines.display.label}</div> : null}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3">
+        <dt className="text-sm text-fr-v2-muted">Medicine withdrawal ({health.withdrawal.product.toLowerCase()})</dt>
+        <dd className="text-right">
+          <StateLabel state={health.withdrawal.state} />
+          {health.withdrawal.untilLabel ? <div className="text-sm text-fr-v2-charcoal">{health.withdrawal.untilLabel}</div> : null}
+        </dd>
+      </div>
+      <ContextRows title="Veterinary programmes" listing={health.programmes} />
+      <ContextRows title="Requirements" listing={health.obligations} />
+      {medicines.state === "ITEMS" ? (
         <div className="py-3">
-          <Disclosure label={`${health.medicines.value.length} medicine record${health.medicines.value.length === 1 ? "" : "s"}`}>
+          <Disclosure label={health.medicinesLabel ?? medicines.items[0].label}>
             <ul className="space-y-2 text-sm">
-              {health.medicines.value.map((m) => (
+              {medicines.items.map((m) => (
                 <li key={`${m.date}${m.product}`} className="flex flex-wrap items-baseline justify-between gap-x-3">
                   <span>
                     {m.label} · {m.product}
@@ -60,6 +62,10 @@ export function HealthSection({ health }: { health: AnimalProfileVM["health"] })
               ))}
             </ul>
           </Disclosure>
+        </div>
+      ) : medicines.state === "EMPTY" ? (
+        <div className="py-3">
+          <StateLabel state={medicines.display} />
         </div>
       ) : null}
     </dl>
@@ -77,7 +83,7 @@ export function CostSection({ costs }: { costs: CostVM }) {
             <dt className="text-sm text-fr-v2-graphite">{c.label}</dt>
             <dd className="text-right text-sm tabular-nums">
               {c.amount.state === "NONE_RECORDED" ? (
-                <span className="text-fr-v2-muted">None recorded</span>
+                <span className="text-fr-v2-muted">{c.amount.label}</span>
               ) : (
                 <>
                   <span className="font-medium text-fr-v2-graphite">{formatEuro(c.amount.value)}</span>
@@ -93,7 +99,7 @@ export function CostSection({ costs }: { costs: CostVM }) {
         </div>
       </dl>
       <p className="mt-1 text-[12px] text-fr-v2-muted">
-        {formatEuro(costs.direct)} charged directly · {formatEuro(costs.allocated)} allocated from shared costs. Recorded entries only{costs.noneRecorded.length > 0 ? ` — nothing recorded for ${costs.noneRecorded.join(", ")}` : ""}. Labour, land, finance and overheads are not included. Demonstration figures.
+        {formatEuro(costs.direct)} charged directly · {formatEuro(costs.allocated)} allocated from shared costs. {costs.breakdownNote}
       </p>
     </div>
   );
@@ -108,11 +114,17 @@ const CLASS_STYLE: Record<TimelineClass, string> = {
   COST: "bg-fr-v2-stone text-fr-v2-charcoal",
 };
 
-export function TimelineSection({ entries, freshIds, gaps = [] }: { entries: TimelineEntryVM[]; freshIds: Set<string>; gaps?: string[] }) {
-  const gapNote = gaps.length > 0 ? <p className="mb-2 text-sm text-fr-v2-charcoal">Not shown: {gaps.join("; ")}.</p> : null;
-  if (entries.length === 0) return gapNote ?? <p className="text-sm text-fr-v2-muted">No dated records for this animal yet.</p>;
-  const first = entries.slice(0, 8);
-  const rest = entries.slice(8);
+export function TimelineSection({ timeline, freshIds, gapNote }: { timeline: Listing<TimelineEntryVM>; freshIds: Set<string>; gapNote: string | null }) {
+  const note = gapNote ? <p className="mb-2 text-sm text-fr-v2-charcoal">{gapNote}</p> : null;
+  if (timeline.state !== "ITEMS") {
+    return (
+      <div>
+        {note}
+        <StateLabel state={timeline.display} />
+      </div>
+    );
+  }
+  const { head: first, rest } = splitItems(timeline.items, 8);
   const Row = ({ e }: { e: TimelineEntryVM }) => (
     <li className={`grid grid-cols-[84px_1fr] gap-3 py-2.5 ${freshIds.has(e.id) ? cattleStyles.resolve : ""}`}>
       <span className="text-[13px] tabular-nums text-fr-v2-muted">{e.dateLabel.replace(/ \d{4}$/, "")}</span>
@@ -129,7 +141,7 @@ export function TimelineSection({ entries, freshIds, gaps = [] }: { entries: Tim
   );
   return (
     <div>
-      {gapNote}
+      {note}
       <ul className="divide-y divide-fr-v2-rule">
         {first.map((e) => (
           <Row key={e.id} e={e} />

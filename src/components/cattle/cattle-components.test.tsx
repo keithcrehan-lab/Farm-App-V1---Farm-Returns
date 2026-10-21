@@ -8,6 +8,7 @@ const projectCattleWeight = vi.fn();
 const loadCattleHerd = vi.fn();
 vi.mock("@/app/(app)/cattle/actions", () => ({ loadCattleAnimal: (...a: unknown[]) => loadCattleAnimal(...a), projectCattleWeight: (...a: unknown[]) => projectCattleWeight(...a), loadCattleHerd: (...a: unknown[]) => loadCattleHerd(...a) }));
 
+import { WEIGHT_BASIS_DISPLAY, weightBasisOf, type LatestWeightVM } from "@/domain/cattle/presentation";
 import { demoAnimalView, demoHerdView, demoProjection } from "@/server/cattle-demo/demo-service";
 import { AnimalPlanScreen } from "./AnimalPlanScreen";
 import { AnimalProfileScreen } from "./AnimalProfileScreen";
@@ -21,7 +22,7 @@ import { useDemoView } from "./session/use-demo-view";
 import type { CattleDemoSession } from "./session/demo-session";
 
 const EMPTY: CattleDemoSession = { version: 1, events: [] };
-const KNOWN_521 = { state: "KNOWN", kg: 521, observedAt: "2026-09-14T10:00:00Z", display: { code: "WEIGHT:KNOWN", label: "Weighed", tone: "neutral", detail: null } } as const;
+const KNOWN_521: LatestWeightVM = { state: "KNOWN", kg: 521, observedAt: "2026-09-14T10:00:00Z", basis: weightBasisOf("MEASURED", "SCALE"), display: WEIGHT_BASIS_DISPLAY.MEASURED };
 const wrap = (ui: React.ReactNode) => render(<CattleDemoSessionProvider>{ui}</CattleDemoSessionProvider>);
 
 beforeEach(() => {
@@ -178,7 +179,8 @@ describe("C10 screens", { timeout: 60_000 }, () => {
 
   it("planning-run failure: health says programmes couldn't be checked, never 'not in any programme' (audit F005)", () => {
     wrap(<AnimalProfileScreen initial={demoAnimalView(EMPTY, "1427", "PLANNING_RUN_FAILURE")!} tag="1427" scenario="PLANNING_RUN_FAILURE" />);
-    expect(screen.getByText(/Couldn't be checked — the evaluation didn't run/)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Couldn't be checked$/)).toHaveLength(2); // programmes and requirements, each its own row
+    expect(screen.getAllByText(/The evaluation didn't run, so their status is unknown\./).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Not in any declared veterinary programme/)).toBeNull();
     expect(screen.getByText(/Not shown: weighings/)).toBeInTheDocument();
   });
@@ -231,7 +233,8 @@ describe("C10 screens", { timeout: 60_000 }, () => {
       </CattleDemoSessionProvider>,
     );
     expect(screen.queryByText(/12 animals/)).toBeNull();
-    expect(screen.getByText(/^No animals recorded\./)).toBeInTheDocument();
+    expect(screen.getByText(/^No animals recorded · /)).toBeInTheDocument();
+    expect(screen.getByText(/^There are no animals in this herd yet\./)).toBeInTheDocument();
   });
 
   it("useDemoView drops a late response for a superseded key", async () => {

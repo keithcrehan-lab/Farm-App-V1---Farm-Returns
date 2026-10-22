@@ -4,7 +4,7 @@ Updated at every stage of the C10 autonomous completion run (brief: "FARM RETURN
 
 | | |
 |---|---|
-| Stage | 3 — BLOCKED: strict audit unassessed, Codex quota exhausted until 2026-10-27 06:33 |
+| Stage | 4 — independent CLAUDE audit of `6e81831..8148e35` running (user brief "final verification and closure", 2026-10-22). Codex still unavailable until 2026-10-27 06:33. |
 | HEAD at checkpoint | this docs commit on top of `8148e35` |
 | Last implementation candidate | `8148e35` |
 | Working tree | clean |
@@ -28,7 +28,11 @@ Updated at every stage of the C10 autonomous completion run (brief: "FARM RETURN
 Earlier: `audit-20261021T225547Z-15226` on `8148e35`, range `6e81831..8148e35`: QUOTA_EXHAUSTED (exit 4) — unassessed, not a pass. Codex: usage limit, retry after 2026-10-22 03:02 local. Worktree `scratchpad/audit-8148e35` (branch `audit-c10-candidate-8148e35`) kept: a rerun resumes this audit.
 Previous: `audit-20261021T210236Z-97274` on `2c23760`, range `6e81831..2c23760`: 0C / 3H / 0M / 0L.
 
+## Claude-audit track (2026-10-22)
+A fresh read-only Claude subagent audits the full C10 delta `6e81831..8148e35` from detached worktree `scratchpad/claude-audit-8148e35`. This is an independent CLAUDE audit — not the Codex strict audit the runner requires (`scripts/agent-campaign-run` checks the auditor line `auditor: codex …`). Report to be preserved as `audits/claude-audit-20261022-<n>.md`.
+
 ## Next exact action
+If the Claude audit is interrupted: relaunch it on the same range. Codex strict audit remains required for freeze:
 After 2026-10-27 06:33 local (or once Codex credits are available), rerun the strict campaign audit of `6e81831..8148e35` from the existing worktree (do not recreate it):
 `cd <scratch>/audit-8148e35 && AGENT_AUDIT_TIER=strict AGENT_CODEX_TIMEOUT=3600 scripts/agent-audit --campaign 6e81831`
 If the worktree is gone: `git worktree add -b audit-c10-candidate-<sha> <scratch>/audit-<sha> <sha> && cd <scratch>/audit-<sha> && AGENT_AUDIT_TIER=strict AGENT_CODEX_TIMEOUT=3600 scripts/agent-audit --campaign 6e81831`

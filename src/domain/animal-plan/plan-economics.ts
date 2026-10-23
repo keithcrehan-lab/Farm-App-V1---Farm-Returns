@@ -80,17 +80,29 @@ export type WeightProjectionInput =
   /** C5 could not project (its reason state, verbatim) or the plan date is invalid. */
   | { state: "NOT_PROJECTED"; reason: string };
 
-/** A C5 PROJECTED weight as C10 may use it: a live weight is positive and finite, anything else is no usable projection. */
-export type ProjectedWeightAdmission = { state: "USABLE"; kg: number } | { state: "NOT_USABLE"; reason: "PROJECTION_NOT_POSITIVE" | "PROJECTION_INVALID" };
+/**
+ * C10 decision-use safeguard (product decision, 2026-10-23): C5's straight-line weight (recent daily gain
+ * continued unchanged) is used for farmer-facing planning only up to this many days ahead. It is NOT a C5
+ * limit — C5 still calculates any date — and not a biological rule; beyond it C10 doesn't present the
+ * extrapolation as good enough for a sale weight, value, profit or return. The planned date itself stands.
+ */
+export const PLAN_PROJECTION_HORIZON_DAYS = 90;
+
+/** A C5 PROJECTED weight as C10 may use it: positive, finite and within the planning horizon; anything else is no usable projection. */
+export type ProjectedWeightAdmission = { state: "USABLE"; kg: number } | { state: "NOT_USABLE"; reason: "PROJECTION_NOT_POSITIVE" | "PROJECTION_INVALID" | "PROJECTION_BEYOND_HORIZON" };
 
 /**
  * The ONE admission of a C5 straight-line weight (C5 extrapolates without bounds, so a falling gain can
- * project zero or a negative weight). Every C10 reader — the plan economics, the profile projection and
- * the chart overlay — goes through this, so no surface shows a projection another refuses.
+ * project zero or a negative weight, and a far date any weight at all). Every C10 reader — the plan
+ * economics, the profile projection and the chart overlay — goes through this, so no surface shows a
+ * projection another refuses. `daysAhead`: whole days from the viewpoint date to the projected date
+ * (`projectionDaysAhead`, plan-intervals.ts; null when either can't be read).
  */
-export function admitProjectedWeight(kg: number): ProjectedWeightAdmission {
-  if (!Number.isFinite(kg)) return { state: "NOT_USABLE", reason: "PROJECTION_INVALID" };
-  return kg > 0 ? { state: "USABLE", kg } : { state: "NOT_USABLE", reason: "PROJECTION_NOT_POSITIVE" };
+export function admitProjectedWeight(kg: number, daysAhead: number | null): ProjectedWeightAdmission {
+  if (!Number.isFinite(kg) || daysAhead === null || !Number.isInteger(daysAhead)) return { state: "NOT_USABLE", reason: "PROJECTION_INVALID" };
+  if (kg <= 0) return { state: "NOT_USABLE", reason: "PROJECTION_NOT_POSITIVE" };
+  if (daysAhead > PLAN_PROJECTION_HORIZON_DAYS) return { state: "NOT_USABLE", reason: "PROJECTION_BEYOND_HORIZON" };
+  return { state: "USABLE", kg };
 }
 
 export interface AnimalPlanEconomicsInput {
@@ -226,8 +238,8 @@ export function computeAnimalPlanEconomics(input: AnimalPlanEconomicsInput): Ani
   const salePrice: Money = v.price === null ? unknown(`VALUATION_${v.state}`) : known(new Decimal(v.price[priceKey]));
   const currentEstimatedValue: Money = v.state === "ESTIMATED" && v.estimate !== null ? known(new Decimal(v.estimate.central)) : unknown(`VALUATION_${v.state}`);
 
-  const admitted = input.projection.state === "PROJECTED" ? admitProjectedWeight(input.projection.kg) : null;
-  const projectedWeightKg: Quantity = invalid
+  const admitted = input.projection.state === "PROJECTED" && remainingDays !== null ? admitProjectedWeight(input.projection.kg, remainingDays) : null;
+  const projectedWeightKg: Quantity = invalid || remainingDays === null
     ? { state: "UNKNOWN", reasons: ["PLAN_INPUT_INVALID"] }
     : admitted?.state === "USABLE"
       ? { state: "KNOWN", value: new Decimal(admitted.kg).toFixed() }

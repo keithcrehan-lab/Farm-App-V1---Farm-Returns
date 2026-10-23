@@ -21,10 +21,10 @@
 
 import type { AnimalPerformance, PerformancePoint } from "../performance";
 import type { AnimalWeightSeries, WeightCollectionMethod, WeightMeasurementBasis } from "../weights";
-import { admitProjectedWeight, type CurrentWeightRead } from "../../animal-plan";
+import { PLAN_PROJECTION_HORIZON_DAYS, type CurrentWeightRead, type ProjectedWeightAdmission } from "../../animal-plan";
 import type { GoalTargetRead } from "./goal-read";
 import { EMPTY_DISPLAY, EVALUATION_UNAVAILABLE, LATEST_WEIGHT_DISPLAY, NOT_CHARTABLE_DISPLAY, UNAVAILABLE_DISPLAY, WEIGHT_BASIS_DISPLAY, displayOf, type DisplayState } from "./display-states";
-import { formatDate, formatDayMonth, formatKg } from "./format";
+import { formatDate, formatDayMonth, formatKg, formatProjectedKg } from "./format";
 import { canonicalNumberText } from "./numeric-input";
 import { details, nonEmpty, type Details, type NonEmpty } from "./view-state";
 
@@ -182,6 +182,8 @@ export interface ChartPointVM {
   recordIds: Details<string>;
 }
 
+export const PROJECTION_BEYOND_HORIZON_NOTE = `No projection is drawn — the date is more than ${PLAN_PROJECTION_HORIZON_DAYS} days away, too far for Farm Return's current straight-line weight forecast.`;
+
 /** NOT_USABLE: C5 projected a weight `admitProjectedWeight` refuses (zero or less) — said in `note`, never drawn. */
 export type ChartOverlay = { state: "SHOWN"; at: string; kg: number; label: string; dateLabel: string; from: { at: string; kg: number } } | { state: "NOT_USABLE"; note: string } | { state: "NOT_SHOWN" };
 /** The goal target as the chart needs it: the sole goal's target (UNRESOLVED: recorded, no kg conversion), or SEVERAL goals in force (none drawn). */
@@ -252,7 +254,13 @@ export function chartPointOf(p: PerformancePoint): ChartPointVM {
  * EMPTY only when C4 has no observation in view and C5 has no point; records that exist but can't be
  * plotted (an unsupported unit, excluded records) are NOT_CHARTABLE — never "no weights recorded".
  */
-export function weightChartOf(series: Pick<AnimalWeightSeries, "observations"> | null, perf: Pick<AnimalPerformance, "points" | "prediction"> | null, goalTarget: GoalTargetWeightRead): WeightChartVM {
+export function weightChartOf(
+  series: Pick<AnimalWeightSeries, "observations"> | null,
+  perf: Pick<AnimalPerformance, "points" | "prediction"> | null,
+  goalTarget: GoalTargetWeightRead,
+  /** The profile's `admitProjectedWeight` of C5's PROJECTED weight (null when C5 didn't project): the chart never re-reads it. */
+  projectedWeight: ProjectedWeightAdmission | null,
+): WeightChartVM {
   if (series === null || perf === null) return { state: "UNAVAILABLE", display: UNAVAILABLE_DISPLAY.WEIGHT_HISTORY };
   const points = nonEmpty(perf.points.map(chartPointOf));
   if (points === null) {
@@ -265,13 +273,13 @@ export function weightChartOf(series: Pick<AnimalWeightSeries, "observations"> |
   const line = points.flatMap((p) => (p.plot.kind === "VALUE" ? [{ at: p.at, kg: p.plot.kg }] : []));
   const last = line.length > 0 ? line[line.length - 1] : null;
   const prediction = perf.prediction;
-  const admitted = prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null ? admitProjectedWeight(prediction.projectedKg) : null;
+  const admitted = prediction && prediction.state === "PROJECTED" ? projectedWeight : null;
   const projection: ChartOverlay =
     prediction === null || admitted === null || last === null
       ? { state: "NOT_SHOWN" }
       : admitted.state === "USABLE"
-        ? { state: "SHOWN", at: prediction.at, kg: admitted.kg, label: formatKg(admitted.kg), dateLabel: formatDate(prediction.at), from: last }
-        : { state: "NOT_USABLE", note: "No projection is drawn — continuing the recent daily gain gives a weight of zero or less, which can't be right." };
+        ? { state: "SHOWN", at: prediction.at, kg: admitted.kg, label: formatProjectedKg(admitted.kg), dateLabel: formatDate(prediction.at), from: last }
+        : { state: "NOT_USABLE", note: admitted.reason === "PROJECTION_BEYOND_HORIZON" ? PROJECTION_BEYOND_HORIZON_NOTE : "No projection is drawn — continuing the recent daily gain gives a weight of zero or less, which can't be right." };
   const has = (style: ChartPointVM["style"]) => points.some((p) => p.style === style);
   const legend = [
     ...(has("MEASURED") ? [{ style: "MEASURED" as const, label: "Weighed" }] : []),

@@ -82,11 +82,19 @@ export function outputsWithGoal(tag: string, goal: FixtureGoal): CattleOutputs {
  */
 export function outputsWithGoals(tag: string, goals: readonly FixtureGoal[]): CattleOutputs {
   const animalId = animalIdOf(tag);
+  return outputsWithGoalRecords(
+    tag,
+    goals.map((goal, i) => ({
+      ...goalDeclaration({ goalId: i === 0 ? goalIdOf(tag) : `${goalIdOf(tag)}-${i + 1}`, version: "1", supersedes: [], animalId, type: goal.type, targetKg: null, targetDate: goal.targetDate, validFrom: "2026-05-01T00:00:00Z", receivedAt: "2026-05-01T00:00:00Z" }),
+      targetWeight: goal.targetWeight,
+    })),
+  );
+}
+
+/** The animal's C6 projection re-run over exactly these goal records (versions, endings, withdrawals as recorded). */
+export function outputsWithGoalRecords(tag: string, declarations: readonly Rec[]): CattleOutputs {
+  const animalId = animalIdOf(tag);
   const o = animalOutputs(tag);
-  const declarations = goals.map((goal, i) => ({
-    ...goalDeclaration({ goalId: i === 0 ? goalIdOf(tag) : `${goalIdOf(tag)}-${i + 1}`, version: "1", supersedes: [], animalId, type: goal.type, targetKg: null, targetDate: goal.targetDate, validFrom: "2026-05-01T00:00:00Z", receivedAt: "2026-05-01T00:00:00Z" }),
-    targetWeight: goal.targetWeight,
-  }));
   const g = projectProductionGoals(structuredClone({ declarations, query: { subject: { kind: "ANIMAL", animalId }, effectiveAt: o.viewpoint.effectiveAt, knowledgeCutoff: o.viewpoint.knowledgeCutoff } }) as never, hash);
   if (!g.ok) throw new Error(`C6 rejected the fixture: ${JSON.stringify(g.issues)}`);
   o.goals[animalId] = g.projection;

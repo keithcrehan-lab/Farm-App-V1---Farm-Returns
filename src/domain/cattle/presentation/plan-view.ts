@@ -22,7 +22,7 @@ import { HOUSING_DEPENDENT_RESULTS, computeAnimalPlanEconomics, isPlanDate, type
 import type { GoalRead } from "./animal-profile";
 import { goalSummaryText, soleActiveGoal } from "./goal-read";
 import type { AnimalProfileVM } from "./animal-profile";
-import { formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatSignedKg } from "./format";
+import { formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatProjectedKg, formatSignedKg } from "./format";
 import { canonicalNumberText } from "./numeric-input";
 import { planTimeline, type PlanTimelineVM } from "./plan-timeline";
 import { details, unseal, type Details, type SealedInput } from "./view-state";
@@ -133,6 +133,7 @@ const REASON_TEXT: Readonly<Record<string, string>> = {
   PROJECTION_UNSUPPORTED: "no weight projection (weights can't be used for gain)",
   PROJECTION_INVALID: "no weight projection (a weight record is invalid)",
   PROJECTION_NOT_POSITIVE: "no usable weight projection (the projected weight is zero or less)",
+  PROJECTION_BEYOND_HORIZON: "this sale date is too far away for Farm Return's current straight-line weight forecast. Reweigh the animal and update the plan closer to sale",
   PROJECTION_WEIGHTS_INVALID: "no weight projection (a weight record couldn't be read)",
   PROJECTION_PERFORMANCE_INVALID: "no weight projection (performance couldn't be worked out)",
   PROJECTION_SALE_DATE_NOT_AFTER_TODAY: "the sale date must be after today",
@@ -301,7 +302,7 @@ export function planScreenView({ inputs: sealed, assumptions: a, martId, project
 
   const projectedWeight: PlanCellVM =
     e.projectedWeightKg.state === "KNOWN"
-      ? { state: "KNOWN", text: formatKg(Number(e.projectedWeightKg.value)), sub: e.projectedAdditionalKg.state === "KNOWN" ? formatSignedKg(Number(e.projectedAdditionalKg.value)) : null, tone: "projected" }
+      ? { state: "KNOWN", text: formatProjectedKg(Number(e.projectedWeightKg.value)), sub: e.projectedAdditionalKg.state === "KNOWN" ? formatSignedKg(Number(e.projectedAdditionalKg.value)) : null, tone: "projected" }
       : unknownCell(projection === undefined ? ["PROJECTION_PENDING"] : e.projectedWeightKg.reasons);
   const row = (key: keyof AnimalPlanEconomics | string, label: string, value: PlanCellVM, hint: string | null = null): PlanRowVM => ({ key, label, hint, value, assumed: assumed(key as keyof AnimalPlanEconomics) });
   const rows: PlanRowVM[] = [
@@ -331,7 +332,7 @@ export function planScreenView({ inputs: sealed, assumptions: a, martId, project
   const issues = e.validity.state === "INVALID" ? e.validity.issues.map((i) => ISSUE_TEXT[i] ?? i) : [];
   return {
     titleDate: isPlanDate(a.saleDate) ? formatDate(a.saleDate) : "—",
-    returnHeading: `Return from holding to ${isPlanDate(a.saleDate) ? formatDayMonth(a.saleDate) : "sale"}`,
+    returnHeading: `Return from holding to ${isPlanDate(a.saleDate) ? formatDate(a.saleDate) : "sale"}`,
     headline: {
       // Gain / loss colour only for a live, current valuation: a fixture or stale figure stays restrained.
       value: ret.state === "KNOWN" ? moneyCell(ret, { signed: true, tone: live ? "gain-loss" : "plain" }) : moneyCell(ret),

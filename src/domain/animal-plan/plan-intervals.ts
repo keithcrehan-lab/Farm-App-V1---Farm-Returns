@@ -20,7 +20,7 @@
  * the intervals INVALID — no day count is produced.
  */
 
-import { comparePlanDates, daysBetween, isPlanDate } from "./plan-dates";
+import { comparePlanDates, daysBetween, isPlanDate, utcDateOfInstant } from "./plan-dates";
 
 /** The farmer's planning assumption about where the animal is NOW (scenario input, never a record). */
 export type HousingAssumption = "OUTDOORS" | "HOUSED";
@@ -111,4 +111,15 @@ export function derivePlanIntervals(input: PlanIntervalsInput): PlanIntervals {
     split = { state: "KNOWN", phases, housedDays, outdoorDays: totalDays - housedDays, housedFrom: phases.find((p) => p.kind === "HOUSED")?.from ?? null };
   }
   return { state: "VALID", housing, start: today, sale, totalDays, split };
+}
+
+/**
+ * Whole calendar days from the viewpoint instant's UTC date to a projected instant's UTC date, or null when
+ * either can't be read — the day count `admitProjectedWeight` holds against the planning horizon (profile and
+ * chart; the plan uses its own `totalDays`, the same count to the sale date).
+ */
+export function projectionDaysAhead(viewpointAt: string, projectedAt: string): number | null {
+  const from = utcDateOfInstant(viewpointAt);
+  const to = utcDateOfInstant(projectedAt);
+  return from !== null && to !== null && isPlanDate(from) && isPlanDate(to) ? daysBetween(from, to) : null;
 }

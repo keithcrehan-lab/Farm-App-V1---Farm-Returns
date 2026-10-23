@@ -175,9 +175,11 @@ export const PREDICTION_DISPLAY = {
   NOT_REQUESTED: ds("PREDICTION", "NOT_REQUESTED", "No date to project to", "neutral", "Set a sale or target date to see a projection."),
   // C10 admission (`admitProjectedWeight`): C5 projected, but not a weight an animal can have.
   NOT_USABLE: ds("PREDICTION", "NOT_USABLE", "No usable projection", "review", "Continuing the recent daily gain gives a weight of zero or less, which can't be right, so no projected weight is shown."),
+  // C10 planning horizon (`PLAN_PROJECTION_HORIZON_DAYS`, a C10 safeguard — C5 itself calculates any date).
+  BEYOND_HORIZON: ds("PREDICTION", "BEYOND_HORIZON", "Too far ahead to project", "neutral", "The goal date is more than 90 days away. Farm Return's current forecast continues recent daily gain in a straight line, so it's only used for dates up to 90 days ahead. Reweigh the animal closer to the date."),
   // C6 has several goals in force: none is chosen, so there is no single goal date to project to.
   SEVERAL_GOALS: ds("PREDICTION", "SEVERAL_GOALS", "No single goal date to project to", "neutral", "Several goals are in force, each with its own date. The animal plan projects to the sale date you choose."),
-} as const satisfies Table<"PROJECTED" | "NOT_PROJECTED" | "NOT_REQUESTED" | "NOT_USABLE" | "SEVERAL_GOALS">;
+} as const satisfies Table<"PROJECTED" | "NOT_PROJECTED" | "NOT_REQUESTED" | "NOT_USABLE" | "BEYOND_HORIZON" | "SEVERAL_GOALS">;
 
 /** Farmer sentences for C8 / C9 reason-code prefixes (the full code stays in the technical detail). */
 export const REASON_COPY: readonly { prefix: string; text: (arg: string | null) => string }[] = [

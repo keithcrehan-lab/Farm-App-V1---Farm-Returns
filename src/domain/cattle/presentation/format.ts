@@ -37,6 +37,15 @@ export function formatKgNumber(kg: number): string {
   return `${r < 0 ? MINUS : ""}${group(String(Math.abs(r)))}`;
 }
 
+/**
+ * A projected weight for display: whole kilograms, except that a positive projection never reads "0 kg"
+ * because of rounding — below half a kilogram it is "<1 kg" (display precision, not a biological rule;
+ * the canonical value is unchanged and a zero / negative projection never reaches here — `admitProjectedWeight`).
+ */
+export function formatProjectedKg(kg: number): string {
+  return kg > 0 && roundHalfAway(kg, 0) === 0 ? "<1 kg" : formatKg(kg);
+}
+
 export function formatSignedKg(kg: number): string {
   const r = roundHalfAway(kg, 0);
   return `${r > 0 ? "+" : r < 0 ? MINUS : ""}${group(String(Math.abs(r)))} kg`;
@@ -70,7 +79,8 @@ export function formatMoney(amount: string | number, currency: string): string {
 export function formatEuroPerKg(amount: string | number): string {
   const n = typeof amount === "string" ? Number(amount) : amount;
   const r = roundHalfAway(n, 2);
-  return `${r < 0 ? MINUS : ""}€${Math.abs(r).toFixed(2)}/kg`;
+  const [whole, cents] = Math.abs(r).toFixed(2).split(".");
+  return `${r < 0 ? MINUS : ""}€${group(whole)}.${cents}/kg`;
 }
 
 export function formatEuroPrecise(amount: string | number): string {

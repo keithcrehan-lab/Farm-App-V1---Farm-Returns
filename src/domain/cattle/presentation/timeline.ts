@@ -65,9 +65,19 @@ export interface TimelineEntryVM {
   detail: string | null;
   infoClass: TimelineClass;
   classLabel: string;
-  /** Superseded / conflicting history stays visible, marked. */
-  marker: "SUPERSEDED" | "CONFLICT" | null;
+  /**
+   * Superseded / conflicting history stays visible, marked (SUPERSEDED is struck through). Goal versions also
+   * carry CURRENT (in force now, C6 ACTIVE) or NOT_IN_FORCE (live but outside its valid period). `markerLabel`
+   * is the marker's words, decided here: a corrected weight is "Corrected", a replaced goal "Superseded".
+   */
+  marker: "SUPERSEDED" | "CONFLICT" | "CURRENT" | "NOT_IN_FORCE" | null;
+  markerLabel: string | null;
 }
+
+const MARKER_LABEL = { SUPERSEDED: "Corrected", CONFLICT: "Disagrees with another record", CURRENT: "Current goal", NOT_IN_FORCE: "Not in force now" } as const;
+
+/** What replaced a superseded goal version, from C6's own `supersededBy` refs and the replacing record's action. */
+const GOAL_SUPERSEDED_LABEL = { DECLARE: "Superseded", END: "Superseded — goal ended", WITHDRAW: "Superseded — goal withdrawn" } as const;
 
 const HEALTH_KIND: Readonly<Record<string, string>> = {
   MEDICINE_ADMINISTRATION: "Medicine given",
@@ -79,7 +89,12 @@ const HEALTH_KIND: Readonly<Record<string, string>> = {
 };
 const CATEGORY: Readonly<Record<string, string>> = { FEED: "Feed", MEDICINE: "Medicine", VETERINARY: "Veterinary", BEDDING: "Bedding", OTHER: "Other" };
 
-const entry = (e: Omit<TimelineEntryVM, "classLabel" | "dateLabel"> & { dateLabel?: string }): TimelineEntryVM => ({ ...e, dateLabel: e.dateLabel ?? formatDate(e.at), classLabel: TIMELINE_CLASS_LABEL[e.infoClass] });
+const entry = (e: Omit<TimelineEntryVM, "classLabel" | "dateLabel" | "markerLabel"> & { dateLabel?: string; markerLabel?: string }): TimelineEntryVM => ({
+  ...e,
+  dateLabel: e.dateLabel ?? formatDate(e.at),
+  classLabel: TIMELINE_CLASS_LABEL[e.infoClass],
+  markerLabel: e.markerLabel ?? (e.marker === null ? null : MARKER_LABEL[e.marker]),
+});
 
 function jobTitle(actionKey: string, directory: CattleDirectory): string {
   const kind = /^CATTLE_RECOMMENDATION:(.+)$/.exec(actionKey)?.[1];
@@ -133,9 +148,28 @@ export function buildAnimalTimeline(outputs: CattleOutputs, animalId: string, di
     );
   }
 
-  // C6 goal versions (intent, never fact).
-  for (const g of outputs.goals[animalId]?.history ?? []) {
+  // C6 goal versions (intent, never fact): every version kept, marked from C6's own record state — a replaced
+  // version is superseded (by a correction, an ending or a withdrawal), the versions in force are the current
+  // goals only while C6 says ACTIVE, conflicting versions are marked as such. No goal resolution of C10's own.
+  const goals = outputs.goals[animalId];
+  const refKey = (r: { goalId: string; version: string }) => `${r.goalId}\u0000${r.version}`;
+  const actionOf = new Map((goals?.history ?? []).map((h) => [refKey(h.declaration), h.declaration.action]));
+  const inForce = new Set((goals?.status === "ACTIVE" ? goals.activeGoals : []).map((a) => refKey(a.declaration)));
+  const inConflict = new Set((goals?.conflicts ?? []).flatMap((c) => c.goals.map(refKey)));
+  for (const g of goals?.history ?? []) {
     const d = g.declaration;
+    const key = refKey(d);
+    const replacedBy = g.supersededBy.map((r) => actionOf.get(refKey(r)));
+    const goalMarker: Pick<TimelineEntryVM, "marker"> & { markerLabel?: string } =
+      g.recordState === "SUPERSEDED"
+        ? { marker: "SUPERSEDED", markerLabel: replacedBy.length === 1 && replacedBy[0] !== undefined ? GOAL_SUPERSEDED_LABEL[replacedBy[0]] : "Superseded" }
+        : inConflict.has(key)
+          ? { marker: "CONFLICT" }
+          : inForce.has(key)
+            ? { marker: "CURRENT" }
+            : d.action === "DECLARE" && goals?.status !== "INVALID"
+              ? { marker: "NOT_IN_FORCE" }
+              : { marker: null };
     out.push(
       entry({
         id: `goal:${d.goalId}:${d.version}`,
@@ -144,7 +178,7 @@ export function buildAnimalTimeline(outputs: CattleOutputs, animalId: string, di
         // The same three target states as the goal line: a target C6 can't convert stays visible as recorded.
         detail: goalTimelineDetail(d),
         infoClass: "INTENT",
-        marker: null,
+        ...goalMarker,
       }),
     );
   }

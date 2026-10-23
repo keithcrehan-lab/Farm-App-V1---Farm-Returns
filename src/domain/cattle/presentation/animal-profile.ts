@@ -16,7 +16,7 @@
 import { animalAssertionHistory, type AnimalResolution } from "../animal-snapshot";
 import type { AnimalLocationRef } from "../animal-ledger";
 import type { AnimalPerformance } from "../performance";
-import { admitProjectedWeight, isPlanDate, utcDateOfInstant, type AnimalCostRead, type HousingObservation } from "../../animal-plan";
+import { admitProjectedWeight, isPlanDate, projectionDaysAhead, utcDateOfInstant, type AnimalCostRead, type HousingObservation } from "../../animal-plan";
 import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
 import { activeGoalOf, goalSummaryText, soleActiveGoal, type ActiveGoalRead } from "./goal-read";
 import {
@@ -38,7 +38,7 @@ import {
   displayOf,
   type DisplayState,
 } from "./display-states";
-import { ageInMonths, formatAdg, formatAge, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatSignedKg, formatUtcTime } from "./format";
+import { ageInMonths, formatAdg, formatAge, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatProjectedKg, formatSignedKg, formatUtcTime } from "./format";
 import { costView, type CostVM } from "./cost-view";
 import { buildAnimalTimeline, type TimelineEntryVM } from "./timeline";
 import { details, listingOf, nonEmpty, unavailableListing, type Details, type Listing } from "./view-state";
@@ -245,7 +245,7 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
 
   const prediction = perf?.prediction ?? null;
   // C5 extrapolates without bounds: the projected weight is shown only through the C10 admission the plan also uses.
-  const projectedKg = prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null ? admitProjectedWeight(prediction.projectedKg) : null;
+  const projectedKg = prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null ? admitProjectedWeight(prediction.projectedKg, projectionDaysAhead(outputs.viewpoint.effectiveAt, prediction.at)) : null;
 
   // Health (C3), programmes / obligations (C8 sealed context), recommendation (C8).
   const health = outputs.health[animalId] ?? null;
@@ -353,18 +353,20 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
       source: targetDef?.versions[0] ? `${targetDef.versions[0].provenance.sourceRef?.sourceId ?? "Unsourced"} · ${targetDef.versions[0].reviewState.toLowerCase()}` : null,
     },
     // The chart plots C4 weights through C5: its four states are decided in `weightChartOf`, never by the chart component.
-    chart: weightChartOf(series, perf, goalRead.state !== "ACTIVE" ? { state: "NOT_SET" } : soleGoal !== null ? soleGoal.targetWeight : { state: "SEVERAL", count: goalRead.goals.length }),
+    chart: weightChartOf(series, perf, goalRead.state !== "ACTIVE" ? { state: "NOT_SET" } : soleGoal !== null ? soleGoal.targetWeight : { state: "SEVERAL", count: goalRead.goals.length }, projectedKg),
     projection: {
       state: !perfEvaluated
         ? EVALUATION_UNAVAILABLE
         : prediction
           ? projectedKg?.state === "NOT_USABLE"
-            ? PREDICTION_DISPLAY.NOT_USABLE
+            ? projectedKg.reason === "PROJECTION_BEYOND_HORIZON"
+              ? PREDICTION_DISPLAY.BEYOND_HORIZON
+              : PREDICTION_DISPLAY.NOT_USABLE
             : displayOf(PREDICTION_DISPLAY, prediction.state, "PREDICTION")
           : goalRead.state === "ACTIVE" && soleGoal === null
             ? PREDICTION_DISPLAY.SEVERAL_GOALS
             : PREDICTION_DISPLAY.NOT_REQUESTED,
-      label: prediction && projectedKg?.state === "USABLE" ? `${formatKg(projectedKg.kg)} by ${formatDate(prediction.at)}` : null,
+      label: prediction && projectedKg?.state === "USABLE" ? `${formatProjectedKg(projectedKg.kg)} by ${formatDate(prediction.at)}` : null,
       at: prediction?.at ?? null,
       assumptions: details(prediction?.assumptions ?? []),
     },

@@ -24,6 +24,8 @@ import {
   buildAnimalProfile,
   buildHerd,
   completionBasisLabel,
+  formatDate,
+  formatProjectedKg,
   housingObservationOf,
   listedItems,
   planSaveIntent,
@@ -38,9 +40,9 @@ import {
   type WeightChartVM,
 } from "@/domain/cattle/presentation";
 import type { AnimalLocationKind } from "@/domain/cattle/animal-ledger";
-import { admitProjectedWeight } from "@/domain/animal-plan";
-import { outputsWithGoal, outputsWithGoals, outputsWithLocation, outputsWithWeights, weightObs } from "@/server/cattle-demo/c10-engine-fixtures";
-import { animalIdOf } from "@/server/cattle-demo/demo-herd";
+import { addDays, admitProjectedWeight, computeAnimalPlanEconomics } from "@/domain/animal-plan";
+import { outputsWithGoal, outputsWithGoalRecords, outputsWithGoals, outputsWithLocation, outputsWithWeights, weightObs } from "@/server/cattle-demo/c10-engine-fixtures";
+import { animalIdOf, goalDeclaration, goalIdOf } from "@/server/cattle-demo/demo-herd";
 import { replayCattleDemo } from "@/server/cattle-demo/demo-replay";
 import { DEMO_DIRECTORY, animalViewFrom, demoAnimalView, demoProjection } from "@/server/cattle-demo/demo-service";
 import type { CattleDemoSession } from "./session/demo-session";
@@ -428,7 +430,7 @@ describe("Claude audit 2026-10-22-1 — projection admission, goal reads, deadli
     ["NaN", Number.NaN, { state: "NOT_USABLE", reason: "PROJECTION_INVALID" }],
     ["Infinity", Number.POSITIVE_INFINITY, { state: "NOT_USABLE", reason: "PROJECTION_INVALID" }],
   ] as const)("CL-001 boundary: a C5 projected weight (%s, %s kg) is admitted only when positive and finite", (_name, kg, expected) => {
-    expect(admitProjectedWeight(kg)).toEqual(expected);
+    expect(admitProjectedWeight(kg, 49)).toEqual(expected);
   });
 
   it("CL-001: the auditor's path — 5 kg recorded, C5 projects about −93 kg — is no usable projection on the profile, chart and plan alike", () => {
@@ -586,5 +588,166 @@ describe("Claude audit 2026-10-22-1 — projection admission, goal reads, deadli
   it("CL-004 (sweep): programme timing is recommended, never 'due' or a deadline", () => {
     for (const d of Object.values(PROGRAMME_DISPLAY)) expect(d.label).not.toMatch(/\bdue\b|deadline|must/i);
     expect(PROGRAMME_DISPLAY.DUE.label).toBe("In its recommended window");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Known Mediums of the Claude audit 2026-10-22-1: CL-005 a tiny positive projection shown "0 kg", CL-006
+// unbounded straight-line extrapolation for far sale dates (authorised C10 safeguard: 90 days), CL-009
+// superseded goal versions unmarked on the timeline.
+describe("Claude audit 2026-10-22-1 Mediums — projection display, planning horizon, goal version history", { timeout: 120_000 }, () => {
+  const AS_OF = "2026-10-16";
+  const planWith = (projection: Parameters<typeof planScreenView>[0]["projection"], saleDate: string) => {
+    const view = demoAnimalView(EMPTY, "1427")!;
+    // No housing date: the default (8 Nov) would fall after a near sale date and make the inputs invalid.
+    return planScreenView({ inputs: view.plan.inputs, assumptions: { ...view.plan.defaults, saleDate, housingDate: null }, martId: view.plan.defaultMartId, projection, profile: view.profile });
+  };
+  const cell = (vm: ReturnType<typeof planScreenView>, key: string) => [...vm.rows].find((r) => r.key === key)!.value;
+  const synthetic = (kg: number, saleDate: string) => ({ state: "PROJECTED" as const, saleDate, kg, adgKgPerDay: -4.2, fromObservedAt: "2026-10-16T09:00:00Z", assumptions: [] });
+  const DEPENDENT = ["projectedWeightKg", "projectedSaleValue", "costPerKgAtSale", "projectedDirectProfit", "returnFromHolding"];
+
+  // CL-005 ------------------------------------------------------------------
+  it.each([
+    [0.447, "<1 kg"],
+    [0.0001, "<1 kg"],
+    [0.5, "1 kg"],
+    [609.4, "609 kg"],
+    [1234.6, "1,235 kg"],
+  ])("CL-005: a projected weight of %s kg displays as %s (never '0 kg' for a positive value)", (kg, text) => {
+    expect(formatProjectedKg(kg)).toBe(text);
+  });
+
+  it("CL-005: the auditor's case (C5 ≈ 0.447 kg) reads '<1 kg' in the plan; the canonical value is untouched and every figure stays exact", () => {
+    const saleDate = addDays(AS_OF, 49);
+    const vm = planWith(synthetic(0.447, saleDate), saleDate);
+    expect(cell(vm, "projectedWeightKg")).toMatchObject({ state: "KNOWN", text: "<1 kg" });
+    expect(JSON.stringify(vm)).not.toMatch(/"0 kg"/);
+    const view = demoAnimalView(EMPTY, "1427")!;
+    const inputs = unseal(view.plan.inputs);
+    const e = computeAnimalPlanEconomics({ ...inputs, assumptions: { ...view.plan.defaults, saleDate, housingDate: null }, projection: { state: "PROJECTED", kg: 0.447 }, valuation: inputs.valuations[view.plan.defaultMartId]! });
+    expect(e.projectedWeightKg).toEqual({ state: "KNOWN", value: "0.447" });
+    // Per-kg money keeps its thousands grouping (CL-013, same figure).
+    expect(cell(vm, "costPerKgAtSale")).toMatchObject({ state: "KNOWN" });
+    expect((cell(vm, "costPerKgAtSale") as { text: string }).text).toMatch(/^€\d{1,3}(,\d{3})+\.\d{2}\/kg$/);
+  });
+
+  it.each([0, -0, -12.5])("CL-005: a projection of %s kg stays 'no usable projection' — never '<1 kg'", (kg) => {
+    const saleDate = addDays(AS_OF, 49);
+    const vm = planWith(synthetic(kg, saleDate), saleDate);
+    expect(cell(vm, "projectedWeightKg").state).toBe("UNKNOWN");
+    expect(JSON.stringify(vm)).not.toContain("<1 kg");
+  });
+
+  // CL-006 ------------------------------------------------------------------
+  it.each([
+    [1, "KNOWN"],
+    [89, "KNOWN"],
+    [90, "KNOWN"],
+    [91, "UNKNOWN"],
+    [400, "UNKNOWN"],
+  ] as const)("CL-006: a sale date %s days ahead — the real C5 projection and every figure that uses it are %s", (days, expected) => {
+    const saleDate = addDays(AS_OF, days);
+    const projection = demoProjection(EMPTY, "1427", saleDate);
+    expect(projection.state).toBe("PROJECTED"); // C5 itself still projects any date
+    const vm = planWith(projection, saleDate);
+    for (const key of DEPENDENT) {
+      if (key === "costPerKgAtSale" && expected === "KNOWN") continue; // depends on costs too; checked below
+      expect(cell(vm, key).state, `${key} at +${days}d`).toBe(expected);
+    }
+    expect(vm.titleDate).toBe(formatDate(saleDate)); // the farmer's date is kept, never capped
+    expect(cell(vm, "forecastFeedCost").state).toBe("KNOWN"); // cost forecasts don't use the projection
+    if (expected === "UNKNOWN") {
+      for (const key of DEPENDENT) expect((cell(vm, key) as { text: string }).text, key).toContain("too far away for Farm Return's current straight-line weight forecast");
+      expect(vm.headline.value.state).toBe("UNKNOWN");
+    } else {
+      expect(cell(vm, "costPerKgAtSale").state).toBe("KNOWN");
+    }
+  });
+
+  it("CL-006: a goal date beyond 90 days is 'too far ahead to project' on the profile and chart too (1433: 91 days)", () => {
+    const view = demoAnimalView(EMPTY, "1433")!;
+    const p = view.profile;
+    expect(p.projection.state.code).toBe("PREDICTION:BEYOND_HORIZON");
+    expect(p.projection.label).toBeNull();
+    if (p.chart.state !== "CHART") throw new Error(p.chart.state);
+    expect(p.chart.projection).toEqual({ state: "NOT_USABLE", note: "No projection is drawn — the date is more than 90 days away, too far for Farm Return's current straight-line weight forecast." });
+    expect(view.plan.defaults.saleDate).toBe("2027-01-15"); // the goal's date stands as the plan's date
+    const near = demoAnimalView(EMPTY, "1427")!.profile; // 49 days
+    expect(near.projection.state.code).toBe("PREDICTION:PROJECTED");
+  });
+
+  it("CL-006: the plan heading carries the year (CL-013)", () => {
+    const vm = planWith(undefined, "2027-12-04");
+    expect(vm.returnHeading).toBe("Return from holding to 4 Dec 2027");
+  });
+
+  // CL-009 ------------------------------------------------------------------
+  const ID = animalIdOf("1427");
+  const G = goalIdOf("1427");
+  const decl = (version: string, supersedes: string[], extra: Record<string, unknown> = {}) => ({
+    ...goalDeclaration({ goalId: G, version, supersedes, animalId: ID, type: "FINISHING", targetKg: 640, targetDate: "2026-12-04", validFrom: "2026-05-01T00:00:00Z", receivedAt: `2026-0${4 + Number(version)}-01T00:00:00Z` }),
+    ...extra,
+  });
+  const goalEntries = (o: CattleOutputs) => {
+    const t = buildAnimalProfile(o, ID, DEMO_DIRECTORY, costsOf("1427")).timeline;
+    return (t.state === "ITEMS" ? listedItems(t) : []).filter((e) => e.id.startsWith("goal:")).map((e) => [e.id.split(":").at(-1), e.title, e.marker, e.markerLabel]);
+  };
+
+  it("CL-009: one goal in force is the current goal", () => {
+    expect(goalEntries(outputsWithGoalRecords("1427", [decl("1", [])]))).toEqual([["1", "Goal set: Finishing", "CURRENT", "Current goal"]]);
+  });
+
+  it("CL-009: a replaced version is superseded, its replacement current — both kept (the demo's own plan save)", () => {
+    const s: CattleDemoSession = { version: 1, events: [{ kind: "SAVE_PLAN_GOAL", eventId: "g1", tag: "1427", goalType: "FINISHING", targetKg: 656, targetDate: "2027-01-20" }] };
+    const t = demoAnimalView(s, "1427")!.profile.timeline;
+    const entries = (t.state === "ITEMS" ? listedItems(t) : []).filter((e) => e.id.startsWith("goal:"));
+    expect(entries.map((e) => [e.title, e.marker, e.markerLabel])).toEqual([
+      ["Goal updated: Finishing", "CURRENT", "Current goal"],
+      ["Goal set: Finishing", "SUPERSEDED", "Superseded"],
+    ]);
+  });
+
+  it("CL-009: an ended goal and a withdrawn goal are history, never current", () => {
+    const ended = goalEntries(outputsWithGoalRecords("1427", [decl("1", []), decl("2", ["1"], { action: "END", validTo: "2026-09-01T00:00:00Z" })]));
+    expect(ended).toEqual([
+      ["2", "Goal ended: Finishing", null, null],
+      ["1", "Goal set: Finishing", "SUPERSEDED", "Superseded — goal ended"],
+    ]);
+    const withdrawn = goalEntries(outputsWithGoalRecords("1427", [decl("1", []), decl("2", ["1"], { action: "WITHDRAW" })]));
+    expect(withdrawn).toEqual([
+      ["2", "Goal withdrawn: Finishing", null, null],
+      ["1", "Goal set: Finishing", "SUPERSEDED", "Superseded — goal withdrawn"],
+    ]);
+    expect(viewOf(outputsWithGoalRecords("1427", [decl("1", []), decl("2", ["1"], { action: "WITHDRAW" })]), "1427").profile.goal.read).toEqual({ state: "NONE" });
+  });
+
+  it("CL-009: a live goal whose period has ended isn't marked current", () => {
+    expect(goalEntries(outputsWithGoalRecords("1427", [decl("1", [], { validTo: "2026-09-01T00:00:00Z" })]))).toEqual([["1", "Goal set: Finishing", "NOT_IN_FORCE", "Not in force now"]]);
+  });
+
+  it("CL-009: several goals in force are each current; a conflict stays a conflict, never current", () => {
+    const several = outputsWithGoals("1427", [{ type: "FINISHING", targetWeight: null, targetDate: "2026-12-04" }, { type: "SALE", targetWeight: null, targetDate: "2026-11-01" }]);
+    const t1 = buildAnimalProfile(several, ID, DEMO_DIRECTORY, costsOf("1427")).timeline;
+    expect((t1.state === "ITEMS" ? listedItems(t1) : []).filter((e) => e.id.startsWith("goal:")).map((e) => e.marker)).toEqual(["CURRENT", "CURRENT"]);
+    const conflict = outputsWithGoals("1427", [{ type: "SALE", targetWeight: null, targetDate: null }, { type: "RETAIN", targetWeight: null, targetDate: null }]);
+    const t2 = buildAnimalProfile(conflict, ID, DEMO_DIRECTORY, costsOf("1427")).timeline;
+    const markers = (t2.state === "ITEMS" ? listedItems(t2) : []).filter((e) => e.id.startsWith("goal:")).map((e) => e.marker);
+    expect(markers).toEqual(["CONFLICT", "CONFLICT"]);
+  });
+
+  it("CL-009: C6 INVALID marks no goal version current", () => {
+    const o = outputsWithGoalRecords("1427", [decl("1", [])]);
+    o.goals[ID] = { ...o.goals[ID]!, status: "INVALID", activeGoals: [] };
+    expect(goalEntries(o).map((e) => e[2])).toEqual([null]);
+  });
+
+  it("CL-009: the rendered timeline says 'Superseded' for a replaced goal and keeps 'Corrected' for a corrected weight", () => {
+    const s: CattleDemoSession = { version: 1, events: [{ kind: "SAVE_PLAN_GOAL", eventId: "g1", tag: "1427", goalType: "FINISHING", targetKg: 656, targetDate: "2027-01-20" }] };
+    const t = demoAnimalView(s, "1427")!.profile.timeline;
+    if (t.state !== "ITEMS") throw new Error(t.state);
+    const goalsOnly = { ...t, items: [...listedItems(t)].filter((e) => e.id.startsWith("goal:")) } as unknown as typeof t;
+    render(<TimelineSection timeline={goalsOnly} freshIds={new Set()} gapNote={null} />);
+    expect(screen.getByText("Goal set: Finishing").closest("li")!.textContent).toContain("Superseded");
+    expect(screen.getByText("Goal updated: Finishing").closest("li")!.textContent).toContain("Current goal");
   });
 });

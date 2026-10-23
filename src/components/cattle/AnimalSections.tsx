@@ -118,6 +118,13 @@ const CLASS_STYLE: Record<TimelineClass, string> = {
   RECORD: "bg-fr-v2-stone text-fr-v2-charcoal",
 };
 
+const MARKER_STYLE: Record<NonNullable<TimelineEntryVM["marker"]>, string> = {
+  SUPERSEDED: "text-fr-v2-muted",
+  CONFLICT: "font-medium text-fr-v2-clay",
+  CURRENT: "font-medium text-fr-v2-plum",
+  NOT_IN_FORCE: "text-fr-v2-muted",
+};
+
 export function TimelineSection({ timeline, freshIds, gapNote }: { timeline: Listing<TimelineEntryVM>; freshIds: Set<string>; gapNote: string | null }) {
   const note = gapNote ? <p className="mb-2 text-sm text-fr-v2-charcoal">{gapNote}</p> : null;
   if (timeline.state !== "ITEMS") {
@@ -136,8 +143,7 @@ export function TimelineSection({ timeline, freshIds, gapNote }: { timeline: Lis
         <span className="flex flex-wrap items-center gap-2">
           <span className={`text-[15px] text-fr-v2-graphite ${e.marker === "SUPERSEDED" ? "line-through decoration-fr-v2-muted" : ""}`}>{e.title}</span>
           <span className={`rounded-[4px] px-1.5 py-0.5 text-[11px] font-medium ${CLASS_STYLE[e.infoClass]}`}>{e.classLabel}</span>
-          {e.marker === "CONFLICT" ? <span className="text-[11px] font-medium text-fr-v2-clay">Disagrees with another record</span> : null}
-          {e.marker === "SUPERSEDED" ? <span className="text-[11px] text-fr-v2-muted">Corrected</span> : null}
+          {e.marker !== null && e.markerLabel !== null ? <span className={`text-[11px] ${MARKER_STYLE[e.marker]}`}>{e.markerLabel}</span> : null}
         </span>
         {e.detail ? <span className="block text-[13px] text-fr-v2-muted">{e.detail}</span> : null}
       </span>

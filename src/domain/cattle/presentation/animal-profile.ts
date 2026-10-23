@@ -98,8 +98,12 @@ export interface AnimalProfileVM {
     recent: FieldVM;
     trend: DisplayState;
   };
-  /** `label`: "Target 1.20 kg/day (band 1.00 – 1.40 kg/day)" — the band only when C5 gives one. */
-  target: { state: DisplayState; label: string | null; bandLabel: string | null; source: string | null };
+  /**
+   * Every C5 target comparison (`comparisons`, C5 order), none dropped. One comparison: `label` "Target 1.20 kg/day
+   * (band 1.00 – 1.40 kg/day)" (band only when C5 gives one), `bandLabel`, `source` are its own. Several: those three
+   * are null and `summary` says how they relate — the same result across them, or mixed (no comparison picked).
+   */
+  target: { state: DisplayState; label: string | null; bandLabel: string | null; source: string | null; summary: string | null; comparisons: Details<TargetComparisonVM> };
   /** The weight chart: CHART / NOT_CHARTABLE / EMPTY / UNAVAILABLE (`weightChartOf`) — never an empty plot. */
   chart: WeightChartVM;
   projection: { state: DisplayState; label: string | null; at: string | null; assumptions: Details<string> };
@@ -109,13 +113,17 @@ export interface AnimalProfileVM {
    */
   goal: { state: DisplayState; read: GoalRead; summary: { state: "TEXT"; text: string } | { state: "STATE"; display: DisplayState } };
   health: {
-    /** `EVALUATION_UNAVAILABLE` when C3 produced no projection for the animal. */
-    withdrawal: { state: DisplayState; label: string; until: string | null; untilLabel: string | null; product: string };
+    /**
+     * The C3 withdrawal gate: one row per queried food product (C3 gives one entry per product), none merged or
+     * dropped. A single `EVALUATION_UNAVAILABLE` row when C3 produced no projection; a single UNKNOWN row when C3
+     * checked no food product.
+     */
+    withdrawals: Details<WithdrawalVM>;
     /** ITEMS / EMPTY ("not in any declared programme") / UNAVAILABLE (the C8 context wasn't produced). */
     programmes: Listing<{ label: string; state: DisplayState }>;
     obligations: Listing<{ label: string; state: DisplayState }>;
     /** UNAVAILABLE when C3 produced no projection for the animal. */
-    medicines: Listing<{ date: string; label: string; product: string; withdrawal: DisplayState; withdrawalEndLabel: string | null }>;
+    medicines: Listing<{ date: string; label: string; product: string; withdrawals: Details<{ foodProduct: string; state: DisplayState; endLabel: string | null; text: string }> }>;
     /** "3 medicine records" (only when there are some). */
     medicinesLabel: string | null;
   };
@@ -160,12 +168,62 @@ export function performanceOf(outputs: CattleOutputs, animalId: string): AnimalP
   return outputs.performance?.animals.find((a) => a.animalId === animalId) ?? null;
 }
 
-/** The headline performance state: the single target comparison, or why there isn't one (`null` = C5 produced no entry: unknown). */
+/**
+ * The headline performance state over EVERY C5 target comparison (`null` = C5 produced no entry: unknown).
+ * C5 defines no precedence between targets, so none is picked: one comparison is its own state; several with
+ * the same state share it; several that differ — including a conflict or an unusable comparison beside a
+ * resolved one — are MIXED, never the first one's state.
+ */
 export function headlinePerformance(perf: AnimalPerformance | null): DisplayState {
   if (perf === null) return EVALUATION_UNAVAILABLE;
   if (perf.targetOutcome === "NO_TARGET" || perf.comparisons.length === 0) return TARGET_DISPLAY.NO_TARGET;
-  // More than one known target: each is shown in detail; the headline is the first by target id (C5 order), never a blend.
-  return displayOf(TARGET_DISPLAY, perf.comparisons[0].state, "TARGET");
+  const states = new Set(perf.comparisons.map((c) => c.state));
+  return states.size === 1 ? displayOf(TARGET_DISPLAY, perf.comparisons[0].state, "TARGET") : TARGET_DISPLAY.MIXED;
+}
+
+/** One C5 target comparison as shown: its own state, value, band and source (the exact version compared). */
+/** One food product's withdrawal gate. `until`: C3's exclusive end instant when IN_WITHDRAWAL. */
+export interface WithdrawalVM {
+  state: DisplayState;
+  label: string;
+  until: string | null;
+  untilLabel: string | null;
+  product: string;
+}
+
+export interface TargetComparisonVM {
+  targetId: string;
+  state: DisplayState;
+  /** "Daily-gain target 1.00 kg/day (band 0.90 – 1.10 kg/day)"; "Target versions disagree" when C5 compared no single version. */
+  label: string;
+  source: string | null;
+}
+
+const METRIC_NOUN: Readonly<Record<string, string>> = { ADG: "Daily-gain target", WEIGHT_AT: "Weight target" };
+
+function comparisonBand(c: AnimalPerformance["comparisons"][number]): string | null {
+  return c.lowerBound !== null && c.upperBound !== null ? (c.metric === "ADG" ? `${formatAdg(c.lowerBound)} – ${formatAdg(c.upperBound)}` : `${formatKg(c.lowerBound)} – ${formatKg(c.upperBound)}`) : null;
+}
+function comparisonValue(c: AnimalPerformance["comparisons"][number]): string | null {
+  return c.targetValue === null ? null : c.metric === "ADG" ? formatAdg(c.targetValue) : formatKg(c.targetValue);
+}
+/** The source of the EXACT target version C5 compared (`comparison.target`), never another version of the same target. */
+function comparisonSource(outputs: CattleOutputs, c: AnimalPerformance["comparisons"][number]): string | null {
+  if (c.target === null) return c.conflictingVersions.length > 1 ? `${c.conflictingVersions.length} versions of this target disagree` : null;
+  const ref = c.target;
+  const version = outputs.performance?.targetDefinitions.find((t) => t.targetId === c.targetId)?.versions.find((v) => v.version === ref.version);
+  return version ? `${version.provenance.sourceRef?.sourceId ?? "Unsourced"} · ${version.reviewState.toLowerCase()}` : null;
+}
+function comparisonVM(outputs: CattleOutputs, c: AnimalPerformance["comparisons"][number]): TargetComparisonVM {
+  const value = comparisonValue(c);
+  const band = comparisonBand(c);
+  const noun = (c.metric ? METRIC_NOUN[c.metric] : null) ?? "Target";
+  return {
+    targetId: c.targetId,
+    state: displayOf(TARGET_DISPLAY, c.state, "TARGET"),
+    label: value === null ? (c.target === null ? `${noun}: versions disagree` : noun) : `${noun} ${value}${band === null ? "" : ` (band ${band})`}`,
+    source: comparisonSource(outputs, c),
+  };
 }
 
 /**
@@ -223,11 +281,13 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
   const period = perf?.period ?? null;
   const gainState = !perfEvaluated ? EVALUATION_UNAVAILABLE : period ? displayOf(GAIN_DISPLAY, period.state, "GAIN") : GAIN_DISPLAY.INSUFFICIENT_EVIDENCE;
   const lastInterval = perf ? [...perf.intervals].reverse().find((i) => i.state === "DERIVED") ?? null : null;
-  const comparison = perf?.comparisons[0] ?? null;
+  // Every C5 target comparison; the single-target fields only when there is exactly one (owner singleton).
+  const comparisons = perf?.comparisons ?? [];
+  const comparison = comparisons.length === 1 ? comparisons[0] : null;
   const headline = headlinePerformance(perf);
-  const targetDef = comparison && outputs.performance ? outputs.performance.targetDefinitions.find((t) => t.targetId === comparison.targetId) : undefined;
-
-  const bandLabel = comparison && comparison.lowerBound !== null && comparison.upperBound !== null ? (comparison.metric === "ADG" ? `${formatAdg(comparison.lowerBound)} – ${formatAdg(comparison.upperBound)}` : `${formatKg(comparison.lowerBound)} – ${formatKg(comparison.upperBound)}`) : null;
+  const bandLabel = comparison ? comparisonBand(comparison) : null;
+  const comparisonValues = comparisons.map((c) => comparisonVM(outputs, c));
+  const sameState = comparisons.length > 1 && new Set(comparisons.map((c) => c.state)).size === 1;
 
   const goalProj = outputs.goals[animalId] ?? null;
   const goalState = goalProj ? displayOf(GOAL_DISPLAY, goalProj.status, "GOAL") : EVALUATION_UNAVAILABLE;
@@ -249,7 +309,6 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
 
   // Health (C3), programmes / obligations (C8 sealed context), recommendation (C8).
   const health = outputs.health[animalId] ?? null;
-  const gate = health?.withdrawalGate.entries[0] ?? null;
   const rec = outputs.recommendations.ok ? outputs.recommendations.result.animals.find((a) => a.animalId === animalId) ?? null : null;
   const ctx = rec?.context ?? null;
   const programmes: AnimalProfileVM["health"]["programmes"] =
@@ -270,20 +329,39 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
     entries
       .filter((e) => e.status === "LIVE")
       .map((e) => {
-        const w = e.withdrawals[0];
         const productId = e.binding.state === "BOUND" ? e.binding.product?.productId ?? null : null;
+        // One withdrawal per queried food product (C3), each kept; none checked is said, never read as clear.
+        const several = e.withdrawals.length > 1;
+        const withdrawals = e.withdrawals.map((w) => {
+          const foodProduct = directory.foodProductLabels[w.foodProduct] ?? "Food product";
+          const state = displayOf(ADMINISTRATION_WITHDRAWAL_DISPLAY, w.state, "ADMIN_WITHDRAWAL");
+          const endLabel = w.state === "KNOWN" && w.withdrawalEnd ? `Withdrawal end ${formatDate(w.withdrawalEnd)}` : null;
+          return { foodProduct, state, endLabel, text: `${several ? `${foodProduct}: ` : ""}${endLabel ?? state.label}` };
+        });
+        const unknown = ADMINISTRATION_WITHDRAWAL_DISPLAY.UNKNOWN;
         return {
           date: e.occurredAt ?? "",
           label: e.occurredAt ? formatDate(e.occurredAt) : "Date not recorded",
           product: productId !== null ? (directory.productLabels[productId] ?? "Recorded product") : "Product not identified",
-          withdrawal: w ? displayOf(ADMINISTRATION_WITHDRAWAL_DISPLAY, w.state, "ADMIN_WITHDRAWAL") : ADMINISTRATION_WITHDRAWAL_DISPLAY.UNKNOWN,
-          withdrawalEndLabel: w?.state === "KNOWN" && w.withdrawalEnd ? `Withdrawal end ${formatDate(w.withdrawalEnd)}` : null,
+          withdrawals: details(withdrawals.length > 0 ? withdrawals : [{ foodProduct: "Food product", state: unknown, endLabel: null, text: unknown.label }]),
         };
       });
   const medicines: AnimalProfileVM["health"]["medicines"] = health === null ? unavailableListing(UNAVAILABLE_DISPLAY.HEALTH) : listingOf(medicineRows(health.medicineLedger.entries), EMPTY_DISPLAY.MEDICINES);
 
   const work = animalWork(outputs, animalId, directory);
-  const withdrawalState = health === null ? EVALUATION_UNAVAILABLE : gate ? displayOf(WITHDRAWAL_DISPLAY, gate.state, "WITHDRAWAL") : WITHDRAWAL_DISPLAY.UNKNOWN;
+  const withdrawalRow = (state: DisplayState, product: string, until: string | null): WithdrawalVM => ({
+    state,
+    label: state.label,
+    until,
+    untilLabel: until ? `Until ${formatDate(until)} (engine calculation from the product record)` : null,
+    product,
+  });
+  const withdrawals: WithdrawalVM[] =
+    health === null
+      ? [withdrawalRow(EVALUATION_UNAVAILABLE, "Food product", null)]
+      : health.withdrawalGate.entries.length === 0
+        ? [withdrawalRow(WITHDRAWAL_DISPLAY.UNKNOWN, "Food product", null)]
+        : health.withdrawalGate.entries.map((g) => withdrawalRow(displayOf(WITHDRAWAL_DISPLAY, g.state, "WITHDRAWAL"), directory.foodProductLabels[g.foodProduct] ?? "Food product", g.state === "IN_WITHDRAWAL" ? g.inWithdrawalUntil : null));
   const weight = latestWeightOf(series);
   const cv = costView(costs, weight.state === "KNOWN" ? weight.kg : null);
   const costMetric: MetricVM =
@@ -291,6 +369,7 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
       ? { label: "Direct cost to date", value: formatEuro(cv.total), unit: null, state: cv.display, caption: cv.perKgLiveweight === null ? null : `${formatEuroPerKg(cv.perKgLiveweight)} of liveweight` }
       : { label: "Direct cost to date", value: null, unit: null, state: cv.display, caption: null };
 
+  // first-item: open jobs are in Plan-kernel priority order (`animalWork`, the kernel's own ordering); the rest are listed, counted in `othersLabel`.
   const primary = work.open[0];
   const others = work.open.slice(1);
   const timeline = buildAnimalTimeline(outputs, animalId, directory, costs);
@@ -348,9 +427,12 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
     },
     target: {
       state: headline,
-      label: comparison && comparison.targetValue !== null ? `Target ${comparison.metric === "ADG" ? formatAdg(comparison.targetValue) : formatKg(comparison.targetValue)}${bandLabel === null ? "" : ` (band ${bandLabel})`}` : null,
+      label: comparison && comparison.targetValue !== null ? `Target ${comparisonValue(comparison)}${bandLabel === null ? "" : ` (band ${bandLabel})`}` : null,
       bandLabel,
-      source: targetDef?.versions[0] ? `${targetDef.versions[0].provenance.sourceRef?.sourceId ?? "Unsourced"} · ${targetDef.versions[0].reviewState.toLowerCase()}` : null,
+      source: comparison ? comparisonSource(outputs, comparison) : null,
+      summary:
+        comparisons.length < 2 ? null : sameState ? `${headline.label} across ${comparisons.length} targets` : `${comparisons.length} targets with different results — each is listed below`,
+      comparisons: details(comparisonValues),
     },
     // The chart plots C4 weights through C5: its four states are decided in `weightChartOf`, never by the chart component.
     chart: weightChartOf(series, perf, goalRead.state !== "ACTIVE" ? { state: "NOT_SET" } : soleGoal !== null ? soleGoal.targetWeight : { state: "SEVERAL", count: goalRead.goals.length }, projectedKg),
@@ -376,13 +458,7 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
       summary: goalRead.state === "ACTIVE" ? { state: "TEXT", text: goalLineText(goalRead.goals) } : { state: "STATE", display: goalRead.state === "UNRESOLVED" ? goalRead.display : goalState },
     },
     health: {
-      withdrawal: {
-        state: withdrawalState,
-        label: withdrawalState.label,
-        until: gate?.state === "IN_WITHDRAWAL" ? gate.inWithdrawalUntil : null,
-        untilLabel: gate?.state === "IN_WITHDRAWAL" && gate.inWithdrawalUntil ? `Until ${formatDate(gate.inWithdrawalUntil)} (engine calculation from the product record)` : null,
-        product: gate ? (directory.foodProductLabels[gate.foodProduct] ?? "Food product") : "Food product",
-      },
+      withdrawals: details(withdrawals),
       programmes,
       obligations,
       medicines,
@@ -412,16 +488,25 @@ export const viewpointDate = (outputs: CattleOutputs): string | null => utcDateO
  * adds no rule of its own. Conservative: a sale on the calendar day the withdrawal ends counts as inside it.
  * Not a legal determination — a notice for the farmer to check before a sale for slaughter.
  */
-export function saleWithdrawalNotice(w: AnimalProfileVM["health"]["withdrawal"], saleDate: string): { tone: "risk" | "unknown"; text: string } | null {
+export function saleWithdrawalNotice(w: WithdrawalVM, saleDate: string): { tone: "risk" | "unknown"; text: string } | null {
   if (!isPlanDate(saleDate)) return null;
   const product = w.product.toLowerCase();
   if (w.state.code === "WITHDRAWAL:CLEAR") return null;
   if (w.state.code === "WITHDRAWAL:IN_WITHDRAWAL") {
     const end = w.until ? utcDateOfInstant(w.until) : null;
     if (end === null) return { tone: "unknown", text: `In a medicine withdrawal (${product}) with no known end. Check the medicine records before any sale for slaughter.` };
-    return saleDate <= end ? { tone: "risk", text: `This sale date is inside the medicine withdrawal (${product}), which runs until ${formatDate(w.until as string)}. Don't sell for slaughter before it ends.` } : null;
+    // Which food product a sale for slaughter concerns is not a C3 fact: the product is named, the farmer checks it.
+    return saleDate <= end ? { tone: "risk", text: `This sale date is inside the medicine withdrawal (${product}), which runs until ${formatDate(w.until as string)}. Check it before any sale for slaughter.` } : null;
   }
   return { tone: "unknown", text: `Medicine withdrawal (${product}) is ${w.state.code === "WITHDRAWAL:EVIDENCE_CONFLICT" ? "disputed by conflicting records" : "unknown"}. Check the medicine records before any sale for slaughter.` };
+}
+
+/** One notice per food product whose withdrawal bears on the sale date (C3 entries are per product; none is merged or dropped). */
+export function saleWithdrawalNotices(ws: readonly WithdrawalVM[], saleDate: string): { tone: "risk" | "unknown"; text: string }[] {
+  return ws.flatMap((w) => {
+    const n = saleWithdrawalNotice(w, saleDate);
+    return n === null ? [] : [n];
+  });
 }
 
 /** C1 history families the timeline couldn't read (an unreadable ledger is a gap, never "no history"). */

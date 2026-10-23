@@ -83,6 +83,11 @@ export function formatEuroPerKg(amount: string | number): string {
   return `${r < 0 ? MINUS : ""}€${group(whole)}.${cents}/kg`;
 }
 
+/** A per-head price, whole euro: `€2,000/head` (never written per kilogram). */
+export function formatEuroPerHead(amount: string | number): string {
+  return `${formatEuro(amount)}/head`;
+}
+
 export function formatEuroPrecise(amount: string | number): string {
   const n = typeof amount === "string" ? Number(amount) : amount;
   const r = roundHalfAway(n, 2);

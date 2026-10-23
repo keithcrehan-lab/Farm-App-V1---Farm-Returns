@@ -82,18 +82,18 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
     expect(demoAnimalView(EMPTY, "1445")!.plan.saleDateSource).toBe("No goal date is declared; the sale date is a starting suggestion.");
     expect(primary(view("1445"))?.actionKind).toBe("DECLARE_PRODUCTION_GOAL");
     const withdrawal = view("1447");
-    expect(withdrawal.health.withdrawal.state.code).toBe("WITHDRAWAL:IN_WITHDRAWAL");
-    expect(withdrawal.health.withdrawal.untilLabel).toMatch(/^Until 30 Oct 2026/);
+    expect(withdrawal.health.withdrawals[0].state.code).toBe("WITHDRAWAL:IN_WITHDRAWAL");
+    expect(withdrawal.health.withdrawals[0].untilLabel).toMatch(/^Until 30 Oct 2026/);
     expect(withdrawal.recommendation.state.code).toBe("RECOMMENDATION:NO_RECOMMENDATION");
     // The plan reads the same C3 end against a chosen sale date: inside (incl. the end day) → notice; after → none.
-    expect(saleWithdrawalNotice(withdrawal.health.withdrawal, "2026-10-25")?.tone).toBe("risk");
-    expect(saleWithdrawalNotice(withdrawal.health.withdrawal, "2026-10-30")?.tone).toBe("risk");
-    expect(saleWithdrawalNotice(withdrawal.health.withdrawal, "2026-10-31")).toBeNull();
-    expect(saleWithdrawalNotice(view("1427").health.withdrawal, "2026-10-25")).toBeNull();
+    expect(saleWithdrawalNotice(withdrawal.health.withdrawals[0], "2026-10-25")?.tone).toBe("risk");
+    expect(saleWithdrawalNotice(withdrawal.health.withdrawals[0], "2026-10-30")?.tone).toBe("risk");
+    expect(saleWithdrawalNotice(withdrawal.health.withdrawals[0], "2026-10-31")).toBeNull();
+    expect(saleWithdrawalNotice(view("1427").health.withdrawals[0], "2026-10-25")).toBeNull();
     const unknownWithdrawal = view("1455");
-    expect(unknownWithdrawal.health.withdrawal.state.code).toBe("WITHDRAWAL:UNKNOWN");
-    expect(unknownWithdrawal.health.withdrawal.state.tone).toBe("unknown");
-    expect(saleWithdrawalNotice(unknownWithdrawal.health.withdrawal, "2027-06-01")?.tone).toBe("unknown");
+    expect(unknownWithdrawal.health.withdrawals[0].state.code).toBe("WITHDRAWAL:UNKNOWN");
+    expect(unknownWithdrawal.health.withdrawals[0].state.tone).toBe("unknown");
+    expect(saleWithdrawalNotice(unknownWithdrawal.health.withdrawals[0], "2027-06-01")?.tone).toBe("unknown");
     expect(primary(view("1458"))?.priority.code).toBe("PRIORITY:HARD_OBLIGATION");
     expect(primary(view("1452"))?.window).toMatchObject({ state: "RECOMMENDED", label: expect.stringMatching(/^Recommended window/) });
     expect(primary(view("1452"))?.hardDeadline).toEqual({ state: "NONE" });

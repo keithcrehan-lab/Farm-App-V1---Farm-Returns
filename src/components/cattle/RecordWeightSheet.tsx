@@ -10,12 +10,15 @@
  * its line comes from `previousWeightLine`, so a conflict or an unavailable
  * evaluation is never "no earlier weight". The entry keeps the canonical
  * decimal text (invariant B): it starts from the exact previous weight and
- * the steppers add exactly ±5 kg (`stepDecimalText`) — nothing is rounded.
+ * the steppers add exactly ±5 kg (`stepNumericInput`) — nothing is rounded. The typed text is kept
+ * exactly as typed and read by the shared parser (F016): "52,1" is 52.1, "-12" or "1e3" are refused
+ * with a message — never stripped into another number.
  */
 
-import { useState } from "react";
-import { isDecimalText, previousWeightLine, stepDecimalText, weightEntryStart, type LatestWeightVM } from "@/domain/cattle/presentation";
-import { Sheet } from "./ui";
+import { useEffect, useRef, useState } from "react";
+import { NUMERIC_FIELDS, numericInputValue, parseNumericInput, previousWeightLine, stepNumericInput, weightEntryStart, type LatestWeightVM } from "@/domain/cattle/presentation";
+// The app's shared modal sheet (F018): focus trapped (Tab / Shift+Tab), Escape closes, focus restored — no cattle copy.
+import { Sheet } from "@/components/ui/Sheet";
 
 export interface RecordWeightValue {
   kg: number;
@@ -43,18 +46,24 @@ export function RecordWeightSheet({
   const [when, setWhen] = useState<"TODAY" | "EARLIER">("TODAY");
   const [date, setDate] = useState("");
   const [refused, setRefused] = useState<string | null>(null);
-  const kg = Number(text);
-  const kgValid = isDecimalText(text) && Number.isFinite(kg) && kg > 0 && kg <= 2000;
+  const read = parseNumericInput(text, NUMERIC_FIELDS.WEIGHT_KG);
+  const kg = numericInputValue(read);
   const dateValid = when === "TODAY" || (/^\d{4}-\d{2}-\d{2}$/.test(date) && date < asOfDate);
-  const step = (d: string) => setText((t) => stepDecimalText(t, d, { min: "1", from: start.stepFrom }));
+  const step = (d: string) => setText((t) => stepNumericInput(t, d, NUMERIC_FIELDS.WEIGHT_KG, start.stepFrom) ?? t);
   const line = previousWeightLine(previous);
+  // The shared Sheet moves focus into its panel (a microtask queued in its own effect, which runs first as the
+  // child); the scale reading is then focused, so the farmer types straight away — inside the trapped panel.
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (open) queueMicrotask(() => input.current?.focus());
+  }, [open]);
 
   return (
     <Sheet open={open} onClose={onClose} title={`Record weight · ${tag}`}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (kgValid && dateValid) setRefused(onSave({ kg, observedDate: when === "TODAY" ? null : date }));
+          if (kg !== null && dateValid) setRefused(onSave({ kg, observedDate: when === "TODAY" ? null : date }));
         }}
       >
         <label htmlFor="cattle-weight-kg" className="text-sm text-fr-v2-muted">
@@ -67,12 +76,14 @@ export function RecordWeightSheet({
           <div className="relative flex-1">
             <input
               id="cattle-weight-kg"
+              ref={input}
               inputMode="decimal"
               autoComplete="off"
               value={text}
-              onChange={(e) => setText(e.target.value.replace(/[^\d.]/g, ""))}
+              onChange={(e) => setText(e.target.value)}
+              aria-invalid={read.state === "INVALID"}
               className="h-16 w-full rounded-[8px] border-2 border-fr-v2-forest bg-white pr-12 text-center text-[34px] font-semibold tabular-nums text-fr-v2-graphite outline-none"
-              aria-describedby="cattle-weight-hint"
+              aria-describedby={read.state === "INVALID" ? "cattle-weight-error cattle-weight-hint" : "cattle-weight-hint"}
             />
             <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-base text-fr-v2-muted">kg</span>
           </div>
@@ -80,6 +91,11 @@ export function RecordWeightSheet({
             +5
           </button>
         </div>
+        {read.state === "INVALID" ? (
+          <p id="cattle-weight-error" className="mt-1.5 text-sm text-[#b23a2b]" role="alert">
+            {read.message}
+          </p>
+        ) : null}
         <p id="cattle-weight-hint" className="mt-1.5 text-sm text-fr-v2-muted">
           <span data-previous-weight={previous.state} className={line.tone === "conflict" ? "text-fr-v2-clay" : undefined}>
             {line.text}
@@ -122,7 +138,7 @@ export function RecordWeightSheet({
           <button type="button" onClick={onClose} className="min-h-12 rounded-[8px] px-4 text-base font-medium text-fr-v2-graphite">
             Cancel
           </button>
-          <button type="submit" disabled={!kgValid || !dateValid} className="min-h-12 flex-1 rounded-[8px] bg-fr-v2-forest text-base font-semibold text-white disabled:opacity-40">
+          <button type="submit" disabled={kg === null || !dateValid} className="min-h-12 flex-1 rounded-[8px] bg-fr-v2-forest text-base font-semibold text-white disabled:opacity-40">
             Save weight
           </button>
         </div>

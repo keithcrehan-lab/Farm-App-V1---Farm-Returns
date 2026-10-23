@@ -10,12 +10,13 @@
  */
 
 import type { RecommendationRecord } from "../recommendations";
-import type { CattlePlanProposalGroup, CattlePlanWorkItem } from "../plan-interface";
+import type { CattlePlanProposalGroup } from "../plan-interface";
 import { compareSystemPriority, planJobIdentityKey, type PlanJob } from "../../plan";
 import type { CattleDirectory, CattleOutputs, CattlePlanJobState } from "./cattle-outputs";
 import {
   ACTION_COPY,
   BLOCKER_DISPLAY,
+  BLOCKERS_MIXED_DISPLAY,
   LIMITATION_COPY,
   COMPLETION_DISPLAY,
   JOB_STATUS_DISPLAY,
@@ -120,10 +121,11 @@ function titleOf(job: PlanJob, directory: CattleDirectory): { title: string; sho
   return { title: "Cattle work", short: "Work", why: "Raised from your cattle records." };
 }
 
-function blockerText(item: CattlePlanWorkItem | undefined, status: string): string {
+/** `kinds`: the kinds C9 records for THIS blocker id (across the group's items), not any other blocker's. */
+function blockerText(kinds: ReadonlySet<string>, status: string): string {
   if (status === "UNKNOWN") return "Waiting on information: a required record is missing or unclear, so this can't be confirmed yet.";
   if (status === "ACTIVE") {
-    const legal = item?.blockers.some((b) => b.kind === "LEGAL_WINDOW");
+    const legal = kinds.has("LEGAL_WINDOW");
     return legal ? "A medicine withdrawal is in force for this animal (an engine check, not a legal ruling)." : "A required check failed, so this can't go ahead yet.";
   }
   return "Cleared.";
@@ -228,8 +230,8 @@ export function workVM(state: CattlePlanJobState, outputs: CattleOutputs, animal
     const b = blockerById[id];
     const status = b?.status ?? "UNKNOWN";
     if (status === "CLEARED") continue;
-    const item = group?.items.find((i) => i.blockers.some((x) => x.id === id));
-    blockers.push({ state: displayOf(BLOCKER_DISPLAY, status, "BLOCKER"), text: blockerText(item, status) });
+    const kinds = new Set((group?.items ?? []).flatMap((i) => i.blockers.filter((x) => x.id === id).map((x) => x.kind)));
+    blockers.push({ state: displayOf(BLOCKER_DISPLAY, status, "BLOCKER"), text: blockerText(kinds, status) });
   }
   const open = !["COMPLETED", "OBSOLETE", "CANCELLED"].includes(job.status);
   const hd = job.timing.hardDeadline;
@@ -247,7 +249,8 @@ export function workVM(state: CattlePlanJobState, outputs: CattleOutputs, animal
     window: windowOf(job),
     hardDeadline: hd === null ? { state: "NONE" } : { state: "HARD_DEADLINE", label: `Must be done before ${formatDate(hd.dueIso)}`, dueAt: hd.dueIso },
     blockers: details(blockers),
-    headlineState: blockers[0]?.state ?? readiness,
+    // Every open blocker is listed; the headline is their shared state, or BLOCKERS_MIXED — never the first one's.
+    headlineState: blockers.length === 0 ? readiness : new Set(blockers.map((b) => b.state.code)).size === 1 ? blockers[0].state : BLOCKERS_MIXED_DISPLAY,
     completed:
       job.completion === null
         ? { state: "NOT_COMPLETED", label: displayOf(JOB_STATUS_DISPLAY, job.status, "JOB").label }

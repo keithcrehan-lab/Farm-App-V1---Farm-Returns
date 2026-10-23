@@ -105,6 +105,19 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
         {p.target.label ? <span className="text-sm text-fr-v2-muted">{p.target.label}</span> : null}
         {p.performanceState.detail && p.target.label === null ? <span className="text-sm text-fr-v2-muted">{p.performanceState.detail}</span> : null}
       </div>
+      {p.target.summary !== null ? (
+        <div className="mt-2">
+          <p className="text-sm text-fr-v2-charcoal">{p.target.summary}</p>
+          <ul className="mt-1 space-y-1" aria-label="Target comparisons">
+            {p.target.comparisons.map((c) => (
+              <li key={c.targetId} className="flex flex-wrap items-baseline gap-x-3 text-sm">
+                <span className="text-fr-v2-graphite">{c.label}</span>
+                <StateLabel state={c.state} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="mt-8 grid grid-cols-1 gap-x-12 gap-y-8 lg:grid-cols-[1.55fr_1fr]">
         <div className="min-w-0 space-y-8">

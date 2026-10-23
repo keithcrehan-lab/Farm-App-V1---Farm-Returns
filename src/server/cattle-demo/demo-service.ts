@@ -148,7 +148,7 @@ export function demoProjection(session: CattleDemoSession, tag: string, saleDate
   if (!contract.ok) return { state: "NOT_PROJECTED", saleDate, reason: "WEIGHTS_INVALID" };
   const result = evaluatePerformance(structuredClone({ weights: contract.contract, query: { ...viewpoint, windowFrom: null, projectionAt }, targets, policies, contexts: [] }) as never, hash);
   if (!result.ok) return { state: "NOT_PROJECTED", saleDate, reason: result.issues.some((i) => i.code === "CATTLE_PERFORMANCE_INVALID_PROJECTION_AT") ? "SALE_DATE_NOT_AFTER_TODAY" : "PERFORMANCE_INVALID" };
-  const p = result.evaluation.animals[0]?.prediction ?? null;
+  const p = result.evaluation.animals.find((a) => a.animalId === animalId)?.prediction ?? null;
   if (p === null || p.state !== "PROJECTED" || p.projectedKg === null || p.adgKgPerDay === null || p.fromObservedAt === null) return { state: "NOT_PROJECTED", saleDate, reason: p?.reasonState ?? "NO_PREDICTION" };
   return { state: "PROJECTED", saleDate, kg: p.projectedKg, adgKgPerDay: p.adgKgPerDay, fromObservedAt: p.fromObservedAt, assumptions: p.assumptions };
 }

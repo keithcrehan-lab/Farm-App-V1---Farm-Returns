@@ -203,7 +203,7 @@ const MUTATIONS: Mutation[] = [
     required: [/Health records couldn't be read/],
     vm: (_h, p) => {
       expect(isUnavailable(p.health.medicines)).toBe(true);
-      expect(p.health.withdrawal.state.code).toBe("EVALUATION:UNAVAILABLE");
+      expect(p.health.withdrawals[0].state.code).toBe("EVALUATION:UNAVAILABLE");
     },
   },
   {

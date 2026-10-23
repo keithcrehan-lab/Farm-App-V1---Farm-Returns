@@ -93,6 +93,7 @@ export function animalRow(outputs: CattleOutputs, animalId: string, directory: C
     r.state === "KNOWN" ? (render() ?? `${name} recorded (no label)`) : r.state === "UNKNOWN" ? `${name} not recorded` : r.state === "CONFLICTING_EVIDENCE" ? `${name}: records disagree` : `${name}: record can't be read`;
   let nextWork: AnimalRowVM["nextWork"] = { state: "UNAVAILABLE", display: UNAVAILABLE_DISPLAY.PLANNING };
   if (outputs.plan.ok) {
+    // first-item: the next job in Plan-kernel priority order (the kernel's own ordering) — the row is a pointer to the animal, whose page lists every job.
     const next = animalWork(outputs, animalId, directory).open[0] ?? null;
     nextWork = next ? { state: "JOB", title: next.title, tone: next.blockers.length > 0 ? "unknown" : next.priority.tone, readiness: next.readiness } : { state: "NONE_OPEN", display: NO_OPEN_WORK };
   }
@@ -160,6 +161,7 @@ export function buildHerd(outputs: CattleOutputs, directory: CattleDirectory): H
             [...counts.entries()]
               .map(([key, v]) => {
                 const words = v.actionKind ? WORK_COUNT_LABEL[v.actionKind] : undefined;
+                // first-item: `words` is a [singular, plural] wording pair, not a collection of results.
                 return { label: words ? `${plural(v.count, "animal")} ${v.count === 1 ? words[0] : words[1]}` : `${plural(v.count, "animal")}: ${ACTION_COPY[key]?.short ?? key}`, count: v.count, actionKind: v.actionKind };
               })
               .sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : 1)),

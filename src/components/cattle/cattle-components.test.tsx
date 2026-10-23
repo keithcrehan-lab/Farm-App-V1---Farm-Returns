@@ -150,8 +150,10 @@ describe("C10 screens", { timeout: 60_000 }, () => {
     expect(screen.getByText("Saving changes 1452's goal from keep on farm to finishing.")).toBeInTheDocument();
   });
 
-  it("record-weight sheet focuses the scale reading first", () => {
+  it("record-weight sheet focuses the scale reading first", async () => {
     render(<RecordWeightSheet open onClose={() => {}} onSave={() => null} tag="1427" previous={KNOWN_521} asOfDate="2026-10-16" />);
+    // The shared Sheet focuses its panel in a microtask, then the sheet hands focus to the scale reading.
+    await act(async () => {});
     expect(document.activeElement).toBe(screen.getByLabelText("Scale reading"));
   });
 

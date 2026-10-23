@@ -10,7 +10,7 @@
  */
 
 import Link from "next/link";
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import type { DisplayState, DisplayTone } from "@/domain/cattle/presentation";
 import styles from "./cattle.module.css";
 
@@ -121,39 +121,6 @@ export function Disclosure({ label, children, defaultOpen = false }: { label: st
           {children}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-/** Bottom sheet (mobile) / centred panel (desktop). Escape and the scrim close it; focus moves in and back. */
-export function Sheet({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const titleId = useId();
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>("input") ?? ref.current?.querySelector<HTMLElement>("button, [tabindex]");
-    first?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      previous?.focus?.();
-    };
-  }, [open, onClose]);
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-center">
-      <button type="button" aria-label="Close" onClick={onClose} className={`absolute inset-0 bg-fr-v2-graphite/40 ${styles.scrim}`} />
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className={`relative w-full max-w-lg rounded-t-[20px] bg-fr-v2-paper px-5 pb-8 pt-3 shadow-fr-v2-drawer lg:rounded-[14px] lg:pb-6 ${styles.sheetIn}`}>
-        <div aria-hidden className="mx-auto mb-3 h-1 w-10 rounded-full bg-fr-v2-rule lg:hidden" />
-        <h2 id={titleId} className="text-lg font-semibold text-fr-v2-graphite">
-          {title}
-        </h2>
-        <div className="mt-4">{children}</div>
-      </div>
     </div>
   );
 }

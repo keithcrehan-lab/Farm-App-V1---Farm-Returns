@@ -21,12 +21,13 @@
 import { HOUSING_DEPENDENT_RESULTS, computeAnimalPlanEconomics, isPlanDate, type AnimalCostRead, type AnimalPlanAssumptions, type AnimalPlanEconomics, type CurrentWeightRead, type HousingObservation, type HousingUnknownReason, type MartValuation, type Money } from "../../animal-plan";
 import type { GoalRead } from "./animal-profile";
 import { goalSummaryText, soleActiveGoal } from "./goal-read";
+import { NUMERIC_FIELDS, parseNumericInput, type NumericInputRead } from "./numeric-input";
 import type { AnimalProfileVM } from "./animal-profile";
-import { formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatProjectedKg, formatSignedKg } from "./format";
+import { formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerHead, formatEuroPerKg, formatKg, formatProjectedKg, formatSignedKg } from "./format";
 import { canonicalNumberText } from "./numeric-input";
 import { planTimeline, type PlanTimelineVM } from "./plan-timeline";
 import { details, unseal, type Details, type SealedInput } from "./view-state";
-import { saleWithdrawalNotice } from "./animal-profile";
+import { saleWithdrawalNotices } from "./animal-profile";
 import type { LatestWeightVM } from "./weight-view";
 
 /** The owner reads the plan economics need. Sealed: a component passes them back here unread. */
@@ -80,7 +81,8 @@ export interface PlanScreenVM {
   headline: { value: PlanCellVM; large: boolean; assumed: boolean; summary: string; footnote: string };
   /** Plan input problems, each a farmer sentence (save is blocked while any exist). */
   issues: Details<string>;
-  withdrawalNotice: { state: "NOTICE"; tone: "risk" | "unknown"; text: string } | { state: "NONE" };
+  /** One notice per food product whose C3 withdrawal bears on the sale date (empty = none). */
+  withdrawalNotices: Details<{ tone: "risk" | "unknown"; text: string }>;
   timeline: PlanTimelineVM;
   housing: {
     /** Why housing figures are blocked or assumption-based (`null` when the record says). */
@@ -180,9 +182,36 @@ function moneyCell(m: Money, o: { signed?: boolean; perKg?: boolean; tone?: "pla
   return { state: "KNOWN", text, sub: null, tone: o.tone === "gain-loss" ? (Number(m.amount) >= 0 ? "gain" : "loss") : "plain" };
 }
 
-/** Is the goal-weight text a usable target (empty = none)? Input validation only. */
-export function isTargetWeightText(text: string): boolean {
-  return text === "" || (Number.isFinite(Number(text)) && Number(text) > 0 && Number(text) <= 2000);
+/** The goal-weight field, read by the shared parser (EMPTY = no target entered; INVALID carries the farmer message). */
+export function planTargetRead(text: string): NumericInputRead {
+  return parseNumericInput(text, NUMERIC_FIELDS.TARGET_KG);
+}
+
+/** The plan's farmer-typed amounts: the economics issue each one raises when it isn't a number, and its field label. */
+const PLAN_AMOUNT_FIELDS = {
+  concentrateKgPerDay: { issue: "CONCENTRATE_QUANTITY_INVALID", label: "Concentrate per day" },
+  concentratePricePerTonne: { issue: "CONCENTRATE_PRICE_INVALID", label: "Concentrate price" },
+  forageCostPerDay: { issue: "FORAGE_COST_INVALID", label: "Forage / grazing" },
+  housingCostPerDay: { issue: "HOUSING_COST_INVALID", label: "Housing and bedding" },
+} as const satisfies Partial<Record<keyof AnimalPlanAssumptions, { issue: string; label: string }>>;
+
+/**
+ * The assumptions as the economics read them: each typed amount through the shared parser (F016) — a valid one as
+ * its exact canonical text ("0,35" → "0.35"), an empty one as not entered, an invalid one passed on exactly as typed
+ * so the economics refuse it (never rewritten into a different number) — plus the parser's message per refused field.
+ */
+function parsePlanAmounts(a: AnimalPlanAssumptions): { assumptions: AnimalPlanAssumptions; messages: Readonly<Record<string, string>> } {
+  const out: AnimalPlanAssumptions = { ...a };
+  const messages: Record<string, string> = {};
+  for (const key of Object.keys(PLAN_AMOUNT_FIELDS) as (keyof typeof PLAN_AMOUNT_FIELDS)[]) {
+    const raw = a[key];
+    if (raw === null) continue;
+    const r = parseNumericInput(raw, NUMERIC_FIELDS.PLAN_AMOUNT);
+    if (r.state === "VALID") out[key] = r.canonical;
+    else if (r.state === "EMPTY") out[key] = null;
+    else messages[PLAN_AMOUNT_FIELDS[key].issue] = `${PLAN_AMOUNT_FIELDS[key].label}: ${r.message}`;
+  }
+  return { assumptions: out, messages };
 }
 
 /** The goal-weight field's starting text: the sole goal's exact target, else empty (never a rounded figure; several goals: none picked). */
@@ -253,7 +282,8 @@ function marketOf(valuation: MartValuation | undefined, weight: LatestWeightVM):
     source: `${v.mart.martName}${v.reportDate ? ` · ${formatDayMonth(v.reportDate)}` : ""}`,
     freshness: v.freshness === null ? { stale: false, text: "Report age unknown" } : v.freshness.state === "STALE" ? { stale: true, text: `Old report — ${v.freshness.ageDays} days` } : { stale: false, text: `${v.freshness.ageDays} days old` },
     range: `${formatEuro(v.estimate.low)} – ${formatEuro(v.estimate.high)}`,
-    priceRange: `(${formatEuroPerKg(v.price.low)} – ${formatEuroPerKg(v.price.high)})`,
+    // The provider's own pricing basis (F017): €/kg only for a per-kg comparable, €/head for a per-head one — never converted.
+    priceRange: derived ? `(${formatEuroPerKg(v.price.low)} – ${formatEuroPerKg(v.price.high)})` : `(${formatEuroPerHead(v.price.low)} – ${formatEuroPerHead(v.price.high)})`,
     comparedWith: `${v.category?.label ?? "Category not named"}${v.sampleSize ? ` · ${v.sampleSize} sold` : ""}`,
     basis: `${derived ? "€/kg liveweight × current weight (derived, not observed for this animal)" : "€/head as reported"} · central figure: ${v.centralDerivation === "OBSERVED_AVERAGE" ? "observed average" : v.centralDerivation === "OBSERVED_MEDIAN" ? "observed median" : "midpoint"}`,
     status: v.provider.isLive ? "Live data" : "Development fixture — not live, not a real mart report",
@@ -282,8 +312,9 @@ export interface PlanScreenInput {
   profile: Pick<AnimalProfileVM, "goal" | "health" | "weight" | "identity">;
 }
 
-export function planScreenView({ inputs: sealed, assumptions: a, martId, projection, profile }: PlanScreenInput): PlanScreenVM {
+export function planScreenView({ inputs: sealed, assumptions: typed, martId, projection, profile }: PlanScreenInput): PlanScreenVM {
   const inputs = unseal(sealed);
+  const { assumptions: a, messages: fieldMessages } = parsePlanAmounts(typed);
   const valuation = inputs.valuations[martId];
   const e: AnimalPlanEconomics = computeAnimalPlanEconomics({
     asOfDate: inputs.asOfDate,
@@ -309,7 +340,8 @@ export function planScreenView({ inputs: sealed, assumptions: a, martId, project
     row("projectedWeightKg", "Projected weight at sale", projectedWeight, projection?.state === "PROJECTED" ? `Prediction: recent ${formatAdg(projection.adgKgPerDay)} continued from ${formatDayMonth(projection.fromObservedAt)}` : null),
     ...goalWeightRows(goal).map((cell) => row("goalWeight", "Goal weight", cell)),
     row("currentEstimatedValue", "Estimated value now", moneyCell(e.currentEstimatedValue), valuation?.state === "ESTIMATED" && valuation.estimate ? `Range ${formatEuro(valuation.estimate.low)} – ${formatEuro(valuation.estimate.high)}` : null),
-    row("projectedSaleValue", "Projected sale value", moneyCell(e.projectedSaleValue), e.salePrice.state === "KNOWN" ? `${formatEuroPerKg(e.salePrice.amount)} × projected weight` : null),
+    // "× projected weight" only for a per-kg price: a per-head price is never described as weight-based (the cell itself is unknown).
+    row("projectedSaleValue", "Projected sale value", moneyCell(e.projectedSaleValue), e.salePrice.state === "KNOWN" && valuation?.basis === "EUR_PER_KG_LIVEWEIGHT" ? `${formatEuroPerKg(e.salePrice.amount)} × projected weight` : null),
     row("recordedDirectCosts", "Recorded direct costs to date", moneyCell(e.recordedDirectCosts), inputs.costs.state === "RECORDED" ? `${inputs.costs.entryCount} entr${inputs.costs.entryCount === 1 ? "y" : "ies"}, incl. allocated` : null),
     row("forecastFeedCost", "Forecast feed to sale", moneyCell(e.forecastFeedCost), e.remainingDays !== null ? `${e.remainingDays} days` : null),
     row("forecastHousingCost", "Forecast housing to sale", moneyCell(e.forecastHousingCost), e.housedDays !== null ? `${e.housedDays} housed days` : null),
@@ -328,8 +360,8 @@ export function planScreenView({ inputs: sealed, assumptions: a, martId, project
       : h.basis === "UNKNOWN" && h.observed.state === "UNKNOWN"
         ? `Can't calculate housing costs yet — the animal's current housing status ${HOUSING_UNKNOWN_TEXT[h.observed.reason]}. Choose an assumption for this plan to see a scenario.`
         : `The animal's current housing status ${h.observed.state === "UNKNOWN" ? HOUSING_UNKNOWN_TEXT[h.observed.reason] : "isn't recorded"}. Housing figures below use your assumption — the record isn't changed.`;
-  const notice = saleWithdrawalNotice(profile.health.withdrawal, a.saleDate);
-  const issues = e.validity.state === "INVALID" ? e.validity.issues.map((i) => ISSUE_TEXT[i] ?? i) : [];
+  const notices = saleWithdrawalNotices(profile.health.withdrawals, a.saleDate);
+  const issues = e.validity.state === "INVALID" ? e.validity.issues.map((i) => fieldMessages[i] ?? ISSUE_TEXT[i] ?? i) : [];
   return {
     titleDate: isPlanDate(a.saleDate) ? formatDate(a.saleDate) : "—",
     returnHeading: `Return from holding to ${isPlanDate(a.saleDate) ? formatDate(a.saleDate) : "sale"}`,
@@ -345,7 +377,7 @@ export function planScreenView({ inputs: sealed, assumptions: a, martId, project
       footnote: `${fixture ? "Based on development fixture prices — not a market quote. " : ""}Direct costs only: labour, land, finance and overheads aren't included. A projection, not a guarantee.`,
     },
     issues: details(issues),
-    withdrawalNotice: notice === null ? { state: "NONE" } : { state: "NOTICE", ...notice },
+    withdrawalNotices: details(notices),
     timeline: planTimeline(e.intervals),
     housing: {
       note,

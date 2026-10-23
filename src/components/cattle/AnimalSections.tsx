@@ -39,13 +39,15 @@ export function HealthSection({ health }: { health: AnimalProfileVM["health"] })
   return (
     <dl className="divide-y divide-fr-v2-rule">
       {medicines.state === "UNAVAILABLE" ? <div className={`px-3 py-3 text-sm text-fr-v2-charcoal ${cattleStyles.hatch}`}>{medicines.display.detail ?? medicines.display.label}</div> : null}
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3">
-        <dt className="text-sm text-fr-v2-muted">Medicine withdrawal ({health.withdrawal.product.toLowerCase()})</dt>
-        <dd className="text-right">
-          <StateLabel state={health.withdrawal.state} />
-          {health.withdrawal.untilLabel ? <div className="text-sm text-fr-v2-charcoal">{health.withdrawal.untilLabel}</div> : null}
-        </dd>
-      </div>
+      {health.withdrawals.map((w) => (
+        <div key={w.product} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3">
+          <dt className="text-sm text-fr-v2-muted">Medicine withdrawal ({w.product.toLowerCase()})</dt>
+          <dd className="text-right">
+            <StateLabel state={w.state} />
+            {w.untilLabel ? <div className="text-sm text-fr-v2-charcoal">{w.untilLabel}</div> : null}
+          </dd>
+        </div>
+      ))}
       <ContextRows title="Veterinary programmes" listing={health.programmes} />
       <ContextRows title="Requirements" listing={health.obligations} />
       {medicines.state === "ITEMS" ? (
@@ -57,7 +59,13 @@ export function HealthSection({ health }: { health: AnimalProfileVM["health"] })
                   <span>
                     {m.label} · {m.product}
                   </span>
-                  <span className="text-fr-v2-muted">{m.withdrawalEndLabel ?? m.withdrawal.label}</span>
+                  <span className="text-fr-v2-muted">
+                    {m.withdrawals.map((w) => (
+                      <span key={w.foodProduct} className="block text-right">
+                        {w.text}
+                      </span>
+                    ))}
+                  </span>
                 </li>
               ))}
             </ul>

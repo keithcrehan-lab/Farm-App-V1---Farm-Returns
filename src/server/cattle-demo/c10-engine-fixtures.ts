@@ -44,6 +44,23 @@ export function outputsWithWeights(tag: string, records: Rec[]): CattleOutputs {
 }
 
 /**
+ * The animal's outputs with C5 re-run over its own demo weights against exactly `targets` (the frozen engine:
+ * several target ids give several comparisons, two live versions of one id an EVIDENCE_CONFLICT).
+ */
+export function outputsWithTargets(tag: string, targets: Rec[]): CattleOutputs {
+  const animalId = animalIdOf(tag);
+  const o = animalOutputs(tag);
+  const { viewpoint, observations, policies } = sessionInputs(EMPTY, "STANDARD", [animalId]);
+  const c = buildWeightReadContract(structuredClone({ observations, scope: { kind: "EXPLICIT_SET", animalIds: [animalId] }, query: viewpoint }) as never, hash);
+  if (!c.ok) throw new Error(`C4 rejected the fixture: ${JSON.stringify(c.issues)}`);
+  const p = evaluatePerformance(structuredClone({ weights: c.contract, query: { ...viewpoint, windowFrom: null }, targets, policies, contexts: [] }) as never, hash);
+  if (!p.ok) throw new Error(`C5 rejected the fixture: ${JSON.stringify(p.issues)}`);
+  o.weights = c.contract;
+  o.performance = p.evaluation;
+  return o;
+}
+
+/**
  * The animal's outputs with its C1 ledger rebuilt (`createAnimalLedger`) and re-projected
  * (`projectAnimalSnapshot`) with the location assertion at `kind` (`null` = no location assertion).
  */

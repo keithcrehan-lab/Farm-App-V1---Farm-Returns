@@ -86,7 +86,9 @@ export const TARGET_DISPLAY = {
   INSUFFICIENT_EVIDENCE: ds("TARGET", "INSUFFICIENT_EVIDENCE", "Not enough weights", "unknown", "We need more weights before comparing with the target."),
   EVIDENCE_CONFLICT: ds("TARGET", "EVIDENCE_CONFLICT", "Evidence conflict", "conflict", "Conflicting records stop the comparison."),
   INVALID: ds("TARGET", "INVALID", "Can't compare", "review"),
-} as const satisfies Table<TargetComparisonState | "NO_TARGET">;
+  // C10: several C5 comparisons with different results — none is picked (C5 defines no precedence between targets).
+  MIXED: ds("TARGET", "MIXED", "Mixed target results", "review", "The targets give different results. Each is listed; none is picked over the others."),
+} as const satisfies Table<TargetComparisonState | "NO_TARGET" | "MIXED">;
 
 /** C5 — trend under an explicit TREND policy. */
 export const TREND_DISPLAY = {
@@ -276,6 +278,8 @@ export const BLOCKER_DISPLAY = {
   UNKNOWN: ds("BLOCKER", "UNKNOWN", "Waiting on information", "unknown"),
   CLEARED: ds("BLOCKER", "CLEARED", "Cleared", "neutral"),
 } as const satisfies Table<PlanBlockerStatus>;
+/** A job with open blockers in different states (active and waiting on information): none is picked as the headline. */
+export const BLOCKERS_MIXED_DISPLAY = ds("BLOCKER", "MIXED", "Blocked, and waiting on information", "risk", "Some blockers are active and others are waiting on information; each is listed.");
 
 /** Plan — job status. */
 export const JOB_STATUS_DISPLAY = {

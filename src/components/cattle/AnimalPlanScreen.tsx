@@ -19,7 +19,8 @@
  *   A refused save always says so; the screen never implies an unsaved plan
  *   was saved.
  * - Numbers: inputs keep their exact decimal text; steppers add exact steps
- *   (`stepDecimalText`); only display formatting rounds.
+ *   (`stepNumericInput`); only display formatting rounds. Typed numbers are kept as typed and read by
+ *   the shared parser (`parseNumericInput`, F016) — never stripped into another number.
  */
 
 import Link from "next/link";
@@ -28,10 +29,14 @@ import {
   addDays,
   formatDate,
   isPlanDate,
-  isTargetWeightText,
+  NUMERIC_FIELDS,
+  numericInputValue,
+  parseNumericInput,
+  planTargetRead,
   planSaveIntent,
   planScreenView,
-  stepDecimalText,
+  stepNumericInput,
+  type NumericFieldSpec,
   planTargetText,
   type AnimalPlanAssumptions,
   type HousingAssumption,
@@ -89,9 +94,16 @@ function Row({ label, hint, children }: { label: string; hint: string | null; ch
   );
 }
 
-/** `step` is an exact decimal string; stepping never rounds the entered value (invariant B). */
-function NumberField({ id, label, unit, value, onChange, step }: { id: string; label: string; unit: string; value: string; onChange: (v: string) => void; step: string }) {
-  const bump = (d: string) => onChange(stepDecimalText(value, d, { min: "0" }));
+/**
+ * `step` is an exact decimal string; stepping never rounds the entered value (invariant B). The text is kept exactly
+ * as typed (F016): the shared parser accepts it or says why not; a stepper leaves text that isn't a number alone.
+ */
+function NumberField({ id, label, unit, value, onChange, step, field }: { id: string; label: string; unit: string; value: string; onChange: (v: string) => void; step: string; field: NumericFieldSpec }) {
+  const read = parseNumericInput(value, field);
+  const bump = (d: string) => {
+    const next = stepNumericInput(value, d, field);
+    if (next !== null) onChange(next);
+  };
   return (
     <div>
       <label htmlFor={id} className="text-sm text-fr-v2-charcoal">
@@ -102,20 +114,33 @@ function NumberField({ id, label, unit, value, onChange, step }: { id: string; l
           −
         </button>
         <div className="relative flex-1">
-          <input id={id} inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ""))} className="h-11 w-full rounded-[8px] border border-fr-v2-rule bg-white px-3 pr-16 text-right text-[17px] font-semibold tabular-nums text-fr-v2-graphite" />
+          <input
+            id={id}
+            inputMode="decimal"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            aria-invalid={read.state === "INVALID"}
+            aria-describedby={read.state === "INVALID" ? `${id}-error` : undefined}
+            className="h-11 w-full rounded-[8px] border border-fr-v2-rule bg-white px-3 pr-16 text-right text-[17px] font-semibold tabular-nums text-fr-v2-graphite"
+          />
           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-fr-v2-muted">{unit}</span>
         </div>
         <button type="button" onClick={() => bump(step)} className="min-h-11 min-w-11 rounded-[8px] border border-fr-v2-rule text-fr-v2-graphite" aria-label={`Increase ${label}`}>
           +
         </button>
       </div>
+      {read.state === "INVALID" ? (
+        <p id={`${id}-error`} className="mt-1 text-sm text-[#b23a2b]" role="alert">
+          {read.message}
+        </p>
+      ) : null}
     </div>
   );
 }
 
 /** A draft number field: the text as entered; an emptied field is "not entered" (`null`), never 0. */
 function DraftNumber({ id, label, unit, value, onChange, step }: { id: string; label: string; unit: string; value: string | null; onChange: (v: string | null) => void; step: string }) {
-  return <NumberField id={id} label={label} unit={unit} value={value === null ? "" : value} onChange={(v) => onChange(v === "" ? null : v)} step={step} />;
+  return <NumberField id={id} label={label} unit={unit} value={value === null ? "" : value} onChange={(v) => onChange(v === "" ? null : v)} step={step} field={NUMERIC_FIELDS.PLAN_AMOUNT} />;
 }
 
 function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: readonly (readonly [T, string])[]; onChange: (v: T) => void }) {
@@ -221,12 +246,13 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
   const draftDirty = JSON.stringify(form) !== JSON.stringify(existing?.saved ?? defaults);
   const set = (patch: Partial<AnimalPlanAssumptions>) => update({ assumptions: { ...a, ...patch } });
   const profileHref = `/cattle/animals/${encodeURIComponent(tag)}${scenario === "STANDARD" ? "" : `?scenario=${scenario}`}`;
-  const targetValid = isTargetWeightText(targetKg);
+  const targetRead = planTargetRead(targetKg);
+  const targetValid = targetRead.state !== "INVALID";
   const intent = planSaveIntent(profile.goal.read, tag);
   const save = () => {
     if (vm.saveBlocked || !targetValid) return;
     // A full session refuses the action: nothing is marked saved and the form keeps the values.
-    if (addEvent({ kind: "SAVE_PLAN_GOAL", tag, goalType: intent.goalType, targetKg: targetKg === "" ? null : Number(targetKg), targetDate: a.saleDate }) === null) {
+    if (addEvent({ kind: "SAVE_PLAN_GOAL", tag, goalType: intent.goalType, targetKg: numericInputValue(targetRead), targetDate: a.saleDate }) === null) {
       setSaveResult("REFUSED");
       return;
     }
@@ -282,12 +308,12 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
             ))}
           </ul>
         ) : null}
-        {vm.withdrawalNotice.state === "NOTICE" ? (
-          <p className={`mt-3 flex items-start gap-2 border-l-2 pl-3 text-sm ${vm.withdrawalNotice.tone === "risk" ? "border-[#b23a2b] text-[#b23a2b]" : "border-fr-v2-rule text-fr-v2-charcoal"}`} role="status">
-            <StateGlyph tone={vm.withdrawalNotice.tone} />
-            <span>{vm.withdrawalNotice.text}</span>
+        {vm.withdrawalNotices.map((n) => (
+          <p key={n.text} className={`mt-3 flex items-start gap-2 border-l-2 pl-3 text-sm ${n.tone === "risk" ? "border-[#b23a2b] text-[#b23a2b]" : "border-fr-v2-rule text-fr-v2-charcoal"}`} role="status">
+            <StateGlyph tone={n.tone} />
+            <span>{n.text}</span>
           </p>
-        ) : null}
+        ))}
         <PlanTimeline t={vm.timeline} />
       </section>
 
@@ -309,8 +335,7 @@ export function AnimalPlanScreen({ initial, tag, scenario }: { initial: DemoAnim
               </button>
             </div>
           </div>
-          <NumberField id="target-kg" label="Target weight (goal)" unit="kg" value={targetKg} onChange={(v) => update({ targetKg: v })} step="10" />
-          {!targetValid ? <p className="text-sm text-[#b23a2b]">Target weight must be a number of kilograms.</p> : null}
+          <NumberField id="target-kg" label="Target weight (goal)" unit="kg" value={targetKg} onChange={(v) => update({ targetKg: v })} step="10" field={NUMERIC_FIELDS.TARGET_KG} />
 
           <div className="space-y-4 pt-2">
             <div className="text-[13px] font-semibold text-fr-v2-graphite">Feed</div>

@@ -4,14 +4,16 @@ Updated at every stage of the C10 autonomous completion run (brief: "FARM RETURN
 
 | | |
 |---|---|
-| Stage | 6 — READY_FOR_FINAL_STRICT_AUDIT: all known C/H/M closed; candidate `42405c8`, gate `quality-20261023T103806Z-44840` pass (6,169 tests). Codex not used. |
+| Stage | 7 — READY_FOR_FINAL_STRICT_AUDIT: audit 59009 (0C/2H/2M) repaired structurally in `2a31681`; gate `quality-20261023T123333Z-62420` pass (6,210 tests). Codex not used. |
 | HEAD at checkpoint | this docs commit on top of `8148e35` |
-| Last implementation candidate | `42405c8` |
+| Last implementation candidate | `2a31681` |
 | Working tree | clean |
 | Pushed | never |
 | C10 receipt / frozen | no / no |
 
 ## Completed
+- `2a31681`: audit 59009 structural repair (F015 every target comparison + first-item sweep + CL-011 per-product withdrawals; F016 one strict numeric parser; F017 price basis; F018 shared Sheet) — report `C10_AUDIT_59009_REPAIR_REPORT.md`.
+- `66abde8`: strict audit `audit-20261023T114455Z-59009` of `42405c8` preserved (0C/2H/2M/0L, FAILED).
 - `42405c8`: known-Medium repair (CL-005 "<1 kg", CL-006 90-day planning horizon, CL-009 goal version markers) — report `C10_FINAL_MEDIUM_REPAIR_REPORT.md`.
 - `4ab6ed6`: Claude audit 2026-10-22-1 High repair (CL-001 projection admission, CL-002 goal read, CL-003 every goal in force, CL-004 exclusive deadline wording) — report `C10_FINAL_HIGH_REPAIR_REPORT.md`.
 - `8148e35`: consolidated repair of F005 / F013 / F014 (+ related: health-record class, R7 omission rule, band label in presentation, non-finite → UNKNOWN). C10 suite 1,248 pass; browser-verified zero-projection path on localhost demo.
@@ -36,8 +38,8 @@ Result: `audits/claude-audit-20261022-1.md` (verbatim report), `.status.md`, `.p
 A fresh read-only Claude subagent audits the full C10 delta `6e81831..8148e35` from detached worktree `scratchpad/claude-audit-8148e35`. This is an independent CLAUDE audit — not the Codex strict audit the runner requires (`scripts/agent-campaign-run` checks the auditor line `auditor: codex …`). Report to be preserved as `audits/claude-audit-20261022-<n>.md`.
 
 ## Next exact action
-One final independent Codex strict whole-phase audit of `6e81831..42405c8` (separate task):
-`git worktree add -b audit-c10-candidate-42405c8 <scratch>/audit-42405c8 42405c8 && cd <scratch>/audit-42405c8 && AGENT_AUDIT_TIER=strict AGENT_CODEX_TIMEOUT=3600 scripts/agent-audit --campaign 6e81831`
+One final independent Codex strict whole-phase audit of `6e81831..2a31681` (separate task):
+`git worktree add -b audit-c10-candidate-2a31681 <scratch>/audit-2a31681 2a31681 && cd <scratch>/audit-2a31681 && AGENT_AUDIT_TIER=strict AGENT_CODEX_TIMEOUT=3600 scripts/agent-audit --campaign 6e81831`
 Earlier notes (superseded):
 Await the user's decisions above. No repair is to start without them. Codex strict audit remains required for freeze:
 After 2026-10-27 06:33 local (or once Codex credits are available), rerun the strict campaign audit of `6e81831..8148e35` from the existing worktree (do not recreate it):

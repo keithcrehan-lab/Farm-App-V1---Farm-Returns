@@ -4,14 +4,15 @@ Updated at every stage of the C10 autonomous completion run (brief: "FARM RETURN
 
 | | |
 |---|---|
-| Stage | 7 — READY_FOR_FINAL_STRICT_AUDIT: audit 59009 (0C/2H/2M) repaired structurally in `2a31681`; gate `quality-20261023T123333Z-62420` pass (6,210 tests). Codex not used. |
-| HEAD at checkpoint | this docs commit on top of `8148e35` |
-| Last implementation candidate | `2a31681` |
+| Stage | 8 — F001 (audit 76481, 0C/1H/0M) repaired in `512cab8`; gate `quality-20261023T151202Z-79562` pass (6,215 tests). Final Codex strict audit of `6e81831..` this commit next. |
+| HEAD at checkpoint | this docs commit on top of `512cab8` |
+| Last implementation candidate | `512cab8` |
 | Working tree | clean |
 | Pushed | never |
 | C10 receipt / frozen | no / no |
 
 ## Completed
+- `512cab8`: audit 76481 F001 repair — a Plan job keeps the evidence it was raised on (origin captured at creation, C8 record bound by pack id, current state reported separately) — report `C10_AUDIT_76481_REPAIR_REPORT.md`; evidence `audits/audit-20261023T133302Z-76481.*`.
 - `2a31681`: audit 59009 structural repair (F015 every target comparison + first-item sweep + CL-011 per-product withdrawals; F016 one strict numeric parser; F017 price basis; F018 shared Sheet) — report `C10_AUDIT_59009_REPAIR_REPORT.md`.
 - `66abde8`: strict audit `audit-20261023T114455Z-59009` of `42405c8` preserved (0C/2H/2M/0L, FAILED).
 - `42405c8`: known-Medium repair (CL-005 "<1 kg", CL-006 90-day planning horizon, CL-009 goal version markers) — report `C10_FINAL_MEDIUM_REPAIR_REPORT.md`.

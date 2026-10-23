@@ -4,14 +4,15 @@ Updated at every stage of the C10 autonomous completion run (brief: "FARM RETURN
 
 | | |
 |---|---|
-| Stage | 4 — STOPPED for architectural review: independent Claude audit `claude-audit-20261022-1` of `6e81831..8148e35` = 0C / 4H / 5M / 4L, repeated High in the F005 and F014 families. No repairs applied. |
+| Stage | 5 — READY_FOR_FINAL_STRICT_AUDIT: CL-001–CL-004 repaired in `4ab6ed6`, gate `quality-20261023T083609Z-29367` pass (6,146 tests). Codex not used. |
 | HEAD at checkpoint | this docs commit on top of `8148e35` |
-| Last implementation candidate | `8148e35` |
+| Last implementation candidate | `4ab6ed6` |
 | Working tree | clean |
 | Pushed | never |
 | C10 receipt / frozen | no / no |
 
 ## Completed
+- `4ab6ed6`: Claude audit 2026-10-22-1 High repair (CL-001 projection admission, CL-002 goal read, CL-003 every goal in force, CL-004 exclusive deadline wording) — report `C10_FINAL_HIGH_REPAIR_REPORT.md`.
 - `8148e35`: consolidated repair of F005 / F013 / F014 (+ related: health-record class, R7 omission rule, band label in presentation, non-finite → UNKNOWN). C10 suite 1,248 pass; browser-verified zero-projection path on localhost demo.
 - `6991b85`: failed strict audit `audit-20261021T210236Z-97274` of `2c23760` preserved (FAILED · NOT ACCEPTED · NOT FROZEN).
 
@@ -34,6 +35,9 @@ Result: `audits/claude-audit-20261022-1.md` (verbatim report), `.status.md`, `.p
 A fresh read-only Claude subagent audits the full C10 delta `6e81831..8148e35` from detached worktree `scratchpad/claude-audit-8148e35`. This is an independent CLAUDE audit — not the Codex strict audit the runner requires (`scripts/agent-campaign-run` checks the auditor line `auditor: codex …`). Report to be preserved as `audits/claude-audit-20261022-<n>.md`.
 
 ## Next exact action
+One final independent Codex strict whole-phase audit of `6e81831..4ab6ed6` (separate task):
+`git worktree add -b audit-c10-candidate-4ab6ed6 <scratch>/audit-4ab6ed6 4ab6ed6 && cd <scratch>/audit-4ab6ed6 && AGENT_AUDIT_TIER=strict AGENT_CODEX_TIMEOUT=3600 scripts/agent-audit --campaign 6e81831`
+Earlier notes (superseded):
 Await the user's decisions above. No repair is to start without them. Codex strict audit remains required for freeze:
 After 2026-10-27 06:33 local (or once Codex credits are available), rerun the strict campaign audit of `6e81831..8148e35` from the existing worktree (do not recreate it):
 `cd <scratch>/audit-8148e35 && AGENT_AUDIT_TIER=strict AGENT_CODEX_TIMEOUT=3600 scripts/agent-audit --campaign 6e81831`

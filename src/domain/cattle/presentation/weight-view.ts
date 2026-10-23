@@ -21,7 +21,8 @@
 
 import type { AnimalPerformance, PerformancePoint } from "../performance";
 import type { AnimalWeightSeries, WeightCollectionMethod, WeightMeasurementBasis } from "../weights";
-import type { CurrentWeightRead } from "../../animal-plan";
+import { admitProjectedWeight, type CurrentWeightRead } from "../../animal-plan";
+import type { GoalTargetRead } from "./goal-read";
 import { EMPTY_DISPLAY, EVALUATION_UNAVAILABLE, LATEST_WEIGHT_DISPLAY, NOT_CHARTABLE_DISPLAY, UNAVAILABLE_DISPLAY, WEIGHT_BASIS_DISPLAY, displayOf, type DisplayState } from "./display-states";
 import { formatDate, formatDayMonth, formatKg } from "./format";
 import { canonicalNumberText } from "./numeric-input";
@@ -181,9 +182,10 @@ export interface ChartPointVM {
   recordIds: Details<string>;
 }
 
-export type ChartOverlay = { state: "SHOWN"; at: string; kg: number; label: string; dateLabel: string; from: { at: string; kg: number } } | { state: "NOT_SHOWN" };
-/** The active goal's target weight as the chart needs it (UNRESOLVED: recorded, no kg conversion). */
-export type GoalTargetWeightRead = { state: "KNOWN"; kg: number } | { state: "NOT_SET" } | { state: "UNRESOLVED"; recorded: string };
+/** NOT_USABLE: C5 projected a weight `admitProjectedWeight` refuses (zero or less) — said in `note`, never drawn. */
+export type ChartOverlay = { state: "SHOWN"; at: string; kg: number; label: string; dateLabel: string; from: { at: string; kg: number } } | { state: "NOT_USABLE"; note: string } | { state: "NOT_SHOWN" };
+/** The goal target as the chart needs it: the sole goal's target (UNRESOLVED: recorded, no kg conversion), or SEVERAL goals in force (none drawn). */
+export type GoalTargetWeightRead = GoalTargetRead | { state: "SEVERAL"; count: number };
 /** UNRESOLVED: a goal target exists but can't be drawn — said in `note`, never silently dropped. */
 export type GoalOverlay = { state: "SHOWN"; kg: number; label: string } | { state: "UNRESOLVED"; note: string } | { state: "NOT_SHOWN" };
 
@@ -263,10 +265,13 @@ export function weightChartOf(series: Pick<AnimalWeightSeries, "observations"> |
   const line = points.flatMap((p) => (p.plot.kind === "VALUE" ? [{ at: p.at, kg: p.plot.kg }] : []));
   const last = line.length > 0 ? line[line.length - 1] : null;
   const prediction = perf.prediction;
+  const admitted = prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null ? admitProjectedWeight(prediction.projectedKg) : null;
   const projection: ChartOverlay =
-    prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null && last !== null
-      ? { state: "SHOWN", at: prediction.at, kg: prediction.projectedKg, label: formatKg(prediction.projectedKg), dateLabel: formatDate(prediction.at), from: last }
-      : { state: "NOT_SHOWN" };
+    prediction === null || admitted === null || last === null
+      ? { state: "NOT_SHOWN" }
+      : admitted.state === "USABLE"
+        ? { state: "SHOWN", at: prediction.at, kg: admitted.kg, label: formatKg(admitted.kg), dateLabel: formatDate(prediction.at), from: last }
+        : { state: "NOT_USABLE", note: "No projection is drawn — continuing the recent daily gain gives a weight of zero or less, which can't be right." };
   const has = (style: ChartPointVM["style"]) => points.some((p) => p.style === style);
   const legend = [
     ...(has("MEASURED") ? [{ style: "MEASURED" as const, label: "Weighed" }] : []),
@@ -290,7 +295,9 @@ export function weightChartOf(series: Pick<AnimalWeightSeries, "observations"> |
         ? { state: "SHOWN", kg: goalTarget.kg, label: formatKg(goalTarget.kg) }
         : goalTarget.state === "UNRESOLVED"
           ? { state: "UNRESOLVED", note: `Goal target ${goalTarget.recorded} isn't drawn — it can't be converted to kilograms.` }
-          : { state: "NOT_SHOWN" },
+          : goalTarget.state === "SEVERAL"
+            ? { state: "UNRESOLVED", note: `${goalTarget.count} goals are in force, so no single goal target is drawn — each is listed under Goal.` }
+            : { state: "NOT_SHOWN" },
     legend: details(legend),
     notCharted,
   };

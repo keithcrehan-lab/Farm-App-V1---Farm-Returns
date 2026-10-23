@@ -80,6 +80,19 @@ export type WeightProjectionInput =
   /** C5 could not project (its reason state, verbatim) or the plan date is invalid. */
   | { state: "NOT_PROJECTED"; reason: string };
 
+/** A C5 PROJECTED weight as C10 may use it: a live weight is positive and finite, anything else is no usable projection. */
+export type ProjectedWeightAdmission = { state: "USABLE"; kg: number } | { state: "NOT_USABLE"; reason: "PROJECTION_NOT_POSITIVE" | "PROJECTION_INVALID" };
+
+/**
+ * The ONE admission of a C5 straight-line weight (C5 extrapolates without bounds, so a falling gain can
+ * project zero or a negative weight). Every C10 reader — the plan economics, the profile projection and
+ * the chart overlay — goes through this, so no surface shows a projection another refuses.
+ */
+export function admitProjectedWeight(kg: number): ProjectedWeightAdmission {
+  if (!Number.isFinite(kg)) return { state: "NOT_USABLE", reason: "PROJECTION_INVALID" };
+  return kg > 0 ? { state: "USABLE", kg } : { state: "NOT_USABLE", reason: "PROJECTION_NOT_POSITIVE" };
+}
+
 export interface AnimalPlanEconomicsInput {
   /** The viewpoint's calendar date (supplied, never a clock). */
   asOfDate: string;
@@ -213,10 +226,12 @@ export function computeAnimalPlanEconomics(input: AnimalPlanEconomicsInput): Ani
   const salePrice: Money = v.price === null ? unknown(`VALUATION_${v.state}`) : known(new Decimal(v.price[priceKey]));
   const currentEstimatedValue: Money = v.state === "ESTIMATED" && v.estimate !== null ? known(new Decimal(v.estimate.central)) : unknown(`VALUATION_${v.state}`);
 
-  const projectedWeightKg: Quantity =
-    invalid ? { state: "UNKNOWN", reasons: ["PLAN_INPUT_INVALID"] } : input.projection.state === "PROJECTED" && Number.isFinite(input.projection.kg) && input.projection.kg > 0
-        ? { state: "KNOWN", value: new Decimal(input.projection.kg).toFixed() }
-        : { state: "UNKNOWN", reasons: [input.projection.state === "NOT_PROJECTED" ? `PROJECTION_${input.projection.reason}` : input.projection.state === "PROJECTED" && Number.isFinite(input.projection.kg) ? "PROJECTION_NOT_POSITIVE" : "PROJECTION_INVALID"] };
+  const admitted = input.projection.state === "PROJECTED" ? admitProjectedWeight(input.projection.kg) : null;
+  const projectedWeightKg: Quantity = invalid
+    ? { state: "UNKNOWN", reasons: ["PLAN_INPUT_INVALID"] }
+    : admitted?.state === "USABLE"
+      ? { state: "KNOWN", value: new Decimal(admitted.kg).toFixed() }
+      : { state: "UNKNOWN", reasons: [admitted !== null ? admitted.reason : input.projection.state === "NOT_PROJECTED" ? `PROJECTION_${input.projection.reason}` : "PROJECTION_INVALID"] };
   const projectedKg: Money = projectedWeightKg.state === "KNOWN" ? known(new Decimal(projectedWeightKg.value)) : unknown(...projectedWeightKg.reasons);
   const w = input.currentWeight;
   const currentKg: Money = w.state === "KNOWN" ? (Number.isFinite(w.kg) && w.kg > 0 ? known(new Decimal(w.kg)) : unknown("CURRENT_WEIGHT_INVALID")) : unknown(`CURRENT_WEIGHT_${w.reason}`);

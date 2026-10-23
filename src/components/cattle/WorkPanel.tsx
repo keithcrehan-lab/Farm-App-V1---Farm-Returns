@@ -4,7 +4,7 @@
  * Cattle C10 — "What needs attention": ONE dominant item (the first open Plan
  * job in Plan-kernel priority order), the rest collapsed. "Why?" opens in
  * layers: why it matters → evidence and assumptions → technical provenance.
- * A recommended window is labelled as such; "Must be done by" appears only
+ * A recommended window is labelled as such; "Must be done before" appears only
  * for a sourced hard deadline.
  */
 

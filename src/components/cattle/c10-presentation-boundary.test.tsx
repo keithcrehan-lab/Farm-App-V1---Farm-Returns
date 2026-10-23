@@ -5,8 +5,9 @@
  * C4 series, C5 performance) over one changed record — the way the audit
  * reproduced each defect — then reads the view-model AND the rendered screen.
  *
- * Audit 97274 (the last block): F005 an unresolved goal target weight, F013 a
- * derived weight's timeline badge, F014 a zero projected weight in the plan.
+ * Audit 97274: F005 an unresolved goal target weight, F013 a derived weight's
+ * timeline badge, F014 a zero projected weight in the plan. Claude audit
+ * 2026-10-22-1 (the last block): CL-001 – CL-004.
  */
 
 import { cleanup, render, screen } from "@testing-library/react";
@@ -18,6 +19,7 @@ vi.mock("@/app/(app)/cattle/actions", () => ({ loadCattleAnimal: vi.fn(() => new
 
 import {
   MEMBERSHIP_DISPLAY,
+  PROGRAMME_DISPLAY,
   animalRow,
   buildAnimalProfile,
   buildHerd,
@@ -26,6 +28,7 @@ import {
   listedItems,
   planSaveIntent,
   planScreenView,
+  planTargetText,
   previousWeightLine,
   unseal,
   weightEntryStart,
@@ -35,7 +38,8 @@ import {
   type WeightChartVM,
 } from "@/domain/cattle/presentation";
 import type { AnimalLocationKind } from "@/domain/cattle/animal-ledger";
-import { outputsWithGoal, outputsWithLocation, outputsWithWeights, weightObs } from "@/server/cattle-demo/c10-engine-fixtures";
+import { admitProjectedWeight } from "@/domain/animal-plan";
+import { outputsWithGoal, outputsWithGoals, outputsWithLocation, outputsWithWeights, weightObs } from "@/server/cattle-demo/c10-engine-fixtures";
 import { animalIdOf } from "@/server/cattle-demo/demo-herd";
 import { replayCattleDemo } from "@/server/cattle-demo/demo-replay";
 import { DEMO_DIRECTORY, animalViewFrom, demoAnimalView, demoProjection } from "@/server/cattle-demo/demo-service";
@@ -401,5 +405,186 @@ describe("audit 97274 — goal target, derived-weight badge, zero projection", {
     expect(JSON.stringify(vm)).not.toMatch(/Infinity|NaN/);
     expect(rows.find((r) => r.key === "costPerKgAtSale")!.value).toMatchObject({ state: "UNKNOWN" });
     expect(JSON.stringify(rows.find((r) => r.key === "projectedWeightKg")!.value)).toContain("the projected weight is zero or less");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Independent Claude audit 2026-10-22-1 (`.agent/campaigns/cattle-engine-v1/audits/claude-audit-20261022-1.md`):
+// CL-001 a negative C5 projection shown as known on the profile and chart, CL-002 a lb goal target dropped
+// from the timeline, CL-003 only the first of several active goals read, CL-004 a hard deadline worded "by"
+// against an exclusive due instant. Each audit reproduction runs through the real frozen engines.
+describe("Claude audit 2026-10-22-1 — projection admission, goal reads, deadline wording", { timeout: 120_000 }, () => {
+  const planOf = (view: NonNullable<ReturnType<typeof demoAnimalView>>, projection: Parameters<typeof planScreenView>[0]["projection"], saleDate?: string) =>
+    planScreenView({ inputs: view.plan.inputs, assumptions: { ...view.plan.defaults, ...(saleDate ? { saleDate } : {}) }, martId: view.plan.defaultMartId, projection, profile: view.profile });
+  const cellOf = (rows: readonly PlanRowVM[], key: string) => rows.find((r) => r.key === key)?.value;
+
+  // CL-001 ------------------------------------------------------------------
+  it.each([
+    ["positive", 609.4, { state: "USABLE", kg: 609.4 }],
+    ["smallest positive double", Number.MIN_VALUE, { state: "USABLE", kg: Number.MIN_VALUE }],
+    ["zero", 0, { state: "NOT_USABLE", reason: "PROJECTION_NOT_POSITIVE" }],
+    ["negative zero", -0, { state: "NOT_USABLE", reason: "PROJECTION_NOT_POSITIVE" }],
+    ["negative", -92.98, { state: "NOT_USABLE", reason: "PROJECTION_NOT_POSITIVE" }],
+    ["NaN", Number.NaN, { state: "NOT_USABLE", reason: "PROJECTION_INVALID" }],
+    ["Infinity", Number.POSITIVE_INFINITY, { state: "NOT_USABLE", reason: "PROJECTION_INVALID" }],
+  ] as const)("CL-001 boundary: a C5 projected weight (%s, %s kg) is admitted only when positive and finite", (_name, kg, expected) => {
+    expect(admitProjectedWeight(kg)).toEqual(expected);
+  });
+
+  it("CL-001: the auditor's path — 5 kg recorded, C5 projects about −93 kg — is no usable projection on the profile, chart and plan alike", () => {
+    const session: CattleDemoSession = { version: 1, events: [{ kind: "RECORD_WEIGHT", eventId: "cl001", tag: "1427", kg: 5, observedDate: null }] };
+    const projection = demoProjection(session, "1427", "2026-12-04");
+    if (projection.state !== "PROJECTED") throw new Error(projection.state);
+    expect(projection.kg).toBeLessThan(0); // the frozen C5 output itself is unchanged
+    const view = demoAnimalView(session, "1427")!;
+    const p = view.profile;
+    expect(p.projection.label).toBeNull();
+    expect(p.projection.state.code).toBe("PREDICTION:NOT_USABLE");
+    if (p.chart.state !== "CHART") throw new Error(p.chart.state);
+    expect(p.chart.projection.state).toBe("NOT_USABLE");
+    expect(p.chart.legend.map((l) => l.label)).not.toContain("Projected (prediction)");
+    const vm = planOf(view, projection);
+    for (const key of ["projectedWeightKg", "projectedSaleValue", "costPerKgAtSale", "projectedDirectProfit", "returnFromHolding"]) expect(cellOf(vm.rows, key)?.state, key).toBe("UNKNOWN");
+    expect(JSON.stringify(cellOf(vm.rows, "projectedWeightKg"))).toContain("the projected weight is zero or less");
+    const text = textOf(<AnimalProfileScreen initial={view} tag="1427" scenario="STANDARD" />);
+    expect(text).not.toMatch(/−\d+ kg by|Projected −/);
+    expect(text).toContain("No usable projection");
+    expect(text).toContain("No projection is drawn — continuing the recent daily gain gives a weight of zero or less");
+  });
+
+  it("CL-001: a normal positive projection is the same figure on the profile, the chart and the plan", () => {
+    const view = demoAnimalView(EMPTY, "1427")!;
+    const p = view.profile;
+    if (p.chart.state !== "CHART" || p.chart.projection.state !== "SHOWN") throw new Error("projection not drawn");
+    expect(p.projection.state.code).toBe("PREDICTION:PROJECTED");
+    expect(p.projection.label).toBe(`${p.chart.projection.label} by ${p.chart.projection.dateLabel}`);
+    const projection = demoProjection(EMPTY, "1427", view.plan.defaults.saleDate);
+    const vm = planOf(view, projection);
+    expect(cellOf(vm.rows, "projectedWeightKg")).toMatchObject({ state: "KNOWN", text: p.chart.projection.label });
+  });
+
+  // CL-002 ------------------------------------------------------------------
+  const timelineGoals = (o: CattleOutputs, tag: string) => listedOrEmpty(buildAnimalProfile(o, animalIdOf(tag), DEMO_DIRECTORY, costsOf(tag)).timeline).filter((e) => e.id.startsWith("goal:"));
+  const listedOrEmpty = (t: ReturnType<typeof buildAnimalProfile>["timeline"]) => (t.state === "ITEMS" ? listedItems(t) : []);
+
+  it.each([
+    ["kg", { value: 640, unit: "KILOGRAM" as const }, "640 kg by 4 Dec"],
+    ["lb (C6 has no kg)", { value: 1400, unit: "POUND" as const }, "target weight 1400 lb recorded (can't be converted to kg), by 4 Dec"],
+    ["none", null, "no target weight set, by 4 Dec"],
+  ])("CL-002 %s: the timeline's goal entry keeps the target's state", (_name, targetWeight, detail) => {
+    const entries = timelineGoals(outputsWithGoal("1427", { type: "FINISHING", targetWeight, targetDate: "2026-12-04" }), "1427");
+    expect(entries.map((e) => [e.title, e.detail])).toEqual([["Goal set: Finishing", detail]]);
+  });
+
+  it("CL-002: a lb target reads the same on the goal line, chart, timeline and plan (never absent, never 'records disagree')", () => {
+    const o = outputsWithGoal("1427", { type: "FINISHING", targetWeight: { value: 1400, unit: "POUND" }, targetDate: "2026-12-04" });
+    const view = viewOf(o, "1427");
+    const p = view.profile;
+    expect(p.goal.summary).toEqual({ state: "TEXT", text: "Finishing, target weight 1400 lb recorded (can't be converted to kg) by 4 Dec 2026" });
+    if (p.chart.state !== "CHART") throw new Error(p.chart.state);
+    expect(p.chart.goalTarget).toEqual({ state: "UNRESOLVED", note: "Goal target 1400 lb isn't drawn — it can't be converted to kilograms." });
+    expect(timelineGoals(o, "1427").map((e) => e.detail)).toEqual(["target weight 1400 lb recorded (can't be converted to kg), by 4 Dec"]);
+    const vm = planOf(view, undefined);
+    expect(cellOf(vm.rows, "goalWeight")).toEqual({ state: "UNKNOWN", text: "Unknown — the goal target 1400 lb is recorded but can't be converted to kg" });
+  });
+
+  // CL-003 ------------------------------------------------------------------
+  const FINISH = { type: "FINISHING", targetWeight: { value: 640, unit: "KILOGRAM" as const }, targetDate: "2026-12-04" };
+  const SALE = { type: "SALE", targetWeight: null, targetDate: "2026-11-01" };
+
+  it("CL-003: one active goal is the goal; it sets the plan's goal row and sale date", () => {
+    const view = viewOf(outputsWithGoals("1427", [FINISH]), "1427");
+    expect(view.profile.goal.read).toEqual({ state: "ACTIVE", goals: [{ goalType: "FINISHING", typeLabel: "Finishing", targetWeight: { state: "KNOWN", kg: 640 }, targetDate: "2026-12-04" }] });
+    expect(view.plan.saleDateSource).toBe("Sale date starts from the declared goal.");
+    expect(view.plan.defaults.saleDate).toBe("2026-12-04");
+    expect(planTargetText(view.profile.goal.read)).toBe("640");
+    expect(cellOf(planOf(view, undefined).rows, "goalWeight")).toMatchObject({ state: "KNOWN", text: "640 kg" });
+  });
+
+  it("CL-003: the auditor's case — FINISHING and SALE both in force (C6 ACTIVE) — shows both and picks neither", () => {
+    const o = outputsWithGoals("1427", [FINISH, SALE]);
+    expect(o.goals[animalIdOf("1427")]).toMatchObject({ status: "ACTIVE" });
+    const view = viewOf(o, "1427");
+    const p = view.profile;
+    const read = p.goal.read;
+    if (read.state !== "ACTIVE") throw new Error(read.state);
+    expect(read.goals.map((g) => g.goalType).sort()).toEqual(["FINISHING", "SALE"]);
+    if (p.goal.summary.state !== "TEXT") throw new Error(p.goal.summary.state);
+    expect(p.goal.summary.text).toMatch(/^2 goals in force — /);
+    expect(p.goal.summary.text).toContain("Finishing, 640 kg by 4 Dec 2026");
+    expect(p.goal.summary.text).toContain("Sale, no target weight set by 1 Nov 2026");
+    if (p.chart.state !== "CHART") throw new Error(p.chart.state);
+    expect(p.chart.goalTarget).toEqual({ state: "UNRESOLVED", note: "2 goals are in force, so no single goal target is drawn — each is listed under Goal." });
+    expect(p.projection.state.code).toBe("PREDICTION:SEVERAL_GOALS");
+    expect(timelineGoals(o, "1427")).toHaveLength(2);
+    // The plan: no goal is chosen for the sale date, the goal weight or the target box.
+    expect(view.plan.saleDateSource).toBe("2 goals are in force and the plan doesn't pick one, so the sale date is a starting suggestion.");
+    expect(planTargetText(read)).toBe("");
+    expect(cellOf(planOf(view, undefined).rows, "goalWeight")).toEqual({ state: "UNKNOWN", text: "Unknown — several goals are in force and the plan doesn't pick one" });
+    expect(planSaveIntent(read, "1427").change).toMatch(/^1427 has 2 goals in force \(.*\); the plan doesn't pick one\./);
+    const text = textOf(<AnimalProfileScreen initial={view} tag="1427" scenario="STANDARD" />);
+    expect(text).toContain("Sale, no target weight set by 1 Nov 2026");
+    expect(text).toContain("Finishing, 640 kg by 4 Dec 2026");
+  });
+
+  it("CL-003: C6 INTENT_CONFLICT (SALE with RETAIN) stays a conflict — no goal, no goal row figure, no goal date", () => {
+    const view = viewOf(outputsWithGoals("1427", [SALE, { type: "RETAIN", targetWeight: null, targetDate: null }]), "1427");
+    const p = view.profile;
+    expect(p.goal.read).toMatchObject({ state: "UNRESOLVED", display: { code: "GOAL:INTENT_CONFLICT" } });
+    expect(p.goal.summary).toMatchObject({ state: "STATE", display: { label: "Goals conflict" } });
+    expect(cellOf(planOf(view, undefined).rows, "goalWeight")).toMatchObject({ state: "UNKNOWN" });
+    expect(view.plan.saleDateSource).toBe("The goal couldn't be determined, so the sale date is a starting suggestion.");
+  });
+
+  it("CL-003: no goal, and an unreadable goal record (C6 INVALID), are each said as such", () => {
+    const none = viewOf(outputsWithGoals("1427", []), "1427");
+    expect(none.profile.goal.read).toEqual({ state: "NONE" });
+    expect(none.plan.saleDateSource).toBe("No goal date is declared; the sale date is a starting suggestion.");
+    const o = outputsWithGoals("1427", [FINISH]);
+    const id = animalIdOf("1427");
+    o.goals[id] = { ...o.goals[id]!, status: "INVALID", activeGoals: [] };
+    const invalid = viewOf(o, "1427");
+    expect(invalid.profile.goal.read).toMatchObject({ state: "UNRESOLVED", display: { code: "GOAL:INVALID" } });
+    expect(cellOf(planOf(invalid, undefined).rows, "goalWeight")).toMatchObject({ state: "UNKNOWN" });
+  });
+
+  it("CL-003 (sibling): a declared goal date that isn't ahead is named, never 'no goal date is declared'", () => {
+    const view = viewOf(outputsWithGoals("1427", [{ ...FINISH, targetDate: "2026-10-01" }]), "1427");
+    expect(view.plan.saleDateSource).toBe("The goal date, 1 Oct 2026, isn't after today, so the sale date is a starting suggestion.");
+  });
+
+  // CL-004 ------------------------------------------------------------------
+  it("CL-004: the auditor's case — a sourced hard deadline (exclusive due) reads 'before', like its window", () => {
+    const p = demoAnimalView(EMPTY, "1458")!.profile;
+    if (p.work.open.state !== "ITEMS") throw new Error(p.work.open.state);
+    const w = p.work.open.primary;
+    expect(w.hardDeadline).toEqual({ state: "HARD_DEADLINE", label: "Must be done before 12 Oct 2026", dueAt: "2026-10-12T00:00:00.000000000Z" });
+    expect(w.window).toMatchObject({ state: "RECOMMENDED", label: "Recommended window 13 Sep – before 12 Oct" });
+    const text = textOf(<AnimalProfileScreen initial={demoAnimalView(EMPTY, "1458")!} tag="1458" scenario="STANDARD" />);
+    expect(text).toContain("Must be done before 12 Oct 2026");
+    expect(text).not.toMatch(/Must be done by/);
+  });
+
+  it("CL-004: across the herd, hard-deadline wording appears only with a sourced deadline, recommended timing never as one, no timing invents none", () => {
+    for (const tag of ["1427", "1431", "1433", "1438", "1440", "1442", "1445", "1447", "1449", "1452", "1455", "1458"]) {
+      const p = demoAnimalView(EMPTY, tag)!.profile;
+      const open = p.work.open.state === "ITEMS" ? [p.work.open.primary, ...p.work.open.others] : [];
+      for (const w of [...open, ...p.work.closed]) {
+        if (w.hardDeadline.state === "HARD_DEADLINE") {
+          expect(w.hardDeadline.label, tag).toMatch(/^Must be done before \d{1,2} [A-Z][a-z]{2} \d{4}$/);
+          expect(w.window.state === "RECOMMENDED" && w.window.dueAt, tag).toBe(w.hardDeadline.dueAt);
+        }
+        if (w.window.state === "RECOMMENDED") expect(w.window.label, tag).toMatch(/^Recommended/);
+      }
+    }
+    // A job with no timing (1438's weighing) shows neither a window nor a deadline.
+    const p = demoAnimalView(EMPTY, "1438")!.profile;
+    if (p.work.open.state !== "ITEMS") throw new Error(p.work.open.state);
+    expect(p.work.open.primary).toMatchObject({ window: { state: "NONE" }, hardDeadline: { state: "NONE" } });
+  });
+
+  it("CL-004 (sweep): programme timing is recommended, never 'due' or a deadline", () => {
+    for (const d of Object.values(PROGRAMME_DISPLAY)) expect(d.label).not.toMatch(/\bdue\b|deadline|must/i);
+    expect(PROGRAMME_DISPLAY.DUE.label).toBe("In its recommended window");
   });
 });

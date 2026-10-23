@@ -16,8 +16,9 @@
 import { animalAssertionHistory, type AnimalResolution } from "../animal-snapshot";
 import type { AnimalLocationRef } from "../animal-ledger";
 import type { AnimalPerformance } from "../performance";
-import { isPlanDate, utcDateOfInstant, type AnimalCostRead, type HousingObservation } from "../../animal-plan";
+import { admitProjectedWeight, isPlanDate, utcDateOfInstant, type AnimalCostRead, type HousingObservation } from "../../animal-plan";
 import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
+import { activeGoalOf, goalSummaryText, soleActiveGoal, type ActiveGoalRead } from "./goal-read";
 import {
   ADMINISTRATION_WITHDRAWAL_DISPLAY,
   EMPTY_DISPLAY,
@@ -61,19 +62,13 @@ export interface MetricVM {
 }
 
 /**
- * The animal's goal, explicitly: an ACTIVE goal (its target weight KNOWN, NOT_SET or UNRESOLVED),
+ * The animal's goals, explicitly: ACTIVE with every goal in force (none chosen; each target KNOWN, NOT_SET or UNRESOLVED),
  * known NONE, or UNRESOLVED (goals conflict, a goal record can't be read, or goals couldn't be read)
  * — never "no goal" unless C6 says so.
  */
 export type GoalRead =
-  | {
-      state: "ACTIVE";
-      goalType: string;
-      typeLabel: string;
-      /** UNRESOLVED: a target was recorded (`recorded`, e.g. "1000 lb") but C6 has no kg for it (UNSUPPORTED unit). */
-      targetWeight: { state: "KNOWN"; kg: number } | { state: "NOT_SET" } | { state: "UNRESOLVED"; recorded: string };
-      targetDate: string | null;
-    }
+  /** Every C6 goal in force (one or more), each with its target KNOWN, NOT_SET or UNRESOLVED (`goal-read.ts`). */
+  | { state: "ACTIVE"; goals: readonly [ActiveGoalRead, ...ActiveGoalRead[]] }
   | { state: "NONE" }
   | { state: "UNRESOLVED"; display: DisplayState };
 
@@ -151,14 +146,9 @@ const field = <T>(label: string, r: AnimalResolution<T> | null | undefined, rend
   return { label, value: r.state === "KNOWN" && r.value !== null ? render(r.value) : null, state: displayOf(IDENTITY_DISPLAY, r.state, "IDENTITY") };
 };
 
-const GOAL_TYPE_LABEL: Readonly<Record<string, string>> = { FINISHING: "Finishing", SALE: "Sale", RETAIN: "Keep on farm", BREEDING: "Breeding", REPLACEMENT: "Replacement" };
-const WEIGHT_UNIT_LABEL: Readonly<Record<string, string>> = { KILOGRAM: "kg", POUND: "lb" };
-
-/** "Finishing, 620 kg by 20 Nov 2026" — a recorded target with no kg conversion, or no target set, is said so (never left out). */
-export function goalSummaryText(g: Extract<GoalRead, { state: "ACTIVE" }>): string {
-  const w = g.targetWeight;
-  const weight = w.state === "KNOWN" ? formatKg(w.kg) : w.state === "UNRESOLVED" ? `target weight ${w.recorded} recorded (can't be converted to kg)` : "no target weight set";
-  return `${g.typeLabel}, ${weight}${g.targetDate ? ` by ${formatDate(g.targetDate)}` : ", no target date set"}`;
+/** The goal line: the one goal in force, or every goal when several are (none is picked). */
+export function goalLineText(goals: readonly [ActiveGoalRead, ...ActiveGoalRead[]]): string {
+  return goals.length === 1 ? goalSummaryText(goals[0]) : `${goals.length} goals in force — ${goals.map(goalSummaryText).join("; ")}`;
 }
 
 const SEX_LABEL: Readonly<Record<string, string>> = { MALE: "Male", FEMALE: "Female" };
@@ -241,24 +231,21 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
 
   const goalProj = outputs.goals[animalId] ?? null;
   const goalState = goalProj ? displayOf(GOAL_DISPLAY, goalProj.status, "GOAL") : EVALUATION_UNAVAILABLE;
-  const active = goalProj?.status === "ACTIVE" ? goalProj.activeGoals[0]?.declaration ?? null : null;
-  const goalKg = active?.targetWeight?.canonical && active.targetWeight.canonical.state === "KNOWN" ? active.targetWeight.canonical.kg : null;
+  // Every goal C6 has in force, in C6's order — never only the first.
+  const activeGoals = goalProj?.status === "ACTIVE" ? goalProj.activeGoals.map((g) => activeGoalOf(g.declaration)) : [];
   const goalRead: GoalRead =
     goalProj === null
       ? { state: "UNRESOLVED", display: EVALUATION_UNAVAILABLE }
       : goalProj.status === "NONE"
         ? { state: "NONE" }
-        : goalProj.status === "ACTIVE" && active
-          ? {
-              state: "ACTIVE",
-              goalType: active.goalType,
-              typeLabel: GOAL_TYPE_LABEL[active.goalType] ?? active.goalType,
-              targetWeight: goalKg !== null ? { state: "KNOWN", kg: goalKg } : active.targetWeight ? { state: "UNRESOLVED", recorded: `${active.targetWeight.value} ${WEIGHT_UNIT_LABEL[active.targetWeight.unit] ?? active.targetWeight.unit}` } : { state: "NOT_SET" },
-              targetDate: active.targetDate ?? null,
-            }
+        : goalProj.status === "ACTIVE" && activeGoals.length > 0
+          ? { state: "ACTIVE", goals: activeGoals as [ActiveGoalRead, ...ActiveGoalRead[]] }
           : { state: "UNRESOLVED", display: goalState };
+  const soleGoal = goalRead.state === "ACTIVE" ? soleActiveGoal(goalRead.goals) : null;
 
   const prediction = perf?.prediction ?? null;
+  // C5 extrapolates without bounds: the projected weight is shown only through the C10 admission the plan also uses.
+  const projectedKg = prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null ? admitProjectedWeight(prediction.projectedKg) : null;
 
   // Health (C3), programmes / obligations (C8 sealed context), recommendation (C8).
   const health = outputs.health[animalId] ?? null;
@@ -366,17 +353,25 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
       source: targetDef?.versions[0] ? `${targetDef.versions[0].provenance.sourceRef?.sourceId ?? "Unsourced"} · ${targetDef.versions[0].reviewState.toLowerCase()}` : null,
     },
     // The chart plots C4 weights through C5: its four states are decided in `weightChartOf`, never by the chart component.
-    chart: weightChartOf(series, perf, goalRead.state === "ACTIVE" ? goalRead.targetWeight : { state: "NOT_SET" }),
+    chart: weightChartOf(series, perf, goalRead.state !== "ACTIVE" ? { state: "NOT_SET" } : soleGoal !== null ? soleGoal.targetWeight : { state: "SEVERAL", count: goalRead.goals.length }),
     projection: {
-      state: !perfEvaluated ? EVALUATION_UNAVAILABLE : prediction ? displayOf(PREDICTION_DISPLAY, prediction.state, "PREDICTION") : PREDICTION_DISPLAY.NOT_REQUESTED,
-      label: prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null ? `${formatKg(prediction.projectedKg)} by ${formatDate(prediction.at)}` : null,
+      state: !perfEvaluated
+        ? EVALUATION_UNAVAILABLE
+        : prediction
+          ? projectedKg?.state === "NOT_USABLE"
+            ? PREDICTION_DISPLAY.NOT_USABLE
+            : displayOf(PREDICTION_DISPLAY, prediction.state, "PREDICTION")
+          : goalRead.state === "ACTIVE" && soleGoal === null
+            ? PREDICTION_DISPLAY.SEVERAL_GOALS
+            : PREDICTION_DISPLAY.NOT_REQUESTED,
+      label: prediction && projectedKg?.state === "USABLE" ? `${formatKg(projectedKg.kg)} by ${formatDate(prediction.at)}` : null,
       at: prediction?.at ?? null,
       assumptions: details(prediction?.assumptions ?? []),
     },
     goal: {
       state: goalState,
       read: goalRead,
-      summary: goalRead.state === "ACTIVE" ? { state: "TEXT", text: goalSummaryText(goalRead) } : { state: "STATE", display: goalRead.state === "UNRESOLVED" ? goalRead.display : goalState },
+      summary: goalRead.state === "ACTIVE" ? { state: "TEXT", text: goalLineText(goalRead.goals) } : { state: "STATE", display: goalRead.state === "UNRESOLVED" ? goalRead.display : goalState },
     },
     health: {
       withdrawal: {

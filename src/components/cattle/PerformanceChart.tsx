@@ -251,6 +251,7 @@ function WeightChart({ chart, highlightIds }: { chart: ChartData; highlightIds: 
       </div>
       {chart.notCharted ? <p className="mt-1 text-[12px] text-fr-v2-muted">{chart.notCharted}</p> : null}
       {chart.goalTarget.state === "UNRESOLVED" ? <p className="mt-1 text-[12px] text-fr-v2-muted">{chart.goalTarget.note}</p> : null}
+      {chart.projection.state === "NOT_USABLE" ? <p className="mt-1 text-[12px] text-fr-v2-muted">{chart.projection.note}</p> : null}
       <table className="sr-only">
         <caption>Weight history</caption>
         <thead>

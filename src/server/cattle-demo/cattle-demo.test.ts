@@ -158,7 +158,7 @@ describe("C10 demonstration replay — real frozen engines, honest states", { ti
   it("saving a plan declares a new C6 goal version (sale date and target weight)", () => {
     const s: CattleDemoSession = { version: 1, events: [{ kind: "SAVE_PLAN_GOAL", eventId: "g1", tag: "1427", goalType: "FINISHING", targetKg: 620, targetDate: "2026-11-20" }] };
     const p = view("1427", s);
-    expect(p.goal.read).toMatchObject({ state: "ACTIVE", targetWeight: { state: "KNOWN", kg: 620 }, targetDate: "2026-11-20" });
+    expect(p.goal.read).toEqual({ state: "ACTIVE", goals: [{ goalType: "FINISHING", typeLabel: "Finishing", targetWeight: { state: "KNOWN", kg: 620 }, targetDate: "2026-11-20" }] });
     expect(listedItems(p.timeline).some((e) => e.title === "Goal updated: Finishing" && e.infoClass === "INTENT")).toBe(true);
   });
 

@@ -14,7 +14,8 @@ import type { WeightSeriesEntry } from "../weights";
 import type { AnimalCostRead } from "../../animal-plan";
 import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
 import { ACTION_COPY } from "./display-states";
-import { formatDate, formatDayMonth, formatKg, formatMoney } from "./format";
+import { formatDate, formatMoney } from "./format";
+import { GOAL_TYPE_LABEL, goalTimelineDetail } from "./goal-read";
 import { WEIGHT_METHOD_LABEL, weightRecordTitle } from "./weight-view";
 import { completionBasisLabel } from "./work-view";
 
@@ -68,7 +69,6 @@ export interface TimelineEntryVM {
   marker: "SUPERSEDED" | "CONFLICT" | null;
 }
 
-const GOAL_TYPE: Readonly<Record<string, string>> = { FINISHING: "Finishing", SALE: "Sale", RETAIN: "Keep on farm", BREEDING: "Breeding", REPLACEMENT: "Replacement" };
 const HEALTH_KIND: Readonly<Record<string, string>> = {
   MEDICINE_ADMINISTRATION: "Medicine given",
   TREATMENT: "Treatment course",
@@ -136,13 +136,13 @@ export function buildAnimalTimeline(outputs: CattleOutputs, animalId: string, di
   // C6 goal versions (intent, never fact).
   for (const g of outputs.goals[animalId]?.history ?? []) {
     const d = g.declaration;
-    const target = [d.targetWeight && d.targetWeight.canonical.state === "KNOWN" ? formatKg(d.targetWeight.canonical.kg) : null, d.targetDate ? `by ${formatDayMonth(d.targetDate)}` : null].filter(Boolean).join(" ");
     out.push(
       entry({
         id: `goal:${d.goalId}:${d.version}`,
         at: d.provenance.receivedAt,
-        title: `${d.action === "DECLARE" ? (d.supersedesVersions.length > 0 ? "Goal updated" : "Goal set") : d.action === "END" ? "Goal ended" : "Goal withdrawn"}: ${GOAL_TYPE[d.goalType] ?? d.goalType}`,
-        detail: target || null,
+        title: `${d.action === "DECLARE" ? (d.supersedesVersions.length > 0 ? "Goal updated" : "Goal set") : d.action === "END" ? "Goal ended" : "Goal withdrawn"}: ${GOAL_TYPE_LABEL[d.goalType] ?? d.goalType}`,
+        // The same three target states as the goal line: a target C6 can't convert stays visible as recorded.
+        detail: goalTimelineDetail(d),
         infoClass: "INTENT",
         marker: null,
       }),

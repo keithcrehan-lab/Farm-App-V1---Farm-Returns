@@ -14,6 +14,7 @@ export * from "./cattle-outputs";
 export * from "./cost-view";
 export * from "./display-states";
 export * from "./format";
+export * from "./goal-read";
 export * from "./herd-view";
 export * from "./numeric-input";
 export * from "./plan-timeline";

@@ -70,11 +70,24 @@ export function outputsWithLocation(tag: string, kind: AnimalLocationKind | null
  * The animal's outputs with its C6 goal re-projected (`projectProductionGoals`) from exactly one
  * declaration: `targetWeight` as recorded (any unit — a POUND target has no C6 kg conversion), or none.
  */
-export function outputsWithGoal(tag: string, goal: { type: string; targetWeight: { value: number; unit: "KILOGRAM" | "POUND" } | null; targetDate: string | null }): CattleOutputs {
+export type FixtureGoal = { type: string; targetWeight: { value: number; unit: "KILOGRAM" | "POUND" } | null; targetDate: string | null };
+
+export function outputsWithGoal(tag: string, goal: FixtureGoal): CattleOutputs {
+  return outputsWithGoals(tag, [goal]);
+}
+
+/**
+ * The animal's C6 projection re-run over these declarations only (each its own goal, all valid from
+ * 1 May): one goal, several goals in force, or C6's own INTENT_CONFLICT (SALE with RETAIN).
+ */
+export function outputsWithGoals(tag: string, goals: readonly FixtureGoal[]): CattleOutputs {
   const animalId = animalIdOf(tag);
   const o = animalOutputs(tag);
-  const declaration = { ...goalDeclaration({ goalId: goalIdOf(tag), version: "1", supersedes: [], animalId, type: goal.type, targetKg: null, targetDate: goal.targetDate, validFrom: "2026-05-01T00:00:00Z", receivedAt: "2026-05-01T00:00:00Z" }), targetWeight: goal.targetWeight };
-  const g = projectProductionGoals(structuredClone({ declarations: [declaration], query: { subject: { kind: "ANIMAL", animalId }, effectiveAt: o.viewpoint.effectiveAt, knowledgeCutoff: o.viewpoint.knowledgeCutoff } }) as never, hash);
+  const declarations = goals.map((goal, i) => ({
+    ...goalDeclaration({ goalId: i === 0 ? goalIdOf(tag) : `${goalIdOf(tag)}-${i + 1}`, version: "1", supersedes: [], animalId, type: goal.type, targetKg: null, targetDate: goal.targetDate, validFrom: "2026-05-01T00:00:00Z", receivedAt: "2026-05-01T00:00:00Z" }),
+    targetWeight: goal.targetWeight,
+  }));
+  const g = projectProductionGoals(structuredClone({ declarations, query: { subject: { kind: "ANIMAL", animalId }, effectiveAt: o.viewpoint.effectiveAt, knowledgeCutoff: o.viewpoint.knowledgeCutoff } }) as never, hash);
   if (!g.ok) throw new Error(`C6 rejected the fixture: ${JSON.stringify(g.issues)}`);
   o.goals[animalId] = g.projection;
   return o;

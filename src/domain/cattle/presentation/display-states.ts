@@ -173,7 +173,11 @@ export const PREDICTION_DISPLAY = {
   PROJECTED: ds("PREDICTION", "PROJECTED", "Projected", "info", "A straight-line projection of recent daily gain — a prediction, not a weighing."),
   NOT_PROJECTED: ds("PREDICTION", "NOT_PROJECTED", "No projection", "unknown", "Recent daily gain isn't known, so there's no projection."),
   NOT_REQUESTED: ds("PREDICTION", "NOT_REQUESTED", "No date to project to", "neutral", "Set a sale or target date to see a projection."),
-} as const satisfies Table<"PROJECTED" | "NOT_PROJECTED" | "NOT_REQUESTED">;
+  // C10 admission (`admitProjectedWeight`): C5 projected, but not a weight an animal can have.
+  NOT_USABLE: ds("PREDICTION", "NOT_USABLE", "No usable projection", "review", "Continuing the recent daily gain gives a weight of zero or less, which can't be right, so no projected weight is shown."),
+  // C6 has several goals in force: none is chosen, so there is no single goal date to project to.
+  SEVERAL_GOALS: ds("PREDICTION", "SEVERAL_GOALS", "No single goal date to project to", "neutral", "Several goals are in force, each with its own date. The animal plan projects to the sale date you choose."),
+} as const satisfies Table<"PROJECTED" | "NOT_PROJECTED" | "NOT_REQUESTED" | "NOT_USABLE" | "SEVERAL_GOALS">;
 
 /** Farmer sentences for C8 / C9 reason-code prefixes (the full code stays in the technical detail). */
 export const REASON_COPY: readonly { prefix: string; text: (arg: string | null) => string }[] = [
@@ -182,7 +186,7 @@ export const REASON_COPY: readonly { prefix: string; text: (arg: string | null) 
   { prefix: "CATTLE_RECOMMENDATION_TRIGGER_GOAL_STATUS", text: () => "No production goal is declared." },
   { prefix: "CATTLE_RECOMMENDATION_TRIGGER_WITHDRAWAL_STATE", text: () => "The withdrawal status for a food product is unknown." },
   { prefix: "CATTLE_RECOMMENDATION_TRIGGER_OBLIGATION_STATE", text: () => "A requirement has no recorded proof." },
-  { prefix: "CATTLE_RECOMMENDATION_TRIGGER_PROGRAMME_ACTION_STATE", text: () => "A programme treatment is due or overdue." },
+  { prefix: "CATTLE_RECOMMENDATION_TRIGGER_PROGRAMME_ACTION_STATE", text: () => "A programme treatment is in or past its recommended window." },
 ];
 
 /** Farmer sentences for C8 limitation codes; anything not listed stays in the technical detail. */
@@ -225,7 +229,7 @@ export const ADMINISTRATION_WITHDRAWAL_DISPLAY = {
 export const PROGRAMME_DISPLAY = {
   NOT_APPLICABLE: ds("PROGRAMME", "NOT_APPLICABLE", "Not in programme", "neutral"),
   UPCOMING: ds("PROGRAMME", "UPCOMING", "Coming up", "info"),
-  DUE: ds("PROGRAMME", "DUE", "Due now", "attention"),
+  DUE: ds("PROGRAMME", "DUE", "In its recommended window", "attention"),
   COMPLETED: ds("PROGRAMME", "COMPLETED", "Done", "good"),
   OVERDUE: ds("PROGRAMME", "OVERDUE", "Past its window", "risk"),
   BLOCKED: ds("PROGRAMME", "BLOCKED", "Blocked", "risk", "A required check failed, so this can't go ahead yet."),

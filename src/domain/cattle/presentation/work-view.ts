@@ -4,7 +4,9 @@
  * kernel's `compareSystemPriority` (tier) then the job's own id; status,
  * readiness and completion are the kernel's; windows, hard deadlines and
  * blockers are C9's. A recommended window is never shown as a deadline;
- * "Must be done by" appears only for a C9 `hardDeadline`.
+ * "Must be done before" appears only for a C9 `hardDeadline` (sourced authority);
+ * like the window, its `dueIso` is exclusive — the Plan kernel counts any
+ * time after it as late — so it is "before {due}", never "by {due}".
  */
 
 import type { RecommendationRecord } from "../recommendations";
@@ -68,7 +70,7 @@ export interface WorkVM {
   open: boolean;
   /** Recommended (never legal) window. */
   window: { state: "RECOMMENDED"; label: string; opensAt: string | null; dueAt: string | null } | { state: "NONE" };
-  /** Only when C9 sourced a hard deadline — the only "Must be done by". */
+  /** Only when C9 sourced a hard deadline — the only "Must be done before". */
   hardDeadline: { state: "HARD_DEADLINE"; label: string; dueAt: string } | { state: "NONE" };
   blockers: Details<WorkBlockerVM>;
   /** The readiness shown with the job: the first open blocker's state, else the kernel readiness. */
@@ -243,7 +245,7 @@ export function workVM(state: CattlePlanJobState, outputs: CattleOutputs, animal
     completion: displayOf(COMPLETION_DISPLAY, state.evaluation?.completion.state ?? "NOT_EVALUATED", "COMPLETION"),
     open,
     window: windowOf(job),
-    hardDeadline: hd === null ? { state: "NONE" } : { state: "HARD_DEADLINE", label: `Must be done by ${formatDate(hd.dueIso)}`, dueAt: hd.dueIso },
+    hardDeadline: hd === null ? { state: "NONE" } : { state: "HARD_DEADLINE", label: `Must be done before ${formatDate(hd.dueIso)}`, dueAt: hd.dueIso },
     blockers: details(blockers),
     headlineState: blockers[0]?.state ?? readiness,
     completed:

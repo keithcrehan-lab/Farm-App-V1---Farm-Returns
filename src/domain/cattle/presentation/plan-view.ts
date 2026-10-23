@@ -20,6 +20,7 @@
 
 import { HOUSING_DEPENDENT_RESULTS, computeAnimalPlanEconomics, isPlanDate, type AnimalCostRead, type AnimalPlanAssumptions, type AnimalPlanEconomics, type CurrentWeightRead, type HousingObservation, type HousingUnknownReason, type MartValuation, type Money } from "../../animal-plan";
 import type { GoalRead } from "./animal-profile";
+import { goalSummaryText, soleActiveGoal } from "./goal-read";
 import type { AnimalProfileVM } from "./animal-profile";
 import { formatAdg, formatDate, formatDayMonth, formatEuro, formatEuroPerKg, formatKg, formatSignedKg } from "./format";
 import { canonicalNumberText } from "./numeric-input";
@@ -141,6 +142,7 @@ const REASON_TEXT: Readonly<Record<string, string>> = {
   RESULT_NOT_FINITE: "can't be worked out from these figures",
   GOAL_UNAVAILABLE: "the goal records couldn't be read",
   GOAL_UNRESOLVED: "the goal records disagree or can't be read",
+  GOAL_SEVERAL_IN_FORCE: "several goals are in force and the plan doesn't pick one",
 };
 
 const VALUATION_REASON_TEXT: Readonly<Record<string, string>> = {
@@ -182,34 +184,52 @@ export function isTargetWeightText(text: string): boolean {
   return text === "" || (Number.isFinite(Number(text)) && Number(text) > 0 && Number(text) <= 2000);
 }
 
-/** The goal-weight field's starting text: the active goal's exact target, else empty (never a rounded figure). */
+/** The goal-weight field's starting text: the sole goal's exact target, else empty (never a rounded figure; several goals: none picked). */
 export function planTargetText(goal: GoalRead): string {
-  const exact = goal.state === "ACTIVE" && goal.targetWeight.state === "KNOWN" ? canonicalNumberText(goal.targetWeight.kg) : null;
-  return exact === null ? "" : exact;
+  const sole = goal.state === "ACTIVE" ? soleActiveGoal(goal.goals) : null;
+  return (sole !== null && sole.targetWeight.state === "KNOWN" ? canonicalNumberText(sole.targetWeight.kg) : null) ?? "";
 }
 
-/** What saving the plan declares, given the current goal (an unresolved goal is said to be unresolved — never "no goal"). */
+/** What saving the plan declares, given the current goals (an unresolved goal is said to be unresolved — never "no goal"). */
 export function planSaveIntent(goal: GoalRead, tag: string): { goalType: "SALE" | "FINISHING"; change: string | null } {
-  const goalType = goal.state === "ACTIVE" && goal.goalType === "SALE" ? "SALE" : "FINISHING";
+  const sole = goal.state === "ACTIVE" ? soleActiveGoal(goal.goals) : null;
+  const goalType = sole !== null && sole.goalType === "SALE" ? "SALE" : "FINISHING";
   const change =
     goal.state === "UNRESOLVED"
       ? `${tag}'s current goal couldn't be determined (${goal.display.label.toLowerCase()}). Saving declares a finishing goal with this date and weight.`
       : goal.state === "NONE"
         ? `Saving declares a finishing goal for ${tag}.`
-        : [
-            ...(goal.goalType !== goalType ? [`Saving changes ${tag}'s goal from ${goal.typeLabel.toLowerCase()} to finishing.`] : []),
-            ...(goal.targetWeight.state === "UNRESOLVED" ? [`${tag}'s recorded goal target (${goal.targetWeight.recorded}) can't be converted to kg, so it isn't filled in above; saving replaces it with the target weight entered here.`] : []),
-          ].join(" ") || null;
+        : sole === null
+          ? `${tag} has ${goal.goals.length} goals in force (${goal.goals.map(goalSummaryText).join("; ")}); the plan doesn't pick one. Saving declares a finishing goal with this date and weight.`
+          : [
+              ...(sole.goalType !== goalType ? [`Saving changes ${tag}'s goal from ${sole.typeLabel.toLowerCase()} to finishing.`] : []),
+              ...(sole.targetWeight.state === "UNRESOLVED" ? [`${tag}'s recorded goal target (${sole.targetWeight.recorded}) can't be converted to kg, so it isn't filled in above; saving replaces it with the target weight entered here.`] : []),
+            ].join(" ") || null;
   return { goalType, change };
 }
 
+/** Where the plan's starting sale date comes from (a declared goal date that isn't ahead is said so — never "no goal date"). */
+export type SaleDateSource =
+  | { kind: "GOAL" }
+  | { kind: "NO_GOAL_DATE" }
+  | { kind: "GOAL_UNRESOLVED" }
+  | { kind: "SEVERAL_GOALS"; count: number }
+  | { kind: "GOAL_DATE_NOT_AHEAD"; goalDate: string };
+
 /** The plan's starting sale-date sentence. */
-export function saleDateSourceText(source: "GOAL" | "NO_GOAL_DATE" | "GOAL_UNRESOLVED"): string {
-  return source === "GOAL"
-    ? "Sale date starts from the declared goal."
-    : source === "GOAL_UNRESOLVED"
-      ? "The goal couldn't be determined, so the sale date is a starting suggestion."
-      : "No goal date is declared; the sale date is a starting suggestion.";
+export function saleDateSourceText(source: SaleDateSource): string {
+  switch (source.kind) {
+    case "GOAL":
+      return "Sale date starts from the declared goal.";
+    case "GOAL_UNRESOLVED":
+      return "The goal couldn't be determined, so the sale date is a starting suggestion.";
+    case "SEVERAL_GOALS":
+      return `${source.count} goals are in force and the plan doesn't pick one, so the sale date is a starting suggestion.`;
+    case "GOAL_DATE_NOT_AHEAD":
+      return `The goal date, ${formatDate(source.goalDate)}, isn't after today, so the sale date is a starting suggestion.`;
+    case "NO_GOAL_DATE":
+      return "No goal date is declared; the sale date is a starting suggestion.";
+  }
 }
 
 /** The current weight's provenance where the plan leans on a value that wasn't weighed. */
@@ -238,6 +258,18 @@ function marketOf(valuation: MartValuation | undefined, weight: LatestWeightVM):
     status: v.provider.isLive ? "Live data" : "Development fixture — not live, not a real mart report",
     weightBasisNote: derived && weight.state === "KNOWN" && weight.basis.kind !== "MEASURED" ? `Uses the current weight, which is a ${weight.basis.methodLabel.toLowerCase()} — not a weighing.` : null,
   };
+}
+
+/** The plan's goal-weight cell, from the same goal read as the profile (several goals: none picked; an unconvertible target: said so). */
+function goalWeightRows(goal: GoalRead): PlanCellVM[] {
+  if (goal.state === "NONE") return [];
+  if (goal.state === "UNRESOLVED") return [unknownCell([goal.display.code === "EVALUATION:UNAVAILABLE" ? "GOAL_UNAVAILABLE" : "GOAL_UNRESOLVED"])];
+  const sole = soleActiveGoal(goal.goals);
+  if (sole === null) return [unknownCell(["GOAL_SEVERAL_IN_FORCE"])];
+  const w = sole.targetWeight;
+  if (w.state === "KNOWN") return [{ state: "KNOWN", text: formatKg(w.kg), sub: null, tone: "plain" }];
+  if (w.state === "UNRESOLVED") return [{ state: "UNKNOWN", text: `Unknown — the goal target ${w.recorded} is recorded but can't be converted to kg` }];
+  return [];
 }
 
 export interface PlanScreenInput {
@@ -274,11 +306,7 @@ export function planScreenView({ inputs: sealed, assumptions: a, martId, project
   const row = (key: keyof AnimalPlanEconomics | string, label: string, value: PlanCellVM, hint: string | null = null): PlanRowVM => ({ key, label, hint, value, assumed: assumed(key as keyof AnimalPlanEconomics) });
   const rows: PlanRowVM[] = [
     row("projectedWeightKg", "Projected weight at sale", projectedWeight, projection?.state === "PROJECTED" ? `Prediction: recent ${formatAdg(projection.adgKgPerDay)} continued from ${formatDayMonth(projection.fromObservedAt)}` : null),
-    ...(goal.state === "ACTIVE" && goal.targetWeight.state === "KNOWN"
-      ? [row("goalWeight", "Goal weight", { state: "KNOWN", text: formatKg(goal.targetWeight.kg), sub: null, tone: "plain" })]
-      : goal.state === "UNRESOLVED" || (goal.state === "ACTIVE" && goal.targetWeight.state === "UNRESOLVED")
-        ? [row("goalWeight", "Goal weight", unknownCell([goal.state === "UNRESOLVED" && goal.display.code === "EVALUATION:UNAVAILABLE" ? "GOAL_UNAVAILABLE" : "GOAL_UNRESOLVED"]))]
-        : []),
+    ...goalWeightRows(goal).map((cell) => row("goalWeight", "Goal weight", cell)),
     row("currentEstimatedValue", "Estimated value now", moneyCell(e.currentEstimatedValue), valuation?.state === "ESTIMATED" && valuation.estimate ? `Range ${formatEuro(valuation.estimate.low)} – ${formatEuro(valuation.estimate.high)}` : null),
     row("projectedSaleValue", "Projected sale value", moneyCell(e.projectedSaleValue), e.salePrice.state === "KNOWN" ? `${formatEuroPerKg(e.salePrice.amount)} × projected weight` : null),
     row("recordedDirectCosts", "Recorded direct costs to date", moneyCell(e.recordedDirectCosts), inputs.costs.state === "RECORDED" ? `${inputs.costs.entryCount} entr${inputs.costs.entryCount === 1 ? "y" : "ies"}, incl. allocated` : null),

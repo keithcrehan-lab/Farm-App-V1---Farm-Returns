@@ -9,7 +9,7 @@ import "server-only";
 
 import { buildWeightReadContract } from "@/domain/cattle/weights";
 import { evaluatePerformance } from "@/domain/cattle/performance";
-import { buildAnimalProfile, buildHerd, currentWeightInput, details, saleDateSourceText, seal, type AnimalProfileVM, type CattleDirectory, type CattleOutputs, type Details, type HerdVM, type PlanInputs, type SealedInput } from "@/domain/cattle/presentation";
+import { buildAnimalProfile, buildHerd, currentWeightInput, details, saleDateSourceText, seal, soleActiveGoal, type AnimalProfileVM, type SaleDateSource, type CattleDirectory, type CattleOutputs, type Details, type HerdVM, type PlanInputs, type SealedInput } from "@/domain/cattle/presentation";
 import { ageInMonths } from "@/domain/cattle/presentation";
 import { summariseAnimalCosts, utcDateOfInstant, valueAnimalAtMart, type AnimalCostRead, type AnimalPlanAssumptions, type MartRef, type MartValuation } from "@/domain/animal-plan";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
@@ -73,8 +73,10 @@ export function demoAnimalView(session: CattleDemoSession, tag: string, scenario
   if (!DEMO_ANIMALS.some((a) => a.tag === tag)) return null;
   const animalId = animalIdOf(tag);
   const first = replayCattleDemo(session, { scenario, animalIds: [animalId] });
-  // Project to the declared goal's target date (C5 `projectionAt`) when it is still ahead.
-  const goalDecl = first.goals[animalId]?.status === "ACTIVE" ? first.goals[animalId]?.activeGoals[0]?.declaration ?? null : null;
+  // Project to the declared goal's target date (C5 `projectionAt`) when it is still ahead — only when
+  // exactly ONE goal is in force: with several, C10 doesn't pick one (C6 reports all, chooses none).
+  const goalProj = first.goals[animalId];
+  const goalDecl = goalProj?.status === "ACTIVE" && goalProj.activeGoals.length === 1 ? goalProj.activeGoals[0].declaration : null;
   const firstDate = utcDateOfInstant(first.viewpoint.effectiveAt) ?? "";
   const projectionAt = goalDecl?.targetDate && goalDecl.targetDate > firstDate ? `${goalDecl.targetDate}T12:00:00Z` : null;
   const outputs = projectionAt === null ? first : replayCattleDemo(session, { scenario, animalIds: [animalId], projectionAt });
@@ -101,15 +103,26 @@ export function animalViewFrom(outputs: DemoEngineOutputs | CattleOutputs, anima
   }
   const housing = profile.identity.location.housing;
   const goal = profile.goal.read;
-  const goalDate = goal.state === "ACTIVE" ? goal.targetDate : null;
+  const sole = goal.state === "ACTIVE" ? soleActiveGoal(goal.goals) : null;
+  const goalDate = sole?.targetDate ?? null;
   const fallbackSale = "2026-12-04";
   const fromGoal = goalDate !== null && goalDate > asOfDate;
+  const source: SaleDateSource =
+    goal.state === "UNRESOLVED"
+      ? { kind: "GOAL_UNRESOLVED" }
+      : goal.state === "ACTIVE" && sole === null
+        ? { kind: "SEVERAL_GOALS", count: goal.goals.length }
+        : fromGoal
+          ? { kind: "GOAL" }
+          : goalDate !== null
+            ? { kind: "GOAL_DATE_NOT_AHEAD", goalDate }
+            : { kind: "NO_GOAL_DATE" };
   return {
     profile,
     plan: {
       asOfDate,
       defaults: demoDefaultAssumptions(fromGoal && goalDate !== null ? goalDate : fallbackSale, housing),
-      saleDateSource: saleDateSourceText(fromGoal ? "GOAL" : goal.state === "UNRESOLVED" ? "GOAL_UNRESOLVED" : "NO_GOAL_DATE"),
+      saleDateSource: saleDateSourceText(source),
       marts: details(marts),
       defaultMartId: DEMO_DEFAULT_MART,
       inputs: seal({ asOfDate, currentWeight: currentWeightInput(profile.weight), currentHousing: housing, costs, valuations }),

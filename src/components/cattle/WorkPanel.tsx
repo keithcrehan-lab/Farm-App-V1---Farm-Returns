@@ -16,6 +16,8 @@ function Why({ work }: { work: WorkVM }) {
   return (
     <div className="space-y-3 border-l-2 border-fr-v2-rule pl-4 text-sm text-fr-v2-charcoal">
       <p>{w.summary}</p>
+      <p className="text-fr-v2-muted">{w.raised.label}</p>
+      {w.raised.text !== null ? <p>{w.raised.text}</p> : null}
       {w.origins.length > 0 ? <p className="text-fr-v2-muted">From: {w.origins.join(" + ")}</p> : null}
       {w.evidence.length > 0 ? (
         <ul className="list-disc space-y-1 pl-4">
@@ -146,6 +148,7 @@ function PrimaryJob({ p, onRecordWeight }: { p: WorkVM; onRecordWeight: (() => v
       </div>
       <h3 className="mt-2 text-[26px] font-semibold leading-tight tracking-tight text-fr-v2-graphite">{p.title}</h3>
       <p className="mt-1 text-[15px] text-fr-v2-charcoal">{p.why.summary}</p>
+      {p.why.raised.text !== null ? <p className="mt-1 text-sm text-fr-v2-muted">{p.why.raised.text}</p> : null}
       <div className="mt-2">
         <Timing work={p} />
       </div>

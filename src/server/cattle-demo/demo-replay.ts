@@ -29,6 +29,7 @@ import { planCattleWork, type CattlePlanIssue, type CattlePlanResult } from "@/d
 import { recommendCattle, type CattleRecommendationResult, type RecommendationIssue } from "@/domain/cattle/recommendations";
 import { buildWeightReadContract, resolveGroupScope, type ScopeResolution, type WeightReadContract } from "@/domain/cattle/weights";
 import { createPlanJob, planJobIdentityKey, reevaluatePlanJob, type PlanAuditEvent, type PlanBlocker, type PlanJob, type PlanJobEvaluation } from "@/domain/plan";
+import type { CattlePlanJobOrigin } from "@/domain/cattle/presentation";
 import type { CattleDemoEvent, CattleDemoSession } from "@/components/cattle/session/demo-session";
 import { DEMO_ACTION_REGISTRY, DEMO_BASE_VIEWPOINT, DEMO_TRUSTED, hash } from "./demo-catalogue";
 import { DEMO_ANIMALS, GROUP_FINISHERS, GROUP_STORES, animalIdOf, demoHerdRecords, demoStaticRequestParts, goalDeclaration, goalIdOf, weightRecord, type DemoHerdRecords } from "./demo-herd";
@@ -49,6 +50,8 @@ export interface DemoJobState {
   /** The viewpoint the job was created at. */
   createdAt: string;
   events: PlanAuditEvent[];
+  /** What raised the job, captured at the creating run (F001: kept for the job's life). */
+  origin: CattlePlanJobOrigin;
 }
 
 export interface DemoEngineOutputs {
@@ -133,6 +136,20 @@ function planRun(inputs: Inputs, viewpoint: DemoViewpoint, scenario: CattleDemoS
 
 const blockerMap = (r: CattlePlanResult): Record<string, PlanBlocker> => Object.fromEntries(r.blockers.map((b) => [b.id, b]));
 
+/**
+ * The origin of a job created from run `r` (F001): the C9 group with the job's identity, and — when that group
+ * cites C8 outputs — the C8 record whose pack id IS the cited output id (one output id is one record). A C8
+ * failure, or no record with that id, is UNAVAILABLE: never a record of the same kind from somewhere else.
+ */
+export function jobOrigin(r: CattlePlanResult, job: PlanJob, at: string, c8Run: () => ReturnType<typeof recommendCattle>): CattlePlanJobOrigin {
+  const group = r.groups.find((g) => g.identityKey === planJobIdentityKey(job)) ?? null;
+  const cited = new Set((group?.items ?? []).flatMap((i) => [...(i.family === "C8_RECOMMENDATION" ? [i.outputId] : []), ...i.supporting.map((x) => x.outputId)]));
+  if (cited.size === 0) return { at, group, recommendation: { state: "NOT_C8" } };
+  const c8 = c8Run();
+  const records = c8.ok ? c8.result.animals.flatMap((a) => (a.record && cited.has(a.record.packId) ? [a.record] : [])) : [];
+  return { at, group, recommendation: records.length === 1 ? { state: "BOUND", record: records[0] } : { state: "UNAVAILABLE" } };
+}
+
 function emptyHerd(base: DemoHerdRecords): DemoHerdRecords {
   return { ...base, ledgers: [], weights: [], goals: [], health: [], obligationEvidence: [], programmeAnimals: [], programmeCompletions: [] };
 }
@@ -187,9 +204,12 @@ function replayUncached(session: CattleDemoSession, scenario: CattleDemoScenario
   const baseViewpoint = { effectiveAt: DEMO_BASE_VIEWPOINT, knowledgeCutoff: DEMO_BASE_VIEWPOINT };
   const jobs: DemoJobState[] = [];
   let previousBlockers: Record<string, PlanBlocker> = {};
-  const advance = (run: ReturnType<typeof planRun>, viewpoint: DemoViewpoint) => {
+  const advance = (run: ReturnType<typeof planRun>, viewpoint: DemoViewpoint, inputs: Inputs) => {
     if (!run.ok) return;
     const r = run.result;
+    // The C8 records of THIS run, computed only if a new job needs one (the request C9 consumed, unchanged).
+    let c8: ReturnType<typeof recommendCattle> | null = null;
+    const c8Run = () => (c8 ??= recommendCattle(structuredClone(cattleRequest(inputs, viewpoint, scenario)), hash, DEMO_TRUSTED));
     const blockers = { ...previousBlockers, ...blockerMap(r) };
     const jobStatuses = Object.fromEntries(jobs.map((j) => [j.job.id, j.job.status]));
     for (const j of jobs) {
@@ -203,18 +223,20 @@ function replayUncached(session: CattleDemoSession, scenario: CattleDemoScenario
       const created = createPlanJob(p, viewpoint.effectiveAt);
       if (held.has(planJobIdentityKey(created.job)) || jobs.some((j) => j.job.id === created.job.id)) continue;
       const evaluation = reevaluatePlanJob(created.job, { nowIso: viewpoint.effectiveAt, scopeReality: r.scopeReality, evidence: r.evidence, jobStatuses, blockers });
-      jobs.push({ job: evaluation.job, evaluation, createdAt: viewpoint.effectiveAt, events: [...created.events, ...evaluation.events] });
+      jobs.push({ job: evaluation.job, evaluation, createdAt: viewpoint.effectiveAt, events: [...created.events, ...evaluation.events], origin: jobOrigin(r, created.job, viewpoint.effectiveAt, c8Run) });
     }
     previousBlockers = blockers;
   };
 
-  let plan = planRun(inputsAfter(base, events, 0, []), baseViewpoint, scenario, groupScopes);
-  advance(plan, baseViewpoint);
+  const baseInputs = inputsAfter(base, events, 0, []);
+  let plan = planRun(baseInputs, baseViewpoint, scenario, groupScopes);
+  advance(plan, baseViewpoint, baseInputs);
   for (let i = 0; i < events.length; i++) {
     const at = sessionInstant(i);
     const vp = { effectiveAt: at, knowledgeCutoff: at };
-    plan = planRun(inputsAfter(base, events, i + 1, []), vp, scenario, groupScopes);
-    advance(plan, vp);
+    const runInputs = inputsAfter(base, events, i + 1, []);
+    plan = planRun(runInputs, vp, scenario, groupScopes);
+    advance(plan, vp, runInputs);
   }
 
   // The final viewpoint is the last run's: its C9 result is reused, not recomputed.

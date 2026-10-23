@@ -9,7 +9,6 @@
  * time after it as late — so it is "before {due}", never "by {due}".
  */
 
-import type { RecommendationRecord } from "../recommendations";
 import type { CattlePlanProposalGroup } from "../plan-interface";
 import { compareSystemPriority, planJobIdentityKey, type PlanJob } from "../../plan";
 import type { CattleDirectory, CattleOutputs, CattlePlanJobState } from "./cattle-outputs";
@@ -47,6 +46,12 @@ export interface WhyVM {
   /** Assumptions, limitations and unknowns, in that order (each kept, none merged into another). */
   caveats: Details<string>;
   sources: Details<WhySource>;
+  /**
+   * When the job was raised, and whether the latest records still raise it (F001: the explanation is the job's
+   * ORIGINAL justification, kept with it; this says how it relates to now). STILL_RAISED / NO_LONGER_RAISED /
+   * UNKNOWN (the latest planning run couldn't be read) / CLOSED (the job is done or closed); `text` is the farmer sentence.
+   */
+  raised: { label: string; current: "STILL_RAISED" | "NO_LONGER_RAISED" | "UNKNOWN" | "CLOSED"; text: string | null };
   /** How the work gets marked done. */
   completionRule: string;
   /** Technical provenance (shown only on request). */
@@ -156,7 +161,16 @@ function windowOf(job: PlanJob): WorkVM["window"] {
   return { state: "RECOMMENDED", label, opensAt: w.startIso, dueAt: w.endIso };
 }
 
-function whyOf(job: PlanJob, group: CattlePlanProposalGroup | undefined, record: RecommendationRecord | null, recordUnavailable: boolean, base: { why: string }, directory: CattleDirectory): WhyVM {
+/**
+ * The "Why?" of a job from its ORIGIN (F001): the C9 group and the C8 record that raised it, captured by the replay
+ * when the job was created — never looked up in a later run, which may no longer propose the work after the job
+ * stays open (e.g. a back-dated weight). Evidence that wasn't kept is said to be unavailable, never borrowed.
+ */
+function whyOf(job: PlanJob, origin: CattlePlanJobState["origin"], current: WhyVM["raised"]["current"], base: { why: string }, directory: CattleDirectory): WhyVM {
+  const group = origin?.group ?? undefined;
+  const record = origin?.recommendation.state === "BOUND" ? origin.recommendation.record : null;
+  // A C8 job whose record wasn't kept: its evidence is unknown, not absent.
+  const recordUnavailable = origin === null || origin.recommendation.state === "UNAVAILABLE";
   const items = group?.items ?? [];
   const origins = [...new Set([...(group?.origins ?? []), ...items.flatMap((i) => i.supporting.map((s) => s.origin))])].map((o) => ORIGIN_LABEL[o] ?? o);
   const evidence: string[] = [];
@@ -198,31 +212,44 @@ function whyOf(job: PlanJob, group: CattlePlanProposalGroup | undefined, record:
       ...(record?.assumptions ?? []),
       ...(record?.limitations ?? []).filter((x) => Object.hasOwn(LIMITATION_COPY, x)).map((x) => LIMITATION_COPY[x]),
       ...(record && record.expectedOutcome?.effect.state !== "EFFECT_SUPPORTED" ? ["No model estimates what this changes in weight or money."] : []),
-      // The C8 record behind a recommendation job couldn't be read: its evidence is unknown, not absent.
-      ...(recordUnavailable ? ["The recommendation record couldn't be read, so its evidence and assumptions aren't shown."] : []),
+      ...(origin === null
+        ? ["The evidence this job was raised on wasn't kept, so it isn't shown."]
+        : recordUnavailable
+          ? ["The recommendation record behind this job couldn't be read when it was raised, so its evidence and assumptions aren't shown."]
+          : []),
     ]),
     sources: details(sources),
+    raised: {
+      label: origin === null ? "When this was raised isn't recorded" : `Raised ${formatDate(origin.at)}`,
+      current,
+      text:
+        current === "NO_LONGER_RAISED"
+          ? "That was the reason when it was raised. The latest records no longer raise it on their own; it stays open until it's done as described below."
+          : current === "UNKNOWN"
+            ? "Whether the latest records still raise this couldn't be checked."
+            : null,
+    },
     completionRule: completionRule(job),
     technical: details(technical),
   };
 }
 
-function groupOf(outputs: CattleOutputs, job: PlanJob): CattlePlanProposalGroup | undefined {
-  if (!outputs.plan.ok) return undefined;
+/** Whether the LATEST planning run still proposes this job's work (its C9 identity) — current state only, never its evidence. */
+function currentlyRaised(outputs: CattleOutputs, job: PlanJob): WhyVM["raised"]["current"] {
+  if (!outputs.plan.ok || (actionKindOf(job) !== null && !outputs.recommendations.ok)) return "UNKNOWN";
   const key = planJobIdentityKey(job);
-  return outputs.plan.result.groups.find((g) => g.identityKey === key);
+  return outputs.plan.result.groups.some((g) => g.identityKey === key) ? "STILL_RAISED" : "NO_LONGER_RAISED";
 }
 
-function recordOf(outputs: CattleOutputs, animalId: string, job: PlanJob): RecommendationRecord | null {
-  const kind = actionKindOf(job);
-  if (kind === null || !outputs.recommendations.ok) return null;
-  const rec = outputs.recommendations.result.animals.find((a) => a.animalId === animalId)?.record ?? null;
-  return rec && rec.recommendedAction?.actionKind === kind ? rec : null;
+/** The job's group for blocker wording: the latest run's (blockers are current state), else the origin's. */
+function groupOf(outputs: CattleOutputs, state: CattlePlanJobState): CattlePlanProposalGroup | undefined {
+  const key = planJobIdentityKey(state.job);
+  return (outputs.plan.ok ? outputs.plan.result.groups.find((g) => g.identityKey === key) : undefined) ?? state.origin?.group ?? undefined;
 }
 
 export function workVM(state: CattlePlanJobState, outputs: CattleOutputs, animalId: string, directory: CattleDirectory): WorkVM {
   const job = state.job;
-  const group = groupOf(outputs, job);
+  const group = groupOf(outputs, state);
   const copy = titleOf(job, directory);
   const blockers: WorkBlockerVM[] = [];
   const blockerById = outputs.plan.ok ? Object.fromEntries(outputs.plan.result.blockers.map((b) => [b.id, b])) : {};
@@ -255,7 +282,7 @@ export function workVM(state: CattlePlanJobState, outputs: CattleOutputs, animal
       job.completion === null
         ? { state: "NOT_COMPLETED", label: displayOf(JOB_STATUS_DISPLAY, job.status, "JOB").label }
         : { state: "COMPLETED", at: job.completion.at, label: completionBasisLabel(job.completion.basis) },
-    why: whyOf(job, group, recordOf(outputs, animalId, job), actionKindOf(job) !== null && !outputs.recommendations.ok, copy, directory),
+    why: whyOf(job, state.origin, open ? currentlyRaised(outputs, job) : "CLOSED", copy, directory),
   };
 }
 

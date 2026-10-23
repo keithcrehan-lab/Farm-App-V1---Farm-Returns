@@ -10,8 +10,8 @@ import type { AnimalSnapshot } from "../animal-snapshot";
 import type { GoalProjection } from "../goals";
 import type { AnimalHealthProjection } from "../health";
 import type { PerformanceEvaluation } from "../performance";
-import type { CattlePlanOutcome } from "../plan-interface";
-import type { CattleRecommendationOutcomeResult } from "../recommendations";
+import type { CattlePlanOutcome, CattlePlanProposalGroup } from "../plan-interface";
+import type { CattleRecommendationOutcomeResult, RecommendationRecord } from "../recommendations";
 import type { ScopeResolution, WeightReadContract } from "../weights";
 import type { PlanAuditEvent, PlanJob, PlanJobEvaluation } from "../../plan";
 
@@ -20,12 +20,32 @@ export interface CattleViewpoint {
   knowledgeCutoff: string;
 }
 
+/**
+ * What raised a Plan job, kept with the job for its whole life (F001): the C9 proposal group of the run that
+ * created it and, for a C8 action, the C8 record that group cites (bound by the group's own C8 output id —
+ * never a record matched by kind alone). A later run that no longer proposes the work never erases it.
+ */
+export interface CattlePlanJobOrigin {
+  /** The viewpoint of the creating run. */
+  at: string;
+  /** `null`: the creating run had no proposal group for the job's identity. */
+  group: CattlePlanProposalGroup | null;
+  recommendation:
+    | { state: "BOUND"; record: RecommendationRecord }
+    /** The job comes from no C8 output (a programme, a requirement). */
+    | { state: "NOT_C8" }
+    /** C8 failed in the creating run, or none of its records is the one the group cites. */
+    | { state: "UNAVAILABLE" };
+}
+
 export interface CattlePlanJobState {
   job: PlanJob;
   evaluation: PlanJobEvaluation | null;
   /** Viewpoint the job was created at. */
   createdAt: string;
   events: PlanAuditEvent[];
+  /** `null`: the origin wasn't recorded — its evidence is shown as unavailable, never borrowed from a later run. */
+  origin: CattlePlanJobOrigin | null;
 }
 
 export interface CattleOutputs {

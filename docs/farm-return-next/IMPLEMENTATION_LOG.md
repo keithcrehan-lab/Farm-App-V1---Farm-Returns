@@ -5,6 +5,19 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Cattle Engine v1, C10 close-out — Cattle UX — manually adopted at 510f003 (2026-10-24)
+
+C10 was built by hand, not by `scripts/agent-campaign-run`; it is **frozen at `510f003ef252f6eff83f78ffd7617de2e8858a58` by separately authorised manual
+adoption** (`.agent/campaigns/cattle-engine-v1/C10_MANUAL_ADOPTION.md`, assurance standard TIER2_APPLICATION). This record is not a runner build and claims no clean final whole-phase audit.
+
+- Full strict baseline audit `audit-20261023T184003Z-94767.md` over `6e81831e60d902359ae8370a223960955fd45766..5aa207df12bfbcd3695d69021ab90c8ea7fcc57c`: CRITICAL=0 HIGH=2 MEDIUM=0 LOW=0.
+- Bounded strict closure audit `audit-20261024T103926Z-13552.md` over `5aa207df12bfbcd3695d69021ab90c8ea7fcc57c..2fb2d20b0bb19b8696098ea672fed2d3f8a84203`: CRITICAL=0 HIGH=0 MEDIUM=1 LOW=0.
+- Closure findings resolved: F020 (MEDIUM, closure audit): test-only remediation 4bb4dc5.
+- Outstanding Low (recorded, not fixed): none.
+- Verification: full suite `quality-20261024T090919Z-98651` passed at `510f003` (attestation `.agent/campaigns/cattle-engine-v1/adoption/C10-gate-quality-20261024T090919Z-98651.txt`); production unchanged to evidence head `9d03bba`.
+- Receipt `.agent/campaigns/cattle-engine-v1/receipts/C10.json` (origin `manual-adopted`, fingerprint `89e9237b37a5336e`). Migrations: none. Frozen contracts: ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md. Nothing pushed or deployed.
+- Campaign complete.
+
 ## Campaign runner — manual adoption of a hand-built final phase (2026-10-24)
 
 The separately authorised "C10 Adoption, Freeze and Campaign Closure" task adds `scripts/agent-campaign-run <id> --adopt <phase>`. It needs a

@@ -312,9 +312,10 @@
       "next_phase": "C3 NOT_STARTED"
     },
     "campaign_progress": {
-      "last_frozen_phase": "C9",
-      "next_phase": "C10",
-      "next_phase_status": "NOT_STARTED",
+      "last_frozen_phase": "C10",
+      "next_phase": null,
+      "next_phase_status": null,
+      "campaign_status": "COMPLETE",
       "updated_by": "scripts/agent-campaign-run"
     },
     "c3_health_medicines_engine": {
@@ -477,6 +478,29 @@
       "receipt_fingerprint": "6b30b6a48c2ef4300a97e6358f44af545378ddab1ba644db2e76f254aba3f656",
       "closed_by": "scripts/agent-campaign-run",
       "next_phase": "C10 NOT_STARTED"
+    },
+    "c10_cattle_ux": {
+      "status": "FROZEN_MANUALLY_ADOPTED",
+      "runner_built": false,
+      "assurance_standard": "TIER2_APPLICATION",
+      "authorisation": "Human-authorised 2026-10-24 (\"C10 Adoption, Freeze and Campaign Closure\"): adopt hand-built C10 at 510f003 under TIER2_APPLICATION; record C10_MANUAL_ADOPTION.md",
+      "base_sha": "6e81831e60d902359ae8370a223960955fd45766",
+      "final_production_sha": "510f003ef252f6eff83f78ffd7617de2e8858a58",
+      "evidence_head": "9d03bbad0ebb494fe0c7de0d58302f5d9899bc63",
+      "baseline_audit": ".agent/campaigns/cattle-engine-v1/audits/audit-20261023T184003Z-94767.md",
+      "baseline_audit_summary": "CRITICAL=0 HIGH=2 MEDIUM=0 LOW=0",
+      "closure_audit": ".agent/campaigns/cattle-engine-v1/audits/audit-20261024T103926Z-13552.md",
+      "closure_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=1 LOW=0",
+      "resolved_closure_findings": [
+        "F020 (MEDIUM, closure audit): test-only remediation 4bb4dc5"
+      ],
+      "outstanding_low_findings": [],
+      "verification": "full suite quality-20261024T090919Z-98651 (scripts/quality-gate.sh) passed at 510f003ef252f6eff83f78ffd7617de2e8858a58, HEAD unchanged — attestation .agent/campaigns/cattle-engine-v1/adoption/C10-gate-quality-20261024T090919Z-98651.txt",
+      "adoption_record": ".agent/campaigns/cattle-engine-v1/C10_MANUAL_ADOPTION.md",
+      "receipt": ".agent/campaigns/cattle-engine-v1/receipts/C10.json",
+      "receipt_fingerprint": "89e9237b37a5336e082db50d4c94be347bbab4e54f760edb0105d4316ba48fe5",
+      "closed_by": "scripts/agent-campaign-run --adopt (manual adoption; the phase was not built by the runner)",
+      "next_phase": "none (campaign complete)"
     }
   }
 }

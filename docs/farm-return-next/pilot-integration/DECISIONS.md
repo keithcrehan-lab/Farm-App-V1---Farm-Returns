@@ -213,3 +213,25 @@ group management from the old Livestock screen (browser-only, mock farm) is no l
 
 **Group goal:** the group's `goal` enum is labelled "Finishing goal (group economics)". It feeds only the group
 economics screen, never the cattle engines (D8). An animal's free-text `goal_status` is not shown or used.
+
+## D15 — Pilot navigation and What Matters (P4)
+
+**Navigation:**
+- **Primary:** Farm (`/today`, the home and the sign-in landing page), What Matters, Plan, Cattle and Records.
+- **More:** Fields, Soil, Fertiliser Plan, Field Nutrient Plan, Spreading, Supports, Market (quotes), Market Prices,
+  Reports and Settings.
+- **Hidden** (still reachable by URL, nothing deleted): Finance, Dashboard, Silage, Feed Optimiser and Input Planner
+  (`pilotHiddenNavItems`).
+
+**What Matters (`/what-matters`):** reuses the existing audited pilot chain (`evaluateWhatMattersPilot`) through one
+shared client hook (`useWhatMattersPilot`). Farm's "What matters now" slot is the summary and links to What Matters.
+No new ranking or science is added.
+- **Price evidence:** the action also reports which CSO fertiliser prices were resolved. If none were, the screen says
+  so and assumes no price.
+- **Populating prices:** CSO prices reach `market_price_observations` only through the operator sync
+  (`POST /api/admin/market/sync-cso-fertiliser-prices`, gated by a secret). The app adds no automatic sync or
+  scheduler.
+- **Demo mode:** evaluates nothing and says there is no farm to evaluate.
+
+**Ask AI:** no AI provider is connected, so a signed-in farm isn't shown Ask AI. Demo mode keeps it, with its honest
+"isn't connected" note.

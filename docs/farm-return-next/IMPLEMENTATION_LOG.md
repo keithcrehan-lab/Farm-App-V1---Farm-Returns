@@ -5,6 +5,13 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Pilot Integration P4 — pilot completion (2026-10-24)
+
+`/what-matters` is a real screen built on the existing audited evaluation, and it says when fertiliser price evidence
+is missing. The pilot navigation is Farm, What Matters, Plan, Cattle and Records, with unfinished screens hidden but
+kept. Sign-in lands on Farm, and Ask AI is hidden for signed-in farms (D15). Implementation `b6dba8b`. The final full
+gate `quality-20261024T174644Z-84668` passed. The signed-in walkthrough is still outstanding (see STATE.md).
+
 ## Pilot Integration P3 — one cattle product (2026-10-24)
 
 `/cattle` is the one cattle destination. The former Livestock management moved to Cattle → Manage herd

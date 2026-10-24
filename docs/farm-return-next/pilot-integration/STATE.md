@@ -2,58 +2,68 @@
 
 | | |
 |---|---|
-| Current phase | P3 complete → P4 next (not started) |
-| Branch | `pilot-integration-v1` (P0 `9f6a1cb`; P1 `ef9f12f`/`f2673f0`; P2 `867bdb2`/`1a7a31b`) |
-| Implementation SHA | `e333a8d` (P3 one cattle product) |
-| Status | `READY_FOR_P4_PILOT_COMPLETION` |
+| Current phase | P4 complete (deterministic). Waiting for the signed-in walkthrough. |
+| Branch | `pilot-integration-v1` (P0 `9f6a1cb`; P1 `ef9f12f`; P2 `867bdb2`; P3 `e333a8d`) |
+| Implementation SHA | `b6dba8b` (P4 What Matters and pilot navigation) |
+| Status | `READY_FOR_MANUAL_SIGNED_IN_PILOT_CHECK`. Not "pilot ready" until the walkthrough below passes. |
 | Pushed | no |
-| Open blocker | none |
+| Open blocker | the signed-in walkthrough. No authorised dev account was available to the agent, and none was created. |
 
-## What P3 delivered
+## What P4 delivered (D15)
 
-`/cattle` is the one cattle product (D14).
-- **Navigation:** the Livestock entry is gone from the farmer navigation.
-- **Manage herd** (`/cattle/manage`, linked from the herd and group screens) holds the former Livestock management:
-  - add and edit groups, including headcount and the housing link;
-  - the group value and economics cards;
-  - adding an animal.
-- **Redirect:** `/livestock` redirects to Manage herd. Group economics `/livestock/[groupId]` is kept as a legacy route.
-- **Old weight form:** the old inline weight form is gone; P2 Record Weight is the weight path.
-- **Security:** the livestock actions now resolve the farm server-side and check that the group or animal belongs to it.
-- **In-app links:** links that pointed to `/livestock` now point to Cattle or Manage herd.
-- **Unchanged:** the schema, `src/domain`, the P1 read path and the P2 write path.
+- **What Matters (`/what-matters`):** a real screen. It uses the same audited evaluation as Farm's "What matters now"
+  through the shared `useWhatMattersPilot` hook. It shows what needs attention, the reason, the action, and the
+  evidence used: which CSO fertiliser prices are on record, the contractor rate, slurry plans and weather.
+  - **No price evidence:** if no price evidence is persisted, the screen says so and assumes no price.
+  - **Farm:** keeps the summary and links to What Matters.
+- **Pilot navigation:**
+  - **Primary:** Farm, What Matters, Plan, Cattle and Records.
+  - **More:** the field, soil, nutrient, spreading, supports, market, reports and settings screens.
+  - **Hidden:** Finance, Dashboard, Silage, Feed Optimiser and Input Planner (kept, reachable by URL).
+  - **Sign-in:** lands on Farm.
+- **Ask AI:** hidden for signed-in farms, since no provider is connected. Demo mode keeps it.
+- **Farm:** the "Forecast view coming soon" line is gone.
+- **Unchanged:** the schema, `src/domain`, and the P1–P3 cattle paths. `/livestock` still redirects to
+  `/cattle/manage`.
 
-## Verification (P3)
+## Verification (P4)
 
-- **P3 tests:** `one-cattle-product.test.tsx`, 24 tests covering the P3 matrix cases 1–26, run on an in-memory PostgREST
-  with RLS, the primary key and the same-farm triggers.
-  - **Mutation check:** with the server farm check weakened, 3 security tests fail.
-- **P1, P2 and affected suites:** P1 (`real-cattle`, `cattle-source`), P2 (`real-write`), the cattle components, shell,
-  farm-spatial, farm components, the store, the `(app)` routes and the actions all pass: 1351 tests in 102 files.
-- **Typecheck, lint and build:** typecheck is clean. Lint has 0 errors and only the 2 pre-existing C8 warnings. The
-  build passes.
-- **Full quality gate:** not run, by design. The change touches cattle routing and four livestock actions, not broad
-  infrastructure. The last gate was `quality-20261024T155333Z-59710` on P2 (`867bdb2`).
-- **Not run, by design:** Codex and an audit.
-- **Browser:** not verified. No authorised signed-in dev account was available, and no account was created. This is
-  carried into P4.
+- **P4 tests:**
+  - `what-matters.test.tsx` (13): screen states, missing-price wording, no dead nav links, hidden screens, the landing
+    page and Ask AI.
+  - `what-matters-pilot.test.ts`: 2 tests for the evidence summary.
+- **Affected suites:** P1, P2 and P3 cattle, the components, the store, the routes and `src/lib`: 1772 tests in 144
+  files, all passing.
+- **Final full gate:** passed on `b6dba8b` (`quality-20261024T174644Z-84668`).
+  - Tests: 6351 in 325 files.
+  - Typecheck, lint (0 errors, the 2 pre-existing C8 warnings) and build all pass.
+  - The tree was clean apart from the docs.
+- **Browser:**
+  - **Demo:** loads, and the herd is labelled synthetic. What Matters shows the demo notice. `/` and `/livestock`
+    redirect correctly. The nav shows only pilot destinations.
+  - **Signed-out real mode:** `/`, `/what-matters`, `/cattle`, `/livestock` and `/cattle/manage` all redirect to
+    sign-in.
+  - **Signed-in walkthrough:** not done.
+- **Codex:** ZERO.
 
-## Next action (P4: pilot completion)
+## Next action: manual signed-in pilot check (person)
 
-1. **(Person.)** Sign in locally to Farm Return V1 Dev and walk these journeys:
-   - Cattle → group → animal → Record Weight → reload;
-   - Cattle → Manage herd → add a group and an animal → back to Cattle (they appear) → edit the group;
-   - open `/livestock` and check it lands on Manage herd.
-2. **P4 scope:** real What Matters, the wider navigation cleanup, and signed-in end-to-end pilot acceptance with the
-   full gate.
+Sign in locally to Farm Return V1 Dev (`npm run dev`) and check:
+1. You land on Farm, which shows your real fields (not Ballybeg).
+2. **Field:** open a field, then its soil or nutrient plan.
+3. **What Matters:** it shows either a recommendation or the evidence it lacks.
+   - If price evidence is missing, the operator can run the CSO sync once
+     (`POST /api/admin/market/sync-cso-fertiliser-prices` with `x-admin-secret`), then recheck.
+4. **Cattle:** Cattle → group → animal → Record Weight. The profile updates, and the weight is still there after a
+   reload.
+5. **Manage herd:** the same group and animal appear. Opening `/livestock` lands here.
+6. **Slurry:** the spreading/slurry plan and its compliance details work.
+7. **Records and Supports:** Records shows completed work and evidence, and Supports shows eligibility.
+8. **Navigation:** has no Ask AI, Finance, Silage or other unfinished destination, and no demo data appears anywhere.
 
-## Known gaps (affecting P4+)
+If all of these pass, Pilot Integration is complete and ready for a farmer pilot.
 
-- **Weighing method:** not recorded; same-date weights conflict; the 00:00–01:00 Irish summer edge (D12).
-- **Work and plan:** work is not persisted (D9); the plan is unavailable (no mart or cost evidence).
-- **Group reassignment:** must record dated history (D4); not offered.
-- **Group edits:** Manage herd's group edits use the existing farm-store optimistic update with a server sync, unchanged
-  from Livestock. Cattle itself always re-reads from Supabase.
-- **Group economics:** still at `/livestock/[groupId]`; the farm map's group links and `farm-stats` (frozen domain)
-  still point to `/livestock*`.
-- **Demo:** the browser-only demo group management is no longer in navigation.
+## Excluded from the pilot (not started)
+
+AI assistant, full Finance, silage, feed optimiser, input planner, cattle marketplace and mart integration, cattle
+photos, group split/merge, weighing method, persisted cattle work, and an automatic CSO price schedule.

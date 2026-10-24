@@ -107,8 +107,11 @@ export function ActivityTimelineCard({
   unavailable = false,
   truncated = false,
   partiallyUnavailable = false,
+  fieldNames = null,
 }: {
   entries: TimelineEntry[];
+  /** The farm's field names by id (archived ones included), so a decision names its field (pilot acceptance). */
+  fieldNames?: ReadonlyMap<string, string> | null;
   /** Blanks the whole card — reserved for when even the entries this
    * component *does* have can't be trusted (`records/page.tsx`: the jobs
    * fetch itself failed, which also makes any decision dedup unsafe). */
@@ -180,7 +183,7 @@ export function ActivityTimelineCard({
                 ) : entry.type === "job_session" ? (
                   <JobSessionRecordRow key={`job-session-${entry.session.id}`} session={entry.session} />
                 ) : (
-                  <DecisionRow key={`decision-${entry.decision.id}`} decision={entry.decision} />
+                  <DecisionRow key={`decision-${entry.decision.id}`} decision={entry.decision} fieldNames={fieldNames} />
                 ),
               )}
             </ul>

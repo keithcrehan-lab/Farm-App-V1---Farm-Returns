@@ -11,6 +11,7 @@ import { submitPromptDecisionAction, type RecomputablePromptKind } from "@/app/a
 import { startJobSessionFromPromptAction } from "@/app/actions/job-sessions";
 import type { SpreadingMaterial } from "@/domain/closed-period-calendar";
 import type { Prompt } from "@/orchestration/prompt";
+import { farmerReadableText } from "@/lib/farmer-readable-codes";
 
 /**
  * GPS Job Session + Confirm Actual contract — the one real Prompt kind
@@ -146,7 +147,7 @@ function ExpandedPromptSheetBody({
         {fieldName ? <p className="text-sm text-fr-ink-600">{fieldName}</p> : null}
       </div>
 
-      <p className="text-sm text-fr-ink-600">{prompt.description}</p>
+      <p className="text-sm text-fr-ink-600">{farmerReadableText(prompt.description)}</p>
 
       <div className="flex flex-wrap gap-2">
         {prompt.basis.status === "OK" ? <Pill tone="good">{EVIDENCE_STATE_UI_LABEL[prompt.basis.evidenceState]}</Pill> : null}

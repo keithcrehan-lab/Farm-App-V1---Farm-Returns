@@ -20,6 +20,7 @@ import type { StatusTone } from "@/lib/status";
 import type { SupportProfile, SupportProfileFactKey } from "@/domain/support-profile";
 import type { EligibilityAssessment, EligibilityState } from "@/domain/scheme-eligibility";
 import { upsertSupportProfileFactAction } from "@/app/actions/support-profile";
+import { farmerTextList, farmerWhyThisState } from "@/lib/scheme-farmer-text";
 
 const STATE_TONE: Record<EligibilityState, StatusTone> = {
   ELIGIBLE: "good",
@@ -183,7 +184,7 @@ function AssessmentCard({ assessment, schemeName }: { assessment: EligibilityAss
       <button type="button" onClick={() => setExpanded((v) => !v)} className="flex w-full items-start justify-between gap-3 text-left">
         <div>
           <p className="text-sm font-semibold text-fr-ink-900">{schemeName}</p>
-          <p className="mt-1 text-xs text-fr-ink-600">{assessment.whyThisState}</p>
+          <p className="mt-1 text-xs text-fr-ink-600">{farmerWhyThisState(assessment)}</p>
         </div>
         <Pill tone={STATE_TONE[assessment.state]}>{STATE_LABEL[assessment.state]}</Pill>
       </button>
@@ -193,10 +194,10 @@ function AssessmentCard({ assessment, schemeName }: { assessment: EligibilityAss
             <div>
               <p className="mb-1 font-semibold text-fr-ink-700">Confirmed</p>
               <ul className="flex flex-col gap-1">
-                {assessment.satisfied.map((r) => (
-                  <li key={r.ruleId} className="flex items-start gap-1.5 text-fr-ink-600">
+                {farmerTextList(assessment.satisfied.map((r) => r.detail)).map((text, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-fr-ink-600">
                     <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-fr-good" />
-                    {r.detail}
+                    {text}
                   </li>
                 ))}
               </ul>
@@ -206,8 +207,8 @@ function AssessmentCard({ assessment, schemeName }: { assessment: EligibilityAss
             <div>
               <p className="mb-1 font-semibold text-fr-ink-700">Not met</p>
               <ul className="flex flex-col gap-1 text-fr-ink-600">
-                {assessment.failed.map((r) => (
-                  <li key={r.ruleId}>{r.detail}</li>
+                {farmerTextList(assessment.failed.map((r) => r.detail)).map((text, i) => (
+                  <li key={i}>{text}</li>
                 ))}
               </ul>
             </div>
@@ -216,7 +217,7 @@ function AssessmentCard({ assessment, schemeName }: { assessment: EligibilityAss
             <div>
               <p className="mb-1 font-semibold text-fr-ink-700">What Farm Return still needs</p>
               <ul className="flex flex-col gap-1">
-                {(assessment.unknown.length > 0 ? assessment.unknown.map((r) => r.detail) : assessment.whatIsMissing).map((text, i) => (
+                {farmerTextList(assessment.unknown.length > 0 ? assessment.unknown.map((r) => r.detail) : assessment.whatIsMissing).map((text, i) => (
                   <li key={i} className="flex items-start gap-1.5 text-fr-ink-600">
                     <HelpCircle className="mt-0.5 size-3.5 shrink-0 text-fr-attention" />
                     {text}
@@ -243,7 +244,7 @@ function AssessmentCard({ assessment, schemeName }: { assessment: EligibilityAss
             <div>
               <p className="mb-1 font-semibold text-fr-ink-700">Known limitations</p>
               <ul className="flex flex-col gap-1 text-fr-ink-600">
-                {assessment.knownLimitations.map((limitation, i) => (
+                {farmerTextList(assessment.knownLimitations).map((limitation, i) => (
                   <li key={i}>{limitation}</li>
                 ))}
               </ul>

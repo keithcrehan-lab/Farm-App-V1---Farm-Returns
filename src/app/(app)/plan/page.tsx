@@ -45,6 +45,7 @@ import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/prompt/select-primary";
 import { promptStatusTone } from "@/lib/status";
 import type { Prompt } from "@/orchestration/prompt";
+import { farmerReadableText } from "@/lib/farmer-readable-codes";
 
 export default function PlanPage() {
   const farm = useFarm();
@@ -137,7 +138,7 @@ export default function PlanPage() {
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-fr-ink-900">{featuredPrompt.title}</p>
-              <p className="mt-0.5 line-clamp-2 text-xs text-fr-ink-600">{featuredPrompt.description}</p>
+              <p className="mt-0.5 line-clamp-2 text-xs text-fr-ink-600">{farmerReadableText(featuredPrompt.description)}</p>
             </div>
           </button>
         ) : null}

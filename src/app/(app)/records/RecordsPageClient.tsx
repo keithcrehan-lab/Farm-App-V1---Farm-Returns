@@ -6,6 +6,7 @@ import { ActivityTimelineCard, entryTimestamp, type TimelineEntry } from "@/comp
 import type { JobWithDecision } from "@/lib/farm-data/jobs";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
 import type { JobSessionWithActual } from "@/lib/farm-data/job-sessions";
+import { useAllFieldsIncludingArchived } from "@/store/farm-store";
 
 /**
  * Records — Farm Return Next v1.1, canonical screen #6 (§4/§9). Builds
@@ -63,6 +64,9 @@ export function RecordsPageClient({
   ].sort((a, b) => entryTimestamp(b).localeCompare(entryTimestamp(a)));
 
   const askAIContext = { screen: "Records", facts: { "Activity entries": String(entries.length) } };
+  // Pilot acceptance repair: decisions name their field (an archived field keeps its name, marked archived).
+  const allFields = useAllFieldsIncludingArchived();
+  const fieldNames = new Map(allFields.map((f) => [f.id, f.archivedAt ? `${f.name} (archived)` : f.name] as const));
 
   return (
     <>
@@ -89,6 +93,7 @@ export function RecordsPageClient({
         unavailable={jobsUnavailable}
         partiallyUnavailable={!jobsUnavailable && (decisionsUnavailable || jobSessionsUnavailable)}
         truncated={jobsTruncated || decisionsTruncated || jobSessionsTruncated}
+        fieldNames={fieldNames}
       />
 
       {/* Strict Visual Reproduction phase: image1's own Records panel

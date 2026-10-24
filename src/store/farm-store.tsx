@@ -142,6 +142,7 @@ import {
   updatePlannedSlurryAllocationAction,
   type SlurryAllocationLifecycleActionResult,
 } from "@/app/actions/slurry-allocation-lifecycle";
+import { summariseLiveWeight } from "@/lib/livestock-live-weight";
 
 /** Phase 1B.1 — whether the slurry plan on screen is known to match the
  * canonical server state. `stale` after any failed re-read: the displayed
@@ -1468,12 +1469,9 @@ export function useLivestockTotals() {
   return useMemo(() => {
     const totalLivestockCount = groups.reduce((sum, g) => sum + g.count.value, 0);
     const totalLivestockValue = groups.reduce((sum, g) => sum + g.value.value, 0);
-    const totalLiveWeightKg = groups.reduce(
-      (sum, g) => sum + g.count.value * (g.avgWeightKg?.value ?? 0),
-      0,
-    );
-    const avgLiveWeightKg = totalLivestockCount > 0 ? Math.round(totalLiveWeightKg / totalLivestockCount) : 0;
-    return { totalLivestockCount, totalLivestockValue, totalLiveWeightKg, avgLiveWeightKg };
+    // Pilot acceptance repair: a group with no recorded weight is "not recorded", never 0 kg (UNKNOWN ≠ ZERO).
+    const liveWeight = summariseLiveWeight(groups);
+    return { totalLivestockCount, totalLivestockValue, liveWeight };
   }, [groups]);
 }
 

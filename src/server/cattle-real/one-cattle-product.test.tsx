@@ -96,7 +96,7 @@ import { AddAnimalCard } from "@/components/farm/AddAnimalCard";
 import { RealGroupScreen, RealHerdScreen } from "@/components/cattle/HerdScreens";
 import { CattleUnavailable } from "@/components/cattle/CattleUnavailable";
 import { desktopNavItems, mobileNavItems, moreNavItems, primaryNavItems } from "@/components/shell/nav-items";
-import { REAL_UNAVAILABLE, loadRealCattle, realAnimalView, realHerdView } from "./real-service";
+import { REAL_UNAVAILABLE, loadRealCattle, realAnimalView, realGroupRefs, realHerdView } from "./real-service";
 
 const FARM_A = "f0000000-0000-4000-8000-00000000000a";
 const FARM_B = "f0000000-0000-4000-8000-00000000000b";
@@ -175,6 +175,18 @@ describe("Pilot P3 — navigation", () => {
     cleanup();
     render(<RealGroupScreen view={view} groupRef={G_HEAD} />);
     expect(screen.getByRole("link", { name: /Edit this group in Manage herd/ })).toHaveAttribute("href", "/cattle/manage?tab=Groups");
+  });
+
+  it("a headcount-only group (no individual animals) is a link to its own page by database id, and that id resolves", async () => {
+    const e = await herd();
+    render(<RealHerdScreen view={realHerdView(e)} />);
+    const link = screen.getByRole("link", { name: /Sucklers.*40 head recorded for the group · individual animals not recorded/ });
+    expect(link).toHaveAttribute("href", `/cattle/groups/${G_HEAD}`);
+    expect(realGroupRefs(e).has(G_HEAD)).toBe(true);
+    cleanup();
+    render(<RealGroupScreen view={realHerdView(e)} groupRef={G_HEAD} />);
+    expect(screen.getByRole("heading", { name: "Sucklers" })).toBeInTheDocument();
+    expect(screen.getByText("40 head recorded for the group · individual animals not recorded")).toBeInTheDocument();
   });
 
   it("Manage herd opens on the Groups tab only when asked; anything else is the overview", async () => {

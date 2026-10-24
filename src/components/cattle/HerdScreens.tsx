@@ -164,11 +164,13 @@ function RealHerdExtrasSection({ extras }: { extras: RealHerdExtras }) {
       {extras.headcountGroups.length > 0 ? (
         <ul className="mt-0" aria-label="Groups without individual animal records">
           {extras.headcountGroups.map((g) => (
-            <li key={g.groupRef} className="border-t border-fr-v2-rule py-5" data-headcount-group={g.groupRef}>
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[24px] font-semibold tracking-tight text-fr-v2-graphite">{g.name}</span>
+            <li key={g.groupRef} className="border-t border-fr-v2-rule" data-headcount-group={g.groupRef}>
+              {/* Pilot acceptance: a group without individual animal records is still a real group — it opens its own
+                  page (by database id), which says so truthfully and links to Manage herd. */}
+              <Link href={REAL_LINKS.group(g.groupRef)} className="group flex items-baseline justify-between gap-3 py-5">
+                <span className="text-[24px] font-semibold tracking-tight text-fr-v2-graphite group-hover:text-fr-v2-forest">{g.name}</span>
                 <span className="text-sm text-fr-v2-muted">{g.summary}</span>
-              </div>
+              </Link>
             </li>
           ))}
         </ul>

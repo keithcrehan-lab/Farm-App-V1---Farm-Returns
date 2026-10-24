@@ -110,7 +110,17 @@ function formatInputsSnapshot(snapshot: Record<string, unknown> | undefined): st
 /** Exported so `RecordsPageClient` can render one true
  * chronologically-merged timeline across jobs and decisions — see
  * `JobHistoryRow`'s identical export note (`JobHistoryCard.tsx`). */
-export function DecisionRow({ decision }: { decision: DecisionRecord }) {
+/**
+ * Pilot acceptance repair — the farmer-facing label for a decision's field. With the farm's own field names
+ * (`fieldNames`, id → name) the field is named; an id the farm doesn't list is said truthfully, never given a made-up
+ * name. Without names (a caller that has none), the id is shown as before. The id itself is unchanged in the record.
+ */
+export function decisionFieldLabel(fieldId: string, fieldNames: ReadonlyMap<string, string> | null): string {
+  if (fieldNames === null) return `Field ${fieldId}`;
+  return fieldNames.get(fieldId) ?? "A field that isn't on your farm's field list";
+}
+
+export function DecisionRow({ decision, fieldNames = null }: { decision: DecisionRecord; fieldNames?: ReadonlyMap<string, string> | null }) {
   const Icon = outcomeIcon[decision.outcome];
   // Phase D (Evidence Ledger/provenance UX, 2026-09-03): the same real
   // evidence tier ExpandedPromptSheet.tsx's own Pill already shows a
@@ -137,11 +147,7 @@ export function DecisionRow({ decision }: { decision: DecisionRecord }) {
           </Pill>
           {evidenceState ? <Pill tone="good">{EVIDENCE_STATE_UI_LABEL[evidenceState]}</Pill> : null}
         </div>
-        {/* Raw field id, not a resolved name — this reader has no
-            joined field table (see this file's own header comment on
-            JobHistoryCard's identical, already-audited precedent for
-            weightObservation's animalId). */}
-        {decision.fieldId ? <p className="mt-0.5 text-sm text-fr-ink-600">Field {decision.fieldId}</p> : null}
+        {decision.fieldId ? <p className="mt-0.5 text-sm text-fr-ink-600">{decisionFieldLabel(decision.fieldId, fieldNames)}</p> : null}
         {decision.calculationVersion ? (
           <p className="mt-0.5 text-xs text-fr-ink-400">Calculation version: {decision.calculationVersion}</p>
         ) : null}

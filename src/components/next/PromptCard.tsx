@@ -3,6 +3,7 @@
 import { Flag, ChevronRight } from "lucide-react";
 import type { Prompt } from "@/orchestration/prompt";
 import { cn } from "@/lib/cn";
+import { farmerReadableText } from "@/lib/farmer-readable-codes";
 
 /**
  * Today's primary "What matters now" card (`FARM_RETURN_NEXT_SPEC_v1_1.md`
@@ -64,7 +65,7 @@ export function PromptCard({
           little text the reference's own "what matters now" card
           actually carries); the full text is one tap away in the real
           Expanded Prompt sheet. The dark variant (Plan) is unchanged. */}
-      {light ? null : <p className="mt-1.5 line-clamp-3 text-sm text-white/70">{prompt.description}</p>}
+      {light ? null : <p className="mt-1.5 line-clamp-3 text-sm text-white/70">{farmerReadableText(prompt.description)}</p>}
       <button
         type="button"
         onClick={onViewDetails}
@@ -104,7 +105,7 @@ export function PromptListRow({ prompt, onViewDetails }: { prompt: Prompt; onVie
             cut nearly every real description mid-word. Two lines gives
             real regulatory copy room to end more often on a clean
             boundary, without the row growing unbounded. */}
-        <p className="line-clamp-2 text-xs text-fr-ink-600">{prompt.description}</p>
+        <p className="line-clamp-2 text-xs text-fr-ink-600">{farmerReadableText(prompt.description)}</p>
       </div>
       <span className="flex shrink-0 items-center gap-0.5 rounded-full border border-fr-border px-2.5 py-1 text-xs font-semibold text-fr-ink-600">
         View

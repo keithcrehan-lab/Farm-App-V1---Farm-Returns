@@ -184,3 +184,32 @@ is the repository's existing client-generated-id pattern (`insertSoilCoreObserva
 | A new opening of the sheet | A new id, so a legitimate second weight with the same animal, date and kg is a second row. |
 
 Duplicates are never detected by content. No migration was needed, because `id` was already a uuid primary key.
+
+## D14 — One cattle product: Cattle and Manage herd (P3)
+
+`/cattle` is the only farmer-facing cattle destination: herd → group → animal → profile/work/plan, with Record Weight
+on the animal. The Livestock navigation entry is removed. The data model is unchanged: the `livestock_*` tables,
+repositories and actions stay as they are.
+
+| Former Livestock capability | Where it is now |
+|---|---|
+| Group list, headcount, value and economics cards; add a group; edit a group (name, headcount, weight, breed, system, housing link, finishing goal) | **Cattle → Manage herd** (`/cattle/manage`). This reuses the old screen and its farm-store actions unchanged. It is linked from the herd screen and every group screen; group screens open the Groups tab. |
+| Add an individual animal (same fields, all optional except category) | **Manage herd**, through `AddAnimalCard`. After saving, it links to the new animal's Cattle page by its database id. |
+| Animal list and the inline weight form | Removed: Cattle lists the animals, and P2 Record Weight replaces the old weight form. |
+| Group economics (`/livestock/[groupId]`) | Kept as a legacy route, reached from Manage herd's group cards; its back link goes to Manage herd. |
+| Housing | Still its own screen (`/housing`), linked from Manage herd. |
+
+**Legacy routes:**
+- `/livestock` always redirects to `/cattle/manage`, signed in or not.
+- `/cattle/manage` never redirects, so there is no loop.
+- `src/domain/farm-stats.ts` still links to `/livestock`. It is frozen domain code, so the redirect handles it.
+
+**Security:** the four livestock actions (add group, update group, add animal, add weight) now resolve the farm from the
+signed-in user. A browser-sent farm id is accepted only when it is that farm, and a group or animal must belong to that
+farm. The refusal is the same for a foreign record as for an unknown one. RLS and the same-farm triggers stay in place.
+
+**Demo:** demo mode's Manage herd page says there is nothing to manage and links back to the demonstration herd. Demo
+group management from the old Livestock screen (browser-only, mock farm) is no longer reachable from navigation.
+
+**Group goal:** the group's `goal` enum is labelled "Finishing goal (group economics)". It feeds only the group
+economics screen, never the cattle engines (D8). An animal's free-text `goal_status` is not shown or used.

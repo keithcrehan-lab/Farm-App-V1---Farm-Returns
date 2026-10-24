@@ -176,8 +176,8 @@
     "live_exposure": "UNKNOWN",
     "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — resolved through CC-B4A"
   },
-  "next_action": "Active programme: Pilot Integration (branch pilot-integration-v1). Phase P2 (real Record Weight write on /cattle) complete at implementation 867bdb2 (full gate passed); next is P3 (one cattle product). Detailed state: docs/farm-return-next/pilot-integration/STATE.md (decisions: DECISIONS.md). Cattle Engine v1 CLOSED (C0–C9 runner-frozen; C10 manually adopted at 510f003). Fertiliser Vertical v1 COMPLETE. Open decisions: CC-B5, D1/D2; Campaign C items unchanged. No AI_REVIEW_ONLY or AI_PROVISIONAL rule enters production.",
-  "pilot_integration": {"active": true, "branch": "pilot-integration-v1", "phase": "P2", "phase_status": "COMPLETE", "implementation_sha": "867bdb2", "next_phase": "P3", "state_ref": "docs/farm-return-next/pilot-integration/STATE.md"},
+  "next_action": "Active programme: Pilot Integration (branch pilot-integration-v1). Phase P3 (one cattle product: /cattle canonical, Manage herd at /cattle/manage, /livestock redirects) complete at implementation e333a8d; next is P4 (pilot completion). Last full gate: P2 867bdb2. Detailed state: docs/farm-return-next/pilot-integration/STATE.md (decisions: DECISIONS.md). Cattle Engine v1 CLOSED (C0–C9 runner-frozen; C10 manually adopted at 510f003). Fertiliser Vertical v1 COMPLETE. Open decisions: CC-B5, D1/D2; Campaign C items unchanged. No AI_REVIEW_ONLY or AI_PROVISIONAL rule enters production.",
+  "pilot_integration": {"active": true, "branch": "pilot-integration-v1", "phase": "P3", "phase_status": "COMPLETE", "implementation_sha": "e333a8d", "next_phase": "P4", "state_ref": "docs/farm-return-next/pilot-integration/STATE.md"},
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",

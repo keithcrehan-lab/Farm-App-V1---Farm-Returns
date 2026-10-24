@@ -5,6 +5,14 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Pilot Integration P3 — one cattle product (2026-10-24)
+
+`/cattle` is the one cattle destination. The former Livestock management moved to Cattle → Manage herd
+(`/cattle/manage`) using the existing forms and actions. `/livestock` redirects there and the Livestock nav entry is
+removed. The livestock actions now resolve the farm server-side (D14). There is no schema change. Implementation
+`e333a8d`. The full gate and Codex were not run, by design. Details are in
+`docs/farm-return-next/pilot-integration/STATE.md`.
+
 ## Pilot Integration P2 — real cattle writes (2026-10-24)
 
 Signed-in Record Weight on a real `/cattle` animal now writes, through the server action `recordRealCattleWeight`,

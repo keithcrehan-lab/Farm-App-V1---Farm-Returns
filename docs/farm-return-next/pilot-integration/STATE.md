@@ -2,70 +2,58 @@
 
 | | |
 |---|---|
-| Current phase | P2 complete → P3 next (not started) |
-| Branch | `pilot-integration-v1` (P0 `9f6a1cb`, P1 `ef9f12f` / `f2673f0`) |
-| Implementation SHA | `867bdb2` (P2 real Record Weight) |
-| Status | `READY_FOR_P3_ONE_CATTLE_PRODUCT` |
+| Current phase | P3 complete → P4 next (not started) |
+| Branch | `pilot-integration-v1` (P0 `9f6a1cb`; P1 `ef9f12f`/`f2673f0`; P2 `867bdb2`/`1a7a31b`) |
+| Implementation SHA | `e333a8d` (P3 one cattle product) |
+| Status | `READY_FOR_P4_PILOT_COMPLETION` |
 | Pushed | no |
 | Open blocker | none |
 
-## What P2 delivered
+## What P3 delivered
 
-Signed-in Record Weight on a real animal persists. The write path:
-1. The sheet sends `{requestId, animalId, weightText, observedDate | null}`.
-2. `recordRealCattleWeight` runs `readRecordWeightRequest`: the weight text is re-parsed by the shared C10 parser,
-   the date is checked against the farmer's Ireland date, and no farm, method or source fields are accepted.
-3. `getFarmForCurrentUser` resolves the farm, and `getIndividualAnimalForFarm` checks the animal by id AND farm.
-4. `addWeightObservationIdempotent` writes the row to the existing `livestock_weight_observations` table.
-5. `revalidatePath` refreshes `/cattle` (layout) and `/livestock`, and the client calls `router.refresh()`.
-6. The P1 read path runs again, so the frozen engines recompute the profile from the stored rows.
+`/cattle` is the one cattle product (D14).
+- **Navigation:** the Livestock entry is gone from the farmer navigation.
+- **Manage herd** (`/cattle/manage`, linked from the herd and group screens) holds the former Livestock management:
+  - add and edit groups, including headcount and the housing link;
+  - the group value and economics cards;
+  - adding an animal.
+- **Redirect:** `/livestock` redirects to Manage herd. Group economics `/livestock/[groupId]` is kept as a legacy route.
+- **Old weight form:** the old inline weight form is gone; P2 Record Weight is the weight path.
+- **Security:** the livestock actions now resolve the farm server-side and check that the group or animal belongs to it.
+- **In-app links:** links that pointed to `/livestock` now point to Cattle or Manage herd.
+- **Unchanged:** the schema, `src/domain`, the P1 read path and the P2 write path.
 
-Supporting decisions:
-- **No migration.** No weighing method is stored or claimed, so real weights read back as "Method not recorded"
-  (D12). Idempotency uses a client-generated primary key (D13).
-- **Failures stay visible.** A refusal keeps the sheet open with the reading and a message. A successful save closes
-  the sheet and re-reads from Supabase; the view is never patched locally.
-- **Unchanged:** demo Record Weight (browser session), the frozen domain and the schema.
+## Verification (P3)
 
-## Verification (P2)
+- **P3 tests:** `one-cattle-product.test.tsx`, 24 tests covering the P3 matrix cases 1–26, run on an in-memory PostgREST
+  with RLS, the primary key and the same-farm triggers.
+  - **Mutation check:** with the server farm check weakened, 3 security tests fail.
+- **P1, P2 and affected suites:** P1 (`real-cattle`, `cattle-source`), P2 (`real-write`), the cattle components, shell,
+  farm-spatial, farm components, the store, the `(app)` routes and the actions all pass: 1351 tests in 102 files.
+- **Typecheck, lint and build:** typecheck is clean. Lint has 0 errors and only the 2 pre-existing C8 warnings. The
+  build passes.
+- **Full quality gate:** not run, by design. The change touches cattle routing and four livestock actions, not broad
+  infrastructure. The last gate was `quality-20261024T155333Z-59710` on P2 (`867bdb2`).
+- **Not run, by design:** Codex and an audit.
+- **Browser:** not verified. No authorised signed-in dev account was available, and no account was created. This is
+  carried into P4.
 
-**Targeted tests:**
-- `real-write.test.tsx`, 42 tests: P2 matrix cases 1–29 plus extra cases, run against an in-memory PostgREST that
-  enforces RLS, the primary key, the foreign key and the same-farm trigger.
-- **Idempotency mutation check:** with the key removed, 6 tests fail.
+## Next action (P4: pilot completion)
 
-**P1 regression:** `real-cattle.test.tsx` and `cattle-source.test.ts` pass. In the same run, the complete C10 suite
-(`src/components/cattle`) also passed: 278 tests in total.
+1. **(Person.)** Sign in locally to Farm Return V1 Dev and walk these journeys:
+   - Cattle → group → animal → Record Weight → reload;
+   - Cattle → Manage herd → add a group and an animal → back to Cattle (they appear) → edit the group;
+   - open `/livestock` and check it lands on Manage herd.
+2. **P4 scope:** real What Matters, the wider navigation cleanup, and signed-in end-to-end pilot acceptance with the
+   full gate.
 
-**Typecheck and lint:** typecheck is clean. Lint shows 0 errors; the only warnings are the 2 pre-existing ones in
-frozen C8.
+## Known gaps (affecting P4+)
 
-**Full quality gate:** passed once on `867bdb2` (`quality-20261024T155333Z-59710`): 6312 tests in 323 files, typecheck, lint
-and build all pass. The tree was clean before and after.
-
-**Browser:** the signed-in journey is still not verified. No authorised dev account was available to the agent, and
-creating a hosted Supabase account was not authorised. This debt must be cleared before P4 acceptance.
-
-**Not run, by design:** Codex and an independent audit.
-
-## Next action
-
-1. **(Person, before P4.)** Sign in locally to Farm Return V1 Dev and walk this journey:
-   - Cattle → group → animal;
-   - Record Weight → save, then check the profile, history and gain update;
-   - reload, and check the weight is still there;
-   - check `/livestock` shows the same weight.
-2. **P3: one cattle product.** Remove the practical duplication between `/livestock` and `/cattle` while keeping the
-   `livestock_*` tables as the one model. This includes the `goal_status` free text and the `/livestock` weight form,
-   which still sends `farmId` from the client.
-
-## Known gaps (affecting P3+)
-
-- **Weighing method:** not recorded (D12).
-- **Same-date weights:** two weights on the same date conflict under frozen C4 (D12).
-- **The 00:00–01:00 Irish summer edge** (D12).
-- **Work persistence:** Work is re-evaluated on each load and jobs are not persisted (D9).
-- **The plan:** unavailable, since no mart or cost evidence exists.
-- **Group reassignment:** must record dated history (D4).
-- **The old `/livestock` weight action:** still takes `farmId` from the browser. RLS and the same-farm trigger block
-  cross-farm writes, but P3 should route it through the trusted action.
+- **Weighing method:** not recorded; same-date weights conflict; the 00:00–01:00 Irish summer edge (D12).
+- **Work and plan:** work is not persisted (D9); the plan is unavailable (no mart or cost evidence).
+- **Group reassignment:** must record dated history (D4); not offered.
+- **Group edits:** Manage herd's group edits use the existing farm-store optimistic update with a server sync, unchanged
+  from Livestock. Cattle itself always re-reads from Supabase.
+- **Group economics:** still at `/livestock/[groupId]`; the farm map's group links and `farm-stats` (frozen domain)
+  still point to `/livestock*`.
+- **Demo:** the browser-only demo group management is no longer in navigation.

@@ -5,6 +5,18 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Pilot Integration — manual acceptance repairs (2026-10-24)
+
+The signed-in walkthrough found two defects and three pieces of farmer-facing wording to fix:
+- a headcount-only group couldn't be opened;
+- an unknown live weight showed as 0 kg;
+- internal tooling wording appeared on Supports;
+- Records showed raw field ids;
+- Plan showed raw material codes.
+
+All are repaired at `a0ba9d1`, with no schema or domain change. The full gate `quality-20261024T200613Z-7797` passed.
+The manual check resumes with STATE.md steps A–G.
+
 ## Pilot Integration P4 — pilot completion (2026-10-24)
 
 `/what-matters` is a real screen built on the existing audited evaluation, and it says when fertiliser price evidence

@@ -2,12 +2,58 @@
 
 | | |
 |---|---|
-| Current phase | P4 complete (deterministic). Waiting for the signed-in walkthrough. |
-| Branch | `pilot-integration-v1` (P0 `9f6a1cb`; P1 `ef9f12f`; P2 `867bdb2`; P3 `e333a8d`) |
-| Implementation SHA | `b6dba8b` (P4 What Matters and pilot navigation) |
-| Status | `READY_FOR_MANUAL_SIGNED_IN_PILOT_CHECK`. Not "pilot ready" until the walkthrough below passes. |
+| Current phase | Manual signed-in acceptance: repairs done; manual check to resume |
+| Branch | `pilot-integration-v1` (P0 `9f6a1cb`; P1 `ef9f12f`; P2 `867bdb2`; P3 `e333a8d`; P4 `b6dba8b`) |
+| Implementation SHA | `a0ba9d1` (pilot acceptance repairs) |
+| Status | `READY_TO_RESUME_MANUAL_PILOT_CHECK`. Not complete. |
 | Pushed | no |
-| Open blocker | the signed-in walkthrough. No authorised dev account was available to the agent, and none was created. |
+| Open blocker | none. The remaining manual checks are below. |
+
+## Manual signed-in walkthrough (2026-10-24, agent-driven in the signed-in browser)
+
+**Passed:**
+- Farm (real farm "KC", 10 fields);
+- field, soil and nutrients;
+- What Matters: the truthful missing-evidence state. No CSO price rows are persisted in dev, and no slurry plan has
+  both a method and a date;
+- slurry and compliance;
+- Records and Supports routes;
+- pilot navigation;
+- no demo leakage.
+
+**Repaired at `a0ba9d1`:**
+1. A headcount-only group (e.g. "weanlings", 20 head) was plain text on `/cattle`. It now links to
+   `/cattle/groups/<id>`.
+2. Manage herd showed "Live Weight 0 kg · Avg 0 kg" with no weight recorded. It now reads "Live weight not recorded"
+   (`summariseLiveWeight`).
+3. Supports showed internal tooling provenance ("this session's own fetch tool… HTTP 403"). The farmer now sees plain
+   wording; the registry and engine are unchanged.
+4. Records named fields by raw id. It now shows the field name.
+5. Plan showed raw material codes and MM-DD dates. It now shows readable words.
+
+**Repair verification:**
+- Repair tests (`src/lib/pilot-acceptance-repairs.test.tsx`, plus one headcount-link test) and the affected suites
+  pass: 1941 tests in 158 files.
+- Full gate passed on `a0ba9d1` (`quality-20261024T200613Z-7797`): 6363 tests in 326 files, plus typecheck, lint
+  (0 errors, 2 pre-existing warnings) and build. Codex: ZERO.
+
+**Follow-up, not fixed (a decision for later):** What Matters reads CSO prices only from the persisted
+`market_price_observations` table, which only the operator sync fills. Market Prices and the Fertiliser Plan use the
+CSO series embedded in `src/domain/market.ts`. These are separate sources by design, not a wiring slip. Running the
+operator sync, or a future decision to share one source, removes the visible difference. No sync was run.
+
+**Other observations, not fixed:**
+- Plan lists closed-period notices under "Genuine opportunities".
+- The dev farm holds test rows ("Dev Test Shed…", "QA Test Product" quotes).
+
+**Remaining manual checks** (in the signed-in app):
+- A. Re-check that a headcount-only group opens.
+- B. Re-check that Manage herd shows "Live weight not recorded".
+- C. Confirm the wording on Supports, Records and Plan.
+- D. Create one clearly labelled dev test animal (Manage herd → Add an animal).
+- E. Record one weight on it.
+- F. Reload.
+- G. Confirm `/cattle` and Manage herd show the same persisted data.
 
 ## What P4 delivered (D15)
 
@@ -46,7 +92,7 @@
   - **Signed-in walkthrough:** not done.
 - **Codex:** ZERO.
 
-## Next action: manual signed-in pilot check (person)
+## Original P4 manual checklist (superseded by the remaining checks above)
 
 Sign in locally to Farm Return V1 Dev (`npm run dev`) and check:
 1. You land on Farm, which shows your real fields (not Ballybeg).

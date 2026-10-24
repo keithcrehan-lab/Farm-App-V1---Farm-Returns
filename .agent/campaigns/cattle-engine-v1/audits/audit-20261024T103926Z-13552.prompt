@@ -1,0 +1,34 @@
+You are the independent auditor for this repository. Read .agent/AUDIT_RULES.md and follow it exactly, including its output format. Read .agent/TASK.json and .agent/CURRENT_TASK.md. GLOBAL rules are AGENTS.md (already loaded by Codex; Claude imports them).
+DOMAIN: read manifest contracts/evidence by relevant headings, then follow affected exports, callers, tests and schema. The manifest is a starting index, NEVER a file allow-list.
+For application changes search docs/farm-return-next/DOMAIN_CONTRACTS.md by affected symbols and domains, inspect the frozen-table and change protocol as applicable; search docs/farm-return-next/BLOCKER_INDEX.md by affected area and read matching constraints; science changes also require SCIENTIFIC_RULES.md and sourced evidence. Expand context whenever dependencies cross domains; report missing context as blocked, never infer permission from an omitted manifest entry.
+Read docs/farm-return-next/BLOCKERS.md for active constraints. Historical logs/archives only on demand; use rg and bounded sections, not wholesale reads. Do not read STATE.md or prior build reports as evidence.
+contracts: ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/PRODUCT_RULES.md", ".agent/campaigns/cattle-engine-v1/CAMPAIGN.md", ".agent/campaigns/cattle-engine-v1/AUTONOMY.md", ".agent/skills/cattle-evidence-rules.md", ".agent/skills/plan-domain.md", "docs/farm-return-next/cattle/index.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"]
+evidence: ["task brief", "directly relevant repository files discovered by build agent"]
+tests: ["task-required targeted tests", "verify command"]
+Do NOT trust any builder/Claude completion report or commit message — judge only the code, tests and your own reproductions. You are read-only: do not modify files.
+campaign AUDIT: independently review the complete selected change-set, including all changed tracked files and new files.
+For final audit also consult .agent/history/status-cattle-c9-plan-interface-20261019.json if it exists: all earlier task findings require resolution evidence. Do not trust its prior PASS labels as evidence.
+Diff command: `git diff 5aa207df12bfbcd3695d69021ab90c8ea7fcc57c..2fb2d20b0bb19b8696098ea672fed2d3f8a84203` (disable external diff helpers). Inspect this full inventory, including deletions and binary changes. Read every untracked file listed here in full (git diff does not include it). Expected manifest paths never exclude actual changed files.
+{
+  "files": [
+    ".agent/campaigns/cattle-engine-v1/C10_AUDIT_94767_REPAIR_REPORT.md",
+    ".agent/campaigns/cattle-engine-v1/C10_COMPLETION_CHECKPOINT.md",
+    ".agent/campaigns/cattle-engine-v1/audits/audit-20261023T184003Z-94767.md",
+    ".agent/campaigns/cattle-engine-v1/audits/audit-20261023T184003Z-94767.prompt",
+    ".agent/campaigns/cattle-engine-v1/audits/audit-20261023T184003Z-94767.status.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+    "src/components/cattle/AnimalProfileScreen.tsx",
+    "src/components/cattle/c10-audit-94767.test.tsx",
+    "src/domain/cattle/presentation/animal-profile.ts",
+    "src/domain/cattle/presentation/cattle-outputs.ts",
+    "src/domain/cattle/presentation/display-states.ts",
+    "src/domain/cattle/presentation/work-view.ts",
+    "src/server/cattle-demo/demo-replay.ts"
+  ],
+  "untracked": [],
+  "diff_fingerprint": "235137ae734296819b59618e2b11e2c57aba465dece6fc5905e0a35470e68cfa",
+  "tracked_lines_added": 884,
+  "tracked_lines_removed": 60
+}
+For campaign/release/repository modes CURRENT_TASK is context only, not a scope limit: review the entire explicitly selected range. Repository mode also inspects the complete current tracked tree for security/correctness; this is deliberate broad review.
+Read surrounding code only as needed to judge the diff. Be concise: use the compact output format in .agent/AUDIT_RULES.md, no narrative summary, do not restate the task.

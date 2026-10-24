@@ -23,6 +23,7 @@ import {
   PRIORITY_DISPLAY,
   PROGRAMME_DISPLAY,
   READINESS_DISPLAY,
+  READINESS_UNCHECKED_DISPLAY,
   displayOf,
   reasonSentence,
   type DisplayState,
@@ -234,35 +235,43 @@ function whyOf(job: PlanJob, origin: CattlePlanJobState["origin"], current: WhyV
   };
 }
 
-/** Whether the LATEST planning run still proposes this job's work (its C9 identity) — current state only, never its evidence. */
-function currentlyRaised(outputs: CattleOutputs, job: PlanJob): WhyVM["raised"]["current"] {
-  if (!outputs.plan.ok || (actionKindOf(job) !== null && !outputs.recommendations.ok)) return "UNKNOWN";
-  const key = planJobIdentityKey(job);
-  return outputs.plan.result.groups.some((g) => g.identityKey === key) ? "STILL_RAISED" : "NO_LONGER_RAISED";
+/**
+ * Whether the LATEST planning run still proposes this job — read from the replay's reconciliation (`state.current`,
+ * F019), the same verdict that set the job's current blockers; never its evidence. Not recorded or a failed run →
+ * UNKNOWN; a C8 action while the latest recommendations couldn't be read → UNKNOWN.
+ */
+function currentlyRaised(outputs: CattleOutputs, state: CattlePlanJobState): WhyVM["raised"]["current"] {
+  const c = state.current;
+  if (c === null || c.state === "UNAVAILABLE" || (actionKindOf(state.job) !== null && !outputs.recommendations.ok)) return "UNKNOWN";
+  return c.state === "PROPOSED" ? "STILL_RAISED" : "NO_LONGER_RAISED";
 }
 
-/** The job's group for blocker wording: the latest run's (blockers are current state), else the origin's. */
-function groupOf(outputs: CattleOutputs, state: CattlePlanJobState): CattlePlanProposalGroup | undefined {
+/** The latest run's group for the job — the source of its CURRENT blockers' wording only (never the origin's). */
+function currentGroupOf(outputs: CattleOutputs, state: CattlePlanJobState): CattlePlanProposalGroup | undefined {
   const key = planJobIdentityKey(state.job);
-  return (outputs.plan.ok ? outputs.plan.result.groups.find((g) => g.identityKey === key) : undefined) ?? state.origin?.group ?? undefined;
+  return outputs.plan.ok ? outputs.plan.result.groups.find((g) => g.identityKey === key) : undefined;
 }
 
 export function workVM(state: CattlePlanJobState, outputs: CattleOutputs, animalId: string, directory: CattleDirectory): WorkVM {
   const job = state.job;
-  const group = groupOf(outputs, state);
+  const open = !["COMPLETED", "OBSOLETE", "CANCELLED"].includes(job.status);
+  // F019: an open job whose current state couldn't be checked shows neither the last readiness nor the last
+  // blockers as current — it says the check failed (never "Ready to do", never "no blockers").
+  const unchecked = open && (state.current === null || state.current.state === "UNAVAILABLE");
+  const group = currentGroupOf(outputs, state);
   const copy = titleOf(job, directory);
   const blockers: WorkBlockerVM[] = [];
   const blockerById = outputs.plan.ok ? Object.fromEntries(outputs.plan.result.blockers.map((b) => [b.id, b])) : {};
-  for (const id of job.dependencies.blockerIds) {
+  for (const id of unchecked ? [] : job.dependencies.blockerIds) {
     const b = blockerById[id];
     const status = b?.status ?? "UNKNOWN";
     if (status === "CLEARED") continue;
     const kinds = new Set((group?.items ?? []).flatMap((i) => i.blockers.filter((x) => x.id === id).map((x) => x.kind)));
     blockers.push({ state: displayOf(BLOCKER_DISPLAY, status, "BLOCKER"), text: blockerText(kinds, status) });
   }
-  const open = !["COMPLETED", "OBSOLETE", "CANCELLED"].includes(job.status);
   const hd = job.timing.hardDeadline;
-  const readiness = displayOf(READINESS_DISPLAY, state.evaluation?.readiness.state ?? "NOT_EVALUATED", "READINESS");
+  const evaluation = unchecked ? null : state.evaluation;
+  const readiness = unchecked ? READINESS_UNCHECKED_DISPLAY : displayOf(READINESS_DISPLAY, evaluation?.readiness.state ?? "NOT_EVALUATED", "READINESS");
   return {
     jobId: job.id,
     actionKind: actionKindOf(job),
@@ -271,7 +280,7 @@ export function workVM(state: CattlePlanJobState, outputs: CattleOutputs, animal
     priority: displayOf(PRIORITY_DISPLAY, job.systemPriority.tier, "PRIORITY"),
     status: displayOf(JOB_STATUS_DISPLAY, job.status, "JOB"),
     readiness,
-    completion: displayOf(COMPLETION_DISPLAY, state.evaluation?.completion.state ?? "NOT_EVALUATED", "COMPLETION"),
+    completion: unchecked ? READINESS_UNCHECKED_DISPLAY : displayOf(COMPLETION_DISPLAY, evaluation?.completion.state ?? "NOT_EVALUATED", "COMPLETION"),
     open,
     window: windowOf(job),
     hardDeadline: hd === null ? { state: "NONE" } : { state: "HARD_DEADLINE", label: `Must be done before ${formatDate(hd.dueIso)}`, dueAt: hd.dueIso },
@@ -282,7 +291,7 @@ export function workVM(state: CattlePlanJobState, outputs: CattleOutputs, animal
       job.completion === null
         ? { state: "NOT_COMPLETED", label: displayOf(JOB_STATUS_DISPLAY, job.status, "JOB").label }
         : { state: "COMPLETED", at: job.completion.at, label: completionBasisLabel(job.completion.basis) },
-    why: whyOf(job, state.origin, open ? currentlyRaised(outputs, job) : "CLOSED", copy, directory),
+    why: whyOf(job, state.origin, open ? currentlyRaised(outputs, state) : "CLOSED", copy, directory),
   };
 }
 

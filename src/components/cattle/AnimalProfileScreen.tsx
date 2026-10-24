@@ -14,6 +14,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import type { PerformanceExplanationVM } from "@/domain/cattle/presentation";
 import type { DemoAnimalView } from "@/server/cattle-demo/demo-service";
 import type { CattleDemoScenario } from "@/server/cattle-demo/demo-replay";
 import { loadCattleAnimal } from "@/app/(app)/cattle/actions";
@@ -23,10 +24,54 @@ import { PhotoGallery, PrimaryPhoto } from "./photos/AnimalPhotos";
 import { RecordWeightSheet } from "./RecordWeightSheet";
 import { useCattleDemoSession } from "./session/CattleDemoSessionProvider";
 import { useDemoView } from "./session/use-demo-view";
-import { BackLink, DemoNotice, Metric, SectionHeading, StateLabel, ViewStatus, busyClass } from "./ui";
+import { BackLink, DemoNotice, Disclosure, Metric, SectionHeading, StateLabel, ViewStatus, busyClass } from "./ui";
 import { WorkPanel } from "./WorkPanel";
 
 const SESSION_FULL = "This demonstration session is full, so the weight wasn't recorded. Reset the demo on the Cattle page to continue.";
+
+/** "Why this result?" (F020): the performance verdict's explanation, beside it — independent of any Plan job. */
+function PerformanceExplanation({ e }: { e: PerformanceExplanationVM }) {
+  return (
+    <Disclosure label={e.heading}>
+      <div className="space-y-3 border-l-2 border-fr-v2-rule pl-4 text-sm text-fr-v2-charcoal">
+        <p>{e.result}</p>
+        {e.targets.map((t) => (
+          <div key={t.targetId}>
+            <div className="font-medium">{t.title}</div>
+            <ul className="mt-1 space-y-0.5 text-fr-v2-muted">
+              {t.lines.map((l) => (
+                <li key={l}>{l}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        {e.projection.length > 0 ? (
+          <div>
+            <div className="font-medium">Projection</div>
+            <ul className="mt-1 space-y-0.5 text-fr-v2-muted">
+              {e.projection.map((l) => (
+                <li key={l}>{l}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {e.assumptions.length > 0 || e.limitations.length > 0 ? (
+          <div>
+            <div className="font-medium">Assumptions and limits</div>
+            <ul className="mt-1 list-disc space-y-1 pl-4 text-fr-v2-muted">
+              {e.assumptions.map((a) => (
+                <li key={`a:${a}`}>Assumption: {a}</li>
+              ))}
+              {e.limitations.map((l) => (
+                <li key={`l:${l}`}>{l}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </Disclosure>
+  );
+}
 
 export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoAnimalView; tag: string; scenario: CattleDemoScenario }) {
   const { addEvent } = useCattleDemoSession();
@@ -105,6 +150,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
         {p.target.label ? <span className="text-sm text-fr-v2-muted">{p.target.label}</span> : null}
         {p.performanceState.detail && p.target.label === null ? <span className="text-sm text-fr-v2-muted">{p.performanceState.detail}</span> : null}
       </div>
+      <PerformanceExplanation e={p.performanceExplanation} />
       {p.target.summary !== null ? (
         <div className="mt-2">
           <p className="text-sm text-fr-v2-charcoal">{p.target.summary}</p>

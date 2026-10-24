@@ -16,7 +16,7 @@
 import { animalAssertionHistory, type AnimalResolution } from "../animal-snapshot";
 import type { AnimalLocationRef } from "../animal-ledger";
 import type { AnimalPerformance } from "../performance";
-import { admitProjectedWeight, isPlanDate, projectionDaysAhead, utcDateOfInstant, type AnimalCostRead, type HousingObservation } from "../../animal-plan";
+import { PLAN_PROJECTION_HORIZON_DAYS, admitProjectedWeight, isPlanDate, projectionDaysAhead, utcDateOfInstant, type AnimalCostRead, type HousingObservation } from "../../animal-plan";
 import type { CattleDirectory, CattleOutputs } from "./cattle-outputs";
 import { activeGoalOf, goalSummaryText, soleActiveGoal, type ActiveGoalRead } from "./goal-read";
 import {
@@ -107,6 +107,13 @@ export interface AnimalProfileVM {
   /** The weight chart: CHART / NOT_CHARTABLE / EMPTY / UNAVAILABLE (`weightChartOf`) — never an empty plot. */
   chart: WeightChartVM;
   projection: { state: DisplayState; label: string | null; at: string | null; assumptions: Details<string> };
+  /**
+   * "Why this result?" (F020): how the performance verdict and the projection were reached, shown beside them —
+   * never through a Plan job, so an animal with no work still has it. Built only from C5's own outputs (each
+   * target's result, the exact target version and source compared, its recorded review state; the prediction's
+   * method, basis, assumptions and limitations as C5 states them) and C10's 90-day projection safeguard.
+   */
+  performanceExplanation: PerformanceExplanationVM;
   /**
    * `summary`: the goal as one resolved line (ACTIVE: type, target weight — known, not set or
    * unresolved — and target date), or the goal state when there is no active goal.
@@ -226,6 +233,76 @@ function comparisonVM(outputs: CattleOutputs, c: AnimalPerformance["comparisons"
   };
 }
 
+/** One C5 target comparison explained: its title and plain lines (result, value compared, version and source, review state). */
+export interface ExplainedTargetVM {
+  targetId: string;
+  title: string;
+  lines: Details<string>;
+}
+
+export interface PerformanceExplanationVM {
+  heading: string;
+  /** The headline result and what it means (or why there is none). */
+  result: string;
+  targets: Details<ExplainedTargetVM>;
+  /** The projection: its state, basis and the C10 horizon safeguard (empty when performance wasn't evaluated). */
+  projection: Details<string>;
+  /** C5's own prediction assumptions and limitations, kept apart (assumptions stay assumptions). */
+  assumptions: Details<string>;
+  limitations: Details<string>;
+}
+
+const OBSERVED_NOUN: Readonly<Record<string, string>> = { ADG: "Daily gain compared", WEIGHT_AT: "Weight compared" };
+
+function withDetail(d: DisplayState): string {
+  return d.detail ? `${d.label} — ${d.detail}` : d.label;
+}
+
+function explainedTarget(outputs: CattleOutputs, c: AnimalPerformance["comparisons"][number]): ExplainedTargetVM {
+  const vm = comparisonVM(outputs, c);
+  const lines = [`Result: ${withDetail(vm.state)}`];
+  if (c.observed !== null) lines.push(`${(c.metric ? OBSERVED_NOUN[c.metric] : null) ?? "Value compared"}: ${c.metric === "ADG" ? formatAdg(c.observed) : formatKg(c.observed)}`);
+  if (c.target !== null) {
+    const ref = c.target;
+    lines.push(`Target version ${ref.version} · source recorded with it: ${ref.sourceRef.sourceId}, version ${ref.sourceRef.version}`);
+    const def = outputs.performance?.targetDefinitions.find((t) => t.targetId === c.targetId)?.versions.find((v) => v.version === ref.version) ?? null;
+    lines.push(def ? `Review state recorded with the target: ${def.reviewState.toLowerCase().replace(/_/g, " ")}` : "The target's review state couldn't be read.");
+  } else {
+    lines.push(c.conflictingVersions.length > 1 ? `Versions ${c.conflictingVersions.join(", ")} of this target disagree, so none was compared.` : "Which version of this target was compared isn't recorded.");
+  }
+  if (c.evidenceRecordIds.length > 0) lines.push(`Based on ${c.evidenceRecordIds.length} weight record${c.evidenceRecordIds.length === 1 ? "" : "s"}.`);
+  return { targetId: c.targetId, title: vm.label, lines: details(lines) };
+}
+
+/** F020 — the explanation of the performance verdict and projection, from C5's outputs only (no Plan job). */
+function performanceExplanationOf(
+  outputs: CattleOutputs,
+  perf: AnimalPerformance | null,
+  headline: DisplayState,
+  projection: { state: DisplayState; label: string | null },
+): PerformanceExplanationVM {
+  const prediction = perf?.prediction ?? null;
+  // C5's assumptions and limitations belong to a projected weight that is shown; none is shown otherwise.
+  const shown = prediction !== null && projection.label !== null;
+  const proj: string[] = [];
+  if (perf !== null) {
+    proj.push(projection.label ? `${projection.label} — ${withDetail(projection.state)}` : withDetail(projection.state));
+    // The basis only for a projected weight that is shown (never for one held back by the admission or horizon).
+    if (shown && prediction.fromObservedAt !== null && prediction.adgKgPerDay !== null) {
+      proj.push(`Starts from the weighing on ${formatDate(prediction.fromObservedAt)} and continues ${formatAdg(prediction.adgKgPerDay)} in a straight line to ${formatDate(prediction.at)}.`);
+    }
+    if (prediction?.state === "PROJECTED") proj.push(`Farm Return uses this forecast only for dates up to ${PLAN_PROJECTION_HORIZON_DAYS} days ahead — a Farm Return planning safeguard, not a limit taken from the weights.`);
+  }
+  return {
+    heading: "Why this result?",
+    result: perf === null ? withDetail(headline) : `${withDetail(headline)}${perf.comparisons.length > 1 ? ` (${perf.comparisons.length} targets, each explained below)` : ""}`,
+    targets: details((perf?.comparisons ?? []).map((c) => explainedTarget(outputs, c))),
+    projection: details(proj),
+    assumptions: details(shown ? prediction.assumptions : []),
+    limitations: details(shown ? prediction.limitations : []),
+  };
+}
+
 /**
  * The housing state a recorded location ESTABLISHES, by its C1 kind only (authorised mapping,
  * 2026-10-21): HOUSING → housed; FIELD → outdoors; HOLDING, EXTERNAL and OTHER don't say whether the
@@ -306,6 +383,19 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
   const prediction = perf?.prediction ?? null;
   // C5 extrapolates without bounds: the projected weight is shown only through the C10 admission the plan also uses.
   const projectedKg = prediction && prediction.state === "PROJECTED" && prediction.projectedKg !== null ? admitProjectedWeight(prediction.projectedKg, projectionDaysAhead(outputs.viewpoint.effectiveAt, prediction.at)) : null;
+
+  const projectionState: DisplayState = !perfEvaluated
+    ? EVALUATION_UNAVAILABLE
+    : prediction
+      ? projectedKg?.state === "NOT_USABLE"
+        ? projectedKg.reason === "PROJECTION_BEYOND_HORIZON"
+          ? PREDICTION_DISPLAY.BEYOND_HORIZON
+          : PREDICTION_DISPLAY.NOT_USABLE
+        : displayOf(PREDICTION_DISPLAY, prediction.state, "PREDICTION")
+      : goalRead.state === "ACTIVE" && soleGoal === null
+        ? PREDICTION_DISPLAY.SEVERAL_GOALS
+        : PREDICTION_DISPLAY.NOT_REQUESTED;
+  const projectionLabel = prediction && projectedKg?.state === "USABLE" ? `${formatProjectedKg(projectedKg.kg)} by ${formatDate(prediction.at)}` : null;
 
   // Health (C3), programmes / obligations (C8 sealed context), recommendation (C8).
   const health = outputs.health[animalId] ?? null;
@@ -436,22 +526,8 @@ export function buildAnimalProfile(outputs: CattleOutputs, animalId: string, dir
     },
     // The chart plots C4 weights through C5: its four states are decided in `weightChartOf`, never by the chart component.
     chart: weightChartOf(series, perf, goalRead.state !== "ACTIVE" ? { state: "NOT_SET" } : soleGoal !== null ? soleGoal.targetWeight : { state: "SEVERAL", count: goalRead.goals.length }, projectedKg),
-    projection: {
-      state: !perfEvaluated
-        ? EVALUATION_UNAVAILABLE
-        : prediction
-          ? projectedKg?.state === "NOT_USABLE"
-            ? projectedKg.reason === "PROJECTION_BEYOND_HORIZON"
-              ? PREDICTION_DISPLAY.BEYOND_HORIZON
-              : PREDICTION_DISPLAY.NOT_USABLE
-            : displayOf(PREDICTION_DISPLAY, prediction.state, "PREDICTION")
-          : goalRead.state === "ACTIVE" && soleGoal === null
-            ? PREDICTION_DISPLAY.SEVERAL_GOALS
-            : PREDICTION_DISPLAY.NOT_REQUESTED,
-      label: prediction && projectedKg?.state === "USABLE" ? `${formatProjectedKg(projectedKg.kg)} by ${formatDate(prediction.at)}` : null,
-      at: prediction?.at ?? null,
-      assumptions: details(prediction?.assumptions ?? []),
-    },
+    projection: { state: projectionState, label: projectionLabel, at: prediction?.at ?? null, assumptions: details(prediction?.assumptions ?? []) },
+    performanceExplanation: performanceExplanationOf(outputs, perf, headline, { state: projectionState, label: projectionLabel }),
     goal: {
       state: goalState,
       read: goalRead,

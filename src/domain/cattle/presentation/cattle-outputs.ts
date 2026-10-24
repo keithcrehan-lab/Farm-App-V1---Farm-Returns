@@ -38,6 +38,14 @@ export interface CattlePlanJobOrigin {
     | { state: "UNAVAILABLE" };
 }
 
+/**
+ * What the LATEST planning run says about a retained job (F019) — current state only, replaced on every run by the
+ * replay's reconciliation; never the job's evidence (that is `origin`). PROPOSED: the run proposes the job's Plan
+ * identity, and the job's blockers and priority are that proposal's. NOT_PROPOSED: the run no longer proposes it, so
+ * no blocker is current. UNAVAILABLE: the run failed, so the current state isn't known (the last evaluation is not fresh).
+ */
+export type CattlePlanJobCurrent = { state: "PROPOSED" | "NOT_PROPOSED" | "UNAVAILABLE"; at: string };
+
 export interface CattlePlanJobState {
   job: PlanJob;
   evaluation: PlanJobEvaluation | null;
@@ -46,6 +54,8 @@ export interface CattlePlanJobState {
   events: PlanAuditEvent[];
   /** `null`: the origin wasn't recorded — its evidence is shown as unavailable, never borrowed from a later run. */
   origin: CattlePlanJobOrigin | null;
+  /** `null`: not recorded — the current state is unknown, never "still raised" or "no blockers". */
+  current: CattlePlanJobCurrent | null;
 }
 
 export interface CattleOutputs {

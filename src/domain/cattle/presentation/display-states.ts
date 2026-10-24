@@ -304,6 +304,9 @@ export const READINESS_DISPLAY = {
   READY: ds("READINESS", "READY", "Ready to do", "info"),
 } as const satisfies Table<ReadinessState>;
 
+/** F019: the latest planning run failed, so an open job's current readiness, completion and blockers aren't known. */
+export const READINESS_UNCHECKED_DISPLAY = ds("READINESS", "UNCHECKED", "Current status couldn't be checked", "unknown", "The latest records couldn't be planned, so whether this is ready or held up isn't known.");
+
 /** Plan — canonical completion. */
 export const COMPLETION_DISPLAY = {
   COMPLETE: ds("COMPLETION", "COMPLETE", "Completed by your records", "good"),

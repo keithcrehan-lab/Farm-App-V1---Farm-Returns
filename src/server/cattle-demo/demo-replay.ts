@@ -11,9 +11,10 @@
  * k-th session action happens at the base + (k + 1) × 10 minutes, and the
  * viewpoint after it is that instant (valid time = knowledge time). No clock
  * is read. Plan jobs are created from the C9 proposals of the base run and
- * re-evaluated against every later run (the frozen Plan kernel decides
- * completion, readiness and status); proposals of a later run whose identity
- * no open job holds become new jobs at that run.
+ * reconciled with every later run (`reconcileJobs`: origin kept, current
+ * blockers and priority refreshed from the matching proposal, then the frozen
+ * Plan kernel decides completion, readiness and status); proposals of a later
+ * run whose identity no open job holds become new jobs at that run.
  *
  * The replay holds no state: the same session always gives the same result.
  */
@@ -28,8 +29,8 @@ import { evaluatePerformance, type PerformanceEvaluation } from "@/domain/cattle
 import { planCattleWork, type CattlePlanIssue, type CattlePlanResult } from "@/domain/cattle/plan-interface";
 import { recommendCattle, type CattleRecommendationResult, type RecommendationIssue } from "@/domain/cattle/recommendations";
 import { buildWeightReadContract, resolveGroupScope, type ScopeResolution, type WeightReadContract } from "@/domain/cattle/weights";
-import { createPlanJob, planJobIdentityKey, reevaluatePlanJob, type PlanAuditEvent, type PlanBlocker, type PlanJob, type PlanJobEvaluation } from "@/domain/plan";
-import type { CattlePlanJobOrigin } from "@/domain/cattle/presentation";
+import { NO_DEPENDENCIES, createPlanJob, planJobIdentityKey, reevaluatePlanJob, setJobDependencies, setSystemPriority, type PlanAuditEvent, type PlanBlocker, type PlanJob, type PlanJobEvaluation } from "@/domain/plan";
+import type { CattlePlanJobCurrent, CattlePlanJobOrigin } from "@/domain/cattle/presentation";
 import type { CattleDemoEvent, CattleDemoSession } from "@/components/cattle/session/demo-session";
 import { DEMO_ACTION_REGISTRY, DEMO_BASE_VIEWPOINT, DEMO_TRUSTED, hash } from "./demo-catalogue";
 import { DEMO_ANIMALS, GROUP_FINISHERS, GROUP_STORES, animalIdOf, demoHerdRecords, demoStaticRequestParts, goalDeclaration, goalIdOf, weightRecord, type DemoHerdRecords } from "./demo-herd";
@@ -52,6 +53,8 @@ export interface DemoJobState {
   events: PlanAuditEvent[];
   /** What raised the job, captured at the creating run (F001: kept for the job's life). */
   origin: CattlePlanJobOrigin;
+  /** What the latest planning run says about the job (F019: set by `reconcileJobs` on every run). */
+  current: CattlePlanJobCurrent;
 }
 
 export interface DemoEngineOutputs {
@@ -150,6 +153,67 @@ export function jobOrigin(r: CattlePlanResult, job: PlanJob, at: string, c8Run: 
   return { at, group, recommendation: records.length === 1 ? { state: "BOUND", record: records[0] } : { state: "UNAVAILABLE" } };
 }
 
+const TERMINAL: readonly PlanJob["status"][] = ["COMPLETED", "OBSOLETE", "CANCELLED"];
+const isOpen = (j: DemoJobState) => !TERMINAL.includes(j.job.status);
+
+/**
+ * One planning run applied to the retained Plan jobs (F001 / F019) — the ONLY place replay state changes. A retained
+ * job's state has four owners, and each run touches only the third:
+ *
+ * - IMMUTABLE ORIGIN (`origin`, `createdAt`, and the kernel's identity, scope, timing, completion contract — with
+ *   its original completion cut-off — and creation source): captured when the job is created, never rewritten.
+ * - LIFECYCLE (status, completion, overrides, deferral): the frozen Plan kernel's (`reevaluatePlanJob`), never reset
+ *   because a later run proposes or stops proposing the work.
+ * - CURRENT EVALUATION (`current`, the job's blocker dependencies and system priority, `evaluation`): replaced on
+ *   every run. An open job is matched to the run's proposal with the same Plan identity (`planJobIdentityKey`:
+ *   action, target scope and recommended window — the frozen deduplication identity; C9's job id is that key); the
+ *   match refreshes its dependencies and priority through the kernel's own audited mutations BEFORE the kernel
+ *   re-evaluates it, so readiness always reads the latest blockers. No match: the work is NOT_PROPOSED and no
+ *   blocker of an earlier run is kept. A failed run: the current state is UNAVAILABLE — nothing is re-evaluated,
+ *   and the last evaluation is never presented as fresh.
+ * - PRESENTATION: derived from the three above (`work-view.ts`); never stored here.
+ *
+ * A closed job stays closed (history). A proposal whose identity no open job holds becomes a new job; when a closed
+ * job already has that identity's id, the new occurrence takes the next free `#n` id (the kernel's ids are unique;
+ * the identity key is unchanged). Pure: returns new states, never mutates `jobs`.
+ */
+export function reconcileJobs(
+  jobs: readonly DemoJobState[],
+  run: { ok: true; result: CattlePlanResult } | { ok: false },
+  at: string,
+  c8Run: () => ReturnType<typeof recommendCattle>,
+): DemoJobState[] {
+  if (!run.ok) return jobs.map((j) => (isOpen(j) ? { ...j, current: { state: "UNAVAILABLE", at } } : j));
+  const r = run.result;
+  const proposalByKey = new Map(r.proposals.map((p) => [planJobIdentityKey(p), p]));
+  const blockers = blockerMap(r);
+  const reconciled = jobs.map((j): DemoJobState => {
+    if (!isOpen(j)) return j;
+    const p = proposalByKey.get(planJobIdentityKey(j.job));
+    const deps = setJobDependencies(j.job, p ? p.dependencies : NO_DEPENDENCIES, at);
+    const prio = p ? setSystemPriority(deps.job, p.systemPriority, at) : { job: deps.job, events: [] };
+    return { ...j, job: prio.job, events: [...j.events, ...deps.events, ...prio.events], current: { state: p ? "PROPOSED" : "NOT_PROPOSED", at } };
+  });
+  const jobStatuses = Object.fromEntries(reconciled.map((j) => [j.job.id, j.job.status]));
+  const out = reconciled.map((j): DemoJobState => {
+    const evaluation = reevaluatePlanJob(j.job, { nowIso: at, scopeReality: r.scopeReality, evidence: r.evidence, jobStatuses, blockers });
+    return { ...j, job: evaluation.job, evaluation, events: [...j.events, ...evaluation.events] };
+  });
+  const held = new Set(out.filter(isOpen).map((j) => planJobIdentityKey(j.job)));
+  const ids = new Set(out.map((j) => j.job.id));
+  for (const p of r.proposals) {
+    if (held.has(planJobIdentityKey(p))) continue;
+    let id = p.id;
+    for (let n = 2; ids.has(id); n++) id = `${p.id}#${n}`;
+    const created = createPlanJob({ ...p, id }, at);
+    const evaluation = reevaluatePlanJob(created.job, { nowIso: at, scopeReality: r.scopeReality, evidence: r.evidence, jobStatuses, blockers });
+    out.push({ job: evaluation.job, evaluation, createdAt: at, events: [...created.events, ...evaluation.events], origin: jobOrigin(r, created.job, at, c8Run), current: { state: "PROPOSED", at } });
+    ids.add(id);
+    held.add(planJobIdentityKey(p));
+  }
+  return out;
+}
+
 function emptyHerd(base: DemoHerdRecords): DemoHerdRecords {
   return { ...base, ledgers: [], weights: [], goals: [], health: [], obligationEvidence: [], programmeAnimals: [], programmeCompletions: [] };
 }
@@ -202,30 +266,12 @@ function replayUncached(session: CattleDemoSession, scenario: CattleDemoScenario
 
   // Plan jobs across viewpoints.
   const baseViewpoint = { effectiveAt: DEMO_BASE_VIEWPOINT, knowledgeCutoff: DEMO_BASE_VIEWPOINT };
-  const jobs: DemoJobState[] = [];
-  let previousBlockers: Record<string, PlanBlocker> = {};
+  let jobs: DemoJobState[] = [];
   const advance = (run: ReturnType<typeof planRun>, viewpoint: DemoViewpoint, inputs: Inputs) => {
-    if (!run.ok) return;
-    const r = run.result;
     // The C8 records of THIS run, computed only if a new job needs one (the request C9 consumed, unchanged).
     let c8: ReturnType<typeof recommendCattle> | null = null;
     const c8Run = () => (c8 ??= recommendCattle(structuredClone(cattleRequest(inputs, viewpoint, scenario)), hash, DEMO_TRUSTED));
-    const blockers = { ...previousBlockers, ...blockerMap(r) };
-    const jobStatuses = Object.fromEntries(jobs.map((j) => [j.job.id, j.job.status]));
-    for (const j of jobs) {
-      const evaluation = reevaluatePlanJob(j.job, { nowIso: viewpoint.effectiveAt, scopeReality: r.scopeReality, evidence: r.evidence, jobStatuses, blockers });
-      j.job = evaluation.job;
-      j.evaluation = evaluation;
-      j.events.push(...evaluation.events);
-    }
-    const held = new Set(jobs.filter((j) => !["COMPLETED", "OBSOLETE", "CANCELLED"].includes(j.job.status)).map((j) => planJobIdentityKey(j.job)));
-    for (const p of r.proposals) {
-      const created = createPlanJob(p, viewpoint.effectiveAt);
-      if (held.has(planJobIdentityKey(created.job)) || jobs.some((j) => j.job.id === created.job.id)) continue;
-      const evaluation = reevaluatePlanJob(created.job, { nowIso: viewpoint.effectiveAt, scopeReality: r.scopeReality, evidence: r.evidence, jobStatuses, blockers });
-      jobs.push({ job: evaluation.job, evaluation, createdAt: viewpoint.effectiveAt, events: [...created.events, ...evaluation.events], origin: jobOrigin(r, created.job, viewpoint.effectiveAt, c8Run) });
-    }
-    previousBlockers = blockers;
+    jobs = reconcileJobs(jobs, run.ok ? { ok: true, result: run.result } : { ok: false }, viewpoint.effectiveAt, c8Run);
   };
 
   const baseInputs = inputsAfter(base, events, 0, []);

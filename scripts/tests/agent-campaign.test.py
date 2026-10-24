@@ -1886,5 +1886,143 @@ class CampaignTests(unittest.TestCase):
         self.run_campaign()
         self.stopped('MANIFEST_INVALID'); self.assertEqual(self.calls('claude'), 0)
 
+    # ── manual adoption of a hand-built final phase (separately authorised) ──
+    def append(self, rel, text):
+        with open(self.R / rel, 'a') as f: f.write(text)
+
+    def adoption_fixture(self, closure=(('MEDIUM', 'F001', 'Rendered coverage gap'),), resolve=True, remediation='src/domain/fixture/work.test.ts',
+                         after_freeze=None, gate_head=None, on='X2'):
+        """X1 frozen by the runner; X2 built by hand: base → baseline-audited commit → freeze → closure-audit docs
+        → test-only remediation → evidence docs → adoption record + gate attestation + manifest pin."""
+        import hashlib
+        sha = lambda rel: hashlib.sha256((self.R / rel).read_bytes()).hexdigest()
+        self._frozen_x1()
+        self.manifest['phases'][1]['brief_status'] = 'READY'
+        self.write(CAMP + '/campaign.json', json.dumps(self.manifest, indent=2) + '\n'); self.commit('X2 brief ready (docs)')
+        base = self.git('rev-parse', 'HEAD')
+        self.append('src/domain/fixture/work.ts', '// x2 hand-built part 1\n'); self.commit('X2 part 1')
+        b1 = self.git('rev-parse', 'HEAD')
+        self.append('src/domain/fixture/work.ts', '// x2 hand-built repair\n'); self.commit('X2 repair')
+        freeze = self.git('rev-parse', 'HEAD')
+        def art(name, lo, hi, findings):
+            n = {k: sum(1 for f in findings if f[0] == k) for k in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')}
+            body = ['# Audit %s — campaign — Fixture' % name, 'range: %s..%s · working-tree: false · codex exit: 0 · verdict: ASSESSED' % (lo, hi),
+                    'auditor: codex tier=strict model=gpt-6-astra (tier) reasoning=high (tier)', '', 'AUDIT_RESULT: FINDINGS']
+            for sev, fid, title in findings:
+                body += ['### [%s] [%s] %s' % (sev, fid, title), '- FILE:LINE: src/domain/fixture/work.ts:1', '- INVARIANT: FX-INV-001',
+                         '- DEFECT_FAMILY: fx', '- PROBLEM: CONFIRMED', '- WHY_IT_MATTERS: x', '- REQUIRED_FIX: y']
+            body += ['AUDIT_STATUS: ASSESSED', 'AUDIT_SUMMARY: CRITICAL=%(CRITICAL)d HIGH=%(HIGH)d MEDIUM=%(MEDIUM)d LOW=%(LOW)d' % n]
+            rel = '%s/audits/audit-%s.md' % (CAMP, name); self.write(rel, '\n'.join(body) + '\n'); return rel
+        baseline = art('20261010T000000Z-1', base, b1, [('HIGH', 'F009', 'Fixed in the repair')])
+        self.commit('baseline audit evidence (docs)')
+        if after_freeze: after_freeze()
+        c1 = self.git('rev-parse', 'HEAD')
+        closure_art = art('20261010T000001Z-2', b1, c1, list(closure))
+        self.commit('closure audit evidence (docs)')
+        self.write(remediation, '// rendered regression test\n'); self.commit('test-only remediation')
+        fix = self.git('rev-parse', 'HEAD')
+        self.write(CAMP + '/X2_REMEDIATION.md', '# X2 remediation\n'); self.commit('remediation record (docs)')
+        ev = self.git('rev-parse', 'HEAD')
+        self.write(CAMP + '/adoption/X2-gate.txt', 'HEAD %s\nQUALITY_GATE pass — logs: .agent/history/quality-FX-1\nEXIT 0\nHEAD_AFTER %s\n       0\n' % (
+            gate_head or freeze, gate_head or freeze))
+        self.write(CAMP + '/X2_ADOPTION.md', '# X2 manual adoption\n')
+        meds = [f for f in closure if f[0] == 'MEDIUM']
+        pin = dict(authorisation='fixture: human-authorised manual adoption', assurance_standard='TIER2_APPLICATION',
+                   phase_base_sha=base, functional_freeze_sha=freeze, evidence_head=ev,
+                   full_suite=dict(gate_id='quality-FX-1', attestation=CAMP + '/adoption/X2-gate.txt', attestation_sha256=sha(CAMP + '/adoption/X2-gate.txt')),
+                   baseline_audit=dict(artifact=baseline, sha256=sha(baseline)), closure_audit=dict(artifact=closure_art, sha256=sha(closure_art)),
+                   resolved_closure_findings=[dict(id=f[1], severity='MEDIUM', remediation_commit=fix, record=CAMP + '/X2_REMEDIATION.md',
+                                                   record_sha256=sha(CAMP + '/X2_REMEDIATION.md')) for f in meds] if resolve else [],
+                   adoption_record=dict(path=CAMP + '/X2_ADOPTION.md', sha256=sha(CAMP + '/X2_ADOPTION.md')))
+        self.manifest['phases'][[x['id'] for x in self.manifest['phases']].index(on)]['manual_adoption'] = pin
+        self.write(CAMP + '/campaign.json', json.dumps(self.manifest, indent=2) + '\n'); self.commit('X2 manual adoption authorisation (docs)')
+        return dict(base=base, freeze=freeze, fix=fix, ev=ev, pin=pin)
+
+    def test_60_manual_adoption_freezes_final_phase_and_closes_campaign(self):
+        fx = self.adoption_fixture()
+        before = (self.calls('claude'), self.calls('codex'))
+        self.run_campaign('--adopt', 'X2')
+        self.assertEqual(self.rc, 0, self.out); self.assertIn('MANUALLY ADOPTED', self.out)
+        r = self.receipt('X2')
+        self.assertEqual((r['origin'], r['runner_built'], r['functional_freeze_sha'], r['assurance_standard']),
+                         ('manual-adopted', False, fx['freeze'], 'TIER2_APPLICATION'))
+        self.assertNotIn('strict_audit', r)
+        self.assertEqual([a['counts']['high'] for a in r['audits']], [1, 0])  # the audits are recorded as they were
+        self.assertEqual(r['predecessor_receipt_fingerprint'], self.receipt('X1')['receipt_fingerprint'])
+        self.assertIsNone(self.validate('X2', self.receipt('X1')['receipt_fingerprint']))
+        self.assertEqual(self.git('diff', '--name-only', 'HEAD^', 'HEAD').split(), sorted([CAMP + '/receipts/X2.json',
+                         'docs/farm-return-next/BUILD_STATE.json', 'docs/farm-return-next/IMPLEMENTATION_LOG.md']))
+        bs = json.loads((self.R / 'docs/farm-return-next/BUILD_STATE.json').read_text())['fixture_campaign']
+        self.assertEqual(bs['c2_fixture_x2']['status'], 'FROZEN_MANUALLY_ADOPTED')
+        self.assertEqual(bs['campaign_progress']['campaign_status'], 'COMPLETE')
+        self.assertIn('manually adopted', (self.R / 'docs/farm-return-next/IMPLEMENTATION_LOG.md').read_text())
+        self.run_campaign()
+        self.complete()
+        self.assertEqual((self.calls('claude'), self.calls('codex')), before)  # adoption and completion made no model call
+        self.run_campaign('--status')
+        self.assertIn('manually adopted, TIER2_APPLICATION — not runner-built', self.out)
+        self.run_campaign('--adopt', 'X2'); self.assertIn('RECEIPT_EXISTS', self.out)
+
+    def test_61_adopted_receipt_is_bound_to_its_pin(self):
+        self.adoption_fixture(); self.run_campaign('--adopt', 'X2'); self.assertEqual(self.rc, 0, self.out)
+        fp = self.receipt('X1')['receipt_fingerprint']
+        for name, mutate, why in (
+                ('claims runner build', lambda r: r.update(runner_built=True), 'runner_built=false'),
+                ('claims strict freeze audit', lambda r: r.update(strict_audit={}), 'never claims a strict freeze audit'),
+                ('drops an audit', lambda r: r.update(audits=r['audits'][:1]), 'audits differ'),
+                ('rewrites closure counts', lambda r: r['audits'][1]['counts'].update(medium=0), 'audits differ'),
+                ('different freeze', lambda r: r.update(functional_freeze_sha=r['manual_adoption']['evidence_head']), 'differ from the manifest pin')):
+            with self.subTest(case=name):
+                good = (self.R / CAMP / 'receipts/X2.json').read_text()
+                self.rewrite_receipt('X2', mutate)
+                self.assertIn(why, self.validate('X2', fp) or '')
+                (self.R / CAMP / 'receipts/X2.json').write_text(good)
+        self.assertIsNone(self.validate('X2', fp))
+        self.rewrite_receipt('X1', lambda r: r.update(origin='manual-adopted'))
+        self.assertIn('no manual_adoption pin', self.validate('X1') or '')  # a runner phase can never be "adopted"
+
+    def test_62_adoption_refuses_unsound_evidence(self):
+        cases = {
+            'production change after freeze': (dict(after_freeze=lambda: (self.append('src/domain/fixture/work.ts', '// late\n'), self.commit('late product change'))),
+                                               'production changed after'),
+            'closure High': (dict(closure=(('HIGH', 'F001', 'Still broken'),), resolve=False), 'HIGH=1'),
+            'unresolved Medium': (dict(resolve=False), 'exactly one pinned remediation'),
+            'remediation not test-only': (dict(remediation='src/domain/fixture/other.ts'), 'production changed after the adopted freeze SHA: src/domain/fixture/other.ts'),
+            'gate at another SHA': (dict(gate_head='0' * 40), 'gate attestation does not show'),
+        }
+        for name, (kw, why) in cases.items():
+            with self.subTest(case=name):
+                self.tearDown(); self.setUp()
+                self.adoption_fixture(**kw)
+                self.run_campaign('--adopt', 'X2')
+                self.stopped('MANUAL_ADOPTION_INVALID'); self.assertIn(why, self.out)
+                self.assertFalse((self.R / CAMP / 'receipts/X2.json').exists())
+                self.assertEqual(self.git('status', '--porcelain'), '')
+
+    def test_63_pin_digest_and_placement_enforced(self):
+        self.adoption_fixture()
+        (self.R / CAMP / 'X2_ADOPTION.md').write_text('# edited after pinning\n'); self.commit('edit adoption record')
+        self.run_campaign('--adopt', 'X2'); self.stopped('MANUAL_ADOPTION_INVALID'); self.assertIn('adoption record', self.out)
+        mod = self.module()
+        pin = self.manifest['phases'][1]['manual_adoption']
+        self.assertTrue(mod.adoption_entry_problems(self.manifest, dict(manual_adoption=pin), is_last=False))
+        for name, bad in (('unknown standard', dict(pin, assurance_standard='TIER3')), ('extra key', dict(pin, scope='x')),
+                          ('high resolvable', dict(pin, resolved_closure_findings=[dict(pin['resolved_closure_findings'][0], severity='HIGH')])),
+                          ('audit outside audits dir', dict(pin, closure_audit=dict(pin['closure_audit'], artifact='elsewhere/a.md')))):
+            with self.subTest(case=name):
+                self.assertTrue(mod.adoption_entry_problems(self.manifest, dict(manual_adoption=bad), is_last=True))
+        self.assertEqual(mod.adoption_entry_problems(self.manifest, dict(manual_adoption=pin), is_last=True), [])
+
+    def test_64_runner_never_builds_a_pinned_phase_and_pin_only_on_final_phase(self):
+        self.adoption_fixture()
+        calls = (self.calls('claude'), self.calls('codex'))  # X1's own runner build
+        self.run_campaign()
+        self.stopped('MANUAL_ADOPTION_REQUIRED'); self.assertEqual((self.calls('claude'), self.calls('codex')), calls)
+        self.run_campaign('--dry-run'); self.assertIn('MANUAL_ADOPTION_REQUIRED', self.out)
+        self.manifest['phases'][0]['manual_adoption'] = self.manifest['phases'][1].pop('manual_adoption')
+        self.write(CAMP + '/campaign.json', json.dumps(self.manifest, indent=2) + '\n'); self.commit('pin moved to a non-final phase')
+        self.run_campaign(); self.stopped('MANIFEST_INVALID'); self.assertIn('only on the final phase', self.out)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

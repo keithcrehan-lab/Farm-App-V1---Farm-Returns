@@ -29,6 +29,16 @@ bytes; independent of git diff formatting and configuration). Scope checks accep
 bytes (and a manifest delta confined to that list), refuse any build/fix checkpoint that touched
 them, and the receipt records them. They are never passed to build/fix agents.
 
+Manual adoption (separately authorised): a phase built OUTSIDE this runner can be recorded only
+through a human-written `manual_adoption` pin on the campaign's FINAL phase — the exact base/freeze
+SHAs, the committed full-suite gate attestation at the freeze SHA, the committed full strict baseline
+audit and bounded strict closure audit, each closure Medium's test-only remediation, and the
+adoption record, all digest-bound. `--adopt <phase>` writes a receipt with origin `manual-adopted`
+(runner_built=false; never `campaign`); its validation is separate from, and never relaxes, the
+strict 0/0/0 freeze audit every runner-built phase needs. The runner never builds a pinned phase.
+
+  ./scripts/agent-campaign-run <campaign-id> --adopt <phase>     record a pinned manual adoption (docs-only commit)
+
 Exit: 0 campaign complete (or status/dry-run ready) · 1 stopped · 2 usage · 3 another runner is
 live · 130 interrupted (rerun to resume).
 """
@@ -258,6 +268,7 @@ def manifest_problems(m, cid):
             for k in ('domains', 'contracts', 'scope_guard', 'allowed_shared_paths'):
                 req(isinstance(ph.get(k), list) and all(isinstance(x, str) and x for x in ph[k]), '%s %s must be a list of strings' % (where, k))
             for why in amendment_entry_problems(ph): bad.append('%s %s' % (where, why))
+            for why in adoption_entry_problems(m, ph, i == len(phases) - 1): bad.append('%s %s' % (where, why))
             req(bool(ph.get('domains')), '%s domains must be non-empty' % where)
             req(bool(ph.get('contracts')), '%s contracts must be non-empty' % where)
             v = ph.get('verify')
@@ -309,6 +320,57 @@ def amendment_entry_problems(ph):
             bad.append('%s amendment_sha256 must be a sha256 hex digest' % w)
         if not (isinstance(a['authorisation'], str) and a['authorisation'].strip() and '\n' not in a['authorisation']):
             bad.append('%s authorisation must be a one-line human authorisation record' % w)
+    return bad
+
+
+ADOPTION_KEYS = ('authorisation', 'assurance_standard', 'phase_base_sha', 'functional_freeze_sha', 'evidence_head',
+                 'full_suite', 'baseline_audit', 'closure_audit', 'resolved_closure_findings', 'adoption_record')
+ASSURANCE_STANDARDS = ('TIER2_APPLICATION',)
+TEST_FILE_RE = re.compile(r'\.(test|spec)\.[cm]?[jt]sx?$')
+HEX64_RE = re.compile(r'[0-9a-f]{64}')
+
+
+def adoption_entry_problems(m, ph, is_last):
+    """Shape of a phase's optional `manual_adoption` pin: a separately human-authorised record that a
+    phase built OUTSIDE this runner is adopted on the evidence it names (receipt origin
+    `manual-adopted`). Only the campaign's FINAL phase may carry one, so no runner phase can ever be
+    built on top of an adopted phase, and every path/digest is pinned so the receipt cannot drift."""
+    pin = ph.get('manual_adoption')
+    if pin is None: return []
+    if not isinstance(pin, dict) or sorted(pin) != sorted(ADOPTION_KEYS):
+        return ['manual_adoption must have exactly the keys %s' % ', '.join(ADOPTION_KEYS)]
+    bad = []
+    if not is_last: bad.append('manual_adoption is allowed only on the final phase of the campaign')
+    if not (isinstance(pin['authorisation'], str) and pin['authorisation'].strip() and '\n' not in pin['authorisation']):
+        bad.append('manual_adoption.authorisation must be a one-line human authorisation record')
+    if pin['assurance_standard'] not in ASSURANCE_STANDARDS:
+        bad.append('manual_adoption.assurance_standard must be one of %s' % ', '.join(ASSURANCE_STANDARDS))
+    for k in ('phase_base_sha', 'functional_freeze_sha', 'evidence_head'):
+        if not (isinstance(pin[k], str) and SHA_RE.match(pin[k])): bad.append('manual_adoption.%s must be a full SHA' % k)
+    camp_dir = str(Path(m.get('campaign_doc', '')).parent) + '/'
+    def obj(d, where, keys, under):
+        if not isinstance(d, dict) or sorted(d) != sorted(keys):
+            bad.append('%s must have exactly the keys %s' % (where, ', '.join(keys))); return
+        for k in keys:
+            v = d[k]
+            if k in ('sha256', 'attestation_sha256', 'record_sha256'):
+                if not (isinstance(v, str) and HEX64_RE.fullmatch(v)): bad.append('%s.%s must be a sha256 hex digest' % (where, k))
+            elif k in ('artifact', 'attestation', 'record', 'path'):
+                if not (isinstance(v, str) and v.startswith(under) and '..' not in v.split('/')): bad.append('%s.%s must lie under %s' % (where, k, under))
+            elif k == 'remediation_commit':
+                if not (isinstance(v, str) and SHA_RE.match(v)): bad.append('%s.%s must be a full SHA' % (where, k))
+            elif k == 'severity':
+                if v != 'MEDIUM': bad.append('%s.severity must be MEDIUM (a Critical/High closure finding is never adoptable)' % where)
+            elif not (isinstance(v, str) and v.strip() and '\n' not in v): bad.append('%s.%s must be a one-line string' % (where, k))
+    obj(pin['full_suite'], 'manual_adoption.full_suite', ('gate_id', 'attestation', 'attestation_sha256'), camp_dir)
+    for k in ('baseline_audit', 'closure_audit'):
+        obj(pin[k], 'manual_adoption.' + k, ('artifact', 'sha256'), m.get('audits_dir', '\0') + '/')
+    obj(pin['adoption_record'], 'manual_adoption.adoption_record', ('path', 'sha256'), camp_dir)
+    res = pin['resolved_closure_findings']
+    if not isinstance(res, list): bad.append('manual_adoption.resolved_closure_findings must be a list')
+    else:
+        for i, x in enumerate(res):
+            obj(x, 'manual_adoption.resolved_closure_findings[%d]' % i, ('id', 'severity', 'remediation_commit', 'record', 'record_sha256'), camp_dir)
     return bad
 
 
@@ -507,6 +569,7 @@ def validate_receipt(m, ph, pred_fp):
             if (blob_at(base, x['path']), blob_at(freeze, x['path'])) != (x['baseline_blob'], x['result_blob']) or \
                     amendment_sha256(base, freeze, x['path']) != x['amendment_sha256']:
                 raise ValueError('authorised amendment %s does not match the phase base/freeze SHA' % x['path'])
+    if r.get('origin') == 'manual-adopted': return validate_adoption(m, ph, r, base, freeze)
     a = r.get('strict_audit') or {}
     art = a.get('artifact')
     if not art or not Path(art).is_file(): raise ValueError('strict audit artifact %s is missing' % art)
@@ -549,6 +612,111 @@ def validate_receipt(m, ph, pred_fp):
         pol = effective_policy(m, ph)
         if rem.get('medium_rounds', 99) > pol['medium_rounds'] or rem.get('high_rounds', 99) > pol['high_rounds']:
             raise ValueError('remediation rounds exceed the policy budget')
+    return r
+
+
+RANGE_RE = re.compile(r'^range: ([0-9a-f]{40})\.\.([0-9a-f]{40}) ')
+
+
+def audit_range(path):
+    mm = RANGE_RE.match(rs.audit_facts(path)[0])
+    if not mm: raise ValueError('%s has no exact commit range' % path)
+    return mm.group(1), mm.group(2)
+
+
+def pinned_file(path, digest, what):
+    """A committed, unmodified file whose bytes match the pinned digest."""
+    if not Path(path).is_file(): raise ValueError('%s %s is missing' % (what, path))
+    if sha256_file(path) != digest: raise ValueError('%s %s changed' % (what, path))
+    if not is_tracked('HEAD', path) or git('status', '--porcelain', '--', path): raise ValueError('%s %s is not committed' % (what, path))
+
+
+def non_doc_non_test(a, b):
+    return [f for f in rs.delta_files(a, b) if not (rs.category(f) == 'A' or TEST_FILE_RE.search(f))] if a != b else []
+
+
+def adoption_evidence(m, ph, base, freeze):
+    """Everything a manual adoption claims, recomputed from the repository and checked against the
+    manifest pin; raises ValueError(why). Returns the receipt fields derived from that evidence."""
+    pin = ph.get('manual_adoption')
+    if not pin or ph.get('kind') != 'campaign': raise ValueError('the manifest phase has no manual_adoption pin')
+    if adoption_entry_problems(m, ph, ph['id'] == m['phases'][-1]['id']): raise ValueError('manual_adoption pin is malformed')
+    if (base, freeze) != (pin['phase_base_sha'], pin['functional_freeze_sha']): raise ValueError('base/freeze differ from the manifest pin')
+    if not (is_commit(base) and is_commit(freeze) and base != freeze and is_ancestor(base, freeze)):
+        raise ValueError('pinned phase base is not a strict ancestor of the pinned freeze SHA')
+    pred = phase_by_id(m, ph['predecessor']) if ph.get('predecessor') else None
+    if pred:  # docs/tooling only between the predecessor's freeze and this phase's base (the preflight rule)
+        pf = pred['freeze_sha'] if pred['kind'] == 'legacy' else json.loads(receipt_path(m, pred['id']).read_text())['functional_freeze_sha']
+        if not is_ancestor(pf, base): raise ValueError('phase base does not descend from the predecessor freeze %s' % short(pf))
+        foreign = [f for f in rs.delta_files(pf, base) if rs.category(f) not in 'AB'] if pf != base else []
+        if foreign: raise ValueError('product changes between the predecessor freeze and the phase base: %s' % ', '.join(foreign[:3]))
+    try: scope = scope_check(m, ph, base, freeze, campaign_records_ok=True)
+    except Stop as e: raise ValueError('phase delta fails the scope check: %s' % e.detail)
+    ev = pin['evidence_head']
+    if not (is_commit(ev) and is_ancestor(freeze, ev) and is_ancestor(ev, 'HEAD')):
+        raise ValueError('pinned evidence head is not after the freeze SHA in the history of HEAD')
+    after = non_doc_non_test(freeze, ev)
+    if after: raise ValueError('production changed after the adopted freeze SHA: %s' % ', '.join(after[:3]))
+    fs = pin['full_suite']
+    pinned_file(fs['attestation'], fs['attestation_sha256'], 'gate attestation')
+    lines = Path(fs['attestation']).read_text().splitlines()
+    if any(l not in lines for l in ('HEAD ' + freeze, 'EXIT 0', 'HEAD_AFTER ' + freeze)) or \
+            not any(l.startswith('QUALITY_GATE pass') and fs['gate_id'] in l for l in lines):
+        raise ValueError('gate attestation does not show %s passing at %s with HEAD unchanged' % (fs['gate_id'], short(freeze)))
+    ba, ca = pin['baseline_audit'], pin['closure_audit']
+    pinned_file(ba['artifact'], ba['sha256'], 'baseline audit'); pinned_file(ca['artifact'], ca['sha256'], 'closure audit')
+    (b0, b1), (c0, c1) = audit_range(ba['artifact']), audit_range(ca['artifact'])
+    if b0 != base: raise ValueError('baseline audit does not start at the phase base')
+    if c0 != b1: raise ValueError('closure audit does not start where the baseline audit ended')
+    if not (b1 != freeze and is_ancestor(b1, freeze) and is_ancestor(freeze, c1) and is_ancestor(c1, ev)):
+        raise ValueError('the audits do not cover the freeze SHA (baseline before it, closure through it)')
+    audits = []
+    for role, a, lo, hi in (('baseline', ba, b0, b1), ('closure', ca, c0, c1)):
+        why = audit_problems(a['artifact'], lo, hi, True, committed=True)
+        if why: raise ValueError(why)
+        if has_stop(a['artifact']) or gate_reason(Path(a['artifact']).read_text(errors='replace')):
+            raise ValueError('%s audit carries a STOP/gate marker' % role)
+        counts = dict(zip(('critical', 'high', 'medium', 'low'), audit_counts(a['artifact'])))
+        audits.append(dict(role=role, artifact=a['artifact'], sha256=a['sha256'], range='%s..%s' % (lo, hi), tier='strict', counts=counts))
+    if audits[0]['counts']['critical']: raise ValueError('baseline audit has a Critical finding')
+    if audits[1]['counts']['critical'] or audits[1]['counts']['high']:
+        raise ValueError('closure audit has CRITICAL=%(critical)d HIGH=%(high)d (both must be 0)' % audits[1]['counts'])
+    found = ctx.parse_findings(Path(ca['artifact']).read_text(errors='replace'))
+    mediums = [f['id'] for f in found if f['severity'] == 'MEDIUM']
+    res = pin['resolved_closure_findings']
+    if None in mediums or sorted(mediums) != sorted(x['id'] for x in res):
+        raise ValueError('every closure-audit Medium must have exactly one pinned remediation (audit: %s)' % (mediums or 'none'))
+    for x in res:
+        c = x['remediation_commit']
+        if not (is_commit(c) and c != c1 and is_ancestor(c1, c) and is_ancestor(c, ev)):
+            raise ValueError('remediation %s is not between the closure audit and the evidence head' % short(c))
+        files = rs.delta_files(c + '^', c)
+        if not files or any(not TEST_FILE_RE.search(f) for f in files):
+            raise ValueError('remediation %s must change test files only' % short(c))
+        pinned_file(x['record'], x['record_sha256'], 'remediation record')
+    pinned_file(pin['adoption_record']['path'], pin['adoption_record']['sha256'], 'adoption record')
+    return dict(scope=scope, audits=audits, lows=[f['title'] for f in found if f['severity'] == 'LOW'],
+                verification=[dict(name='full_suite', cmd='bash scripts/quality-gate.sh', head=freeze, result='PASS',
+                                   gate_id=fs['gate_id'], attestation=fs['attestation'])])
+
+
+def validate_adoption(m, ph, r, base, freeze):
+    """A `manual-adopted` receipt is valid only against its own manifest pin and the evidence that pin
+    names, recomputed here. It never substitutes for the strict CRITICAL=HIGH=MEDIUM=0 freeze audit of
+    a runner-built phase: it records that the audits did not end clean and on what basis a human
+    accepted the phase."""
+    pin = ph.get('manual_adoption')
+    if not pin: raise ValueError('manual-adopted receipt but the manifest phase has no manual_adoption pin')
+    if r.get('manual_adoption') != pin: raise ValueError('receipt manual_adoption does not match the manifest pin')
+    if r.get('runner_built') is not False or r.get('assurance_standard') != pin['assurance_standard']:
+        raise ValueError('manual-adopted receipt must record runner_built=false and the pinned assurance standard')
+    if r.get('strict_audit') is not None: raise ValueError('a manual-adopted receipt never claims a strict freeze audit')
+    e = adoption_evidence(m, ph, base, freeze)
+    if (r.get('migration_status'), r.get('frozen_contract_status')) != (e['scope']['migration_status'], e['scope']['frozen_contract_status']):
+        raise ValueError('receipt scope status differs from the recomputed scope check')
+    if r.get('verification') != e['verification']: raise ValueError('receipt verification is not exactly the pinned full-suite gate at the freeze SHA')
+    if r.get('audits') != e['audits']: raise ValueError('receipt audits differ from the pinned audit artifacts')
+    if r.get('outstanding_low_findings') != e['lows']: raise ValueError('receipt Low findings differ from the closure audit')
     return r
 
 
@@ -1252,6 +1420,9 @@ class Campaign:
             if ps and ps['stage'] == 'COMPLETE':
                 raise Stop('RECEIPT_INVALID', '%s is recorded COMPLETE but its receipt does not validate: %s' % (pid, detail), 'inspect the receipt')
             self.current = pid
+            if ph.get('manual_adoption'):
+                raise Stop('MANUAL_ADOPTION_REQUIRED', '%s carries a manual_adoption pin but has no valid receipt: %s' % (pid, detail),
+                           'the runner never builds a pinned phase; repair the evidence, then ./scripts/agent-campaign-run %s --adopt %s' % (self.cid, pid))
             if not ps or ps['stage'] == 'READY':
                 self.preflight(ph, statuses)
                 ps = self.ps(pid)
@@ -1393,8 +1564,12 @@ def phase_amendments(m, ph, base, h, files, agent_commits):
     return set(a['path'] for a in ams), manifest_ok
 
 
-def scope_check(m, ph, base, h, agent_commits=()):
+def scope_check(m, ph, base, h, agent_commits=(), campaign_records_ok=False):
+    """campaign_records_ok (manual adoption only): a hand-built phase kept its own reports and audit
+    copies in the campaign directory; those docs count as in scope. Product paths never do."""
     files = rs.delta_files(base, h)
+    records = str(Path(m['campaign_doc']).parent) + '/'
+    if not campaign_records_ok: records = '\0'
     import fnmatch
     guards = [g.rstrip('/') for g in ph['scope_guard']]
     shared_patterns = ph['allowed_shared_paths']
@@ -1417,7 +1592,7 @@ def scope_check(m, ph, base, h, agent_commits=()):
     mp = str(manifest_path(m['campaign_id']))
     def in_scope(f):
         return (f in harness_owned or any(f == g or f.startswith(g + '/') for g in guards) or any(fnmatch.fnmatch(f, pat) for pat in shared_patterns)
-                or f in amended or (f == mp and manifest_ok))
+                or f in amended or (f == mp and manifest_ok) or (f.startswith(records) and rs.category(f) == 'A'))
     outside = [f for f in files if not in_scope(f)]
     if outside:
         raise Stop('TASK_SCOPE_EXPANSION_REQUIRED', 'phase changed path(s) outside its manifest allow-list: ' + ', '.join(outside[:5]),
@@ -1558,6 +1733,129 @@ def validate_closure(plan, m, ph, pred_fp):
     except ValueError as e: raise Stop('CLOSURE_VALIDATION_FAILED', 'new receipt does not validate: %s' % e, 'inspect the receipt')
 
 
+# ── manual adoption (separately authorised; zero model calls) ──────────
+def adoption_plan(m, ph, pred_fp):
+    """The receipt and docs record of a pinned manual adoption, derived only from the pin and the
+    evidence it names (recomputed by adoption_evidence)."""
+    pin, pid = ph['manual_adoption'], ph['id']
+    base, freeze = pin['phase_base_sha'], pin['functional_freeze_sha']
+    try: e = adoption_evidence(m, ph, base, freeze)
+    except ValueError as x: raise Stop('MANUAL_ADOPTION_INVALID', '%s: %s' % (pid, x), 'repair the pinned evidence; never edit receipts by hand')
+    plan_check = closure_plan(m, ph, None, check_only=True)  # proves BUILD_STATE / IMPLEMENTATION_LOG layout first
+    assert plan_check is None
+    bs = json.loads(BUILD_STATE.read_text()); sec = bs[m['build_state_key']]
+    if sec.get(ph['build_state_key']) is not None:
+        raise Stop('CLOSURE_SCHEMA_UNSUPPORTED', 'BUILD_STATE.json already has %s.%s' % (m['build_state_key'], ph['build_state_key']), 'reconcile it', True)
+    at = now()
+    contracts = [dict(path=c, blob_at_freeze=blob_at(freeze, c)) for c in ph['contracts']]
+    summary = lambda c: 'CRITICAL=%(critical)d HIGH=%(high)d MEDIUM=%(medium)d LOW=%(low)d' % c
+    receipt = dict(
+        receipt_schema_version=RECEIPT_SCHEMA_VERSION, origin='manual-adopted', runner_built=False,
+        campaign_id=m['campaign_id'], phase_id=pid, phase_title=ph['title'], phase_order=ph['order'], task_id=None,
+        phase_base_sha=base, functional_freeze_sha=freeze, frozen_at=at, brief=ph['brief'], brief_sha256=sha256_file(ph['brief']),
+        contracts=contracts, assurance_standard=pin['assurance_standard'], authorisation=pin['authorisation'],
+        verify_command=ph['verify'], verification=e['verification'], audits=e['audits'],
+        resolved_closure_findings=pin['resolved_closure_findings'], outstanding_low_findings=e['lows'],
+        migration_status=e['scope']['migration_status'], frozen_contract_status=e['scope']['frozen_contract_status'],
+        human_gate_status='NONE', pushed_or_deployed=False, predecessor=ph['predecessor'],
+        predecessor_receipt_fingerprint=pred_fp, manual_adoption=pin)
+    receipt['receipt_fingerprint'] = receipt_fingerprint(receipt)
+    rpath = str(receipt_path(m, pid))
+    resolved = ['%s (%s, closure audit): test-only remediation %s' % (x['id'], x['severity'], short(x['remediation_commit']))
+                for x in pin['resolved_closure_findings']]
+    nxt = next_phase_id(m, pid)
+    sec[ph['build_state_key']] = dict(
+        status='FROZEN_MANUALLY_ADOPTED', runner_built=False, assurance_standard=pin['assurance_standard'],
+        authorisation=pin['authorisation'], base_sha=base, final_production_sha=freeze, evidence_head=pin['evidence_head'],
+        baseline_audit=e['audits'][0]['artifact'], baseline_audit_summary=summary(e['audits'][0]['counts']),
+        closure_audit=e['audits'][1]['artifact'], closure_audit_summary=summary(e['audits'][1]['counts']),
+        resolved_closure_findings=resolved, outstanding_low_findings=e['lows'],
+        verification='full suite %s (scripts/quality-gate.sh) passed at %s, HEAD unchanged — attestation %s' % (
+            pin['full_suite']['gate_id'], freeze, pin['full_suite']['attestation']),
+        adoption_record=pin['adoption_record']['path'], receipt=rpath, receipt_fingerprint=receipt['receipt_fingerprint'],
+        closed_by='scripts/agent-campaign-run --adopt (manual adoption; the phase was not built by the runner)',
+        next_phase=('%s NOT_STARTED' % nxt) if nxt else 'none (campaign complete)')
+    sec['campaign_progress'] = dict(last_frozen_phase=pid, next_phase=nxt, next_phase_status='NOT_STARTED' if nxt else None,
+                                    **({} if nxt else dict(campaign_status='COMPLETE')), updated_by='scripts/agent-campaign-run')
+    log_text = IMPL_LOG.read_text(); first = re.search(r'^## ', log_text, re.M)
+    entry = '\n'.join([
+        '## %s, %s close-out — %s — manually adopted at %s (%s)' % (m['title'], pid, ph['title'], short(freeze), at[:10]), '',
+        '%s was built by hand, not by `scripts/agent-campaign-run`; it is **frozen at `%s` by separately authorised manual' % (pid, freeze),
+        'adoption** (`%s`, assurance standard %s). This record is not a runner build and claims no clean final whole-phase audit.' % (
+            pin['adoption_record']['path'], pin['assurance_standard']), '',
+        '- Full strict baseline audit `%s` over `%s`: %s.' % (Path(e['audits'][0]['artifact']).name, e['audits'][0]['range'], summary(e['audits'][0]['counts'])),
+        '- Bounded strict closure audit `%s` over `%s`: %s.' % (Path(e['audits'][1]['artifact']).name, e['audits'][1]['range'], summary(e['audits'][1]['counts'])),
+        '- Closure findings resolved: %s.' % ('; '.join(resolved) or 'none'),
+        '- Outstanding Low (recorded, not fixed): %s.' % ('; '.join(e['lows']) or 'none'),
+        '- Verification: full suite `%s` passed at `%s` (attestation `%s`); production unchanged to evidence head `%s`.' % (
+            pin['full_suite']['gate_id'], short(freeze), pin['full_suite']['attestation'], short(pin['evidence_head'])),
+        '- Receipt `%s` (origin `manual-adopted`, fingerprint `%s`). Migrations: none. Frozen contracts: %s. Nothing pushed or deployed.' % (
+            rpath, receipt['receipt_fingerprint'][:16], e['scope']['frozen_contract_status']),
+        '- %s.' % (('%s **not started**' % nxt) if nxt else 'Campaign complete'), '', ''])
+    contents = {rpath: (json.dumps(receipt, indent=2, ensure_ascii=False) + '\n').encode(),
+                str(BUILD_STATE): (json.dumps(bs, indent=2, ensure_ascii=False) + '\n').encode(),
+                str(IMPL_LOG): (log_text[:first.start()] + entry + log_text[first.start():]).encode()}
+    subject = '%s %s: record manual adoption — frozen at %s' % (m['closure_commit_prefix'], pid, short(freeze))
+    message = ('%s\n\nDocumentation only, written by scripts/agent-campaign-run --adopt. %s was NOT built by the runner;\n'
+               'it is adopted at %s under %s on the pinned evidence (%s). Receipt %s\n(origin manual-adopted). Local commit; not pushed.\n') % (
+        subject, pid, freeze, pin['assurance_standard'], pin['adoption_record']['path'], rpath)
+    return dict(contents=contents, files=sorted(contents), receipt=receipt, receipt_path=rpath, message=message)
+
+
+def adopt(camp, pid):
+    m = camp.m
+    ph = phase_by_id(m, pid)
+    if not ph or not ph.get('manual_adoption'): raise Stop('USAGE', '%s has no manual_adoption pin in the manifest' % pid, 'nothing to adopt', True)
+    if git('branch', '--show-current') != m['branch']: raise Stop('WRONG_BRANCH', 'not on %s' % m['branch'], 'check it out', True)
+    if porcelain(): raise Stop('DIRTY_WORKING_TREE', 'commit or set aside changes before adopting', 'clean the tree', True)
+    statuses = chain(m)
+    pred_fp = None
+    for p, st_, detail, r in statuses:
+        if p['id'] == pid: break
+        if st_ != 'FROZEN': raise Stop('PREDECESSOR_NOT_FROZEN', '%s is %s: %s' % (p['id'], st_, detail), 'repair %s first' % p['id'], True)
+        pred_fp = r['receipt_fingerprint']
+    if receipt_path(m, pid).exists(): raise Stop('RECEIPT_EXISTS', '%s already has a receipt' % pid, 'inspect it; receipts are never rewritten', True)
+    ev = ph['manual_adoption']['evidence_head']
+    if not is_ancestor(ev, 'HEAD') or [f for f in rs.delta_files(ev, 'HEAD') if rs.category(f) not in 'AB']:
+        raise Stop('UNEXPECTED_INTERVENING_CHANGE', 'only docs/tooling commits may follow the pinned evidence head %s' % short(ev), 'inspect git log', True)
+    plan = adoption_plan(m, ph, pred_fp)
+    before = head()
+    originals = {f: read_blob(before, f) for f in plan['files']}  # None: not tracked before the adoption
+    try:
+        for f in sorted(plan['contents'], key=lambda f: f == plan['receipt_path']):
+            write_bytes_atomic(f, plan['contents'][f])
+        try: validate_receipt(m, ph, pred_fp)
+        except ValueError as x: raise Stop('CLOSURE_VALIDATION_FAILED', 'adoption receipt does not validate: %s' % x, 'inspect the pinned evidence')
+        subprocess.run(['git', 'add', '--'] + plan['files'], check=True, capture_output=True)
+        staged = set(git('diff', '--cached', '--name-only').splitlines())
+        if staged != set(plan['files']) or subprocess.run(['git', 'diff', '--cached', '--check'], capture_output=True).returncode:
+            raise Stop('CLOSURE_VALIDATION_FAILED', 'adoption staged %s' % sorted(staged), 'inspect the staged files')
+        subprocess.run(['git', 'commit', '-q', '-m', plan['message']], check=True, capture_output=True)
+    except (Stop, subprocess.CalledProcessError, OSError) as x:
+        subprocess.run(['git', 'restore', '--staged', '--'] + plan['files'], capture_output=True)
+        for f, data in originals.items():
+            if data is not None: Path(f).write_bytes(data)
+            elif Path(f).exists(): Path(f).unlink()
+        if isinstance(x, Stop): raise
+        raise Stop('CLOSURE_VALIDATION_FAILED', 'adoption commit failed: %s' % x, 'inspect the files')
+    st = camp.st
+    if st is None:
+        st = camp.st = dict(schema_version=SCHEMA_VERSION, campaign_id=camp.cid, branch=m['branch'], created_at=now(), updated_at=now(),
+                            phases={}, stop=None, resolutions=[], model_calls=dict(build=0, fix=0, audit_standard=0, audit_strict=0))
+    ps = new_phase_state()
+    ps.update(stage='COMPLETE', base_sha=ph['manual_adoption']['phase_base_sha'], freeze_sha=ph['manual_adoption']['functional_freeze_sha'],
+              closure_sha=head(), receipt_fingerprint=plan['receipt']['receipt_fingerprint'], head=head(), manual_adoption=True)
+    st['phases'][pid] = ps
+    if st.get('stop') and st['stop'].get('phase') == pid:
+        st.setdefault('resolutions', []).append(dict(st['stop'], note='superseded by manual adoption of %s (receipt %s)' % (
+            pid, plan['receipt_path']), resolved_at=now(), resolved_head=head()))
+        st['stop'] = None
+    camp.save()
+    print('[%s] MANUALLY ADOPTED — frozen at %s · record %s (docs only, local, not pushed) · model calls: 0' % (
+        pid, short(ps['freeze_sha']), short(head())))
+    return 0
+
+
 # ── status / dry run (read-only, zero model calls) ─────────────────────
 def phase_rows(m, st):
     rows, first_open = [], True
@@ -1565,7 +1863,9 @@ def phase_rows(m, st):
         ps = (st or {}).get('phases', {}).get(ph['id']) if st else None
         stop = (st or {}).get('stop')
         if status == 'FROZEN':
-            label, note = 'FROZEN', short(r['functional_freeze_sha']) + ('  (legacy receipt)' if r.get('origin') == 'legacy-manual' else '')
+            label, note = 'FROZEN', short(r['functional_freeze_sha']) + (
+                '  (legacy receipt)' if r.get('origin') == 'legacy-manual' else
+                '  (manually adopted, %s — not runner-built)' % r['assurance_standard'] if r.get('origin') == 'manual-adopted' else '')
         elif status == 'RECEIPT_INVALID':
             label, note = 'RECEIPT_INVALID', detail
         elif stop and stop.get('phase') == ph['id']:
@@ -1627,6 +1927,8 @@ def dry_run(m):
     try:
         if status_ == 'RECEIPT_INVALID' or ph['kind'] == 'legacy':
             raise Stop('RECEIPT_INVALID', '%s: %s' % (ph['id'], detail), 'repair the receipt chain')
+        if ph.get('manual_adoption'):
+            raise Stop('MANUAL_ADOPTION_REQUIRED', '%s is pinned for manual adoption: %s' % (ph['id'], detail), 'run --adopt %s' % ph['id'])
         Campaign(m).preflight(ph, statuses)
     except Stop as e:
         print('Next: %s would NOT start — %s: %s' % (ph['id'], e.reason, e.detail))
@@ -1672,16 +1974,17 @@ def report_stop(e, phase, calls):
 
 def main(argv):
     if not argv or argv[0].startswith('-'):
-        print('usage: scripts/agent-campaign-run <campaign-id> [--dry-run | --status | --resolve-stop --note TEXT]', file=sys.stderr)
+        print('usage: scripts/agent-campaign-run <campaign-id> [--dry-run | --status | --resolve-stop --note TEXT | --adopt PHASE]', file=sys.stderr)
         return 2
     cid, rest = argv[0], argv[1:]
-    mode, note = 'run', ''
+    mode, note, target = 'run', '', None
     while rest:
         a = rest.pop(0)
         if a in ('--dry-run', '--status', '--resolve-stop') and mode == 'run': mode = a[2:]
+        elif a == '--adopt' and mode == 'run' and rest: mode, target = 'adopt', rest.pop(0)
         elif a == '--note' and rest: note = rest.pop(0)
         else:
-            print('usage: scripts/agent-campaign-run <campaign-id> [--dry-run | --status | --resolve-stop --note TEXT]', file=sys.stderr)
+            print('usage: scripts/agent-campaign-run <campaign-id> [--dry-run | --status | --resolve-stop --note TEXT | --adopt PHASE]', file=sys.stderr)
             return 2
     camp = None
     try:
@@ -1692,6 +1995,7 @@ def main(argv):
         camp.current = None
         camp.lock()
         if mode == 'resolve-stop': return resolve_stop(camp, note)
+        if mode == 'adopt': return adopt(camp, target)
         return camp.run()
     except RunnerActive as e:
         print('AGENT_CAMPAIGN_RESULT: RUNNER_ACTIVE\nDETAIL: %s\nModel calls this invocation: 0' % e)

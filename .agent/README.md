@@ -264,6 +264,46 @@ Never use an amendment to bless an unexpected scope violation after the fact. A 
 was not specifically authorised by a human before it was recorded is a scope stop. Resolve it
 by reverting, or by a separately authorised task, never by registering it here.
 
+### Manual adoption of a hand-built final phase (human-only)
+
+Purpose: record a phase that was built by hand OUTSIDE this runner, without forging a runner
+receipt. First used for Cattle C10 (receipt `receipts/C10.json`, origin `manual-adopted`). It is
+a separately authorised exception, not an alternative freeze route: every runner-built phase
+still needs its strict `CRITICAL=HIGH=MEDIUM=0` freeze audit, and that check is unchanged.
+
+The phase carries a `manual_adoption` pin with exactly the keys `authorisation`,
+`assurance_standard` (only `TIER2_APPLICATION`), `phase_base_sha`, `functional_freeze_sha`,
+`evidence_head`, `full_suite` {`gate_id`, `attestation`, `attestation_sha256`},
+`baseline_audit` / `closure_audit` {`artifact`, `sha256`}, `resolved_closure_findings`
+[{`id`, `severity`, `remediation_commit`, `record`, `record_sha256`}] and `adoption_record`
+{`path`, `sha256`}. Manifest validation refuses any other shape, and refuses the pin on any phase
+except the campaign's final phase, so no runner phase can ever follow an adopted phase.
+
+`./scripts/agent-campaign-run <id> --adopt <phase>` (zero model calls) recomputes the evidence
+and writes the receipt only if all of it holds:
+
+- the predecessor chain is frozen, and only docs/tooling sit between the predecessor's freeze
+  and the pinned phase base;
+- `scope_check(base..freeze)` passes (the phase's own reports in its campaign directory count as
+  in scope; product paths never do): no migration, shared/frozen contracts additive only;
+- from the freeze SHA to the evidence head, only docs and test files change (production unchanged);
+- the committed gate attestation shows the pinned gate passing with `HEAD` and `HEAD_AFTER` equal
+  to the freeze SHA;
+- both audits are committed, ASSESSED, strict (`gpt-6-astra`, high), carry no STOP or gate
+  marker, and are digest-pinned. The baseline audit starts at the phase base and ends before the
+  freeze SHA with no Critical. The closure audit starts where the baseline ended, covers the
+  freeze SHA, and has `CRITICAL=0 HIGH=0`;
+- each closure-audit Medium has exactly one pinned remediation commit, made after that audit and
+  changing test files only (a Critical or High can never be resolved this way);
+- every pinned record is committed and byte-identical to its digest.
+
+The receipt records `runner_built: false`, the assurance standard and authorisation, both audits
+with their real counts, and no `strict_audit`. Validation re-derives all of it on every chain
+check. BUILD_STATE records the phase as `FROZEN_MANUALLY_ADOPTED`. `--status` shows "manually
+adopted, … — not runner-built". The runner never builds a pinned phase
+(`MANUAL_ADOPTION_REQUIRED`), and a receipt claiming `manual-adopted` for an unpinned phase is
+invalid.
+
 ## Explicit broader and working-tree reviews
 
 ```sh

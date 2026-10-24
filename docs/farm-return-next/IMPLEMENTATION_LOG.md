@@ -5,6 +5,15 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Campaign runner — manual adoption of a hand-built final phase (2026-10-24)
+
+The separately authorised "C10 Adoption, Freeze and Campaign Closure" task adds `scripts/agent-campaign-run <id> --adopt <phase>`. It needs a
+human `manual_adoption` pin in the manifest, which is allowed on the final phase only. It recomputes every pinned item of evidence and writes a receipt of origin
+`manual-adopted` (`runner_built: false`, no `strict_audit`). Validation of such a receipt is separate from the strict CRITICAL=HIGH=MEDIUM=0
+freeze, which every runner-built phase still needs. A pinned phase is never built by the runner. Documented in `.agent/README.md`
+("Manual adoption of a hand-built final phase"). Tests: `scripts/tests/agent-campaign.test.py` test_60–test_64 (adoption, receipt bound to pin,
+unsound evidence refused, pin digests/placement, never builds a pinned phase); the existing runner suite passes unchanged. No product code changed.
+
 ## Cattle Engine v1, C9 close-out — Plan Interface — frozen at c3e717d (2026-10-20)
 
 C9 (task `cattle-c9-plan-interface-20261019`, base `91ef012`) is **frozen at `c3e717daf69ac4507686eec4bd0ab169419e425a`** by `scripts/agent-campaign-run`. This is the

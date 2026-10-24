@@ -280,14 +280,15 @@
       "status": "BUILT",
       "task": "cattle-campaign-orchestrator-20261010",
       "base_sha": "9cc32b894b15dc99eead622fc45309d62d9ca04b",
-      "command": "./scripts/agent-campaign-run cattle-engine-v1 [--dry-run|--status|--resolve-stop --note TEXT]",
+      "command": "./scripts/agent-campaign-run cattle-engine-v1 [--dry-run|--status|--resolve-stop --note TEXT|--adopt PHASE]",
       "manifest": ".agent/campaigns/cattle-engine-v1/campaign.json",
       "receipts": ".agent/campaigns/cattle-engine-v1/receipts/ (C0, C1: legacy-manual operator attestations; HR-F007 restriction stated in each)",
       "policy": "Critical stops; High <=2 rounds (CONFIRMED only); Medium <=4 rounds; <=2 attempts per finding signature; Low recorded, never fixed; judgement gates stop; strict full-phase audit (gpt-6-astra, high) of phase_base..HEAD with C/H/M=0 before freeze; docs-only closure commit distinct from the functional freeze SHA",
       "harness_changes": "agent-fix gains backward-compatible --only IDS --audit PATH [--expect-head SHA] (narrow, Low never selectable); agent-context.py gains parse_findings/select-findings; AUDIT_RULES.md gains the STOP: <REASON> gate marker",
       "tests": "scripts/tests/agent-campaign.test.py (fake CLIs, no model call), run by scripts/tests/agent-run.test.sh",
       "c2_status": "NOT_STARTED",
-      "pushed_or_deployed": false
+      "pushed_or_deployed": false,
+      "manual_adoption": "2026-10-24, separately authorised C10 adoption task: a hand-built FINAL phase may carry a human manifest pin `manual_adoption` (final phase only; TIER2_APPLICATION only). `--adopt` recomputes the pinned evidence (predecessor chain, scope check, production unchanged after the freeze, committed gate attestation at the freeze SHA, strict baseline audit with no Critical + strict closure audit with C=H=0 covering the freeze, every closure Medium resolved by a test-only commit, digest-bound records) and writes a receipt of origin `manual-adopted` (runner_built=false, no strict_audit). The runner never builds a pinned phase (MANUAL_ADOPTION_REQUIRED). The strict C/H/M=0 freeze of runner-built phases is unchanged. Tests: scripts/tests/agent-campaign.test.py test_60–test_64."
     },
     "c2_regulatory_lifecycle_engine": {
       "status": "FROZEN_COMPLETE_IN_CODE",

@@ -138,3 +138,15 @@ The shared job-reconciliation logic is reached from a neutral module, never by i
 Real weights are written only through `addWeightObservation` (`livestock_weight_observations`, insert-only,
 same-farm trigger). C10 Record Weight in real mode must reuse it via a server action that resolves the farm
 server-side. Collection method needs a new nullable column, which is a P2 migration (see STATE.md).
+
+## D11 — "Not in a group" (P1)
+
+A null `livestock_individuals.group_id` is a recorded fact: the animal is not assigned to a group. Frozen C1 cannot
+express "no group", because no `MANAGEMENT_GROUP` assertion means unknown, so C4 would show an ungrouped animal as an
+unresolved member of every group. The adapter therefore:
+- resolves each C4 group scope over the animals that have a recorded group;
+- lists ungrouped animals separately;
+- gives C9 no group scopes, because all real work is per animal.
+
+This changes no frozen semantics: it chooses the population a scope is resolved over. If group-level work is ever
+planned, this decision must be revisited.

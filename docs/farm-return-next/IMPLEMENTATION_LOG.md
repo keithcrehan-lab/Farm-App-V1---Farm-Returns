@@ -5,6 +5,13 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Pilot Integration P1 — real cattle reads (2026-10-24)
+
+Signed-in `/cattle` now reads the farm's own `livestock_*` rows through `cattle-source.ts` → `real-records.ts` →
+`real-service.ts` → the frozen engines → the C10 view-builders. It is read-only, and demo mode is unchanged.
+Implementation `ef9f12f`. State, verification and decisions are in `docs/farm-return-next/pilot-integration/`
+(STATE.md, DECISIONS.md D11). The full gate and Codex were not run, by design (Tier 2).
+
 ## Cattle Engine v1, C10 close-out — Cattle UX — manually adopted at 510f003 (2026-10-24)
 
 C10 was built by hand, not by `scripts/agent-campaign-run`; it is **frozen at `510f003ef252f6eff83f78ffd7617de2e8858a58` by separately authorised manual

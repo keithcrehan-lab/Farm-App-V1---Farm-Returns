@@ -392,6 +392,58 @@ describe("F020 — the performance verdict explains itself where it is shown", {
     expect(lines(noDefinition)).toContain("Target version v1 · source recorded with it: SYNTH-SRC-TARGETS, version v1"); // the compared version's own ref
   });
 
+  // Closure audit 13552 (M1): the several-target and mixed-result cases above read the view-model only — these render
+  // the real profile, open the real disclosure and check each target's own block, so dropping any target (or showing
+  // the first target's provenance for all of them) fails.
+  /** Two targets with distinct identity, version, source and source version; the second one's result is `second`. */
+  const twoTargets = (second: "ON_TRACK" | "BEHIND") => (o: CattleOutputs) => {
+    const a = perf1427(o);
+    const first = a.comparisons[0];
+    const sourceRef = { ...first.target!.sourceRef, sourceId: "SYNTH-SRC-SECOND", version: "v3" };
+    a.comparisons = [first, { ...first, targetId: "SYNTH-TARGET-SECOND", target: { ...first.target!, id: "SYNTH-TARGET-SECOND", version: "v2", sourceRef }, metric: "WEIGHT_AT", observed: 455, targetValue: 480, lowerBound: 470, upperBound: 490, evidenceRecordIds: ["SYNTH-W-1427-1"], state: second }];
+    const def = o.performance!.targetDefinitions[0];
+    o.performance!.targetDefinitions = [...o.performance!.targetDefinitions, { ...def, targetId: "SYNTH-TARGET-SECOND", versions: [{ ...def.versions[0], targetId: "SYNTH-TARGET-SECOND", version: "v2", provenance: { ...def.versions[0].provenance, sourceRef } }] }];
+  };
+  /** The rendered block of the target whose source line is `sourceLine` — only what is visible in the open disclosure. */
+  const renderedTarget = (sourceLine: string) => {
+    const items = screen.getAllByText(sourceLine);
+    expect(items).toHaveLength(1); // each target's provenance is shown once, under its own target
+    return items[0].closest("ul")!.parentElement!.textContent ?? "";
+  };
+  const FIRST_SOURCE = "Target version v1 · source recorded with it: SYNTH-SRC-TARGETS, version v1";
+  const SECOND_SOURCE = "Target version v2 · source recorded with it: SYNTH-SRC-SECOND, version v3";
+
+  it("2 (rendered). several targets: every target is visible in the open disclosure with its own result, source and version", () => {
+    const view = profileOf("1427");
+    const text = renderProfile(view, "1427", profileWith(twoTargets("ON_TRACK")));
+    expect(text).toContain("On track (2 targets, each explained below)");
+    const a = renderedTarget(FIRST_SOURCE);
+    expect(a).toContain("Result: On track");
+    expect(a).toContain("Daily gain compared: 1.08 kg/day");
+    expect(a).toContain("Review state recorded with the target: production");
+    expect(a).toContain("Based on 2 weight records.");
+    expect(a).not.toContain("SYNTH-SRC-SECOND");
+    const b = renderedTarget(SECOND_SOURCE);
+    expect(b).toContain("Result: On track");
+    expect(b).toContain("Weight compared: 455 kg");
+    expect(b).toContain("Review state recorded with the target: production");
+    expect(b).toContain("Based on 1 weight record.");
+    expect(b).not.toContain("SYNTH-SRC-TARGETS");
+  });
+
+  it("3 (rendered). mixed results: both targets' explanations are visible, each with its own result and provenance", () => {
+    const view = profileOf("1427");
+    const text = renderProfile(view, "1427", profileWith(twoTargets("BEHIND")));
+    expect(text).toMatch(/Mixed target results — /);
+    const a = renderedTarget(FIRST_SOURCE);
+    expect(a).toContain("Result: On track");
+    expect(a).not.toContain("Behind target");
+    const b = renderedTarget(SECOND_SOURCE);
+    expect(b).toContain("Result: Behind target");
+    expect(b).not.toContain("Result: On track");
+    expect(b).toContain("Weight compared: 455 kg");
+  });
+
   it("6. no usable projection: no basis line and no assumptions for a weight that isn't shown", () => {
     const none = explanationOf(profileOf(T).profile); // no recent daily gain
     expect(none.projection[0]).toBe("No projection — Recent daily gain isn't known, so there's no projection.");

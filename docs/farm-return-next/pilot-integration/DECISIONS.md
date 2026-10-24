@@ -150,3 +150,37 @@ unresolved member of every group. The adapter therefore:
 
 This changes no frozen semantics: it chooses the population a scope is resolved over. If group-level work is ever
 planned, this decision must be revisited.
+
+## D12 — Weighing method is not stored (P2)
+
+The C10 sheet never asked the farmer how the animal was weighed: its "Recorded as a scale weighing" line was a
+demonstration claim. Storing SCALE for real entries would fabricate evidence, so P2 adds no `method` column (option
+A, no migration):
+- the real sheet says the weight is saved with the method not recorded;
+- every real weight reads back as C4 `method: UNKNOWN`.
+
+A method column is added only together with a real farmer choice of method. That needs a nullable column constrained
+to C4 `WEIGHT_COLLECTION_METHODS`, with old rows read as UNKNOWN.
+
+**Dates:**
+- **Stored date:** the farmer's calendar date in Ireland (`Europe/Dublin`). "Now" is decided by the server at save
+  time, and later dates are refused.
+- **Engine time:** unchanged from D5, 00:00 UTC of that date, so the date never drifts.
+- **Accepted edge:** a weight dated "today" that is saved between 00:00 and 01:00 Irish summer time only comes into
+  the engine's view at 01:00 (00:00 UTC).
+- **Same-day weights:** two different weights on the same date compete under frozen C4, so the latest weight shows as
+  a conflict and neither is taken as latest.
+
+## D13 — Weight-write idempotency (P2)
+
+Each opening of the Record Weight sheet generates one submission id (a uuid), which becomes the row's primary key. This
+is the repository's existing client-generated-id pattern (`insertSoilCoreObservation`, `insertJobSession`).
+
+| Case | Result |
+|---|---|
+| The same submission arrives again (double press, network retry, action retry) | It hits the primary key (`23505`) and returns the row it created. |
+| The same id arrives with a different animal, kg, date or source | `DUPLICATE_CONFLICT`. Nothing is written or overwritten. |
+| The id belongs to a row this farm can't see | `DUPLICATE_CONFLICT`. Nothing is written or overwritten. |
+| A new opening of the sheet | A new id, so a legitimate second weight with the same animal, date and kg is a second row. |
+
+Duplicates are never detected by content. No migration was needed, because `id` was already a uuid primary key.

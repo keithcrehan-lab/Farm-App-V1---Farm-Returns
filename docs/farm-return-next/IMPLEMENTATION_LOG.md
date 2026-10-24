@@ -5,6 +5,14 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Pilot Integration P2 — real cattle writes (2026-10-24)
+
+Signed-in Record Weight on a real `/cattle` animal now writes, through the server action `recordRealCattleWeight`,
+to the existing `livestock_weight_observations` table. The farm is resolved server-side, and the action revalidates
+`/cattle` and `/livestock` so the frozen engines recompute from Supabase. There is no migration: the method is not
+recorded (D12), and idempotency uses a client-generated primary key (D13). Implementation `867bdb2`. The full gate
+passed once (`quality-20261024T155333Z-59710`). Details are in `docs/farm-return-next/pilot-integration/STATE.md`.
+
 ## Pilot Integration P1 — real cattle reads (2026-10-24)
 
 Signed-in `/cattle` now reads the farm's own `livestock_*` rows through `cattle-source.ts` → `real-records.ts` →

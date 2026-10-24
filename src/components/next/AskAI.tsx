@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Sparkles } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import { cn } from "@/lib/cn";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { EVIDENCE_STATE_UI_LABEL, type EvidenceState } from "@/domain/evidence";
 
 /**
@@ -155,6 +156,9 @@ function AskAIOverlay({ open, onClose, context }: { open: boolean; onClose: () =
  */
 export function AskAIButton({ context, className }: { context: AskAIContext; className?: string }) {
   const [open, setOpen] = useState(false);
+  // Pilot Integration P4 (DECISIONS D15): no AI provider is connected, so a signed-in farm (Supabase configured) is
+  // never offered an affordance that only says so. The demonstration keeps it, with its honest "isn't connected" note.
+  if (isSupabaseConfigured()) return null;
   return (
     <>
       <button

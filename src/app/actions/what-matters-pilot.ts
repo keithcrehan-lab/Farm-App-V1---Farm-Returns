@@ -111,6 +111,29 @@ async function resolvedPricesByProduct(asOfDate: string): Promise<Record<string,
   return result;
 }
 
+/**
+ * Pilot Integration P4 — which of the price evidence this evaluation needed was actually on record, read straight off
+ * the price resolutions it already ran (nothing re-derived). Lets the What Matters screen say plainly when current
+ * fertiliser price evidence is missing, instead of an empty result reading as "nothing to do".
+ */
+export interface WhatMattersEvidenceSummary {
+  fertiliserPrices: (
+    | { product: string; state: "AVAILABLE"; referencePeriod: string; sourceSeriesLabel: string }
+    | { product: string; state: "UNAVAILABLE" }
+  )[];
+}
+
+function summariseEvidence(prices: Record<string, EngineOutcome<AuditableMarketPriceResolution>>): WhatMattersEvidenceSummary {
+  return {
+    fertiliserPrices: CANONICAL_PRODUCTS.map((product) => {
+      const p = prices[product];
+      return p?.status === "OK"
+        ? { product, state: "AVAILABLE" as const, referencePeriod: p.value.referencePeriod, sourceSeriesLabel: p.value.sourceSeriesLabel }
+        : { product, state: "UNAVAILABLE" as const };
+    }),
+  };
+}
+
 export interface WhatMattersPilotCandidateContext {
   fieldId: string;
   fieldName: string;
@@ -132,6 +155,8 @@ export type WhatMattersPilotActionResult =
       contractorRatePerHa: string | null;
       candidateContext: Record<string, WhatMattersPilotCandidateContext>;
       rainfallScoreByRecordId: Record<string, string | null>;
+      /** Pilot P4: the price evidence this evaluation found (always set by `evaluateWhatMattersPilot`). */
+      evidence?: WhatMattersEvidenceSummary;
       /** Present only when Phase 8 ranked nothing — the per-candidate
        * gross/realisation-cost/net/eligibility trace read verbatim off the
        * audited records, and the category the farmer-facing message uses. */
@@ -217,7 +242,7 @@ async function buildRealCandidates(
    * writes to, never from anything else this function's own caller
    * passes in. */
   contractorCostRecord: PersistedContractorCostRate | null,
-): Promise<{ candidates: BuiltCandidate[]; sourceEngineVersion: string | null; realisationCostResolutionByRecordId: Record<string, SlurryRealisationCostResolution> }> {
+): Promise<{ candidates: BuiltCandidate[]; sourceEngineVersion: string | null; realisationCostResolutionByRecordId: Record<string, SlurryRealisationCostResolution>; evidence: WhatMattersEvidenceSummary }> {
   const prices = await resolvedPricesByProduct(asOfDate);
   // `knownAt` is the assessment's own knowledge-cutoff, distinct from any
   // one product's price-resolution trace — real evidence when at least one
@@ -289,7 +314,7 @@ async function buildRealCandidates(
     realisationCostResolutionByRecordId[record.id] = realisationCostResolution;
   }
 
-  return { candidates, sourceEngineVersion, realisationCostResolutionByRecordId };
+  return { candidates, sourceEngineVersion, realisationCostResolutionByRecordId, evidence: summariseEvidence(prices) };
 }
 
 /**
@@ -341,7 +366,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
     const { farmGrasslandAreaHa } = evidenceContext;
     const compositionInputByFieldId = new Map(evidenceContext.fields.map((f) => [f.fieldId, f.nutrientPlanComposition]));
 
-    const { candidates, sourceEngineVersion, realisationCostResolutionByRecordId } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, compositionInputByFieldId, asOfDate, evaluatedAt, contractorCostRecord);
+    const { candidates, sourceEngineVersion, realisationCostResolutionByRecordId, evidence } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, compositionInputByFieldId, asOfDate, evaluatedAt, contractorCostRecord);
 
     const candidateContext: Record<string, WhatMattersPilotCandidateContext> = {};
     for (const candidate of candidates) {
@@ -366,6 +391,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
         contractorRatePerHa,
         candidateContext: {},
         rainfallScoreByRecordId: {},
+        evidence,
         noRankedExplanation,
         missingSlurryDetails,
         multiSourceSlurryFieldIds,
@@ -430,6 +456,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
         contractorRatePerHa,
         candidateContext,
         rainfallScoreByRecordId: {},
+        evidence,
         ...(noRankedExplanation !== null ? { noRankedExplanation } : {}),
       };
     }
@@ -445,6 +472,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
         contractorRatePerHa,
         candidateContext,
         rainfallScoreByRecordId: {},
+        evidence,
         noRankedExplanation,
       };
     }
@@ -479,7 +507,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
       rainfallScoreByRecordId: new Map(Object.entries(rainfallScoreByRecordId)),
     });
 
-    return { status: "ok", result: presentation.result, evaluatedAt, declarations, contractorRatePerHa, candidateContext, rainfallScoreByRecordId };
+    return { status: "ok", result: presentation.result, evaluatedAt, declarations, contractorRatePerHa, candidateContext, rainfallScoreByRecordId, evidence };
   } catch (error: unknown) {
     console.error("[what-matters-pilot] evaluateWhatMattersPilot failed:", error);
     return { status: "error", message: "Unable to verify a recommendation right now." };

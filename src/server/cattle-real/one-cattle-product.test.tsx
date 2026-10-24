@@ -141,7 +141,7 @@ afterEach(() => {
 describe("Pilot P3 — navigation", () => {
   it("1/2: Cattle is the one cattle destination in every farmer navigation list; there is no Livestock entry", () => {
     for (const list of [primaryNavItems, moreNavItems, mobileNavItems, desktopNavItems]) expect(list.some((i) => i.href.startsWith("/livestock"))).toBe(false);
-    expect(moreNavItems.filter((i) => i.href.startsWith("/cattle")).map((i) => [i.href, i.label])).toEqual([["/cattle", "Cattle"]]);
+    expect([...primaryNavItems, ...moreNavItems].filter((i) => i.href.startsWith("/cattle")).map((i) => [i.href, i.label])).toEqual([["/cattle", "Cattle"]]);
   });
 
   it("3: /livestock always redirects to Cattle → Manage herd (the same answer in demo mode)", () => {

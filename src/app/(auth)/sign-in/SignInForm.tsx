@@ -7,11 +7,12 @@ import { Mail } from "lucide-react";
 import { signIn } from "@/app/actions/auth";
 import { EMPTY_STATE, type AuthActionState } from "@/app/actions/auth-state";
 import { AlertBanner } from "@/components/ui/AlertBanner";
+import { HOME_ROUTE } from "@/lib/home-route";
 
 export function SignInForm() {
   const [state, formAction, pending] = useActionState<AuthActionState, FormData>(signIn, EMPTY_STATE);
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/dashboard";
+  const next = searchParams.get("next") ?? HOME_ROUTE;
 
   return (
     <>

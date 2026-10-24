@@ -15,6 +15,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { AuthActionState } from "./auth-state";
+import { HOME_ROUTE } from "@/lib/home-route";
 
 function readCredentials(formData: FormData): { email: string; password: string } | null {
   const email = formData.get("email");
@@ -34,7 +35,7 @@ export async function signIn(_prev: AuthActionState, formData: FormData): Promis
   if (error) return { error: error.message };
 
   const next = formData.get("next");
-  redirect(typeof next === "string" && next.startsWith("/") ? next : "/dashboard");
+  redirect(typeof next === "string" && next.startsWith("/") ? next : HOME_ROUTE);
 }
 
 export async function signUp(_prev: AuthActionState, formData: FormData): Promise<AuthActionState> {
@@ -100,5 +101,5 @@ export async function updatePassword(
   const { error } = await supabase.auth.updateUser({ password });
   if (error) return { error: error.message };
 
-  redirect("/dashboard");
+  redirect(HOME_ROUTE);
 }

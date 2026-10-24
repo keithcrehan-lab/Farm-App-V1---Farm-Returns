@@ -31,7 +31,12 @@ export interface NavItem {
 }
 
 /**
- * Farm Spatial V2 (Phase 2 shell) — the approved primary navigation:
+ * Pilot Integration P4 (DECISIONS D15) — the pilot primary navigation:
+ * Farm · What Matters · Plan · Cattle · Records. What Matters is now a real
+ * screen (`/what-matters`); Market moves under More; Finance is hidden from
+ * the pilot navigation (`pilotHiddenNavItems`).
+ *
+ * Earlier (Farm Spatial V2 Phase 2 shell) primary navigation:
  * Farm · What Matters · Plan · Market · Finance
  * (`design/farm-spatial-v2/DESIGN_CONTRACT.md`;
  * `docs/farm-spatial-v2/IMPLEMENTATION_MAP.md` §2).
@@ -51,47 +56,40 @@ export interface NavItem {
  */
 export const primaryNavItems: NavItem[] = [
   { href: "/today", label: "Farm", icon: Map },
-  { href: "/what-matters", label: "What Matters", icon: Target, placeholderNote: "Coming soon — What matters now is on Farm" },
+  { href: "/what-matters", label: "What Matters", icon: Target },
   { href: "/plan", label: "Plan", icon: CalendarDays },
-  { href: "/quotes", label: "Market", icon: Store },
-  { href: "/finance", label: "Finance", icon: BarChart3 },
+  { href: "/cattle", label: "Cattle", icon: Beef },
+  { href: "/records", label: "Records", icon: Folder },
 ];
 
-/**
- * Every screen this app already had before the v1.1 nav cutover, still
- * fully reachable — `CLAUDE.md`'s "never remove an approved screen
- * element or feature without explicit instruction" applied to this
- * checkpoint's own restructure. Not deleted, not merged away: relocated
- * under "More" (§4's own reference image shows this exact fifth slot),
- * since Today/Farm/Plan/Records now carry the primary IA these used to.
- */
 export const moreNavItems: NavItem[] = [
   { href: "/fields", label: "Fields", icon: Map },
-  { href: "/supports", label: "Supports", icon: HandCoins },
-  { href: "/records", label: "Records", icon: Folder },
-  { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/soil", label: "Soil", icon: Sprout },
-  // Pilot Integration P3 (DECISIONS D14) — Cattle is the one cattle
-  // destination (herd → group → animal → plan). The former Livestock screen's
-  // group/animal management lives under Cattle → Manage herd
-  // (`/cattle/manage`); `/livestock` redirects there.
-  { href: "/cattle", label: "Cattle", icon: Beef },
-  { href: "/silage", label: "Silage & Fields", icon: Wheat },
-  // Fertiliser Overview and Stock Visuals campaign — the new farm-wide
-  // landing page takes over the "Fertiliser Plan" label; the existing
-  // per-field detailed plan (soil, NAP compliance, organic offset, "Plan
-  // this application") is unchanged and fully reachable, just relabelled
-  // here so the two aren't confused for the same screen (CLAUDE.md: never
-  // remove an approved screen without explicit instruction — this only
-  // relocates a nav label, `/nutrients` itself is untouched).
+  // Fertiliser Overview and Stock Visuals campaign — the farm-wide landing
+  // page carries the "Fertiliser Plan" label; the per-field detailed plan
+  // (`/nutrients`) is relabelled so the two aren't confused.
   { href: "/fertiliser-plan", label: "Fertiliser Plan", icon: FlaskConical },
   { href: "/nutrients", label: "Field Nutrient Plan", icon: FlaskConical },
   { href: "/spreading", label: "Spreading", icon: Tractor },
-  { href: "/feed-optimiser", label: "Feed Optimiser", icon: Gauge },
-  { href: "/input-planner", label: "Input Planner", icon: Package },
+  { href: "/supports", label: "Supports", icon: HandCoins },
+  { href: "/quotes", label: "Market", icon: Store },
   { href: "/market-prices", label: "Market Prices", icon: LineChart },
   { href: "/reports", label: "Reports", icon: ClipboardList },
   { href: "/settings", label: "Settings", icon: Settings },
+];
+
+/**
+ * Pilot Integration P4 (DECISIONS D15) — screens kept and reachable by URL (and from in-app links) but not advertised
+ * in the pilot navigation, because they are outside the pilot or not finished for a signed-in farm: Finance (full
+ * profitability isn't in the pilot), Dashboard (superseded by Farm), Silage (demo plan only), Feed Optimiser and Input
+ * Planner. Nothing is deleted.
+ */
+export const pilotHiddenNavItems: NavItem[] = [
+  { href: "/finance", label: "Finance", icon: BarChart3 },
+  { href: "/dashboard", label: "Dashboard", icon: Home },
+  { href: "/silage", label: "Silage & Fields", icon: Wheat },
+  { href: "/feed-optimiser", label: "Feed Optimiser", icon: Gauge },
+  { href: "/input-planner", label: "Input Planner", icon: Package },
 ];
 
 /** Mobile bottom nav — the four primary items plus one "More" slot (not a

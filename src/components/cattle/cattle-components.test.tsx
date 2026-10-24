@@ -13,7 +13,7 @@ import { demoAnimalView, demoHerdView, demoProjection } from "@/server/cattle-de
 import { AnimalPlanScreen } from "./AnimalPlanScreen";
 import { AnimalProfileScreen } from "./AnimalProfileScreen";
 import { CattleUnavailable } from "./CattleUnavailable";
-import { moreNavItems } from "@/components/shell/nav-items";
+import { moreNavItems, primaryNavItems } from "@/components/shell/nav-items";
 import { GroupScreen, HerdScreen } from "./HerdScreens";
 import { PerformanceChart } from "./PerformanceChart";
 import { RecordWeightSheet } from "./RecordWeightSheet";
@@ -406,7 +406,8 @@ describe("C10 screens", { timeout: 60_000 }, () => {
   });
 
   it("navigation: Cattle is the one cattle destination (Pilot P3: the Livestock entry is folded into Cattle → Manage herd)", () => {
-    expect(moreNavItems.find((i) => i.href === "/cattle")?.label).toBe("Cattle");
-    expect(moreNavItems.some((i) => i.href.startsWith("/livestock"))).toBe(false);
+    const all = [...primaryNavItems, ...moreNavItems];
+    expect(all.filter((i) => i.href === "/cattle").map((i) => i.label)).toEqual(["Cattle"]);
+    expect(all.some((i) => i.href.startsWith("/livestock"))).toBe(false);
   });
 });

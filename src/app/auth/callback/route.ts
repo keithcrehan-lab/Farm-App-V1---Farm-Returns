@@ -11,11 +11,12 @@
  */
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { HOME_ROUTE } from "@/lib/home-route";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/dashboard";
+  const next = searchParams.get("next") ?? HOME_ROUTE;
 
   if (code) {
     const supabase = await createClient();

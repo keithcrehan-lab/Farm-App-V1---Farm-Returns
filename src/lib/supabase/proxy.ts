@@ -15,6 +15,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isSupabaseConfigured } from "./env";
+import { HOME_ROUTE } from "@/lib/home-route";
 
 /** Routes reachable without a signed-in farmer. */
 const PUBLIC_PATHS = [
@@ -75,7 +76,7 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   }
 
   if (user && (pathname === "/sign-in" || pathname === "/sign-up")) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return NextResponse.redirect(new URL(HOME_ROUTE, request.url));
   }
 
   return response;

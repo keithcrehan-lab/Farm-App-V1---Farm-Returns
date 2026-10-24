@@ -181,19 +181,19 @@ describe("FarmObjectRail", () => {
   });
 });
 
-describe("Farm Spatial V2 primary navigation", () => {
-  it("is Farm · What Matters · Plan · Market · Finance, with Farm on the map-led screen", () => {
-    expect(primaryNavItems.map((i) => i.label)).toEqual(["Farm", "What Matters", "Plan", "Market", "Finance"]);
-    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/what-matters", "/plan", "/quotes", "/finance"]);
+describe("Pilot primary navigation (Pilot Integration P4, D15)", () => {
+  it("is Farm · What Matters · Plan · Cattle · Records, with Farm on the map-led screen", () => {
+    expect(primaryNavItems.map((i) => i.label)).toEqual(["Farm", "What Matters", "Plan", "Cattle", "Records"]);
+    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/what-matters", "/plan", "/cattle", "/records"]);
   });
 
-  it("marks What Matters as a placeholder (no route exists) and every other item as a real destination", () => {
-    expect(primaryNavItems.filter((i) => i.placeholderNote).map((i) => i.label)).toEqual(["What Matters"]);
+  it("has no placeholder destinations: What Matters is a real screen now", () => {
+    expect(primaryNavItems.filter((i) => i.placeholderNote)).toEqual([]);
   });
 
-  it("keeps every previously primary screen reachable under More, without duplicating a primary item", () => {
+  it("keeps the pilot screens under More, without duplicating a primary item", () => {
     const moreHrefs = moreNavItems.map((i) => i.href);
-    for (const href of ["/fields", "/supports", "/records", "/dashboard", "/market-prices", "/nutrients", "/fertiliser-plan"]) {
+    for (const href of ["/fields", "/soil", "/supports", "/quotes", "/market-prices", "/nutrients", "/fertiliser-plan", "/spreading", "/reports", "/settings"]) {
       expect(moreHrefs).toContain(href);
     }
     for (const item of primaryNavItems) expect(moreHrefs).not.toContain(item.href);

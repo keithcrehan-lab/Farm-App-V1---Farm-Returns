@@ -23,6 +23,7 @@ import { redirect } from "next/navigation";
 import type { EnterpriseType, LivestockCategory } from "@/domain/types";
 import { createFarmForCurrentUser, markOnboardingComplete, updateFarmProfileForCurrentUser } from "@/lib/farm-data/farms";
 import { createLivestockGroup } from "@/lib/farm-data/livestock";
+import { HOME_ROUTE } from "@/lib/home-route";
 
 function errorResult(error: unknown): { error: string } {
   return { error: error instanceof Error ? error.message : "Something went wrong. Please try again." };
@@ -86,5 +87,5 @@ export async function addLivestockStep(
 
 export async function finishOnboarding(farmId: string): Promise<never> {
   await markOnboardingComplete(farmId);
-  redirect("/dashboard");
+  redirect(HOME_ROUTE);
 }

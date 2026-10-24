@@ -532,3 +532,32 @@ describe("evaluateWhatMattersPilot — Campaign A evidence wiring", () => {
     expect(plan.organicApplication.dmPctEvidence).toMatchObject({ status: "verified", compositionRecordId: "comp-1" });
   });
 });
+
+describe("evaluateWhatMattersPilot — evidence summary (Pilot Integration P4)", () => {
+  it("says every canonical fertiliser price is unavailable when no CSO price evidence is persisted (never a substitute price)", async () => {
+    mockFarmData([field("f1")], [allocation("f1", 200)]);
+    mockNoPrices();
+    const outcome = await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+    if (outcome.status !== "ok") throw new Error("expected ok");
+    expect(outcome.evidence).toEqual({
+      fertiliserPrices: [
+        { product: "0-7-30", state: "UNAVAILABLE" },
+        { product: "18-6-12", state: "UNAVAILABLE" },
+        { product: "Protected Urea", state: "UNAVAILABLE" },
+      ],
+    });
+  });
+
+  it("reports the real resolved series and period for each product when CSO evidence is persisted, also with no slurry candidate", async () => {
+    mockFarmData([field("f1")], []);
+    mockRealPrices();
+    const outcome = await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+    if (outcome.status !== "ok") throw new Error("expected ok");
+    expect(outcome.result.kind).toBe("none");
+    expect(outcome.evidence?.fertiliserPrices).toEqual([
+      { product: "0-7-30", state: "AVAILABLE", referencePeriod: "2026-07", sourceSeriesLabel: "Compound 0-7-30" },
+      { product: "18-6-12", state: "AVAILABLE", referencePeriod: "2026-07", sourceSeriesLabel: "Compound 18-6-12" },
+      { product: "Protected Urea", state: "AVAILABLE", referencePeriod: "2026-07", sourceSeriesLabel: "Urea (46% N)" },
+    ]);
+  });
+});

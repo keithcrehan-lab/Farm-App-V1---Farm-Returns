@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
+import { HOME_ROUTE } from "@/lib/home-route";
 
 export default function RootPage() {
-  redirect("/dashboard");
+  redirect(HOME_ROUTE);
 }

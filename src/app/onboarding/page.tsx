@@ -4,6 +4,7 @@ import { getOnboardingStatusForCurrentUser } from "@/lib/farm-data/farms";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { createClient } from "@/lib/supabase/server";
 import { OnboardingWizard } from "./OnboardingWizard";
+import { HOME_ROUTE } from "@/lib/home-route";
 
 /**
  * Real Mode Completion Phase 2/3 — real resumability, not just a redirect.
@@ -33,7 +34,7 @@ export default async function OnboardingPage() {
     const status = await getOnboardingStatusForCurrentUser();
 
     if (status?.completed) {
-      redirect("/dashboard");
+      redirect(HOME_ROUTE);
     }
 
     if (status && !status.completed) {

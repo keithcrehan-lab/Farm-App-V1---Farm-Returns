@@ -228,7 +228,19 @@
       "build_state_key": "c10_cattle_ux",
       "scope_guard": ["src/app/(app)/cattle", "src/components/cattle", "src/domain/cattle/presentation", "src/domain/animal-plan", "src/server/cattle-demo"],
       "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "src/domain/cattle/index.ts", "src/components/shell/nav-items.ts", "src/components/shell/nav-items.test.ts", "src/components/shell/nav-items.test.tsx"],
-      "policy": {"medium_rounds": 2, "high_rounds": 2, "attempts_per_signature": 2}
+      "policy": {"medium_rounds": 2, "high_rounds": 2, "attempts_per_signature": 2},
+      "manual_adoption": {
+        "authorisation": "Human-authorised 2026-10-24 (\"C10 Adoption, Freeze and Campaign Closure\"): adopt hand-built C10 at 510f003 under TIER2_APPLICATION; record C10_MANUAL_ADOPTION.md",
+        "assurance_standard": "TIER2_APPLICATION",
+        "phase_base_sha": "6e81831e60d902359ae8370a223960955fd45766",
+        "functional_freeze_sha": "510f003ef252f6eff83f78ffd7617de2e8858a58",
+        "evidence_head": "9d03bbad0ebb494fe0c7de0d58302f5d9899bc63",
+        "full_suite": {"gate_id": "quality-20261024T090919Z-98651", "attestation": ".agent/campaigns/cattle-engine-v1/adoption/C10-gate-quality-20261024T090919Z-98651.txt", "attestation_sha256": "f78bf783613f6e3f03ef2ddaab045b0e3710e15d612df4a9fa9841623eb2df4c"},
+        "baseline_audit": {"artifact": ".agent/campaigns/cattle-engine-v1/audits/audit-20261023T184003Z-94767.md", "sha256": "91253c8723b164fad56962afb7b2346c02d0c07a7c6f47202c679913c07a3c4c"},
+        "closure_audit": {"artifact": ".agent/campaigns/cattle-engine-v1/audits/audit-20261024T103926Z-13552.md", "sha256": "4afad47c6bb9672108c2c70301ce20af3e34f65f4e2f97acbab1cd3014366892"},
+        "resolved_closure_findings": [{"id": "F020", "severity": "MEDIUM", "remediation_commit": "4bb4dc5ca0473bd8997ed8ec1f9000564f88fce9", "record": ".agent/campaigns/cattle-engine-v1/C10_CLOSURE_13552_M1_REMEDIATION.md", "record_sha256": "7405610ca702ec217ba4c1528e21350f221e6353688cf77a3d37821e0680abda"}],
+        "adoption_record": {"path": ".agent/campaigns/cattle-engine-v1/C10_MANUAL_ADOPTION.md", "sha256": "3098df54238aa82a2f49c410ed5c1c0b872df54b088666c9b7d6fe3f22d4a01d"}
+      }
     }
   ]
 }

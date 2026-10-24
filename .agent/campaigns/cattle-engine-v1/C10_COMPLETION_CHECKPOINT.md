@@ -4,14 +4,15 @@ Updated at every stage of the C10 autonomous completion run (brief: "FARM RETURN
 
 | | |
 |---|---|
-| Stage | 10 — bounded closure audit `audit-20261024T103926Z-13552` of `5aa207d..2fb2d20` = 0C/0H/1M (test coverage only); M1 repaired test-only in `4bb4dc5`. READY_FOR_C10_ADOPTION_AND_FREEZE (separately authorised). |
-| HEAD at checkpoint | this docs commit on top of `4bb4dc5` |
-| Last implementation candidate | `510f003` |
+| Stage | 11 — C10 MANUALLY ADOPTED and FROZEN at `510f003` (TIER2_APPLICATION, separately authorised); cattle-engine-v1 CLOSED. Record `C10_MANUAL_ADOPTION.md`; receipt `receipts/C10.json` (origin `manual-adopted`, written by `scripts/agent-campaign-run --adopt C10`). |
+| HEAD at checkpoint | the adoption authorisation commit; the runner's adoption record commit follows it |
+| Frozen production SHA | `510f003` (test remediation `4bb4dc5`; pre-adoption evidence `9d03bba`) |
 | Working tree | clean |
 | Pushed | never |
-| C10 receipt / frozen | no / no |
+| C10 receipt / frozen | yes (manual-adopted) / yes |
 
 ## Completed
+- Adoption: runner `--adopt` mechanism (manual-adopted receipts, final-phase-only manifest pin, recomputed evidence); C10 pin + record + gate attestation; receipt written by the runner. Codex not used.
 - `4bb4dc5`: closure audit 13552 M1 — rendered several-target / mixed-result F020 tests (test only; production `510f003` unchanged) — `C10_CLOSURE_13552_M1_REMEDIATION.md`; evidence `audits/audit-20261024T103926Z-13552.*`. Codex not used.
 - `510f003`: audit 94767 repair — F019 retained jobs reconciled each run (current blockers/priority, PROPOSED/NOT_PROPOSED/UNAVAILABLE), F001 origin kept; F020 "Why this result?" beside the performance verdict — report `C10_AUDIT_94767_REPAIR_REPORT.md`; evidence `audits/audit-20261023T184003Z-94767.*`. Codex not used.
 - `512cab8`: audit 76481 F001 repair — a Plan job keeps the evidence it was raised on (origin captured at creation, C8 record bound by pack id, current state reported separately) — report `C10_AUDIT_76481_REPAIR_REPORT.md`; evidence `audits/audit-20261023T133302Z-76481.*`.
@@ -41,6 +42,9 @@ Result: `audits/claude-audit-20261022-1.md` (verbatim report), `.status.md`, `.p
 A fresh read-only Claude subagent audits the full C10 delta `6e81831..8148e35` from detached worktree `scratchpad/claude-audit-8148e35`. This is an independent CLAUDE audit — not the Codex strict audit the runner requires (`scripts/agent-campaign-run` checks the auditor line `auditor: codex …`). Report to be preserved as `audits/claude-audit-20261022-<n>.md`.
 
 ## Next exact action
+None in this campaign — cattle-engine-v1 is closed (C0–C10 frozen; no C11). Pilot Integration (real `/livestock` data and persistence) is a separate programme, not started.
+
+Superseded:
 C10 adoption and freeze of production candidate `510f003` (tests through `4bb4dc5`) — separately authorised; no further audit.
 
 Superseded:

@@ -1,0 +1,17 @@
+HEAD 510f003ef252f6eff83f78ffd7617de2e8858a58
+QUALITY_GATE pass — tests pass, typecheck pass, lint pass, build pass — logs: .agent/history/quality-20261024T090919Z-98651
+EXIT 0
+HEAD_AFTER 510f003ef252f6eff83f78ffd7617de2e8858a58
+       0
+
+# Gate wrapper record above, verbatim: HEAD before the gate, the gate's QUALITY_GATE line, its exit status,
+# HEAD after the gate and the count of uncommitted paths afterwards. Command:
+#   (echo "HEAD $(git rev-parse HEAD)"; caffeinate -i scripts/quality-gate.sh 2>&1 | tail -3; echo "EXIT ${pipestatus[1]}";
+#    echo "HEAD_AFTER $(git rev-parse HEAD)"; git status --porcelain | wc -l)
+# Local gate logs (.agent/history is git-ignored; digests bind them):
+#   77254002e6fb783e2eed0fa1fc97147ba4c94989d175da7ba133d925f0b50505  .agent/history/quality-20261024T090919Z-98651/test.log
+#   5c58ef45ca64b06789038c4f0e8e64c1405868fa7dab201ba7289f3c3dacf8f8  .agent/history/quality-20261024T090919Z-98651/typecheck.log
+#   40d0f54d502e10b0458e696d61ce3f52c1993064adb4c5eba65565fd2e587770  .agent/history/quality-20261024T090919Z-98651/lint.log
+#   317c0d49c9f69cbaed48b67be01e845cd5f0e94810b0521e6f62fe58e01b7aab  .agent/history/quality-20261024T090919Z-98651/build.log
+# test.log: Test Files 320 passed (320) · Tests 6233 passed (6233)
+# lint.log: ✖ 2 problems (0 errors, 2 warnings) — both in frozen C8 src/domain/cattle/recommendations/recommendation-engine.ts (pre-existing)

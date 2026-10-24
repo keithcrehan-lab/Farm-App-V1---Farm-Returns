@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 vi.mock("@/lib/farm-data/cattle-source", () => ({ readCattleSourceForCurrentFarm: vi.fn() }));
+vi.mock("next/navigation", async (importOriginal) => ({ ...(await importOriginal<typeof import("next/navigation")>()), useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/lib/supabase/env", () => ({ isSupabaseConfigured: vi.fn(() => true), requireSupabaseEnv: vi.fn() }));
 
 import type { LivestockGroup } from "@/domain/types";
@@ -395,7 +396,7 @@ describe("Pilot P1 — real screens", () => {
     expect(document.body.textContent).not.toMatch(/\b0 animals\b/);
   });
 
-  it("16: the real animal route renders the profile from real-shaped records, read-only", async () => {
+  it("16: the real animal route renders the profile from real-shaped records (P2: Record Weight is the only write)", async () => {
     const page = await CattleAnimalPage({ params: Promise.resolve({ tag: A1 }), searchParams: Promise.resolve({}) });
     render(page);
     expect(screen.getByRole("heading", { name: "IE 372 1234" })).toBeInTheDocument();
@@ -403,8 +404,8 @@ describe("Pilot P1 — real screens", () => {
     expect(screen.getAllByText(/Method not recorded/).length).toBeGreaterThan(0);
     expect(screen.getByText(/aren't kept in Farm Return yet, so withdrawal/)).toBeInTheDocument();
     expect(screen.getByText(/costs are unknown — not €0/)).toBeInTheDocument();
-    // P1 persists nothing: no Record Weight, plan, goal or photo control, no demo copy.
-    expect(screen.queryByRole("button", { name: /Record a weight|Record weight/ })).toBeNull();
+    // P2: Record Weight is the one real write; no plan, goal or photo control, no demo copy.
+    expect(screen.getByRole("button", { name: "Record a weight" })).toBeInTheDocument();
     expect(screen.queryByText(/Plan this animal to sale|View animal plan/)).toBeNull();
     expect(screen.queryByRole("heading", { name: "Photos" })).toBeNull();
     expect(screen.getByText(/isn't available/)).toBeInTheDocument();
@@ -440,12 +441,12 @@ describe("Pilot P1 — real screens", () => {
 
   it("the real profile screen component shows the real notice and footer", () => {
     render(<RealAnimalProfileScreen view={realAnimalView(evaluated(), A4)!} />);
-    expect(screen.getByText(/your farm's records \(read-only\)/)).toBeInTheDocument();
+    expect(screen.getByText(/· your farm's records$/)).toBeInTheDocument();
     expect(document.querySelector('[data-cattle-mode="REAL"]')).not.toBeNull();
   });
 
   it("the real herd screen component renders without the demonstration session provider", () => {
     render(<RealHerdScreen view={realHerdView(evaluated())} />);
-    expect(screen.getByText(/read-only here for now/)).toBeInTheDocument();
+    expect(screen.getByText(/You can record an animal's weight here/)).toBeInTheDocument();
   });
 });

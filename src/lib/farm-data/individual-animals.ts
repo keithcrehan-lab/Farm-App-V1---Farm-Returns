@@ -142,3 +142,52 @@ export async function getWeightObservationById(farmId: string, observationId: st
 
   return data ? rowToWeightObservation(data as WeightObservationRow) : null;
 }
+
+/**
+ * Pilot Integration P2 — a farm-scoped single-animal lookup (`id` AND `farm_id`, under RLS): the cattle Record
+ * Weight action checks the animal is the signed-in farm's before writing. Another farm's id and an unknown id give
+ * the same `null` — the response never says whether an id exists elsewhere.
+ */
+export async function getIndividualAnimalForFarm(farmId: string, animalId: string): Promise<IndividualAnimal | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("livestock_individuals").select("*").eq("farm_id", farmId).eq("id", animalId).maybeSingle();
+  if (error) throw error;
+  return data ? rowToIndividualAnimal(data as LivestockIndividualRow) : null;
+}
+
+export type IdempotentWeightResult =
+  | { state: "CREATED"; observation: WeightObservation }
+  /** The same submission arrived again (double click, network or action retry): the row it already created. */
+  | { state: "REPLAYED"; observation: WeightObservation }
+  /** The id is already used by a row with different content (or one this farm can't see): nothing is written. */
+  | { state: "CONFLICT" };
+
+/**
+ * Pilot Integration P2 (DECISIONS D13) — the same insert as `addWeightObservation`, made retry-safe by a
+ * client-generated row `id` (the repository's offline-first idempotency-key pattern: `insertSoilCoreObservation`,
+ * `insertJobSession`). A repeat of the same submission hits the primary key (`23505`) and returns the row it
+ * created; the same id with different content, or an id this farm can't see, is a CONFLICT — never a silent
+ * overwrite and never a second row. Same-farm integrity stays with RLS and the `*_check_same_farm` trigger.
+ */
+export async function addWeightObservationIdempotent(input: {
+  id: string;
+  farmId: string;
+  animalId: string;
+  weightKg: number;
+  observedDate: string;
+  source: string;
+}): Promise<IdempotentWeightResult> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("livestock_weight_observations")
+    .insert({ id: input.id, farm_id: input.farmId, animal_id: input.animalId, weight_kg: input.weightKg, observed_date: input.observedDate, source: input.source })
+    .select("*")
+    .single();
+  if (!error) return { state: "CREATED", observation: rowToWeightObservation(data as WeightObservationRow) };
+  if (error.code !== "23505") throw error;
+  const existing = await getWeightObservationById(input.farmId, input.id);
+  if (existing && existing.animalId === input.animalId && existing.weightKg === input.weightKg && existing.observedDate === input.observedDate && existing.source === input.source) {
+    return { state: "REPLAYED", observation: existing };
+  }
+  return { state: "CONFLICT" };
+}

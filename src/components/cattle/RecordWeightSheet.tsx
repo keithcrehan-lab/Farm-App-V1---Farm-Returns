@@ -25,6 +25,23 @@ export interface RecordWeightValue {
   observedDate: string | null;
 }
 
+/** The sheet's words. The demonstration's are below; a signed-in farm's come from the real service. */
+export interface RecordWeightCopy {
+  label: string;
+  /** How the weight is recorded (method), stated before saving. */
+  methodLine: string;
+  /** What a back-dated weight does, or `null` when there's nothing extra to say. */
+  earlierNote: string | null;
+  footer: string;
+}
+
+const DEMO_COPY: RecordWeightCopy = {
+  label: "Scale reading",
+  methodLine: "Recorded as a scale weighing.",
+  earlierNote: "A back-dated weight is added to the history but doesn't close today's \u201cRecord weight\u201d job \u2014 only a weight taken now does.",
+  footer: "Demonstration: saved to this browser session only, then recalculated by the cattle engine.",
+};
+
 export function RecordWeightSheet({
   open,
   onClose,
@@ -32,20 +49,24 @@ export function RecordWeightSheet({
   tag,
   previous,
   asOfDate,
+  copy = DEMO_COPY,
 }: {
   open: boolean;
   onClose: () => void;
-  /** Returns null when the weight was accepted, or a message when it was refused (the sheet stays open). */
-  onSave: (v: RecordWeightValue) => string | null;
+  /** Resolves to null when the weight was accepted, or a message when it was refused (the sheet stays open, the reading kept). */
+  onSave: (v: RecordWeightValue) => string | null | Promise<string | null>;
   tag: string;
   previous: LatestWeightVM;
   asOfDate: string;
+  copy?: RecordWeightCopy;
 }) {
   const start = weightEntryStart(previous);
   const [text, setText] = useState(start.initialText);
   const [when, setWhen] = useState<"TODAY" | "EARLIER">("TODAY");
   const [date, setDate] = useState("");
   const [refused, setRefused] = useState<string | null>(null);
+  // One save at a time: a second press while the first is in flight does nothing (the server is idempotent too).
+  const [saving, setSaving] = useState(false);
   const read = parseNumericInput(text, NUMERIC_FIELDS.WEIGHT_KG);
   const kg = numericInputValue(read);
   const dateValid = when === "TODAY" || (/^\d{4}-\d{2}-\d{2}$/.test(date) && date < asOfDate);
@@ -63,11 +84,25 @@ export function RecordWeightSheet({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (kg !== null && dateValid) setRefused(onSave({ kg, observedDate: when === "TODAY" ? null : date }));
+          if (kg === null || !dateValid || saving) return;
+          const result = onSave({ kg, observedDate: when === "TODAY" ? null : date });
+          if (!(result instanceof Promise)) return setRefused(result);
+          setSaving(true);
+          setRefused(null);
+          result.then(
+            (r) => {
+              setSaving(false);
+              setRefused(r);
+            },
+            () => {
+              setSaving(false);
+              setRefused("The weight couldn\u2019t be saved. Try again.");
+            },
+          );
         }}
       >
         <label htmlFor="cattle-weight-kg" className="text-sm text-fr-v2-muted">
-          Scale reading
+          {copy.label}
         </label>
         <div className="mt-1 flex items-center gap-2">
           <button type="button" onClick={() => step("-5")} className="min-h-14 min-w-14 rounded-[8px] border border-fr-v2-rule text-lg font-medium text-fr-v2-graphite" aria-label="Minus 5 kilograms">
@@ -100,7 +135,7 @@ export function RecordWeightSheet({
           <span data-previous-weight={previous.state} className={line.tone === "conflict" ? "text-fr-v2-clay" : undefined}>
             {line.text}
           </span>{" "}
-          Recorded as a scale weighing.
+          {copy.methodLine}
         </p>
 
         <fieldset className="mt-5">
@@ -124,7 +159,7 @@ export function RecordWeightSheet({
                 Date weighed
               </label>
               <input id="cattle-weight-date" type="date" max={asOfDate} value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 h-12 w-full rounded-[8px] border border-fr-v2-rule bg-white px-3 text-base" />
-              <p className="mt-1.5 text-sm text-fr-v2-harvest-ink">A back-dated weight is added to the history but doesn&apos;t close today&apos;s &ldquo;Record weight&rdquo; job — only a weight taken now does.</p>
+              {copy.earlierNote ? <p className="mt-1.5 text-sm text-fr-v2-harvest-ink">{copy.earlierNote}</p> : null}
             </div>
           ) : null}
         </fieldset>
@@ -138,11 +173,11 @@ export function RecordWeightSheet({
           <button type="button" onClick={onClose} className="min-h-12 rounded-[8px] px-4 text-base font-medium text-fr-v2-graphite">
             Cancel
           </button>
-          <button type="submit" disabled={kg === null || !dateValid} className="min-h-12 flex-1 rounded-[8px] bg-fr-v2-forest text-base font-semibold text-white disabled:opacity-40">
-            Save weight
+          <button type="submit" disabled={kg === null || !dateValid || saving} aria-busy={saving} className="min-h-12 flex-1 rounded-[8px] bg-fr-v2-forest text-base font-semibold text-white disabled:opacity-40">
+            {saving ? "Saving\u2026" : "Save weight"}
           </button>
         </div>
-        <p className="mt-3 text-[12px] text-fr-v2-muted">Demonstration: saved to this browser session only, then recalculated by the cattle engine.</p>
+        <p className="mt-3 text-[12px] text-fr-v2-muted">{copy.footer}</p>
       </form>
     </Sheet>
   );

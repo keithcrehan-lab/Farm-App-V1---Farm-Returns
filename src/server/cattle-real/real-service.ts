@@ -37,6 +37,7 @@ import {
 import { readCattleSourceForCurrentFarm } from "@/lib/farm-data/cattle-source";
 import { reconcileJobs } from "@/server/cattle-plan/plan-jobs";
 import { realCattleRecords, type RealCattleRecords, type RealRecordsInput } from "./real-records";
+import { irelandCalendarDate } from "./record-weight";
 
 type Rec = Record<string, unknown>;
 
@@ -51,7 +52,7 @@ export function requestViewpoint(now: Date): CattleViewpoint {
 
 /** Real-mode explanations of the parts Farm Return keeps no record of (screen copy decided here, not in components). */
 export const REAL_NOTES = {
-  readOnly: "Your farm's own records, read-only here for now. Add animals and weights on Livestock.",
+  readOnly: "Your farm's own records. You can record an animal's weight here; add animals on Livestock.",
   method: "Weights from Livestock don't record how they were taken, so each shows its method as not recorded.",
   health: "Health and medicine records aren't kept in Farm Return yet, so withdrawal and treatment status are unknown here.",
   costs: "Animal costs aren't kept in Farm Return yet, so this animal's costs are unknown — not €0.",
@@ -93,9 +94,22 @@ export interface RealHerdView {
   extras: RealHerdExtras;
 }
 
+/** The real Record Weight sheet's words (P2): no method is asked for or claimed (D12). */
+export const REAL_RECORD_WEIGHT_COPY = {
+  label: "Weight",
+  methodLine: "How it was weighed isn't recorded in Farm Return yet, so it's saved with the method not recorded.",
+  earlierNote: "A weight for an earlier day goes into the history at that date.",
+  footer: "Saved to your farm's records; the cattle engine then recalculates this animal from them.",
+} as const;
+
 export interface RealAnimalView {
   profile: AnimalProfileVM;
   notes: typeof REAL_NOTES;
+  recordWeight: {
+    /** The farmer's calendar date (Ireland) at the view's viewpoint: "Now" records this date; no later date is accepted. */
+    today: string;
+    copy: typeof REAL_RECORD_WEIGHT_COPY;
+  };
 }
 
 export interface RealEvaluation {
@@ -213,7 +227,11 @@ export function realGroupRefs(e: RealEvaluation): Set<string> {
 /** `null`: the id is not one of this farm's readable animals (never says whether it exists elsewhere). */
 export function realAnimalView(e: RealEvaluation, animalId: string): RealAnimalView | null {
   if (!e.outputs.ledgers.some((l) => l.animalId === animalId)) return null;
-  return { profile: buildAnimalProfile(e.outputs, animalId, e.records.directory, NOT_SUPPLIED_COSTS), notes: REAL_NOTES };
+  return {
+    profile: buildAnimalProfile(e.outputs, animalId, e.records.directory, NOT_SUPPLIED_COSTS),
+    notes: REAL_NOTES,
+    recordWeight: { today: irelandCalendarDate(new Date(e.outputs.viewpoint.effectiveAt)), copy: REAL_RECORD_WEIGHT_COPY },
+  };
 }
 
 export type RealCattleLoad = { state: "OK"; evaluation: RealEvaluation } | { state: "NO_FARM" } | { state: "UNAVAILABLE" };

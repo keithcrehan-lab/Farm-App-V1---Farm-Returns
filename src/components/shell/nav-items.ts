@@ -71,9 +71,10 @@ export const moreNavItems: NavItem[] = [
   { href: "/records", label: "Records", icon: Folder },
   { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/soil", label: "Soil", icon: Sprout },
-  { href: "/livestock", label: "Livestock", icon: Beef },
-  // Cattle C10 — the canonical cattle reference experience (herd → animal →
-  // plan). Additive: Livestock above is unchanged.
+  // Pilot Integration P3 (DECISIONS D14) — Cattle is the one cattle
+  // destination (herd → group → animal → plan). The former Livestock screen's
+  // group/animal management lives under Cattle → Manage herd
+  // (`/cattle/manage`); `/livestock` redirects there.
   { href: "/cattle", label: "Cattle", icon: Beef },
   { href: "/silage", label: "Silage & Fields", icon: Wheat },
   // Fertiliser Overview and Stock Visuals campaign — the new farm-wide

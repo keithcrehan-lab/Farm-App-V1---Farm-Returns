@@ -247,10 +247,10 @@ function FarmObjectPanel({
         {objectId !== "sheep" ? (
           <p className="mt-3">
             <Link
-              href={objectId === "cattle" ? "/livestock" : "/housing"}
+              href={objectId === "cattle" ? "/cattle" : "/housing"}
               className="text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-forest/40 underline-offset-[3px] transition-colors duration-[160ms] hover:decoration-fr-v2-forest motion-reduce:transition-none"
             >
-              {objectId === "cattle" ? "Livestock" : "Housing"} →
+              {objectId === "cattle" ? "Cattle" : "Housing"} →
             </Link>
           </p>
         ) : null}

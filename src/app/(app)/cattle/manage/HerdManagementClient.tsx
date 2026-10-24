@@ -1,5 +1,12 @@
 "use client";
 
+/**
+ * Pilot Integration P3 — Cattle → Manage herd (`/cattle/manage`). This is the former Livestock screen's management UI,
+ * moved under Cattle unchanged in behaviour (DECISIONS D14): add a group, edit a group (name, headcount, weight, breed,
+ * system, housing link, finishing goal), the group value and economics cards, and add an individual animal. It writes
+ * through the existing livestock actions, which resolve the farm server-side; the herd itself, its animals and their
+ * weights are shown and recorded on Cattle. Real (signed-in) mode only: the demonstration herd has nothing to manage.
+ */
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Pencil, Plus, X } from "lucide-react";
@@ -8,14 +15,15 @@ import { Card } from "@/components/ui/Card";
 import { LivestockHeroCard } from "@/components/farm/LivestockHeroCard";
 import { LivestockGroupCard } from "@/components/farm/LivestockGroupCard";
 import { finishingOptionsForGroup } from "@/domain/livestock";
-import { IndividualAnimalsCard } from "@/components/farm/IndividualAnimalsCard";
+import { AddAnimalCard } from "@/components/farm/AddAnimalCard";
+import { BackLink } from "@/components/cattle/ui";
 import { useFarm, useFarmActions, useHousingList, useLivestockGroups } from "@/store/farm-store";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
-import type { IndividualAnimal, LivestockCategory, WeightObservation } from "@/domain/types";
+import type { LivestockCategory } from "@/domain/types";
 
 const LOCAL_TABS = ["Overview", "Groups"] as const;
-type Tab = (typeof LOCAL_TABS)[number];
+export type Tab = (typeof LOCAL_TABS)[number];
 
 const CATEGORY_LABEL: Record<LivestockCategory, string> = {
   suckler_cow: "Suckler cow",
@@ -29,20 +37,12 @@ const CATEGORY_LABEL: Record<LivestockCategory, string> = {
 };
 const CATEGORY_OPTIONS = Object.keys(CATEGORY_LABEL) as LivestockCategory[];
 
-export function LivestockPageClient({
-  farmId,
-  individualAnimals,
-  weightObservations,
-}: {
-  farmId: string | null;
-  individualAnimals: IndividualAnimal[];
-  weightObservations: WeightObservation[];
-}) {
+export function HerdManagementClient({ farmId, initialTab }: { farmId: string; initialTab: Tab }) {
   const farm = useFarm();
   const livestockGroups = useLivestockGroups();
   const housingList = useHousingList();
   const { addLivestockGroup } = useFarmActions();
-  const [tab, setTab] = useState<Tab>("Overview");
+  const [tab, setTab] = useState<Tab>(initialTab);
 
   const [addOpen, setAddOpen] = useState(false);
   const [newLabel, setNewLabel] = useState("");
@@ -78,8 +78,9 @@ export function LivestockPageClient({
 
   return (
     <>
-      <PageHeader title="Livestock" subtitle="Animal groups, numbers, weight/value and housing link" />
-      <h1 className="mb-3 text-title text-fr-ink-900 lg:hidden">Livestock</h1>
+      <BackLink href="/cattle" label="Cattle" />
+      <PageHeader title="Manage herd" subtitle="Groups, headcounts, housing links and new animals — the same records Cattle shows" />
+      <h1 className="mb-3 text-title text-fr-ink-900 lg:hidden">Manage herd</h1>
 
       <div className="mb-4 flex gap-5 border-b border-fr-border">
         {LOCAL_TABS.map((t) => (
@@ -119,14 +120,7 @@ export function LivestockPageClient({
             ))}
           </div>
 
-          {farmId ? (
-            <IndividualAnimalsCard
-              farmId={farmId}
-              groups={livestockGroups}
-              animals={individualAnimals}
-              weightObservations={weightObservations}
-            />
-          ) : null}
+          <AddAnimalCard farmId={farmId} groups={livestockGroups} />
 
           {addOpen ? (
             <Card className="p-4">
@@ -384,7 +378,7 @@ function GroupsTab({
                     </select>
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-xs text-fr-ink-600">Goal</span>
+                    <span className="mb-1 block text-xs text-fr-ink-600">Finishing goal (group economics)</span>
                     <select
                       value={goal}
                       onChange={(e) => setGoal(e.target.value)}

@@ -232,7 +232,7 @@ describe("Pilot P1 — real records through the frozen cattle stack", () => {
   it("8: a headcount-only group keeps its headcount and is never '0 animals'", () => {
     const e = evaluated();
     const { extras, herd } = realHerdView(e);
-    expect(extras.headcountGroups).toEqual([{ groupRef: G_SUCKLERS, name: "Sucklers", summary: "40 head on Livestock · individual animals not recorded" }]);
+    expect(extras.headcountGroups).toEqual([{ groupRef: G_SUCKLERS, name: "Sucklers", summary: "40 head recorded for the group · individual animals not recorded" }]);
     const groups = herd.groups.state === "ITEMS" ? herd.groups.items : [];
     expect(groups.some((g) => g.groupRef === G_SUCKLERS)).toBe(false);
     expect(JSON.stringify(extras)).not.toMatch(/\b0 animals\b/);
@@ -240,7 +240,7 @@ describe("Pilot P1 — real records through the frozen cattle stack", () => {
     expect(extras.headcountNotes).toEqual([]);
     const more = farmA();
     more.groups[0] = group(G_BULLOCKS, FARM_A, "Bullocks", 25);
-    expect(realHerdView(evaluated(more)).extras.headcountNotes).toEqual([{ groupRef: G_BULLOCKS, text: "Livestock records 25 head in this group; 3 are recorded individually." }]);
+    expect(realHerdView(evaluated(more)).extras.headcountNotes).toEqual([{ groupRef: G_BULLOCKS, text: "The group's headcount is 25; 3 are recorded individually." }]);
   });
 
   it("10/12: no SYNTH id, demonstration label, fixture price, cost, target or programme reaches the real view", () => {
@@ -373,7 +373,7 @@ describe("Pilot P1 — real screens", () => {
     expect(screen.getByText(/5 animals in 2 groups/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Bullocks/ })).toHaveAttribute("href", `/cattle/groups/${G_BULLOCKS}`);
     expect(screen.getByText("Sucklers")).toBeInTheDocument();
-    expect(screen.getByText("40 head on Livestock · individual animals not recorded")).toBeInTheDocument();
+    expect(screen.getByText("40 head recorded for the group · individual animals not recorded")).toBeInTheDocument();
     const ungrouped = screen.getByRole("heading", { name: "Not in a group" }).closest("section")!;
     expect(within(ungrouped).getByRole("link")).toHaveAttribute("href", `/cattle/animals/${A5}`);
     expect(document.body.textContent).not.toMatch(FIXTURE_MARKERS);
@@ -392,7 +392,7 @@ describe("Pilot P1 — real screens", () => {
   it("8: the headcount-only group's route says individual animals aren't recorded — not '0 animals'", async () => {
     render(<RealGroupScreen view={realHerdView(evaluated())} groupRef={G_SUCKLERS} />);
     expect(screen.getByRole("heading", { name: "Sucklers" })).toBeInTheDocument();
-    expect(screen.getByText("40 head on Livestock · individual animals not recorded")).toBeInTheDocument();
+    expect(screen.getByText("40 head recorded for the group · individual animals not recorded")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/\b0 animals\b/);
   });
 
@@ -447,6 +447,6 @@ describe("Pilot P1 — real screens", () => {
 
   it("the real herd screen component renders without the demonstration session provider", () => {
     render(<RealHerdScreen view={realHerdView(evaluated())} />);
-    expect(screen.getByText(/You can record an animal's weight here/)).toBeInTheDocument();
+    expect(screen.getByText(/Record a weight on an animal's page; add or change groups and animals in Manage herd/)).toBeInTheDocument();
   });
 });

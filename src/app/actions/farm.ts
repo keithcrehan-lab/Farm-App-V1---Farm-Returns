@@ -30,10 +30,10 @@ import {
   updateFieldWaterBufferContext as updateFieldWaterBufferContextRow,
 } from "@/lib/farm-data/fields";
 import { addSoilTestToField, type NewSoilTestInput } from "@/lib/farm-data/soil";
-import { createLivestockGroup, updateLivestockGroup, type UpdateLivestockGroupInput } from "@/lib/farm-data/livestock";
+import { createLivestockGroup, listLivestockGroupsForFarm, updateLivestockGroup, type UpdateLivestockGroupInput } from "@/lib/farm-data/livestock";
 import { createHousing, listHousingForFarm, updateHousing, type UpdateHousingInput } from "@/lib/farm-data/housing";
 import { upsertFinancialAssumption } from "@/lib/farm-data/financial-assumptions";
-import { addWeightObservation, createIndividualAnimal, type NewIndividualAnimalInput } from "@/lib/farm-data/individual-animals";
+import { addWeightObservation, createIndividualAnimal, getIndividualAnimalForFarm, type NewIndividualAnimalInput } from "@/lib/farm-data/individual-animals";
 import { createSupplierQuote, type NewSupplierQuoteInput, type SupplierQuote } from "@/lib/farm-data/supplier-quotes";
 import type { FinancialAssumption, FinancialAssumptionKey, IndividualAnimal, WeightObservation } from "@/domain/types";
 import {
@@ -146,8 +146,9 @@ export async function addLivestockGroupAction(
     farmerName: string;
   },
 ): Promise<LivestockGroup> {
-  const group = await createLivestockGroup(farmId, input);
-  revalidatePath("/livestock");
+  const farm = await currentFarmForLivestock(farmId);
+  const group = await createLivestockGroup(farm.id, input);
+  revalidateCattle();
   return group;
 }
 
@@ -299,8 +300,10 @@ export async function addSlurryCompositionRecordAction(farmId: string, input: Ne
 }
 
 export async function updateLivestockGroupAction(groupId: string, input: UpdateLivestockGroupInput): Promise<LivestockGroup> {
+  const farm = await currentFarmForLivestock();
+  await requireFarmGroup(farm.id, groupId);
   const group = await updateLivestockGroup(groupId, input);
-  revalidatePath("/livestock");
+  revalidateCattle();
   return group;
 }
 
@@ -311,8 +314,10 @@ export async function addSupplierQuoteAction(farmId: string, input: NewSupplierQ
 }
 
 export async function addIndividualAnimalAction(farmId: string, input: NewIndividualAnimalInput): Promise<IndividualAnimal> {
-  const animal = await createIndividualAnimal(farmId, input);
-  revalidatePath("/livestock");
+  const farm = await currentFarmForLivestock(farmId);
+  if (input.groupId !== undefined) await requireFarmGroup(farm.id, input.groupId);
+  const animal = await createIndividualAnimal(farm.id, input);
+  revalidateCattle();
   return animal;
 }
 
@@ -323,7 +328,34 @@ export async function addWeightObservationAction(
   observedDate: string,
   source: string,
 ): Promise<WeightObservation> {
-  const observation = await addWeightObservation(farmId, animalId, weightKg, observedDate, source);
-  revalidatePath("/livestock");
+  const farm = await currentFarmForLivestock(farmId);
+  if (!(await getIndividualAnimalForFarm(farm.id, animalId))) throw new Error(LIVESTOCK_NOT_FOUND);
+  const observation = await addWeightObservation(farm.id, animalId, weightKg, observedDate, source);
+  revalidateCattle();
   return observation;
+}
+
+/*
+ * Pilot Integration P3 (DECISIONS D14) — the livestock writes reached from Cattle → Manage herd. The farm is the
+ * signed-in user's own, resolved here; a farm id sent by the browser is only accepted when it is that same farm, and
+ * a group must be one of that farm's. The refusal never says whether another farm's record exists. RLS and the
+ * same-farm triggers still sit underneath.
+ */
+const LIVESTOCK_NOT_FOUND = "This record isn't on your farm.";
+
+async function currentFarmForLivestock(claimedFarmId?: string) {
+  const farm = await getFarmForCurrentUser();
+  if (!farm || (claimedFarmId !== undefined && farm.id !== claimedFarmId)) throw new Error(LIVESTOCK_NOT_FOUND);
+  return farm;
+}
+
+async function requireFarmGroup(farmId: string, groupId: string) {
+  const groups = await listLivestockGroupsForFarm(farmId);
+  if (!groups.some((g) => g.id === groupId)) throw new Error(LIVESTOCK_NOT_FOUND);
+}
+
+/** One herd: Cattle (and the Manage herd page under it) and the legacy `/livestock` path read the same rows. */
+function revalidateCattle() {
+  revalidatePath("/cattle", "layout");
+  revalidatePath("/livestock");
 }

@@ -29,7 +29,7 @@ export function SetupProgressCard({
   const items = [
     { label: `${progress.fieldsMapped} of ${progress.totalFields} fields mapped`, done: progress.fieldsMapped > 0 && progress.totalFields > 0, href: "/fields" },
     { label: progress.soilTestsVerified > 0 ? `${progress.soilTestsVerified} soil test${progress.soilTestsVerified === 1 ? "" : "s"} verified` : "Soil information: Not started", done: progress.soilTestsVerified > 0, href: "/soil" },
-    { label: progress.livestockGroupCount > 0 ? `Livestock: ${progress.livestockHeadCount} head` : "Livestock: Not started", done: progress.livestockGroupCount > 0, href: "/livestock" },
+    { label: progress.livestockGroupCount > 0 ? `Livestock: ${progress.livestockHeadCount} head` : "Livestock: Not started", done: progress.livestockGroupCount > 0, href: "/cattle/manage" },
     { label: progress.housingCount > 0 ? `Housing: ${progress.housingCount} shed${progress.housingCount === 1 ? "" : "s"}` : "Housing: Not started", done: progress.housingCount > 0, href: "/housing" },
   ];
 

@@ -122,7 +122,7 @@ describe("FarmObjectRail", () => {
     expect(within(cows).getByText("Estimated")).toBeTruthy();
     expect(within(cows).getByText("Grazing · field not recorded")).toBeTruthy();
     expect(within(panel).getByText(/moving groups between fields aren't available yet/i)).toBeTruthy();
-    expect(within(panel).getByRole("link", { name: /livestock/i }).getAttribute("href")).toBe("/livestock");
+    expect(within(panel).getByRole("link", { name: /^cattle/i }).getAttribute("href")).toBe("/cattle");
   });
 
   it("describes the planned individual animal detail without any animal record", () => {

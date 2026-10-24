@@ -28,7 +28,7 @@ export function GroupIdentityRow({ group }: { group: LivestockGroup }) {
         </p>
       </div>
       <Link
-        href="/livestock"
+        href="/cattle/manage"
         className="flex shrink-0 items-center gap-1.5 rounded-full border border-fr-green-700 px-3 py-1.5 text-sm font-medium text-fr-green-700"
       >
         <Map className="size-4" />

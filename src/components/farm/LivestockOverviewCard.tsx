@@ -32,8 +32,8 @@ export function LivestockOverviewCard() {
           </li>
         ))}
       </ul>
-      <Link href="/livestock" className="mt-4 inline-block text-sm font-medium text-fr-green-700">
-        View livestock →
+      <Link href="/cattle" className="mt-4 inline-block text-sm font-medium text-fr-green-700">
+        View cattle →
       </Link>
     </Card>
   );

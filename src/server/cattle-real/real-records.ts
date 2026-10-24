@@ -31,7 +31,7 @@ export interface RealRecordsInput {
 export interface RealHeadcountGroup {
   groupRef: string;
   name: string;
-  /** The group's recorded headcount (Livestock), or `null` if it can't be read. */
+  /** The group's recorded headcount, or `null` if it can't be read. */
   headcount: number | null;
 }
 
@@ -44,7 +44,7 @@ export interface RealCattleRecords {
   scopedGroupRefs: string[];
   /** Groups with no individually recorded animal: a headcount only, never a "0 animals" scope. */
   headcountGroups: RealHeadcountGroup[];
-  /** Groups that have individual animals, with the Livestock headcount where it differs from the individuals. */
+  /** Groups that have individual animals, with the recorded headcount where it differs from the individuals. */
   headcountNotes: Record<string, string>;
   /** Animals with no group recorded. */
   ungroupedAnimalIds: string[];
@@ -123,7 +123,7 @@ export function realCattleRecords(input: RealRecordsInput): RealRecordsResult {
     if (n === 0) headcountGroups.push({ groupRef: g.id, name: g.label, headcount: head });
     else {
       scopedGroupRefs.push(g.id);
-      if (head !== null && head !== n) headcountNotes[g.id] = `Livestock records ${head} head in this group; ${n} ${n === 1 ? "is" : "are"} recorded individually.`;
+      if (head !== null && head !== n) headcountNotes[g.id] = `The group's headcount is ${head}; ${n} ${n === 1 ? "is" : "are"} recorded individually.`;
     }
   }
 

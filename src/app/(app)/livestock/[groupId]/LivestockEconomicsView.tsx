@@ -98,7 +98,7 @@ export function LivestockEconomicsView({ groupId }: { groupId: string }) {
   if (marketDataUnavailable) {
     return (
       <>
-        <MobileDetailHeader title="Livestock economics" backHref="/livestock" />
+        <MobileDetailHeader title="Livestock economics" backHref="/cattle/manage" />
         {/* Codex audit round 7 (MEDIUM): this branch used to reuse the
          * full-economics subtitle even though it renders none of what
          * that subtitle promises — "contradicts the honest empty state
@@ -129,7 +129,7 @@ export function LivestockEconomicsView({ groupId }: { groupId: string }) {
 
   return (
     <>
-      <MobileDetailHeader title="Livestock economics" backHref="/livestock" />
+      <MobileDetailHeader title="Livestock economics" backHref="/cattle/manage" />
       <PageHeader
         title="Livestock Economics"
         subtitle="Current weight/value, feed cost, performance forecast and margin comparison"

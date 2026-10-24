@@ -130,10 +130,26 @@ export function RealHerdScreen({ view }: { view: RealHerdView }) {
       pending={false}
       failed={false}
       links={REAL_LINKS}
-      notice={<RealNotice lines={[x.notes.readOnly, x.notes.method, x.notes.work]} />}
+      notice={
+        <>
+          <RealNotice lines={[x.notes.readOnly, x.notes.method, x.notes.work]} />
+          <ManageHerdLink href={REAL_MANAGE.herd} label="Manage herd: add or edit groups and animals" />
+        </>
+      }
       groupNote={(g) => <HeadcountNote extras={x} groupRef={g} />}
       after={<RealHerdExtrasSection extras={x} />}
     />
+  );
+}
+
+/** Pilot Integration P3 (D14) — where the signed-in farm's groups and animals are added and edited. */
+const REAL_MANAGE = { herd: "/cattle/manage", groups: "/cattle/manage?tab=Groups" } as const;
+
+function ManageHerdLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link href={href} className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-fr-v2-forest hover:underline">
+      {label} →
+    </Link>
   );
 }
 
@@ -283,6 +299,7 @@ export function RealGroupScreen({ view, groupRef }: { view: RealHerdView; groupR
         <p className="mt-2 text-[15px] text-fr-v2-charcoal" data-headcount-group={groupRef}>{headcount.summary}</p>
         <div className="mt-4">
           <RealNotice lines={[x.notes.readOnly]} />
+          <ManageHerdLink href={REAL_MANAGE.groups} label="Edit this group in Manage herd" />
         </div>
       </div>
     );
@@ -294,7 +311,12 @@ export function RealGroupScreen({ view, groupRef }: { view: RealHerdView; groupR
       pending={false}
       failed={false}
       links={REAL_LINKS}
-      notice={<RealNotice lines={[x.notes.readOnly, x.notes.method, x.notes.work]} />}
+      notice={
+        <>
+          <RealNotice lines={[x.notes.readOnly, x.notes.method, x.notes.work]} />
+          <ManageHerdLink href={REAL_MANAGE.groups} label="Edit this group in Manage herd" />
+        </>
+      }
       note={<HeadcountNote extras={x} groupRef={groupRef} />}
     />
   );

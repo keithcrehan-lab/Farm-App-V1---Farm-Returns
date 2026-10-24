@@ -217,7 +217,7 @@ export default function HousingPage() {
 
   return (
     <>
-      <MobileDetailHeader title="Housing & Slurry" backHref="/livestock" />
+      <MobileDetailHeader title="Housing & Slurry" backHref="/cattle/manage" />
       <PageHeader title="Housing & Slurry" subtitle="Shed assignment, slurry inventory and organic nutrient value" />
 
       {!housing ? (

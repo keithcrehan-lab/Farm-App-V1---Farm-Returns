@@ -52,8 +52,8 @@ export function requestViewpoint(now: Date): CattleViewpoint {
 
 /** Real-mode explanations of the parts Farm Return keeps no record of (screen copy decided here, not in components). */
 export const REAL_NOTES = {
-  readOnly: "Your farm's own records. You can record an animal's weight here; add animals on Livestock.",
-  method: "Weights from Livestock don't record how they were taken, so each shows its method as not recorded.",
+  readOnly: "Your farm's own records. Record a weight on an animal's page; add or change groups and animals in Manage herd.",
+  method: "Farm Return doesn't record how a weight was taken, so each shows its method as not recorded.",
   health: "Health and medicine records aren't kept in Farm Return yet, so withdrawal and treatment status are unknown here.",
   costs: "Animal costs aren't kept in Farm Return yet, so this animal's costs are unknown — not €0.",
   goal: "Production goals can't be set in Farm Return yet, so this animal's goal is unknown here.",
@@ -63,12 +63,19 @@ export const REAL_NOTES = {
 
 /** Real-mode unavailable screens (copy decided here; `CattleUnavailable` only renders it). */
 export const REAL_UNAVAILABLE = {
-  NO_FARM: { title: "No farm is set up for this account yet.", detail: "Finish setting up your farm, then add your cattle on Livestock." },
+  NO_FARM: { title: "No farm is set up for this account yet.", detail: "Finish setting up your farm, then add your cattle in Manage herd.", link: { href: "/onboarding", label: "Set up your farm →" } },
   UNAVAILABLE: {
     title: "Your cattle records couldn't be read just now.",
     detail: "Nothing is shown in their place: no example animals, estimates or figures. Try again shortly.",
+    link: { href: "/cattle", label: "Try again →" },
   },
-  PLAN: { title: "The animal plan isn't available for your farm yet.", detail: REAL_NOTES.plan },
+  PLAN: { title: "The animal plan isn't available for your farm yet.", detail: REAL_NOTES.plan, link: { href: "/cattle", label: "Back to Cattle →" } },
+  /** Pilot P3: Manage herd writes to a farm's own records, so the demonstration has none. */
+  MANAGE_DEMO: {
+    title: "Managing groups and animals saves to your farm's own records.",
+    detail: "This demonstration herd can't be changed here. Sign in to add or edit your groups and animals.",
+    link: { href: "/cattle", label: "Back to Cattle →" },
+  },
 } as const;
 
 export interface RealUnreadableAnimal {
@@ -83,7 +90,7 @@ export interface RealHerdExtras {
   ungrouped: Details<AnimalRowVM>;
   /** Groups with no individually recorded (or no readable) animal: a headcount or a reason, never "0 animals". */
   headcountGroups: Details<{ groupRef: string; name: string; summary: string }>;
-  /** Groups whose Livestock headcount differs from the animals recorded individually. */
+  /** Groups whose recorded headcount differs from the animals recorded individually. */
   headcountNotes: Details<{ groupRef: string; text: string }>;
   /** Animal records the frozen ledger refused (shown, never dropped). */
   unreadable: Details<RealUnreadableAnimal>;
@@ -209,7 +216,7 @@ export function realHerdView(e: RealEvaluation): RealHerdView {
         ...records.headcountGroups.map((g) => ({
           groupRef: g.groupRef,
           name: g.name,
-          summary: g.headcount === null ? "Individual animals not recorded · headcount can't be read" : `${g.headcount} head on Livestock · individual animals not recorded`,
+          summary: g.headcount === null ? "Individual animals not recorded · headcount can't be read" : `${g.headcount} head recorded for the group · individual animals not recorded`,
         })),
         ...unreadableGroups,
       ]),

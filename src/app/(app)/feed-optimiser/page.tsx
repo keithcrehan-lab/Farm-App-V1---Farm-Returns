@@ -50,7 +50,7 @@ export default function FeedOptimiserPage() {
   if (livestockGroups.length === 0 || !group) {
     return (
       <>
-        <MobileDetailHeader title="Feed optimiser" backHref="/livestock" />
+        <MobileDetailHeader title="Feed optimiser" backHref="/cattle/manage" />
         <PageHeader title="Feed Optimiser" subtitle="Lowest cost, balanced and faster-finish feeding strategies" />
         <div className="flex flex-col items-center gap-3 rounded-fr-card border border-dashed border-fr-border py-12 text-center">
           <Beef className="size-8 text-fr-ink-400" />
@@ -108,7 +108,7 @@ export default function FeedOptimiserPage() {
 
   return (
     <>
-      <MobileDetailHeader title="Feed optimiser" backHref="/livestock" />
+      <MobileDetailHeader title="Feed optimiser" backHref="/cattle/manage" />
       <PageHeader
         title="Feed Optimiser"
         subtitle="Lowest cost, balanced and faster-finish feeding strategies"

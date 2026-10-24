@@ -40,7 +40,7 @@ export function AssignedGroupsCard({ groups }: { groups: LivestockGroup[] }) {
         ))}
       </ul>
       <Link
-        href="/livestock"
+        href="/cattle/manage"
         className="mt-3 flex items-center justify-between border-t border-fr-border pt-3 text-sm font-medium text-fr-ink-900"
       >
         Manage animal groups

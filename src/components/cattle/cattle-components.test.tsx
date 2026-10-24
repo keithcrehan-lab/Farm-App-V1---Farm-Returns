@@ -400,13 +400,13 @@ describe("C10 screens", { timeout: 60_000 }, () => {
   });
 
   it("real-account state shows no synthetic data", () => {
-    render(<CattleUnavailable title="Your cattle records couldn't be read just now." detail="Nothing is shown in their place." />);
+    render(<CattleUnavailable title="Your cattle records couldn't be read just now." detail="Nothing is shown in their place." link={{ href: "/cattle", label: "Try again →" }} />);
     expect(screen.getByText(/couldn't be read just now/)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/SYNTH|1427|€/);
   });
 
-  it("navigation: Cattle is reachable and Livestock is unchanged", () => {
+  it("navigation: Cattle is the one cattle destination (Pilot P3: the Livestock entry is folded into Cattle → Manage herd)", () => {
     expect(moreNavItems.find((i) => i.href === "/cattle")?.label).toBe("Cattle");
-    expect(moreNavItems.find((i) => i.href === "/livestock")?.label).toBe("Livestock");
+    expect(moreNavItems.some((i) => i.href.startsWith("/livestock"))).toBe(false);
   });
 });

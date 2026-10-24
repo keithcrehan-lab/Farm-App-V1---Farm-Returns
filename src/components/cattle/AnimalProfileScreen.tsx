@@ -14,9 +14,10 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import type { PerformanceExplanationVM } from "@/domain/cattle/presentation";
+import type { AnimalProfileVM, PerformanceExplanationVM } from "@/domain/cattle/presentation";
 import type { DemoAnimalView } from "@/server/cattle-demo/demo-service";
 import type { CattleDemoScenario } from "@/server/cattle-demo/demo-replay";
+import type { RealAnimalView } from "@/server/cattle-real/real-service";
 import { loadCattleAnimal } from "@/app/(app)/cattle/actions";
 import { CostSection, HealthSection, TimelineSection } from "./AnimalSections";
 import { PerformanceChart } from "./PerformanceChart";
@@ -24,7 +25,7 @@ import { PhotoGallery, PrimaryPhoto } from "./photos/AnimalPhotos";
 import { RecordWeightSheet } from "./RecordWeightSheet";
 import { useCattleDemoSession } from "./session/CattleDemoSessionProvider";
 import { useDemoView } from "./session/use-demo-view";
-import { BackLink, DemoNotice, Disclosure, Metric, SectionHeading, StateLabel, ViewStatus, busyClass } from "./ui";
+import { BackLink, DemoNotice, Disclosure, RealNotice, Metric, SectionHeading, StateLabel, ViewStatus, busyClass } from "./ui";
 import { WorkPanel } from "./WorkPanel";
 
 const SESSION_FULL = "This demonstration session is full, so the weight wasn't recorded. Reset the demo on the Cattle page to continue.";
@@ -101,10 +102,118 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
   }
 
   const p = view.profile;
-  const groupHref = p.identity.group.groupRef ? `/cattle/groups/${encodeURIComponent(p.identity.group.groupRef)}${scenario === "STANDARD" ? "" : `?scenario=${scenario}`}` : "/cattle";
-  const planHref = `/cattle/animals/${encodeURIComponent(tag)}/plan${scenario === "STANDARD" ? "" : `?scenario=${scenario}`}`;
+  const sq = scenario === "STANDARD" ? "" : `?scenario=${scenario}`;
+  const groupHref = p.identity.group.groupRef ? `/cattle/groups/${encodeURIComponent(p.identity.group.groupRef)}${sq}` : "/cattle";
+  const planHref = `/cattle/animals/${encodeURIComponent(tag)}/plan${sq}`;
   const weightKey = useMemo(() => (p.weight.state === "KNOWN" ? `${p.weight.observedAt}-${p.weight.kg}` : p.weight.state), [p.weight]);
 
+  return (
+    <ProfileBody
+      p={p}
+      pending={pending}
+      failed={failed}
+      groupHref={groupHref}
+      changes={changes}
+      weightKey={weightKey}
+      notice={<DemoNotice />}
+      photo={<PrimaryPhoto animalId={p.animalId} tag={tag} />}
+      photos={<PhotoGallery animalId={p.animalId} tag={tag} />}
+      onRecordWeight={() => setSheet(true)}
+      planLinks={{
+        aside: (
+          <Link href={planHref} className="inline-flex min-h-11 items-center text-sm font-semibold text-fr-v2-forest hover:underline">
+            View animal plan →
+          </Link>
+        ),
+        main: (
+          <Link href={planHref} className="mt-5 flex min-h-12 items-center justify-between rounded-[8px] bg-fr-v2-stone px-4 text-[15px] font-semibold text-fr-v2-forest">
+            <span>Plan this animal to sale</span>
+            <span aria-hidden>→</span>
+          </Link>
+        ),
+      }}
+      footerSource="demonstration herd (synthetic data, real cattle engine)"
+      notes={null}
+    >
+      <RecordWeightSheet
+        key={`${sheet}-${weightKey}`}
+        open={sheet}
+        onClose={() => setSheet(false)}
+        tag={tag}
+        previous={p.weight}
+        asOfDate={p.asOf.effectiveAt.slice(0, 10)}
+        onSave={(v) => {
+          // A full session refuses the action: the sheet stays open with the reading, and says so.
+          if (addEvent({ kind: "RECORD_WEIGHT", tag, kg: v.kg, observedDate: v.observedDate }) === null) return SESSION_FULL;
+          setSheet(false);
+          return null;
+        }}
+      />
+    </ProfileBody>
+  );
+}
+
+/**
+ * Pilot Integration P1 — the signed-in farmer's animal (read-only, server-rendered). No demonstration session, no
+ * Record Weight, plan, goal or photo controls (P1 persists nothing); the parts Farm Return keeps no record of say so.
+ */
+export function RealAnimalProfileScreen({ view }: { view: RealAnimalView }) {
+  const p = view.profile;
+  const n = view.notes;
+  return (
+    <ProfileBody
+      p={p}
+      pending={false}
+      failed={false}
+      groupHref={p.identity.group.groupRef ? `/cattle/groups/${encodeURIComponent(p.identity.group.groupRef)}` : "/cattle"}
+      changes={NO_CHANGES}
+      weightKey={p.weight.state}
+      notice={<RealNotice lines={[n.readOnly, n.method]} />}
+      photo={null}
+      photos={null}
+      onRecordWeight={null}
+      planLinks={{ aside: null, main: <p className="mt-5 text-sm text-fr-v2-muted" data-real-plan="UNAVAILABLE">{n.plan}</p> }}
+      footerSource="your farm's records (read-only)"
+      notes={{ goal: n.goal, health: n.health, costs: n.costs, work: n.work }}
+    >
+      {null}
+    </ProfileBody>
+  );
+}
+
+const NO_CHANGES = { points: [], resolved: [], timeline: new Set<string>() };
+
+function ProfileBody({
+  p,
+  pending,
+  failed,
+  groupHref,
+  changes,
+  weightKey,
+  notice,
+  photo,
+  photos,
+  onRecordWeight,
+  planLinks,
+  footerSource,
+  notes,
+  children,
+}: {
+  p: AnimalProfileVM;
+  pending: boolean;
+  failed: boolean;
+  groupHref: string;
+  changes: { points: string[]; resolved: string[]; timeline: Set<string> };
+  weightKey: string;
+  notice: React.ReactNode;
+  photo: React.ReactNode;
+  photos: React.ReactNode;
+  onRecordWeight: (() => void) | null;
+  planLinks: { aside: React.ReactNode; main: React.ReactNode };
+  footerSource: string;
+  notes: { goal: string; health: string; costs: string; work: string } | null;
+  children: React.ReactNode;
+}) {
   return (
     <article className={`mx-auto max-w-5xl pb-10 ${busyClass(pending, failed)}`} aria-labelledby="animal-title" aria-busy={pending}>
       <div className="flex items-center justify-between gap-3">
@@ -114,7 +223,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
 
       {/* Identity */}
       <header className="mt-2 flex flex-col gap-5 sm:flex-row sm:items-end">
-        <PrimaryPhoto animalId={p.animalId} tag={tag} />
+        {photo}
         <div className="min-w-0">
           <div className="text-[13px] font-medium uppercase tracking-[0.08em] text-fr-v2-plum">Animal</div>
           <h1 id="animal-title" className="font-display text-[56px] font-semibold leading-none tracking-tight text-fr-v2-graphite">
@@ -132,9 +241,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
         </div>
       </header>
 
-      <div className="mt-4">
-        <DemoNotice />
-      </div>
+      <div className="mt-4">{notice}</div>
 
 
       {/* Current state */}
@@ -170,9 +277,10 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
           <section aria-labelledby="attention-h">
             <SectionHeading id="attention-h" title="What needs attention" />
             <div className="mt-4">
-              <WorkPanel work={p.work} onRecordWeight={() => setSheet(true)} resolvedTitles={changes.resolved} />
-              {p.work.open.state !== "ITEMS" || p.work.open.primary.actionKind !== "RECORD_WEIGHT" ? (
-                <button type="button" onClick={() => setSheet(true)} className="mt-4 min-h-11 rounded-[8px] border border-fr-v2-rule px-4 text-sm font-medium text-fr-v2-graphite">
+              <WorkPanel work={p.work} onRecordWeight={onRecordWeight} resolvedTitles={changes.resolved} />
+              {notes ? <p className="mt-3 text-[12px] text-fr-v2-muted">{notes.work}</p> : null}
+              {onRecordWeight && (p.work.open.state !== "ITEMS" || p.work.open.primary.actionKind !== "RECORD_WEIGHT") ? (
+                <button type="button" onClick={onRecordWeight} className="mt-4 min-h-11 rounded-[8px] border border-fr-v2-rule px-4 text-sm font-medium text-fr-v2-graphite">
                   Record a weight
                 </button>
               ) : null}
@@ -183,11 +291,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
             <SectionHeading
               id="performance-h"
               title="Performance"
-              aside={
-                <Link href={planHref} className="inline-flex min-h-11 items-center text-sm font-semibold text-fr-v2-forest hover:underline">
-                  View animal plan →
-                </Link>
-              }
+              aside={planLinks.aside}
             />
             <div className="mt-4">
               <PerformanceChart chart={p.chart} highlightIds={changes.points} />
@@ -203,7 +307,10 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
               </div>
               <div>
                 <dt className="text-fr-v2-muted">Goal</dt>
-                <dd className="text-fr-v2-graphite">{p.goal.summary.state === "TEXT" ? p.goal.summary.text : <StateLabel state={p.goal.summary.display} detail />}</dd>
+                <dd className="text-fr-v2-graphite">
+                  {p.goal.summary.state === "TEXT" ? p.goal.summary.text : <StateLabel state={p.goal.summary.display} detail />}
+                  {notes ? <span className="mt-1 block text-[12px] text-fr-v2-muted">{notes.goal}</span> : null}
+                </dd>
               </div>
               <div>
                 <dt className="text-fr-v2-muted">Projection</dt>
@@ -218,10 +325,7 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
                 </dd>
               </div>
             </dl>
-            <Link href={planHref} className="mt-5 flex min-h-12 items-center justify-between rounded-[8px] bg-fr-v2-stone px-4 text-[15px] font-semibold text-fr-v2-forest">
-              <span>Plan this animal to sale</span>
-              <span aria-hidden>→</span>
-            </Link>
+            {planLinks.main}
           </section>
 
           <section aria-labelledby="activity-h">
@@ -237,41 +341,30 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
             <SectionHeading id="health-h" title="Health & compliance" />
             <div className="mt-1">
               <HealthSection health={p.health} />
+              {notes ? <p className="mt-2 text-[12px] text-fr-v2-muted">{notes.health}</p> : null}
             </div>
           </section>
           <section aria-labelledby="cost-h">
             <SectionHeading id="cost-h" title="Direct costs" />
             <div className="mt-1">
               <CostSection costs={p.costs} />
+              {notes ? <p className="mt-2 text-[12px] text-fr-v2-muted">{notes.costs}</p> : null}
             </div>
           </section>
-          <section aria-labelledby="photos-h">
-            <SectionHeading id="photos-h" title="Photos" />
-            <div className="mt-3">
-              <PhotoGallery animalId={p.animalId} tag={tag} />
-            </div>
-          </section>
+          {photos ? (
+            <section aria-labelledby="photos-h">
+              <SectionHeading id="photos-h" title="Photos" />
+              <div className="mt-3">{photos}</div>
+            </section>
+          ) : null}
         </div>
       </div>
 
       <footer className="mt-10 border-t border-fr-v2-rule pt-4 text-[12px] text-fr-v2-muted">
-        {p.asOf.label} · records received up to {p.asOf.knowledgeCutoff.slice(0, 16).replace("T", " ")} UTC · demonstration herd (synthetic data, real cattle engine)
+        {p.asOf.label} · records received up to {p.asOf.knowledgeCutoff.slice(0, 16).replace("T", " ")} UTC · {footerSource}
       </footer>
 
-      <RecordWeightSheet
-        key={`${sheet}-${weightKey}`}
-        open={sheet}
-        onClose={() => setSheet(false)}
-        tag={tag}
-        previous={p.weight}
-        asOfDate={p.asOf.effectiveAt.slice(0, 10)}
-        onSave={(v) => {
-          // A full session refuses the action: the sheet stays open with the reading, and says so.
-          if (addEvent({ kind: "RECORD_WEIGHT", tag, kg: v.kg, observedDate: v.observedDate }) === null) return SESSION_FULL;
-          setSheet(false);
-          return null;
-        }}
-      />
+      {children}
     </article>
   );
 }

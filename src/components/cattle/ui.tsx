@@ -96,6 +96,17 @@ export function DemoNotice({ children }: { children?: React.ReactNode }) {
   );
 }
 
+/** Pilot Integration P1 — the signed-in farm's notice: its own records, read-only. The lines come from the real service. */
+export function RealNotice({ lines }: { lines: readonly string[] }) {
+  return (
+    <div className="border-l-2 border-fr-v2-forest bg-fr-v2-stone/60 px-3 py-2 text-[13px] text-fr-v2-charcoal" role="note" data-cattle-mode="REAL">
+      {lines.map((l) => (
+        <p key={l}>{l}</p>
+      ))}
+    </div>
+  );
+}
+
 export function BackLink({ href, label }: { href: string; label: string }) {
   return (
     <Link href={href} className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-fr-v2-forest hover:underline">

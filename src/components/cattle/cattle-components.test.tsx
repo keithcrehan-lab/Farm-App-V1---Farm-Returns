@@ -400,8 +400,8 @@ describe("C10 screens", { timeout: 60_000 }, () => {
   });
 
   it("real-account state shows no synthetic data", () => {
-    render(<CattleUnavailable />);
-    expect(screen.getByText(/No canonical cattle records are connected/)).toBeInTheDocument();
+    render(<CattleUnavailable title="Your cattle records couldn't be read just now." detail="Nothing is shown in their place." />);
+    expect(screen.getByText(/couldn't be read just now/)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/SYNTH|1427|€/);
   });
 

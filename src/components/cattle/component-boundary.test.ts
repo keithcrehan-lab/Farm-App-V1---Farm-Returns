@@ -54,8 +54,6 @@ const ALLOWED_TEXT: readonly { file: string; text: RegExp; why: string }[] = [
   { file: "photos/AnimalPhotos.tsx", text: /^No photos of$/, why: "browser-tab photo store (local UI state, fully known; not a domain read)" },
   { file: "photos/AnimalPhotos.tsx", text: /^No photo yet$/, why: "browser-tab photo store (local UI state, fully known; not a domain read)" },
   { file: "HerdScreens.tsx", text: /^No animals$/, why: "demonstration-control link naming the EMPTY_HERD scenario" },
-  { file: "CattleUnavailable.tsx", text: /^No canonical cattle records are connected to your farm yet\.$/, why: "real-account mode: no cattle data source is wired (product state, not a domain read)" },
-  { file: "CattleUnavailable.tsx", text: /^Animal profiles, weights, work and plans appear here once your cattle records are connected\. Nothing is estimated or filled in for you in the meantime\.$/, why: "real-account mode: no cattle data source is wired" },
 ];
 
 /** Absence words as prose (not CSS tokens like `leading-none`, not enum values like `NONE`). */

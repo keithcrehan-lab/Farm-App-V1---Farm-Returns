@@ -11,12 +11,31 @@
 import Link from "next/link";
 import type { AnimalRowVM, GroupScopeVM, GroupVM, HerdVM } from "@/domain/cattle/presentation";
 import type { CattleDemoScenario } from "@/server/cattle-demo/demo-replay";
+import type { RealHerdExtras, RealHerdView } from "@/server/cattle-real/real-service";
 import { loadCattleHerd } from "@/app/(app)/cattle/actions";
 import { useCattleDemoSession } from "./session/CattleDemoSessionProvider";
 import { useDemoView } from "./session/use-demo-view";
-import { BackLink, DemoNotice, SectionHeading, ViewStatus, busyClass, StateGlyph, StateLabel, TONE_TEXT, cattleStyles } from "./ui";
+import { BackLink, DemoNotice, RealNotice, SectionHeading, ViewStatus, busyClass, StateGlyph, StateLabel, TONE_TEXT, cattleStyles } from "./ui";
 
 const q = (scenario: CattleDemoScenario) => (scenario === "STANDARD" ? "" : `?scenario=${scenario}`);
+
+/** How a screen links: demo routes carry the scenario and an animal's tag; real routes use database ids only. */
+interface Links {
+  herd: string;
+  group: (groupRef: string) => string;
+  animal: (a: AnimalRowVM) => string;
+}
+const demoLinks = (scenario: CattleDemoScenario): Links => ({
+  herd: `/cattle${q(scenario)}`,
+  group: (g) => `/cattle/groups/${encodeURIComponent(g)}${q(scenario)}`,
+  animal: (a) => `/cattle/animals/${encodeURIComponent(a.tag ?? a.animalId)}${q(scenario)}`,
+});
+/** Real mode: the animal's database id (D2) — a tag is a label, never a lookup key. */
+const REAL_LINKS: Links = {
+  herd: "/cattle",
+  group: (g) => `/cattle/groups/${encodeURIComponent(g)}`,
+  animal: (a) => `/cattle/animals/${encodeURIComponent(a.animalId)}`,
+};
 
 function useHerd(initial: HerdVM, scenario: CattleDemoScenario): { herd: HerdVM; pending: boolean; failed: boolean } {
   const { view, pending, failed } = useDemoView(initial, `herd:${scenario}`, (session) => loadCattleHerd(session, scenario));
@@ -99,6 +118,70 @@ function DemoControls({ scenario }: { scenario: CattleDemoScenario }) {
 
 export function HerdScreen({ initial, scenario }: { initial: HerdVM; scenario: CattleDemoScenario }) {
   const { herd, pending, failed } = useHerd(initial, scenario);
+  return <HerdBody herd={herd} pending={pending} failed={failed} links={demoLinks(scenario)} notice={<DemoNotice />} after={<DemoControls scenario={scenario} />} />;
+}
+
+/** Pilot Integration P1 — the signed-in farmer's herd (read-only, server-rendered; no demonstration session). */
+export function RealHerdScreen({ view }: { view: RealHerdView }) {
+  const x = view.extras;
+  return (
+    <HerdBody
+      herd={view.herd}
+      pending={false}
+      failed={false}
+      links={REAL_LINKS}
+      notice={<RealNotice lines={[x.notes.readOnly, x.notes.method, x.notes.work]} />}
+      groupNote={(g) => <HeadcountNote extras={x} groupRef={g} />}
+      after={<RealHerdExtrasSection extras={x} />}
+    />
+  );
+}
+
+function HeadcountNote({ extras, groupRef }: { extras: RealHerdExtras; groupRef: string }) {
+  const n = extras.headcountNotes.find((h) => h.groupRef === groupRef);
+  return n ? <p className="mt-2 text-sm text-fr-v2-muted">{n.text}</p> : null;
+}
+
+function RealHerdExtrasSection({ extras }: { extras: RealHerdExtras }) {
+  return (
+    <>
+      {extras.headcountGroups.length > 0 ? (
+        <ul className="mt-0" aria-label="Groups without individual animal records">
+          {extras.headcountGroups.map((g) => (
+            <li key={g.groupRef} className="border-t border-fr-v2-rule py-5" data-headcount-group={g.groupRef}>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[24px] font-semibold tracking-tight text-fr-v2-graphite">{g.name}</span>
+                <span className="text-sm text-fr-v2-muted">{g.summary}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {extras.ungrouped.length > 0 ? (
+        <section aria-labelledby="herd-ungrouped" className="mt-8">
+          <SectionHeading id="herd-ungrouped" title="Not in a group" />
+          <ul className="mt-1">
+            {extras.ungrouped.map((a) => (
+              <AnimalRow key={a.animalId} a={a} href={REAL_LINKS.animal(a)} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {extras.unreadable.length > 0 ? (
+        <section aria-labelledby="herd-unreadable" className="mt-8">
+          <SectionHeading id="herd-unreadable" title="Records that can't be read" />
+          <ul className="mt-2 space-y-1 text-sm text-fr-v2-charcoal">
+            {extras.unreadable.map((u) => (
+              <li key={u.animalId}>{u.label}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </>
+  );
+}
+
+function HerdBody({ herd, pending, failed, links, notice, after, groupNote }: { herd: HerdVM; pending: boolean; failed: boolean; links: Links; notice: React.ReactNode; after: React.ReactNode; groupNote?: (groupRef: string) => React.ReactNode }) {
   return (
     <div className={`mx-auto max-w-4xl pb-10 ${busyClass(pending, failed)}`} aria-busy={pending}>
       <div className="flex items-baseline justify-between gap-3">
@@ -108,9 +191,7 @@ export function HerdScreen({ initial, scenario }: { initial: HerdVM; scenario: C
       <p className="mt-2 text-[15px] text-fr-v2-charcoal">
         {herd.summary}
       </p>
-      <div className="mt-4">
-        <DemoNotice />
-      </div>
+      <div className="mt-4">{notice}</div>
       {herd.planning.state === "PLANNING_FAILED" ? <PlanningFailed codes={herd.planning.failureCodes} /> : null}
       {herd.overview.state !== "ITEMS" ? (
         <p className="mt-8 text-[15px] text-fr-v2-charcoal" data-herd-state={herd.overview.state}>
@@ -120,7 +201,7 @@ export function HerdScreen({ initial, scenario }: { initial: HerdVM; scenario: C
         <ul className="mt-6">
           {herd.overview.items.map((g) => (
             <li key={g.groupRef} className="border-t border-fr-v2-rule">
-              <Link href={`/cattle/groups/${encodeURIComponent(g.groupRef)}${q(scenario)}`} className="group block py-5">
+              <Link href={links.group(g.groupRef)} className="group block py-5">
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-[24px] font-semibold tracking-tight text-fr-v2-graphite group-hover:text-fr-v2-forest">{g.name}</span>
                   {g.scope.state === "KNOWN" ? (
@@ -138,20 +219,21 @@ export function HerdScreen({ initial, scenario }: { initial: HerdVM; scenario: C
                 ) : (
                   <p className="mt-1.5 text-sm text-fr-v2-charcoal">{g.scope.display.detail}</p>
                 )}
+                {groupNote ? groupNote(g.groupRef) : null}
               </Link>
             </li>
           ))}
         </ul>
       )}
-      <DemoControls scenario={scenario} />
+      {after}
     </div>
   );
 }
 
-function AnimalRow({ a, scenario }: { a: AnimalRowVM; scenario: CattleDemoScenario }) {
+function AnimalRow({ a, href }: { a: AnimalRowVM; href: string }) {
   return (
     <li className="border-t border-fr-v2-rule">
-      <Link href={`/cattle/animals/${encodeURIComponent(a.tag ?? a.animalId)}${q(scenario)}`} className="grid min-h-[72px] grid-cols-[minmax(64px,auto)_1fr_auto] items-center gap-x-4 py-3 hover:bg-fr-v2-stone/50">
+      <Link href={href} className="grid min-h-[72px] grid-cols-[minmax(64px,auto)_1fr_auto] items-center gap-x-4 py-3 hover:bg-fr-v2-stone/50">
         <span className="font-display text-[28px] font-semibold leading-none tabular-nums text-fr-v2-graphite">{a.tag ?? <StateLabel state={a.tagState} />}</span>
         <span className="min-w-0">
           <span className="block truncate text-sm text-fr-v2-muted">{a.subtitle}</span>
@@ -181,11 +263,49 @@ function AnimalRow({ a, scenario }: { a: AnimalRowVM; scenario: CattleDemoScenar
 
 export function GroupScreen({ initial, groupRef, scenario }: { initial: HerdVM; groupRef: string; scenario: CattleDemoScenario }) {
   const { herd, pending, failed } = useHerd(initial, scenario);
+  return <GroupBody herd={herd} groupRef={groupRef} pending={pending} failed={failed} links={demoLinks(scenario)} notice={<DemoNotice />} />;
+}
+
+/**
+ * Pilot Integration P1 — one of the signed-in farmer's groups. A group with no individually recorded animal is shown
+ * with its headcount (or why it isn't evaluated) — never as "0 animals". The route has already checked the group is
+ * this farm's.
+ */
+export function RealGroupScreen({ view, groupRef }: { view: RealHerdView; groupRef: string }) {
+  const x = view.extras;
+  const headcount = x.headcountGroups.find((h) => h.groupRef === groupRef);
+  if (headcount) {
+    return (
+      <div className="mx-auto max-w-4xl pb-10">
+        <BackLink href={REAL_LINKS.herd} label="Cattle" />
+        <div className="mt-1 text-[13px] font-medium uppercase tracking-[0.08em] text-fr-v2-plum">Group</div>
+        <h1 className="font-display text-[44px] font-semibold leading-none tracking-tight text-fr-v2-graphite">{headcount.name}</h1>
+        <p className="mt-2 text-[15px] text-fr-v2-charcoal" data-headcount-group={groupRef}>{headcount.summary}</p>
+        <div className="mt-4">
+          <RealNotice lines={[x.notes.readOnly]} />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <GroupBody
+      herd={view.herd}
+      groupRef={groupRef}
+      pending={false}
+      failed={false}
+      links={REAL_LINKS}
+      notice={<RealNotice lines={[x.notes.readOnly, x.notes.method, x.notes.work]} />}
+      note={<HeadcountNote extras={x} groupRef={groupRef} />}
+    />
+  );
+}
+
+function GroupBody({ herd, groupRef, pending, failed, links, notice, note }: { herd: HerdVM; groupRef: string; pending: boolean; failed: boolean; links: Links; notice: React.ReactNode; note?: React.ReactNode }) {
   const g = herd.groups.state === "ITEMS" ? herd.groups.items.find((x) => x.groupRef === groupRef) : undefined;
   if (!g) {
     return (
       <div className="mx-auto max-w-4xl">
-        <BackLink href={`/cattle${q(scenario)}`} label="Cattle" />
+        <BackLink href={links.herd} label="Cattle" />
         <p className="mt-4 text-fr-v2-charcoal">This group isn&apos;t in the herd.</p>
       </div>
     );
@@ -193,7 +313,7 @@ export function GroupScreen({ initial, groupRef, scenario }: { initial: HerdVM; 
   return (
     <div className={`mx-auto max-w-4xl pb-10 ${busyClass(pending, failed)}`} aria-busy={pending}>
       <div className="flex items-center justify-between">
-        <BackLink href={`/cattle${q(scenario)}`} label="Cattle" />
+        <BackLink href={links.herd} label="Cattle" />
         <ViewStatus pending={pending} failed={failed} />
       </div>
       <div className="mt-1 text-[13px] font-medium uppercase tracking-[0.08em] text-fr-v2-plum">Group</div>
@@ -201,17 +321,16 @@ export function GroupScreen({ initial, groupRef, scenario }: { initial: HerdVM; 
       <p className="mt-2 text-[15px] text-fr-v2-charcoal">
         {g.scope.state === "KNOWN" ? g.scope.value.summary : <StateLabel state={g.scope.display} />}
       </p>
-      <div className="mt-4">
-        <DemoNotice />
-      </div>
+      {note}
+      <div className="mt-4">{notice}</div>
       {herd.planning.state === "PLANNING_FAILED" ? <PlanningFailed codes={herd.planning.failureCodes} /> : null}
       <ScopeUnavailable group={g} />
-      {g.scope.state === "KNOWN" ? <GroupMembers scope={g.scope.value} workCounts={g.workCounts} scenario={scenario} /> : null}
+      {g.scope.state === "KNOWN" ? <GroupMembers scope={g.scope.value} workCounts={g.workCounts} links={links} /> : null}
     </div>
   );
 }
 
-function GroupMembers({ scope, workCounts, scenario }: { scope: GroupScopeVM; workCounts: GroupVM["workCounts"]; scenario: CattleDemoScenario }) {
+function GroupMembers({ scope, workCounts, links }: { scope: GroupScopeVM; workCounts: GroupVM["workCounts"]; links: Links }) {
   return (
     <>
       <section aria-labelledby="group-work" className="mt-6">
@@ -237,7 +356,7 @@ function GroupMembers({ scope, workCounts, scenario }: { scope: GroupScopeVM; wo
         {scope.members.state === "ITEMS" ? (
           <ul className="mt-1">
             {scope.members.items.map((a) => (
-              <AnimalRow key={a.animalId} a={a} scenario={scenario} />
+              <AnimalRow key={a.animalId} a={a} href={links.animal(a)} />
             ))}
           </ul>
         ) : (
@@ -255,7 +374,7 @@ function GroupMembers({ scope, workCounts, scenario }: { scope: GroupScopeVM; wo
                   <StateLabel state={a.membership} />
                 </div>
                 <ul>
-                  <AnimalRow a={a} scenario={scenario} />
+                  <AnimalRow a={a} href={links.animal(a)} />
                 </ul>
               </li>
             ))}

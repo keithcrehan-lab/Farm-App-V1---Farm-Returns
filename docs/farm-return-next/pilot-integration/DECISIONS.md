@@ -1,0 +1,140 @@
+# Pilot Integration — durable decisions
+
+Only architectural and product decisions that later phases must respect. No implementation history.
+
+## D1 — One production cattle model (P0)
+
+The existing tables are the only production source of truth for cattle:
+- `livestock_groups`;
+- `livestock_individuals`;
+- `livestock_weight_observations`;
+- `farms`;
+- `housing`.
+
+The frozen cattle model (C1 ledgers, C4 weight records) is an evaluation view rebuilt from those rows on each
+request. It is never stored as a second model. No cattle-specific table duplicates an animal, group or weight.
+
+## D2 — Animal identity (P0)
+
+One animal is identified by `livestock_individuals.id` (uuid) at every layer:
+
+| Layer | Identity |
+|---|---|
+| Database | `livestock_individuals.id`, owned by `farm_id` |
+| Frozen engines | C1 `animalId` = that uuid string (an opaque `FarmReturnAnimalId`) |
+| C10 view-models | `animalId` = that uuid |
+| Real route | `/cattle/animals/<uuid>`. In P1 the existing `[tag]` segment is read as the animal id in real mode; demo mode keeps the tag. |
+| `/livestock` | the same uuid (`IndividualAnimal.id`) |
+
+The rules:
+- **Tag:** `tag_number` is a farmer-facing label, not identity. It is nullable, has no uniqueness constraint, and
+  is never used to look an animal up in real mode. It becomes a C1 `EXTERNAL_IDENTIFIER` with scheme
+  `FARM_RETURN_TAG_NUMBER`, verbatim and unnormalised. A missing tag is shown as not recorded.
+- **Group:** `livestock_groups.id` (uuid) is the C1 `MANAGEMENT_GROUP` value, the C4 `groupRef` and the group route
+  segment. `label` is a display label only.
+- **Farm isolation:** the farm id is never part of an engine id. It is enforced at the source read (D6).
+- **No collision with demo:** demo ids are `SYNTH-*` and exist only when Supabase is not configured, so real and
+  demo identities never share a process. Real-mode output must contain no `SYNTH-` id.
+
+## D3 — Field mapping (P0)
+
+`real field → adapter → frozen input`. `—` means not asserted, so the frozen engine reports its own
+unknown or not-recorded state. Nothing is defaulted.
+
+| Real field | Adapter | Frozen input |
+|---|---|---|
+| `livestock_individuals.id` | as is | C1 `animalId`, C4 `animalId` |
+| `tag_number` | non-null → assertion, `validFrom = created_at` | `EXTERNAL_IDENTIFIER {scheme FARM_RETURN_TAG_NUMBER, identifier}`; null → — |
+| `date_of_birth` (date) | non-null → `YYYY-MM-DD` | `DATE_OF_BIRTH`; null → — |
+| `sex` `male`/`female` | upper-case | `SEX MALE`/`FEMALE`; null → — |
+| `breed` (text) | `{codeSystem:null, code:null, label, components:[]}` | `BREED`; null → — |
+| `category` (suckler_cow…) | not mapped (C1 has no production class) | — (shown on `/livestock` only) |
+| status | **no column exists** | — (no `LIFECYCLE_STATUS`; never assumed `PRESENT`) |
+| `group_id` | non-null → assertion, `validFrom = created_at` (D4) | `MANAGEMENT_GROUP <group uuid>`; null → ungrouped |
+| location / housing per animal | **no column exists** | — (location not recorded) |
+| `livestock_groups.housing_id` | not attributed to animals | — (group housing is not animal location) |
+| `goal_status` (free text) | not parsed | — (not a C6 declaration) |
+| `livestock_weight_observations.id` | as is | C4 `recordId`, `provenance.sourceRecordRef` |
+| `weight_kg` | as is | `weight {value, unit: KILOGRAM}` |
+| `observed_date` (date) | `<date>T00:00:00Z` (D5) | C4 `observedAt` |
+| `source` (free text) | not parsed, not copied into the engine | stays on the row; reachable via `provenance.sourceRecordRef` |
+| method / basis | **no column exists** | `method: UNKNOWN` → basis UNKNOWN, "Method not recorded" |
+| weight `created_at` | as is | `provenance.receivedAt` (knowledge time) |
+| animal `created_at` | as is | assertion `provenance.receivedAt` |
+| who entered it | the farm's own record | `provenance.sourceCategory: FARMER` |
+
+Every assertion and weight carries `sourceSystem: "farm-return"` and `sourceRecordRef: <row id>`.
+Weights carry `deviceRef`, `quality` and `conditionsNote` as `null`, and `supersedes` as `[]` (the table is
+insert-only).
+
+## D4 — Group membership time (P0)
+
+C1 needs a `validFrom` for a membership. The application never updates `livestock_individuals`: there is no
+reassignment path, so `group_id` is fixed at insert. Membership is therefore asserted from the row's
+`created_at`, which is the earliest instant Farm Return knew it. When a reassignment write is added later, it
+must record dated membership history. Overwriting `group_id` in place would make this assertion false.
+
+## D5 — Evaluation time (P0)
+
+Real mode evaluates at one viewpoint per request: `effectiveAt = knowledgeCutoff =` the server's request instant,
+truncated to whole seconds. Demo mode keeps its fixture viewpoint. A date-only real weight is placed at 00:00 UTC
+of its date, so a weight recorded today is in view at once. Precision is still the date, and the UI never shows a
+time for it.
+
+## D6 — Tenant boundary (P0)
+
+The farm is resolved server-side only, by `getFarmForCurrentUser()` (auth-verified user → that user's single farm;
+`farms_user_id_unique`). The adapter:
+- reads groups, animals and weights with `.eq("farm_id", farm.id)`, under RLS that already limits every
+  `livestock_*` row to the farm's owner;
+- resolves a route animal or group id only within that farm-scoped result;
+- handles an id that is unknown, malformed or from another farm identically: `notFound`, with no existence signal.
+
+Database triggers (`*_check_same_farm`) keep group membership and weights on the same farm as the animal. No
+real-mode function accepts a `farmId` from the client.
+
+## D7 — What the integration may change (P0)
+
+- **May change** where integration evidence requires it: the routes `src/app/(app)/cattle/**` and the components
+  `src/components/cattle/**`. This covers the mode switch, linking by `animalId`, hiding demo-session controls in
+  real mode, and real-mode explanatory copy.
+- **Must not change:**
+  - `src/domain/cattle/**` (including the presentation builders);
+  - `src/domain/plan/**`;
+  - `src/domain/animal-plan/**`;
+  - the demo data.
+
+Composition around the frozen builders, such as listing ungrouped animals by building their profiles, is
+preferred over editing them.
+
+## D8 — Parts with no real store (P0)
+
+Farm Return holds no real records for the following parts:
+- health and medicine (C3);
+- obligations (C2);
+- programmes (C7);
+- performance targets and policies (C5 comparison);
+- goal declarations (C6);
+- mart prices or cost ledger for the plan.
+
+In real mode, each of these is passed as not supplied:
+- `null` in the C8/C9 request;
+- no per-animal C3/C6 run;
+- `costs: UNAVAILABLE`.
+
+They are never passed as an empty fixture-like catalogue, so that the frozen engines report unknown, not "none".
+The frozen C8 default candidate-action registry is used unchanged. Choosing a different registry is a policy
+decision that needs explicit authorisation.
+
+## D9 — Work in P1 (P0)
+
+There is no persisted Plan job store. In P1, Work is the current C9 evaluation at the request viewpoint: one run,
+with jobs created fresh from its proposals. It is labelled as a current evaluation. Retained job lifecycle
+(completion, deferral, continuity of when a job was raised) is out of P1 and needs its own persistence decision.
+The shared job-reconciliation logic is reached from a neutral module, never by importing `src/server/cattle-demo/`.
+
+## D10 — Weight writes reuse the existing path (P0, for P2)
+
+Real weights are written only through `addWeightObservation` (`livestock_weight_observations`, insert-only,
+same-farm trigger). C10 Record Weight in real mode must reuse it via a server action that resolves the farm
+server-side. Collection method needs a new nullable column, which is a P2 migration (see STATE.md).

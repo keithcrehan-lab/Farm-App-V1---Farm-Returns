@@ -8,6 +8,8 @@
 | Final full gate | `quality-20261025T193923Z-33856` on `5e35def`: 6373 tests in 327 files, typecheck, lint (0 errors), build |
 | Status | `PILOT_INTEGRATION_COMPLETE — READY_FOR_FARMER_PILOT` |
 | Pushed | no. Codex: ZERO. |
+| Release reference | `farm-return-pilot-v1` (local annotated tag on `c40bf99`) |
+| Next programme | Farmer Pilot (`../farmer-pilot/`). This file is now historical reference. |
 
 ## Closure: manual signed-in acceptance (2026-10-24/25)
 

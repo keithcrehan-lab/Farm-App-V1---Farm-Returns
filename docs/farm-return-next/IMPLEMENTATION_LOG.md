@@ -5,6 +5,12 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Farmer Pilot — set up (2026-10-25)
+
+The validated build is preserved as the local tag `farm-return-pilot-v1`, on `c40bf99` (implementation `5e35def`).
+The Farmer Pilot context is in `docs/farm-return-next/farmer-pilot/`: README (plan and session script), STATE and
+FEEDBACK. Status: `READY_TO_RECRUIT`. There is no product change.
+
 ## Pilot Integration — complete (2026-10-25)
 
 The signed-in walkthrough found false programme, requirement, withdrawal and goal jobs on a real animal. D16 fixes

@@ -205,12 +205,16 @@ describe("Pilot P1 — real records through the frozen cattle stack", () => {
     expect(JSON.stringify(p)).not.toMatch(/(?<!not )€0|(?<![\d.])0 kg|No treatments|Withdrawal clear/i);
   });
 
-  it("the frozen engine's own work is shown as it reports it (incl. the insufficient-evidence programme item)", () => {
+  // Superseded by DECISIONS D16 (pilot acceptance): this test used to expect the frozen engine's insufficient-evidence
+  // "Complete programme treatment" item on A1. The frozen engine still supports that action, but authenticated real
+  // mode no longer offers action families whose production capability doesn't exist (programmes, obligations,
+  // medicine/withdrawal, production goals), so a weighed animal with nothing else supported has no open work.
+  it("the frozen engine's own work is shown as it reports it, for the capability-supported action set (D16)", () => {
     const e = evaluated();
     expect(e.outputs.plan.ok).toBe(true);
     const a1 = realAnimalView(e, A1)!.profile;
     const titles = a1.work.open.state === "ITEMS" ? [a1.work.open.primary, ...a1.work.open.others].map((w) => w.title) : [];
-    expect(titles).toContain("Complete programme treatment");
+    expect(titles).toEqual([]);
     // An animal with no weight gets the frozen RECORD_WEIGHT proposal.
     const a3 = realAnimalView(e, A3)!.profile;
     expect(a3.work.open.state === "ITEMS" && a3.work.open.primary.actionKind).toBe("RECORD_WEIGHT");

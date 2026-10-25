@@ -19,7 +19,7 @@ import { createAnimalLedger, type AnimalLedger } from "@/domain/cattle/animal-le
 import { projectAnimalSnapshot } from "@/domain/cattle/animal-snapshot";
 import { evaluatePerformance } from "@/domain/cattle/performance";
 import { planCattleWork } from "@/domain/cattle/plan-interface";
-import { DEFAULT_CANDIDATE_ACTION_REGISTRY, recommendCattle } from "@/domain/cattle/recommendations";
+import { DEFAULT_CANDIDATE_ACTION_REGISTRY, recommendCattle, type CandidateActionRegistry } from "@/domain/cattle/recommendations";
 import { buildWeightReadContract, resolveGroupScope } from "@/domain/cattle/weights";
 import {
   animalRow,
@@ -60,6 +60,51 @@ export const REAL_NOTES = {
   plan: "The animal plan needs mart prices and animal costs, which Farm Return doesn't hold for your farm yet, so it isn't available.",
   work: "Work is worked out from your current records each time you open this page; jobs aren't saved yet.",
 } as const;
+
+/**
+ * DECISIONS D16 — authenticated real-mode recommendation candidates are capability-gated. An action family is offered
+ * to the frozen engines only when Farm Return's production integration provides its underlying store/evidence AND an
+ * actionable farmer workflow. Capability-based, never per animal: `false` means the application can't hold that
+ * evidence at all — it does NOT assert the animal has no programme, requirement, medicine or goal (those parts are
+ * still passed as not supplied, D8, and shown as unknown / couldn't be checked). When a capability gains real
+ * persistence and a workflow, set it true here and revisit D16 — the frozen engines already evaluate those actions.
+ */
+export const REAL_MODE_CAPABILITIES = {
+  /** `livestock_weight_observations` + Record Weight (P2). */
+  weights: true,
+  /** No veterinary-programme store (D8). */
+  veterinaryProgrammes: false,
+  /** No obligation / requirement-evidence store (D8). */
+  obligations: false,
+  /** No health / medicine / withdrawal store (D8). */
+  healthRecords: false,
+  /** No C6-compatible production-goal store or goal-setting workflow (D8; `goal_status` free text is not one, P0). */
+  productionGoals: false,
+} as const;
+
+type RealCapability = keyof typeof REAL_MODE_CAPABILITIES;
+
+/** The frozen C8 default action kinds and the one capability each needs. */
+const ACTION_CAPABILITY: Readonly<Record<string, RealCapability>> = {
+  RECORD_WEIGHT: "weights",
+  COMPLETE_PROGRAMME_ACTION: "veterinaryProgrammes",
+  RESOLVE_OBLIGATION_EVIDENCE: "obligations",
+  REVIEW_WITHDRAWAL_STATUS: "healthRecords",
+  DECLARE_PRODUCTION_GOAL: "productionGoals",
+};
+
+/**
+ * The real-mode supported action set: the frozen default registry's definitions whose capability is supported. An
+ * action kind with no capability mapping is not offered either (a new frozen action needs an explicit decision here).
+ */
+export const REAL_MODE_ACTION_REGISTRY: CandidateActionRegistry = {
+  registryId: "FARM_RETURN_REAL_MODE_SUPPORTED_ACTIONS",
+  version: "1",
+  definitions: DEFAULT_CANDIDATE_ACTION_REGISTRY.definitions.filter((d) => {
+    const capability = ACTION_CAPABILITY[d.actionKind];
+    return capability !== undefined && REAL_MODE_CAPABILITIES[capability];
+  }),
+};
 
 /** Real-mode unavailable screens (copy decided here; `CattleUnavailable` only renders it). */
 export const REAL_UNAVAILABLE = {
@@ -159,7 +204,7 @@ export function evaluateRealCattle(input: RealRecordsInput, viewpoint: CattleVie
     programmes: null,
     economics: { observations: [] },
     models: { records: [], reviews: [], sources: [] },
-    actions: DEFAULT_CANDIDATE_ACTION_REGISTRY,
+    actions: REAL_MODE_ACTION_REGISTRY,
   };
   const recommendations = recommendCattle(structuredClone(request), realHash);
   // No group-level work is planned in P1 (every real proposal is per animal), so C9 is given no group scopes (D11).

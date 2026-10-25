@@ -235,3 +235,28 @@ No new ranking or science is added.
 
 **Ask AI:** no AI provider is connected, so a signed-in farm isn't shown Ask AI. Demo mode keeps it, with its honest
 "isn't connected" note.
+
+## D16 — Real-mode recommendation candidates are capability-gated (pilot acceptance)
+
+Authenticated real-mode recommendation candidates are capability-gated. An action family is offered to the frozen
+engines only when Farm Return's production integration provides both its underlying evidence or store and an
+actionable farmer workflow. The capability table is `REAL_MODE_CAPABILITIES` in `src/server/cattle-real/real-service.ts`.
+
+| Capability | Status | Action families |
+|---|---|---|
+| Weights | Supported: `livestock_weight_observations` plus Record Weight | Offered |
+| Veterinary programmes | No store | Programme actions not offered |
+| Obligations / requirement evidence | No store | Obligation and proof actions not offered |
+| Health / medicine / withdrawal | No store | Withdrawal-status actions not offered |
+| Structured production goals | No C6-compatible store or workflow | Production-goal actions not offered |
+
+- **No claim of absence:** this does not assert that those facts are absent. Those parts are still passed as not
+  supplied (D8) and shown as unknown or "couldn't be checked".
+- **Frozen engines unchanged:** the frozen engines, their default registry and their wording are unchanged. Demo mode
+  keeps the full registry (`DEMO_ACTION_REGISTRY`).
+- **New frozen actions:** an action kind with no capability mapping is not offered, so a new frozen action needs an
+  explicit decision here.
+- **Revisit:** revisit this decision when any of these capabilities gains production storage and a workflow.
+
+This decision supersedes the P1 expectation that the insufficient-evidence programme item appears in real mode. It
+was authorised after the signed-in walkthrough, where removing one unsupported family only exposed the next.

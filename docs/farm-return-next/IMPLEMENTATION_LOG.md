@@ -5,6 +5,13 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Pilot Integration — complete (2026-10-25)
+
+The signed-in walkthrough found false programme, requirement, withdrawal and goal jobs on a real animal. D16 fixes
+this: real-mode cattle actions are capability-gated, and only weights are supported (`5e35def`). The full gate
+`quality-20261025T193923Z-33856` passed. Manual acceptance passed, including Record Weight persistence across a
+reload (601 kg on the dev animal "test"). Status: `PILOT_INTEGRATION_COMPLETE — READY_FOR_FARMER_PILOT`.
+
 ## Pilot Integration — manual acceptance repairs (2026-10-24)
 
 The signed-in walkthrough found two defects and three pieces of farmer-facing wording to fix:

@@ -2,12 +2,51 @@
 
 | | |
 |---|---|
-| Current phase | Manual signed-in acceptance: repairs done; manual check to resume |
-| Branch | `pilot-integration-v1` (P0 `9f6a1cb`; P1 `ef9f12f`; P2 `867bdb2`; P3 `e333a8d`; P4 `b6dba8b`) |
-| Implementation SHA | `a0ba9d1` (pilot acceptance repairs) |
-| Status | `READY_TO_RESUME_MANUAL_PILOT_CHECK`. Not complete. |
-| Pushed | no |
-| Open blocker | none. The remaining manual checks are below. |
+| Current phase | **Pilot Integration COMPLETE** (P0–P4 and signed-in manual acceptance) |
+| Branch | `pilot-integration-v1` (P0 `9f6a1cb`; P1 `ef9f12f`; P2 `867bdb2`; P3 `e333a8d`; P4 `b6dba8b`; repairs `a0ba9d1`) |
+| Final implementation SHA | `5e35def` (D16 capability-gated real-mode cattle actions) |
+| Final full gate | `quality-20261025T193923Z-33856` on `5e35def`: 6373 tests in 327 files, typecheck, lint (0 errors), build |
+| Status | `PILOT_INTEGRATION_COMPLETE — READY_FOR_FARMER_PILOT` |
+| Pushed | no. Codex: ZERO. |
+
+## Closure: manual signed-in acceptance (2026-10-24/25)
+
+The agent drove the user's signed-in browser against Farm Return V1 Dev (the real farm "KC"). The user authorised
+using real dev data and one test weight.
+
+**Passed:**
+- Farm;
+- field, soil and nutrients;
+- What Matters (the truthful missing-evidence state);
+- slurry and compliance;
+- Records and evidence;
+- Supports;
+- pilot navigation;
+- demo isolation;
+- the repairs at `a0ba9d1`: headcount-group link, "Live weight not recorded", wording on Supports, Records and Plan.
+
+**D16 at `5e35def`** (authorised):
+- The animal "test" shows no programme, requirement, withdrawal or goal job; the herd shows "0 open jobs" and the
+  group "Nothing currently needs attention".
+- Programmes, requirements, medicine and goals are still shown as couldn't be checked or unknown.
+
+**Record Weight** (approved test weight 601 kg, 25 Oct, on the existing dev animal "test"):
+- The save succeeded and the sheet closed.
+- The profile refreshed to 601 kg with a gain of 1.00 kg/day (24–25 Oct).
+- After a reload, the history shows both weights.
+- Manage herd shows the same group row. `/livestock` redirects to `/cattle/manage`.
+
+**Non-blocking follow-ups** (not started):
+- **Price sources:** What Matters reads only persisted CSO rows (the operator sync), while Market Prices and the
+  Fertiliser Plan use the CSO series embedded in the app. No sync was run.
+- **Manage herd live weight:** the "Total Cattle" weight is based on group averages, so it says "Live weight not
+  recorded" even when individual animals have weights.
+- **Plan:** lists closed-period notices under "Genuine opportunities".
+- **Records:** the inputs line shows raw codes.
+- **Dev farm test data:** "Dev Test Shed…", "QA Test Product" quotes, and the animal "test" with its weights.
+- **Capability-gated parts (D8/D16):** revisit when programme, obligation, medicine or goal storage is added.
+
+## History
 
 ## Manual signed-in walkthrough (2026-10-24, agent-driven in the signed-in browser)
 
@@ -46,7 +85,7 @@ operator sync, or a future decision to share one source, removes the visible dif
 - Plan lists closed-period notices under "Genuine opportunities".
 - The dev farm holds test rows ("Dev Test Shed…", "QA Test Product" quotes).
 
-**Remaining manual checks** (in the signed-in app):
+**Remaining manual checks at that point** (completed 2026-10-25, see Closure):
 - A. Re-check that a headcount-only group opens.
 - B. Re-check that Manage herd shows "Live weight not recorded".
 - C. Confirm the wording on Supports, Records and Plan.

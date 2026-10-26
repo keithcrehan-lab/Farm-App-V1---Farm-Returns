@@ -121,6 +121,8 @@ export function Sheet({
   title,
   children,
   labelledBy,
+  placement = "center",
+  panelClassName,
 }: {
   open: boolean;
   onClose: () => void;
@@ -131,6 +133,11 @@ export function Sheet({
    * `<h2>` (see `ExpandedPromptSheet`, which renders its own richer
    * header). When omitted, `title` is rendered as the accessible name. */
   labelledBy?: string;
+  /** "side": a full-height panel at the right edge on desktop (still a bottom sheet on mobile) — for a tool
+   * used beside the object it changes (the Living Animal Record's Record Weight). Default: the centred panel. */
+  placement?: "center" | "side";
+  /** Extra panel classes (surface, motion) for a caller with its own visual language. */
+  panelClassName?: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -262,7 +269,7 @@ export function Sheet({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-center">
+    <div className={cn("fixed inset-0 z-50 flex items-end justify-center", placement === "side" ? "lg:items-stretch lg:justify-end lg:p-[18px]" : "lg:items-center")}>
       <button
         type="button"
         aria-label="Close"
@@ -279,7 +286,8 @@ export function Sheet({
         tabIndex={-1}
         className={cn(
           "relative flex max-h-[85vh] w-full flex-col overflow-y-auto rounded-t-fr-card border border-fr-border bg-fr-surface p-5 shadow-fr-card",
-          "lg:max-w-lg lg:rounded-fr-card",
+          placement === "side" ? "lg:max-h-none lg:max-w-[470px] lg:rounded-[22px]" : "lg:max-w-lg lg:rounded-fr-card",
+          panelClassName,
         )}
       >
         {labelledBy ? null : (

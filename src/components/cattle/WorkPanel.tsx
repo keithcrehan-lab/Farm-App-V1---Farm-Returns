@@ -11,7 +11,8 @@
 import type { AnimalProfileVM, WorkVM } from "@/domain/cattle/presentation";
 import { Disclosure, StateLabel, cattleStyles } from "./ui";
 
-function Why({ work }: { work: WorkVM }) {
+/** The layered "Why?" of one job (also used by the Living Animal Record's open-work line). */
+export function WorkWhy({ work }: { work: WorkVM }) {
   const w = work.why;
   return (
     <div className="space-y-3 border-l-2 border-fr-v2-rule pl-4 text-sm text-fr-v2-charcoal">
@@ -113,7 +114,7 @@ export function WorkPanel({ work, onRecordWeight, resolvedTitles }: { work: Anim
                   </div>
                   <Timing work={o} />
                   <Disclosure label="Why?">
-                    <Why work={o} />
+                    <WorkWhy work={o} />
                   </Disclosure>
                 </li>
               ))}
@@ -164,7 +165,7 @@ function PrimaryJob({ p, onRecordWeight }: { p: WorkVM; onRecordWeight: (() => v
           </button>
         ) : null}
         <Disclosure label="Why?">
-          <Why work={p} />
+          <WorkWhy work={p} />
         </Disclosure>
       </div>
     </div>

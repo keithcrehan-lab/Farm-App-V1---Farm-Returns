@@ -37,6 +37,7 @@ import {
 import { readCattleSourceForCurrentFarm } from "@/lib/farm-data/cattle-source";
 import { reconcileJobs } from "@/server/cattle-plan/plan-jobs";
 import { realCattleRecords, type RealCattleRecords, type RealRecordsInput } from "./real-records";
+import { livingRecordOf, type LivingRecordVM } from "./living-record";
 import { irelandCalendarDate } from "./record-weight";
 
 type Rec = Record<string, unknown>;
@@ -157,6 +158,8 @@ export const REAL_RECORD_WEIGHT_COPY = {
 export interface RealAnimalView {
   profile: AnimalProfileVM;
   notes: typeof REAL_NOTES;
+  /** The Living Animal Record's statements about what Farm Return does and doesn't hold (D16-gated copy). */
+  record: LivingRecordVM;
   recordWeight: {
     /** The farmer's calendar date (Ireland) at the view's viewpoint: "Now" records this date; no later date is accepted. */
     today: string;
@@ -279,9 +282,11 @@ export function realGroupRefs(e: RealEvaluation): Set<string> {
 /** `null`: the id is not one of this farm's readable animals (never says whether it exists elsewhere). */
 export function realAnimalView(e: RealEvaluation, animalId: string): RealAnimalView | null {
   if (!e.outputs.ledgers.some((l) => l.animalId === animalId)) return null;
+  const profile = buildAnimalProfile(e.outputs, animalId, e.records.directory, NOT_SUPPLIED_COSTS);
   return {
-    profile: buildAnimalProfile(e.outputs, animalId, e.records.directory, NOT_SUPPLIED_COSTS),
+    profile,
     notes: REAL_NOTES,
+    record: livingRecordOf(profile, REAL_MODE_CAPABILITIES, REAL_NOTES),
     recordWeight: { today: irelandCalendarDate(new Date(e.outputs.viewpoint.effectiveAt)), copy: REAL_RECORD_WEIGHT_COPY },
   };
 }

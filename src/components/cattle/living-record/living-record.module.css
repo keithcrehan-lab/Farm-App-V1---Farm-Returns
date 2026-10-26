@@ -1,0 +1,485 @@
+/* Living Animal Record — the approved reference's material language
+   (docs/design/cattle-animal-living-record-reference.html): warm cream paper,
+   forest / grass / straw / soil / clay, technical mono for measured values,
+   low-contrast topographic contours at the edges and an extremely light
+   editorial grain. Colour carries meaning or atmosphere only. Every motion
+   explains a change (lens, state, a new measurement, a surface opening) and
+   is removed under prefers-reduced-motion. */
+
+/* Tokens: the record and its measurement sheet (rendered outside the record's subtree) share them. */
+.root,
+.sheet {
+  --lr-bg: #f3efe5;
+  --lr-paper: #fbf8f1;
+  --lr-ink: #17221c;
+  --lr-muted: #5f685f;
+  --lr-moss: #1f4b37;
+  --lr-moss2: #34694d;
+  --lr-grass: #789a62;
+  --lr-straw: #d7bd79;
+  --lr-soil: #7d5b42;
+  --lr-clay: #b8674e;
+  --lr-line: #d8d0c0;
+  --lr-motion: 380ms;
+  --lr-ease: cubic-bezier(0.2, 0.75, 0.2, 1);
+  --lr-ambient: 0.3;
+  --lr-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+.root {
+  background: var(--lr-bg);
+  color: var(--lr-ink);
+}
+
+.mono {
+  font-family: var(--lr-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.kicker {
+  font: 700 11px/1.1 var(--lr-mono);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--lr-soil);
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lr-muted);
+}
+
+/* The page recedes a touch while the measurement sheet is open (depth, not decoration). */
+.recede {
+  transition: transform 420ms var(--lr-ease), filter 420ms var(--lr-ease);
+  transform-origin: 50% 0;
+}
+.recede[data-receded="true"] {
+  transform: scale(0.992);
+  filter: saturate(0.92);
+}
+
+/* ---- Masthead ---------------------------------------------------------- */
+
+.masthead {
+  background:
+    radial-gradient(circle at 90% 20%, rgba(120, 154, 98, 0.15), transparent 36%),
+    linear-gradient(135deg, #f7f1e4, #efe9dc);
+  border-bottom: 1px solid var(--lr-line);
+}
+
+/* The portrait plate: a truthful stand-in when no photo of this animal is held. Forest field, contour lines. */
+.plate {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(215, 189, 121, 0.16), transparent 42%),
+    linear-gradient(140deg, #2b5340, #173a2a 70%);
+  color: #e9f0ea;
+}
+.plate::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.55;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 420'%3E%3Cg fill='none' stroke='%23dbe5de' stroke-opacity='.16' stroke-width='1.1'%3E%3Cpath d='M-20 330 C60 270 120 276 190 300 C270 330 330 322 400 280 C460 245 520 228 620 250'/%3E%3Cpath d='M-26 360 C50 305 116 304 188 330 C272 360 344 352 414 306 C474 268 540 254 626 274'/%3E%3Cpath d='M-30 390 C40 340 110 334 186 360 C268 390 350 386 428 334 C488 296 556 284 630 300'/%3E%3Cpath d='M40 250 C110 200 190 188 262 212 C322 232 370 228 424 194 C484 156 540 148 610 168'/%3E%3Cpath d='M80 200 C142 162 206 154 268 172 C328 190 374 184 424 154 C482 120 540 114 606 130'/%3E%3Cpath d='M130 140 C184 112 238 110 290 124 C338 137 380 132 426 106 C472 80 524 78 580 92'/%3E%3Cpath d='M190 86 C230 68 270 66 308 76 C344 85 376 82 410 64 C444 46 486 44 530 54'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: cover;
+  background-position: center;
+}
+.plate::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent 70%, rgba(12, 32, 23, 0.25) 100%);
+}
+@media (max-width: 759px) {
+  .plate::after {
+    background: linear-gradient(0deg, rgba(12, 32, 23, 0.3), transparent 45%);
+  }
+}
+
+.weight {
+  font: 650 52px/1 var(--lr-mono);
+  letter-spacing: -0.06em;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 759px) {
+  .weight {
+    font-size: 44px;
+  }
+}
+
+.recordBtn {
+  background: var(--lr-moss);
+  color: #fff;
+  box-shadow: 0 9px 24px rgba(31, 75, 55, 0.2);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+.recordBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(31, 75, 55, 0.24);
+}
+.recordBtn:focus-visible {
+  outline: 3px solid var(--lr-straw);
+  outline-offset: 3px;
+}
+
+/* A newly recorded value settles in with a brief straw glint. */
+.flash {
+  animation: flash 900ms var(--lr-ease);
+  display: inline-block;
+}
+@keyframes flash {
+  0% {
+    color: var(--lr-straw);
+    transform: translateY(6px);
+    opacity: 0.3;
+  }
+  45% {
+    color: var(--lr-moss2);
+    transform: none;
+    opacity: 1;
+  }
+  100% {
+    color: inherit;
+  }
+}
+
+/* ---- Chapters ---------------------------------------------------------- */
+
+.chapterbar {
+  scrollbar-width: thin;
+  background: #eee8dc;
+  border-bottom: 1px solid var(--lr-line);
+}
+.chapter {
+  position: relative;
+  border-right: 1px solid var(--lr-line);
+  color: #5f685f;
+  transition: background-color 200ms ease;
+}
+.chapter:last-child {
+  border-right: 0;
+}
+.chapter::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  background: var(--accent, var(--lr-moss));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--lr-motion) var(--lr-ease);
+}
+.chapter[aria-selected="true"] {
+  background: #f8f4eb;
+  color: var(--lr-ink);
+}
+.chapter[aria-selected="true"]::before {
+  transform: scaleX(1);
+}
+.chapter:hover:not([aria-selected="true"]) {
+  background: #f3eee4;
+}
+.chapter:focus-visible {
+  outline: 2px solid var(--lr-moss);
+  outline-offset: -4px;
+}
+
+/* ---- Stage: atmosphere, contours, grain -------------------------------- */
+
+.stage {
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+  background:
+    radial-gradient(circle at 78% 18%, rgba(var(--lr-ambient-rgb, 120, 154, 98), var(--lr-ambient)), transparent 28%),
+    var(--lr-paper);
+  transition: background var(--lr-motion) ease;
+}
+.stage::before {
+  content: "";
+  position: absolute;
+  right: -28px;
+  top: 14px;
+  width: 470px;
+  max-width: 70%;
+  height: 330px;
+  opacity: 0.2;
+  pointer-events: none;
+  z-index: -1;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 470 330'%3E%3Cg fill='none' stroke='%231f4b37' stroke-opacity='.42' stroke-width='1'%3E%3Cpath d='M8 258 C72 210 116 216 163 242 C215 270 268 267 314 230 C355 196 397 184 464 197'/%3E%3Cpath d='M4 281 C68 237 115 239 164 264 C216 291 271 290 320 251 C362 217 404 207 468 218'/%3E%3Cpath d='M0 305 C66 265 115 263 166 288 C219 313 277 314 326 275 C370 241 414 234 472 244'/%3E%3Cpath d='M57 189 C109 151 160 146 208 165 C251 181 287 177 325 151 C365 124 408 116 460 131'/%3E%3Cpath d='M86 147 C129 119 171 115 212 128 C253 141 286 137 323 114 C363 89 405 83 454 95'/%3E%3Cpath d='M124 101 C160 80 196 78 231 88 C263 97 294 94 325 76 C356 58 393 56 435 67'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}
+.stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.16;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.16'/%3E%3C/svg%3E");
+}
+
+.rule {
+  border-color: var(--lr-line);
+}
+
+/* Lens change: the new chapter rises into place; the animal above stays put. */
+.lensIn {
+  animation: lensIn var(--lr-motion) var(--lr-ease) both;
+}
+@keyframes lensIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The context rail recedes into a slim column on desktop. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 40px;
+}
+@media (min-width: 1100px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) 245px;
+    gap: 48px;
+    transition: grid-template-columns var(--lr-motion) var(--lr-ease), gap var(--lr-motion) var(--lr-ease);
+  }
+  .layout[data-rail="collapsed"] {
+    grid-template-columns: minmax(0, 1fr) 0px;
+    gap: 0;
+  }
+  .rail {
+    position: sticky;
+    top: 92px;
+    align-self: start;
+    transition: opacity 240ms ease;
+  }
+  .layout[data-rail="collapsed"] .rail {
+    opacity: 0;
+    overflow: hidden;
+  }
+}
+
+/* ---- Growth graph ------------------------------------------------------ */
+
+.graph {
+  position: relative;
+  border-top: 1px solid var(--lr-line);
+  border-bottom: 1px solid var(--lr-line);
+  background: linear-gradient(180deg, rgba(120, 154, 98, 0.1), rgba(120, 154, 98, 0) 55%);
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.graph:focus-visible {
+  outline: 2px solid var(--lr-moss);
+  outline-offset: 4px;
+}
+.hatch {
+  background-image: repeating-linear-gradient(135deg, rgba(105, 113, 107, 0.12) 0 4px, transparent 4px 9px);
+}
+
+.point {
+  transition:
+    r 180ms ease,
+    stroke-width 180ms ease;
+}
+
+.guide {
+  transition: transform 260ms var(--lr-ease);
+}
+
+.annotation {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(251, 248, 241, 0.94);
+  border-left: 3px solid var(--lr-moss);
+  box-shadow: 0 8px 24px rgba(23, 34, 28, 0.1);
+  transition:
+    left 260ms var(--lr-ease),
+    top 260ms var(--lr-ease);
+}
+
+.pointIn {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pointIn 620ms var(--lr-ease) both;
+}
+@keyframes pointIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.lineIn {
+  stroke-dasharray: 1;
+  animation: lineIn 700ms var(--lr-ease) both;
+}
+@keyframes lineIn {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ---- Plan trajectory --------------------------------------------------- */
+
+.track {
+  position: absolute;
+  top: 35px;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--lr-moss), var(--lr-straw) 55%, var(--lr-clay));
+}
+.track[data-outcome="unrecorded"] {
+  background: linear-gradient(90deg, var(--lr-moss), var(--lr-straw) 40%, transparent 40%);
+}
+.trackDash {
+  position: absolute;
+  top: 35px;
+  left: 40%;
+  right: 6px;
+  border-top: 2px dashed var(--lr-line);
+}
+
+/* ---- Measurement sheet ------------------------------------------------- */
+
+.sheet {
+  color: var(--lr-ink);
+  background: var(--lr-paper) !important;
+  border: 0 !important;
+  box-shadow: 0 22px 60px rgba(31, 47, 37, 0.18) !important;
+  padding: 26px !important;
+  animation: sheetUp 360ms var(--lr-ease) both;
+}
+@media (min-width: 1024px) {
+  .sheet {
+    animation-name: sheetSide;
+    animation-duration: 420ms;
+  }
+}
+@keyframes sheetUp {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes sheetSide {
+  from {
+    transform: translateX(calc(100% + 30px));
+  }
+  to {
+    transform: none;
+  }
+}
+
+.reading {
+  font: 700 64px/1 var(--lr-mono);
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+  color: var(--lr-ink);
+  background: transparent;
+  border: 0;
+  outline: none;
+  text-align: center;
+  width: 5.2ch;
+  field-sizing: content;
+  min-width: 2ch;
+  max-width: 100%;
+  caret-color: var(--lr-moss);
+}
+@media (max-width: 759px) {
+  .reading {
+    font-size: 56px;
+  }
+}
+.readingWell {
+  border-bottom: 2px solid var(--lr-moss);
+  transition: border-color 160ms ease;
+}
+.readingWell:focus-within {
+  border-color: var(--lr-grass);
+}
+.readingWell[data-invalid="true"] {
+  border-color: var(--lr-clay);
+}
+.needle {
+  transition: transform 220ms var(--lr-ease);
+}
+.stepBtn {
+  border: 1px solid var(--lr-line);
+  background: transparent;
+  transition:
+    background-color 140ms ease,
+    transform 120ms ease;
+}
+.stepBtn:hover {
+  background: #f1ece1;
+}
+.stepBtn:active {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recede,
+  .recede[data-receded="true"] {
+    transition: none;
+    transform: none;
+    filter: none;
+  }
+  .flash,
+  .lensIn,
+  .pointIn,
+  .lineIn,
+  .sheet {
+    animation: none !important;
+  }
+  .chapter::before,
+  .chapter,
+  .stage,
+  .layout,
+  .rail,
+  .point,
+  .guide,
+  .annotation,
+  .needle,
+  .recordBtn,
+  .stepBtn {
+    transition: none !important;
+  }
+  .recordBtn:hover {
+    transform: none;
+  }
+}

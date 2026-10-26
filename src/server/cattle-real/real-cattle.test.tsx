@@ -409,7 +409,7 @@ describe("Pilot P1 — real screens", () => {
     expect(screen.getByText(/aren't kept in Farm Return yet, so withdrawal/)).toBeInTheDocument();
     expect(screen.getByText(/costs are unknown — not €0/)).toBeInTheDocument();
     // P2: Record Weight is the one real write; no plan, goal or photo control, no demo copy.
-    expect(screen.getByRole("button", { name: "Record a weight" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Record weight" })).toBeInTheDocument();
     expect(screen.queryByText(/Plan this animal to sale|View animal plan/)).toBeNull();
     expect(screen.queryByRole("heading", { name: "Photos" })).toBeNull();
     expect(screen.getByText(/isn't available/)).toBeInTheDocument();

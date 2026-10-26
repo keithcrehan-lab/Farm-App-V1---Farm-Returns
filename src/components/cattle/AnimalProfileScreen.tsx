@@ -13,21 +13,18 @@
  */
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { AnimalProfileVM, PerformanceExplanationVM } from "@/domain/cattle/presentation";
 import type { DemoAnimalView } from "@/server/cattle-demo/demo-service";
 import type { CattleDemoScenario } from "@/server/cattle-demo/demo-replay";
-import type { RealAnimalView } from "@/server/cattle-real/real-service";
 import { loadCattleAnimal } from "@/app/(app)/cattle/actions";
-import { recordRealCattleWeight } from "@/app/(app)/cattle/real-actions";
 import { CostSection, HealthSection, TimelineSection } from "./AnimalSections";
 import { PerformanceChart } from "./PerformanceChart";
 import { PhotoGallery, PrimaryPhoto } from "./photos/AnimalPhotos";
 import { RecordWeightSheet } from "./RecordWeightSheet";
 import { useCattleDemoSession } from "./session/CattleDemoSessionProvider";
 import { useDemoView } from "./session/use-demo-view";
-import { BackLink, DemoNotice, Disclosure, RealNotice, Metric, SectionHeading, StateLabel, ViewStatus, busyClass } from "./ui";
+import { BackLink, DemoNotice, Disclosure, Metric, SectionHeading, StateLabel, ViewStatus, busyClass } from "./ui";
 import { WorkPanel } from "./WorkPanel";
 
 const SESSION_FULL = "This demonstration session is full, so the weight wasn't recorded. Reset the demo on the Cattle page to continue.";
@@ -156,70 +153,10 @@ export function AnimalProfileScreen({ initial, tag, scenario }: { initial: DemoA
 }
 
 /**
- * Pilot Integration P1 — the signed-in farmer's animal (read-only, server-rendered). No demonstration session, no
- * Record Weight, plan, goal or photo controls (P1 persists nothing); the parts Farm Return keeps no record of say so.
+ * Pilot Integration P1/P2 — the signed-in farmer's animal is the Living Animal Record (its own composition and the
+ * one real write, Record Weight); the demonstration profile above keeps the C10 reference screen.
  */
-export function RealAnimalProfileScreen({ view }: { view: RealAnimalView }) {
-  const p = view.profile;
-  const n = view.notes;
-  const router = useRouter();
-  const [sheet, setSheet] = useState(false);
-  // One submission id per opening of the sheet: a double press, a network retry or an action retry of the same
-  // weight sends the same id, so the server returns the row it already wrote instead of writing a second (D13).
-  const [requestId, setRequestId] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
-  const openSheet = () => {
-    setRequestId(crypto.randomUUID());
-    setSaved(null);
-    setSheet(true);
-  };
-  return (
-    <ProfileBody
-      p={p}
-      pending={false}
-      failed={false}
-      groupHref={p.identity.group.groupRef ? `/cattle/groups/${encodeURIComponent(p.identity.group.groupRef)}` : "/cattle"}
-      changes={NO_CHANGES}
-      weightKey={p.weight.state}
-      notice={<RealNotice lines={[n.readOnly, n.method]} />}
-      photo={null}
-      photos={null}
-      onRecordWeight={openSheet}
-      planLinks={{ aside: null, main: <p className="mt-5 text-sm text-fr-v2-muted" data-real-plan="UNAVAILABLE">{n.plan}</p> }}
-      footerSource="your farm's records"
-      notes={{ goal: n.goal, health: n.health, costs: n.costs, work: n.work }}
-    >
-      {saved ? (
-        <p className="mt-4 text-sm text-fr-v2-forest" role="status">
-          {saved}
-        </p>
-      ) : null}
-      {requestId ? (
-        <RecordWeightSheet
-          key={requestId}
-          open={sheet}
-          onClose={() => setSheet(false)}
-          tag={p.tag.value ?? p.tag.state.label}
-          previous={p.weight}
-          asOfDate={view.recordWeight.today}
-          copy={view.recordWeight.copy}
-          onSave={async (v) => {
-            // The sheet's exact reading as text; the server re-reads and validates it (it trusts nothing sent here).
-            const r = await recordRealCattleWeight({ requestId, animalId: p.animalId, weightText: String(v.kg), observedDate: v.observedDate });
-            if (!r.ok) return r.message;
-            setSheet(false);
-            setSaved(`Weight saved. Showing your records as they are now.`);
-            // Re-render from Supabase: the frozen engines recompute the profile from the stored rows.
-            router.refresh();
-            return null;
-          }}
-        />
-      ) : null}
-    </ProfileBody>
-  );
-}
-
-const NO_CHANGES = { points: [], resolved: [], timeline: new Set<string>() };
+export { RealAnimalProfileScreen } from "./living-record/LivingAnimalRecord";
 
 function ProfileBody({
   p,

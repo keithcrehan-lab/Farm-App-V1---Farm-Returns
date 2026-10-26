@@ -65,7 +65,8 @@ describe("C10 boundary — consumes frozen outputs, owns no cattle decision", ()
 
 describe("C10 invariants B and C — components hold no numeric or date derivation", () => {
   // Layout geometry (chart scales, bar proportions) lives in PerformanceChart / plan-timeline only.
-  const GEOMETRY = new Set(["src/components/cattle/PerformanceChart.tsx"]);
+  // Chart geometry (pixel positions, axis ticks, SVG path text) — no value shown is computed there.
+  const GEOMETRY = new Set(["src/components/cattle/PerformanceChart.tsx", "src/components/cattle/living-record/GrowthGraph.tsx"]);
 
   it("no component rounds, truncates or re-parses a value (display rounding is format.ts; editing is numeric-input.ts)", () => {
     for (const f of COMPONENTS.filter((x) => !GEOMETRY.has(x))) {

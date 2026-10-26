@@ -37,6 +37,7 @@ import {
 import { readCattleSourceForCurrentFarm } from "@/lib/farm-data/cattle-source";
 import { reconcileJobs } from "@/server/cattle-plan/plan-jobs";
 import { realCattleRecords, type RealCattleRecords, type RealRecordsInput } from "./real-records";
+import { cattleContinuityOf, type CattleContinuityVM } from "./herd-continuity";
 import { livingRecordOf, type LivingRecordVM } from "./living-record";
 import { irelandCalendarDate } from "./record-weight";
 
@@ -145,6 +146,8 @@ export interface RealHerdExtras {
 export interface RealHerdView {
   herd: HerdVM;
   extras: RealHerdExtras;
+  /** The Cattle home and group pages (continuity reference): D16-gated wording, recorded headcounts, real weights. */
+  continuity: CattleContinuityVM;
 }
 
 /** The real Record Weight sheet's words (P2): no method is asked for or claimed (D12). */
@@ -255,10 +258,12 @@ export function realHerdView(e: RealEvaluation): RealHerdView {
   const evaluated = new Set(outputs.groups.map((g) => g.groupRef));
   // A group whose every animal record was refused is listed with that reason (its animals are in `unreadable`).
   const unreadableGroups = records.scopedGroupRefs.filter((g) => !evaluated.has(g)).map((groupRef) => ({ groupRef, name: records.directory.groupLabels[groupRef] ?? "Unnamed group", summary: "Animal records can't be read" }));
+  const notes = { readOnly: REAL_NOTES.readOnly, method: REAL_NOTES.method, work: REAL_NOTES.work };
   return {
     herd,
+    continuity: cattleContinuityOf(herd, outputs, records, ungrouped, REAL_MODE_CAPABILITIES, notes),
     extras: {
-      notes: { readOnly: REAL_NOTES.readOnly, method: REAL_NOTES.method, work: REAL_NOTES.work },
+      notes,
       ungrouped: details(ungrouped),
       headcountGroups: details([
         ...records.headcountGroups.map((g) => ({

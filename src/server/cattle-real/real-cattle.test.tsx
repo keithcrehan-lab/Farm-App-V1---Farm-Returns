@@ -374,8 +374,9 @@ describe("Pilot P1 — real screens", () => {
     const page = await CattlePage({ searchParams: Promise.resolve({}) });
     render(page);
     expect(screen.getByRole("heading", { name: "Cattle" })).toBeInTheDocument();
-    expect(screen.getByText(/5 animals in 2 groups/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Bullocks/ })).toHaveAttribute("href", `/cattle/groups/${G_BULLOCKS}`);
+    // Recorded headcounts 3 + 1 + 40 and one ungrouped animal; three groups (the headcount-only one included).
+    expect(document.querySelector("[data-herd-headline]")).toHaveTextContent("45 head · 3 groups");
+    expect(screen.getByRole("link", { name: "Open Bullocks" })).toHaveAttribute("href", `/cattle/groups/${G_BULLOCKS}`);
     expect(screen.getByText("Sucklers")).toBeInTheDocument();
     expect(screen.getByText("40 head recorded for the group · individual animals not recorded")).toBeInTheDocument();
     const ungrouped = screen.getByRole("heading", { name: "Not in a group" }).closest("section")!;

@@ -10,7 +10,7 @@
  * shed is not an animal's location).
  */
 
-import type { LivestockGroup } from "@/domain/types";
+import type { LivestockGoal, LivestockGroup } from "@/domain/types";
 import type { CattleDirectory } from "@/domain/cattle/presentation";
 import type { LivestockIndividualRow, WeightObservationRow } from "@/lib/farm-data/row-types";
 
@@ -35,6 +35,18 @@ export interface RealHeadcountGroup {
   headcount: number | null;
 }
 
+/** One of the farm's groups as recorded (farm order): its headcount and how many animals are recorded in it individually. */
+export interface RealGroupFact {
+  groupRef: string;
+  name: string;
+  /** The group's recorded headcount, or `null` if it can't be read. */
+  headcount: number | null;
+  /** Individual animal rows recorded in this group (readable or not). */
+  individuals: number;
+  /** The group goal chosen in Manage herd, or `null` when none is set. Not a C6 production goal (no weight or date). */
+  goal: LivestockGoal | null;
+}
+
 export interface RealCattleRecords {
   /** C1 assertion inputs per animal (`createAnimalLedger` validates them). */
   assertions: { animalId: string; inputs: Rec[] }[];
@@ -48,6 +60,8 @@ export interface RealCattleRecords {
   headcountNotes: Record<string, string>;
   /** Animals with no group recorded. */
   ungroupedAnimalIds: string[];
+  /** Every group, in the farm's order, with its recorded headcount and individual count. */
+  groupFacts: RealGroupFact[];
   directory: CattleDirectory;
 }
 
@@ -136,6 +150,7 @@ export function realCattleRecords(input: RealRecordsInput): RealRecordsResult {
       headcountGroups,
       headcountNotes,
       ungroupedAnimalIds: animals.filter((a) => a.group_id === null).map((a) => a.id),
+      groupFacts: groups.map((g) => ({ groupRef: g.id, name: g.label, headcount: headcountOf(g), individuals: individuals.get(g.id) ?? 0, goal: g.goal ?? null })),
       directory: {
         tagScheme: REAL_TAG_SCHEME,
         groupLabels: Object.fromEntries(groups.map((g) => [g.id, g.label])),

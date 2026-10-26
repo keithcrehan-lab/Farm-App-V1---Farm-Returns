@@ -1,0 +1,466 @@
+/* Cattle continuity — the approved reference's material language
+   (docs/design/cattle-home-continuity-reference.html): warm cream shell,
+   dark forest object surfaces with a thin straw/gold edge, serif object
+   identity, technical mono for measured values and dates, a faint contour
+   texture. Gold marks identity and selection only. The one interaction with
+   motion is the group coming forward (hover / focus / press) and the group
+   header settling in on arrival; both are removed under reduced motion. */
+
+.root {
+  --cc-cream: #f4efe5;
+  --cc-paper: #faf7ef;
+  --cc-ink: #162019;
+  --cc-muted: #646a62;
+  --cc-forest: #18241d;
+  --cc-forest2: #1b2c22;
+  --cc-forest3: #243d2e;
+  --cc-gold: #d1a22a;
+  --cc-rule: #d6cec0;
+  --cc-green: #245a43;
+  --cc-quiet: #8a6751;
+  --cc-on-forest: #eef3ee;
+  --cc-on-forest-muted: #b7c5bb;
+  --cc-on-forest-quiet: #a3b4a8;
+  --cc-ease: cubic-bezier(0.2, 0.75, 0.2, 1);
+  --cc-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--cc-cream);
+  color: var(--cc-ink);
+}
+
+.mono {
+  font-family: var(--cc-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.eyebrow {
+  font: 700 11px/1.2 var(--cc-mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cc-gold);
+}
+
+.quietLabel {
+  font: 700 10px/1.2 var(--cc-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cc-quiet);
+}
+
+/* ---- Masthead ----------------------------------------------------------- */
+
+.top {
+  background: linear-gradient(180deg, #f8f4eb, var(--cc-cream));
+  border-bottom: 1px solid var(--cc-rule);
+}
+
+.title {
+  font-size: 54px;
+  line-height: 0.9;
+  letter-spacing: -0.045em;
+  font-weight: 500;
+}
+
+.pill {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--cc-rule);
+  border-radius: 999px;
+  padding: 0 14px;
+  background: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cc-muted);
+  cursor: pointer;
+  list-style: none;
+}
+.pill::-webkit-details-marker {
+  display: none;
+}
+.pill:hover {
+  color: var(--cc-ink);
+}
+details[open] > .pill {
+  border-color: var(--cc-ink);
+  color: var(--cc-ink);
+}
+
+.aboutPanel {
+  border: 1px solid var(--cc-rule);
+  border-radius: 14px;
+  background: var(--cc-paper);
+}
+
+/* ---- Buttons and quiet links ------------------------------------------- */
+
+.manage {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  border: 1px solid var(--cc-rule);
+  border-radius: 999px;
+  padding: 0 16px;
+  color: var(--cc-green);
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.manage:hover {
+  border-color: var(--cc-green);
+}
+
+.back {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: var(--cc-green);
+  font-weight: 750;
+}
+
+/* ---- The group object --------------------------------------------------- */
+
+.object {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--cc-forest) 0%, var(--cc-forest2) 55%, var(--cc-forest3) 100%);
+  color: var(--cc-on-forest);
+  border-left: 4px solid var(--cc-gold);
+  border-radius: 18px;
+  transition:
+    transform 260ms var(--cc-ease),
+    box-shadow 260ms var(--cc-ease);
+}
+/* The contour texture (from the map's field language): atmosphere, never data. */
+.object::before,
+.groupHeader::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.2;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 760 300'%3E%3Cg fill='none' stroke='%23d9e1da' stroke-opacity='.22' stroke-width='1'%3E%3Cpath d='M-25 232 C88 161 184 184 284 217 C381 249 479 235 557 183 C632 133 702 132 790 156'/%3E%3Cpath d='M-30 264 C80 201 183 210 290 243 C391 274 489 263 570 209 C645 159 717 158 800 181'/%3E%3Cpath d='M38 154 C130 99 219 105 306 132 C391 158 472 150 544 106 C613 64 689 63 775 85'/%3E%3Cpath d='M98 91 C174 54 246 55 313 72 C380 89 440 84 499 54 C562 22 631 22 708 39'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: cover;
+  background-position: center;
+}
+.object:hover,
+.object:focus-within {
+  transform: translateY(-3px);
+  box-shadow: 0 18px 38px rgba(24, 36, 29, 0.22);
+}
+.object:active {
+  transform: translateY(-1px);
+}
+
+.inner {
+  position: relative;
+  padding: 28px;
+}
+
+/* The whole object is one link: the open control's hit area is stretched over the surface. */
+.stretch::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: 18px;
+}
+.stretch:focus-visible {
+  outline: none;
+}
+.object:has(.stretch:focus-visible) {
+  outline: 2px solid var(--cc-gold);
+  outline-offset: 3px;
+}
+/* Controls that sit above the stretched link. */
+.above {
+  position: relative;
+  z-index: 2;
+}
+
+.objectGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 28px;
+}
+
+.groupTitle {
+  font-size: 43px;
+  line-height: 1;
+  font-weight: 500;
+}
+
+.onForestMuted {
+  color: var(--cc-on-forest-muted);
+}
+
+.count {
+  text-align: right;
+}
+.count strong {
+  display: block;
+  font-size: 72px;
+  line-height: 0.9;
+  letter-spacing: -0.07em;
+  color: #fff;
+  font-weight: 700;
+}
+.count span,
+.unit {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--cc-on-forest-quiet);
+}
+
+.divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.14);
+  margin: 22px 0;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+.mlabel {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #9fb0a4;
+}
+.mvalue {
+  margin-top: 7px;
+  font-size: 29px;
+  line-height: 1;
+  color: #fff;
+}
+.msub {
+  margin-top: 5px;
+  font-size: 11px;
+  color: #afbbb2;
+}
+.status {
+  margin-top: 7px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.primary {
+  display: inline-flex;
+  flex: 1;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #fff;
+  color: #1b261f;
+  padding: 0 18px;
+  font-weight: 750;
+}
+.secondary {
+  min-height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  background: transparent;
+  color: #edf3ee;
+  padding: 0 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.secondary:hover,
+.secondary[aria-expanded="true"] {
+  border-color: var(--cc-gold);
+}
+
+.quick {
+  border-top: 1px solid var(--cc-rule);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.quick[hidden] {
+  display: none;
+}
+.quietValue {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.support {
+  color: var(--cc-muted);
+  font-size: 12px;
+}
+
+/* ---- Group page --------------------------------------------------------- */
+
+.groupHeader {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: end;
+  background: linear-gradient(135deg, var(--cc-forest), #22372b);
+  color: #fff;
+  border-left: 4px solid var(--cc-gold);
+  border-radius: 18px;
+  padding: 28px;
+  animation: arrive 300ms var(--cc-ease) both;
+}
+.groupHeader > * {
+  position: relative;
+}
+.groupHeader h1 {
+  font-size: 52px;
+  line-height: 0.95;
+  font-weight: 500;
+}
+.groupHeader .count strong {
+  font-size: 60px;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 28px;
+}
+
+.animalRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  min-height: 84px;
+  padding: 17px 0;
+  border-top: 1px solid var(--cc-rule);
+  transition: background-color 160ms var(--cc-ease);
+}
+.animalRow:hover,
+.animalRow:focus-visible {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5) 12%, rgba(255, 255, 255, 0.5) 88%, transparent);
+}
+.animalRow:focus-visible {
+  outline: 2px solid var(--cc-gold);
+  outline-offset: -2px;
+}
+.animalName {
+  font-size: 27px;
+  line-height: 1.1;
+}
+.animalMeta {
+  font-size: 13px;
+  color: var(--cc-muted);
+}
+.workLine {
+  margin-top: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--cc-green);
+}
+.weight {
+  text-align: right;
+  font-size: 25px;
+  font-weight: 700;
+}
+.date {
+  margin-top: 4px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--cc-muted);
+}
+
+.aside {
+  border-left: 1px solid var(--cc-rule);
+  padding-left: 20px;
+}
+.aside dt {
+  font-size: 12px;
+  color: var(--cc-muted);
+  margin-top: 15px;
+}
+.aside dd {
+  margin: 3px 0 0;
+  font-weight: 700;
+  font-size: 14px;
+}
+.aside dd span {
+  display: block;
+  margin-top: 2px;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--cc-muted);
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .title {
+    font-size: 45px;
+  }
+  .inner,
+  .groupHeader {
+    padding: 22px 20px;
+  }
+  .objectGrid,
+  .groupHeader,
+  .detailGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .count {
+    text-align: left;
+  }
+  .count strong {
+    font-size: 60px;
+  }
+  .groupTitle {
+    font-size: 38px;
+  }
+  .groupHeader h1 {
+    font-size: 42px;
+  }
+  .metrics {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 18px;
+  }
+  .metrics > :last-child {
+    grid-column: 1 / -1;
+  }
+  .quick {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .aside {
+    border-left: 0;
+    border-top: 1px solid var(--cc-rule);
+    padding: 18px 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .object,
+  .animalRow {
+    transition: none;
+  }
+  .object:hover,
+  .object:focus-within,
+  .object:active {
+    transform: none;
+  }
+  .groupHeader {
+    animation: none;
+  }
+}

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { isValidElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -180,8 +180,10 @@ describe("Pilot P3 — navigation", () => {
   it("a headcount-only group (no individual animals) is a link to its own page by database id, and that id resolves", async () => {
     const e = await herd();
     render(<RealHerdScreen view={realHerdView(e)} />);
-    const link = screen.getByRole("link", { name: /Sucklers.*40 head recorded for the group · individual animals not recorded/ });
-    expect(link).toHaveAttribute("href", `/cattle/groups/${G_HEAD}`);
+    // The whole group object is entered through its one link; its composition line says what's recorded.
+    const object = document.querySelector(`[data-group-object="${G_HEAD}"]`) as HTMLElement;
+    expect(within(object).getByText("40 head recorded for the group · individual animals not recorded")).toBeInTheDocument();
+    expect(within(object).getByRole("link", { name: "Open Sucklers" })).toHaveAttribute("href", `/cattle/groups/${G_HEAD}`);
     expect(realGroupRefs(e).has(G_HEAD)).toBe(true);
     cleanup();
     render(<RealGroupScreen view={realHerdView(e)} groupRef={G_HEAD} />);

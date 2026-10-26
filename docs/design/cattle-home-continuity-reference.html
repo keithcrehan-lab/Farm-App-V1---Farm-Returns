@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Farm Return — Cattle continuity reference</title>
+<style>
+:root{
+  --cream:#f4efe5;--paper:#faf7ef;--ink:#162019;--muted:#73786f;
+  --forest:#18241d;--forest2:#21382c;--forest3:#2b4a38;
+  --gold:#d1a22a;--rule:#d6cec0;--sage:#b6c9ba;
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}body{margin:0;background:var(--cream);color:var(--ink)}
+button{font:inherit;cursor:pointer}.serif{font-family:Georgia,"Times New Roman",serif}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.eyebrow{font:700 11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--gold)}
+.shell{min-height:100vh;background:var(--cream)}
+.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;padding:28px 32px 24px;background:linear-gradient(180deg,#f8f4eb,#f4efe5);border-bottom:1px solid var(--rule)}
+.title{font-size:54px;line-height:.9;letter-spacing:-.045em;margin:8px 0 0;font-weight:500}
+.sub{margin-top:13px;color:var(--muted);font-size:15px}
+.utility{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pill{display:inline-flex;min-height:40px;align-items:center;gap:8px;border:1px solid var(--rule);border-radius:999px;padding:0 13px;background:rgba(255,255,255,.45);font-size:12px;color:var(--muted)}
+.dot{width:7px;height:7px;border-radius:50%;background:#3a8a58}
+.workspace{padding:24px 32px 40px}
+.intro{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+.intro p{margin:4px 0 0;color:var(--muted);font-size:14px}
+.manage{min-height:44px;border:1px solid var(--rule);border-radius:999px;padding:0 16px;background:transparent;color:#245a43;font-weight:700}
+.object{position:relative;overflow:hidden;background:linear-gradient(135deg,var(--forest) 0%,#1b2c22 55%,#243d2e 100%);color:#eef3ee;border-left:4px solid var(--gold);border-radius:18px;transition:.26s cubic-bezier(.2,.75,.2,1)}
+.object:before{content:"";position:absolute;inset:0;opacity:.2;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 760 300'%3E%3Cg fill='none' stroke='%23d9e1da' stroke-opacity='.22' stroke-width='1'%3E%3Cpath d='M-25 232 C88 161 184 184 284 217 C381 249 479 235 557 183 C632 133 702 132 790 156'/%3E%3Cpath d='M-30 264 C80 201 183 210 290 243 C391 274 489 263 570 209 C645 159 717 158 800 181'/%3E%3Cpath d='M38 154 C130 99 219 105 306 132 C391 158 472 150 544 106 C613 64 689 63 775 85'/%3E%3Cpath d='M98 91 C174 54 246 55 313 72 C380 89 440 84 499 54 C562 22 631 22 708 39'/%3E%3C/g%3E%3C/svg%3E");background-size:cover;background-position:center}
+.object:hover,.object.selected{transform:translateY(-3px);box-shadow:0 18px 38px rgba(24,36,29,.22)}
+.inner{position:relative;z-index:1;padding:28px}.grid{display:grid;grid-template-columns:1fr 260px;gap:28px}.groupTitle{font-size:43px;line-height:1;margin:8px 0 0;font-weight:500}
+.groupSub{margin-top:8px;color:#b7c5bb;font-size:14px}.count{text-align:right}.count strong{display:block;font-size:72px;line-height:.9;letter-spacing:-.07em;color:white}.count span{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#aebbb2}
+.divider{height:1px;background:rgba(255,255,255,.14);margin:22px 0}
+.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}.mlabel{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#9fb0a4}.mvalue{margin-top:7px;font-size:29px;line-height:1;color:white}.msub{margin-top:5px;font-size:11px;color:#afbbb2}
+.status{margin-top:7px;font-size:16px;font-weight:700;color:white}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}.primary{min-height:48px;border:0;border-radius:10px;background:white;color:#1b261f;padding:0 18px;font-weight:750;flex:1}.secondary{min-height:48px;border:1px solid rgba(255,255,255,.22);border-radius:10px;background:transparent;color:#edf3ee;padding:0 16px;font-weight:700}
+.quick{display:none;border-top:1px solid var(--rule);padding:16px 0;margin-top:18px}.quick.show{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.quietLabel{font:700 10px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;color:#8a6751}.quietValue{margin-top:4px;font-size:14px;font-weight:700}
+.support{margin-top:18px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:12px}
+.groupView{display:none}.groupView.active{display:block;animation:in .3s cubic-bezier(.2,.75,.2,1) both}.home.hidden{display:none}
+.navrow{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:16px}.back,.edit{min-height:44px;background:transparent;border:0;color:#245a43;font-weight:750}.edit{border:1px solid var(--rule);border-radius:999px;padding:0 16px}
+.groupHeader{display:grid;grid-template-columns:1fr 240px;gap:24px;align-items:end;background:linear-gradient(135deg,var(--forest),#22372b);color:white;border-left:4px solid var(--gold);border-radius:18px;padding:28px;position:relative;overflow:hidden}
+.groupHeader h2{font-size:52px;line-height:.95;margin:9px 0 0;font-weight:500}.groupHeader p{color:#b7c5bb}.groupHeader .n{text-align:right}.groupHeader .n strong{display:block;font-size:60px;line-height:.9}.groupHeader .n span{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#aebbb2}
+.detailGrid{display:grid;grid-template-columns:1fr 240px;gap:28px;margin-top:24px}.animalRow{width:100%;border:0;border-top:1px solid var(--rule);background:transparent;display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:17px 0;text-align:left;min-height:84px}.animalRow:hover{background:rgba(255,255,255,.34)}
+.animalName{font-size:27px}.animalMeta{font-size:13px;color:var(--muted)}.latest{margin-top:8px;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#245a43}.weight{text-align:right;font-size:25px;font-weight:700}.date{margin-top:4px;font-size:11px;color:var(--muted)}
+.aside{border-left:1px solid var(--rule);padding-left:20px}.aside dl{margin:14px 0}.aside dt{font-size:12px;color:var(--muted);margin-top:15px}.aside dd{margin:3px 0 0;font-weight:700;font-size:14px}
+.preview{display:none;margin-top:16px;border-radius:16px;background:var(--forest);color:white;padding:18px;border-left:4px solid var(--gold)}.preview.show{display:block}
+@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media(max-width:760px){.top{display:block;padding:20px}.utility{margin-top:14px}.workspace{padding:16px}.grid,.groupHeader,.detailGrid{grid-template-columns:1fr}.count,.groupHeader .n{text-align:left}.metrics{grid-template-columns:1fr 1fr}.quick.show{grid-template-columns:1fr}.aside{border-left:0;border-top:1px solid var(--rule);padding:18px 0 0}.title{font-size:45px}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Farm Return · Cattle</div>
+      <h1 class="serif title">Cattle</h1>
+      <div class="sub"><span class="mono"><b>20</b></span> head · <span class="mono"><b>1</b></span> group</div>
+    </div>
+    <div class="utility"><div class="pill"><b style="color:var(--ink)">13.5°</b> Athenry <span class="dot"></span> Live</div><div class="pill">About records</div></div>
+  </header>
+  <main class="workspace">
+    <section class="home" id="home">
+      <div class="intro"><div><div class="quietLabel">Living herd</div><p>Select a cattle group to work with it.</p></div><button class="manage">Manage herd</button></div>
+      <article class="object" id="card">
+        <div class="inner">
+          <div class="grid">
+            <div><div class="eyebrow">Cattle group</div><h2 class="serif groupTitle">Weanlings</h2><div class="groupSub">19 head held as group count · 1 animal recorded individually</div></div>
+            <div class="count mono"><strong>20</strong><span>head</span></div>
+          </div>
+          <div class="divider"></div>
+          <div class="metrics">
+            <div><div class="mlabel">Individual records</div><div class="mvalue mono">1</div><div class="msub">animal</div></div>
+            <div><div class="mlabel">Latest weight</div><div class="mvalue mono">601</div><div class="msub">kg · 25 Oct</div></div>
+            <div><div class="mlabel">Supported work</div><div class="status">No open weighing work</div><div class="msub">other work not inferred</div></div>
+          </div>
+          <div class="actions"><button class="primary" id="open">Open Weanlings</button><button class="secondary" id="peek">Quick view</button></div>
+        </div>
+      </article>
+      <div class="quick" id="quick"><div><div class="quietLabel">Location</div><div class="quietValue">Not recorded</div></div><div><div class="quietLabel">Production goal</div><div class="quietValue">Not recorded</div></div><div><div class="quietLabel">Last record</div><div class="quietValue mono">25 Oct 2026</div></div></div>
+      <div class="support"><span>Latest individual measurement: <b class="mono">601 kg</b></span><span>Updated 25 Oct 2026</span></div>
+    </section>
+
+    <section class="groupView" id="group">
+      <div class="navrow"><button class="back" id="back">← Cattle</button><button class="edit">Edit group</button></div>
+      <div class="groupHeader">
+        <div><div class="eyebrow">Cattle group</div><h2 class="serif">Weanlings</h2><p>The group is now the working object.</p></div>
+        <div class="n mono"><strong>20</strong><span>head</span></div>
+      </div>
+      <div class="detailGrid">
+        <div>
+          <div class="quietLabel">Individual animals</div><p style="color:var(--muted);font-size:14px">1 of 20 head is recorded individually.</p>
+          <button class="animalRow" id="animal"><div><div><b class="serif animalName">test</b> <span class="animalMeta">Belgian Blue · Male · 7 yr 8 mo</span></div><div class="latest">Latest individual record</div></div><div><div class="weight mono">601 kg</div><div class="date">25 Oct</div></div></button>
+          <div class="preview" id="preview"><div class="eyebrow">Animal selected</div><div style="display:flex;justify-content:space-between;gap:20px;align-items:end;margin-top:8px"><div><div class="serif" style="font-size:31px">test</div><div style="color:#b7c5bb;font-size:13px">This would transition into the Living Animal Record.</div></div><div class="mono" style="font-size:28px;font-weight:700">601 kg</div></div></div>
+        </div>
+        <aside class="aside"><div class="quietLabel">Group context</div><dl><dt>Supported work</dt><dd>No open weighing work</dd><dt>Location</dt><dd>Not recorded</dd><dt>Production target</dt><dd>Not recorded</dd></dl></aside>
+      </div>
+    </section>
+  </main>
+</div>
+<script>
+const home=document.getElementById('home'),group=document.getElementById('group'),card=document.getElementById('card');
+document.getElementById('open').onclick=()=>{card.classList.add('selected');setTimeout(()=>{home.classList.add('hidden');group.classList.add('active')},140)};
+document.getElementById('back').onclick=()=>{group.classList.remove('active');home.classList.remove('hidden');card.classList.remove('selected')};
+document.getElementById('peek').onclick=()=>document.getElementById('quick').classList.toggle('show');
+document.getElementById('animal').onclick=()=>document.getElementById('preview').classList.toggle('show');
+</script>
+</body>
+</html>

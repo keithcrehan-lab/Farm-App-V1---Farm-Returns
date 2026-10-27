@@ -90,7 +90,7 @@ export function cattleGroupRows(groups: readonly LivestockGroup[], housing: read
       ...(basis ? { headBasis: basis } : {}),
       location,
       ...(locationMissing ? { locationMissing: true } : {}),
-      href: `/livestock/${encodeURIComponent(group.id)}`,
+      href: `/cattle/groups/${encodeURIComponent(group.id)}`,
     };
   });
 }

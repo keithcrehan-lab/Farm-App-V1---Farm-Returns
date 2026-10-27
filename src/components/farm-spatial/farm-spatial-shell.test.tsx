@@ -115,7 +115,7 @@ describe("FarmObjectRail", () => {
     fireEvent.click(within(rail).getByRole("button", { name: /cattle/i }));
     const panel = within(rail).getByRole("region", { name: "Cattle groups" });
     const wean = within(panel).getByRole("link", { name: /weanlings/i });
-    expect(wean.getAttribute("href")).toBe("/livestock/g-wean");
+    expect(wean.getAttribute("href")).toBe("/cattle/groups/g-wean");
     expect(within(wean).getByText("15 head")).toBeTruthy();
     expect(within(wean).getByText("Housed · Main shed")).toBeTruthy();
     const cows = within(panel).getByRole("link", { name: /cows/i });

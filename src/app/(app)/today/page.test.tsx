@@ -1488,7 +1488,7 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     const panel = within(rail).getByRole("region", { name: "Cattle groups" });
     const groupLinks = within(panel)
       .getAllByRole("link")
-      .filter((link) => link.getAttribute("href")!.startsWith("/livestock/"));
+      .filter((link) => link.getAttribute("href")!.startsWith("/cattle/groups/"));
     expect(groupLinks.length).toBeGreaterThan(0);
     expect(screen.getByTestId("map-hero-stub")).toBeTruthy();
     fireEvent.keyDown(panel, { key: "Escape" });

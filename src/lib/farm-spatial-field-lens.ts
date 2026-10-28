@@ -2,7 +2,7 @@ import { resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import type { DataStatus, Field, SlurryAllocation, TrackedValue } from "@/domain/types";
 import { formatNumber } from "@/lib/format";
 import { landUseLabel } from "@/lib/status";
-import { FARM_LENSES, type FarmLensId, type FarmLensLink } from "@/lib/farm-spatial-lenses";
+import { resolveFarmLensId, type FarmLensId, type FarmLensLink } from "@/lib/farm-spatial-lenses";
 
 /**
  * Farm Spatial V2 Phase 3 — what each lens says about one real mapped
@@ -28,16 +28,35 @@ export function farmSpatialReturnHref(fieldId: string): string {
   return `/today?lens=nutrients&field=${encodeURIComponent(fieldId)}`;
 }
 
-/** Reads `farmSpatialReturnHref`'s query. An unknown lens is ignored; the
- * field id still has to resolve to a real mapped field on the page. */
+/** Reads `farmSpatialReturnHref`'s query. An unknown lens is ignored (a
+ * pre-redesign `soil` lens opens Nutrients); the field id still has to
+ * resolve to a real mapped field on the page. */
 export function parseFarmSpatialReturn(search: string): { lens?: FarmLensId; fieldId?: string } {
   const params = new URLSearchParams(search);
-  const lens = params.get("lens");
+  const lens = resolveFarmLensId(params.get("lens"));
   const fieldId = params.get("field") ?? undefined;
   return {
-    ...(lens && FARM_LENSES.some((l) => l.id === lens) ? { lens: lens as FarmLensId } : {}),
+    ...(lens ? { lens } : {}),
     ...(fieldId ? { fieldId } : {}),
   };
+}
+
+/** The field workspace chapters (`docs/design/farm-fields-high-fidelity-reference.md`
+ * "Field workspace"): only these three — soil evidence lives in Nutrients,
+ * activity in Overview/History. */
+export const FIELD_WORKSPACE_CHAPTERS = ["overview", "nutrients", "history"] as const;
+export type FieldWorkspaceChapter = (typeof FIELD_WORKSPACE_CHAPTERS)[number];
+
+/** The full field workspace for one real field — the existing
+ * `/fields?field=<id>` detail route, optionally opened on a chapter. */
+export function fieldWorkspaceHref(fieldId: string, chapter: FieldWorkspaceChapter = "overview"): string {
+  const base = `/fields?field=${encodeURIComponent(fieldId)}`;
+  return chapter === "overview" ? base : `${base}&chapter=${chapter}`;
+}
+
+/** Reads a `chapter` query value; anything else opens Overview. */
+export function parseFieldWorkspaceChapter(value: string | null | undefined): FieldWorkspaceChapter {
+  return FIELD_WORKSPACE_CHAPTERS.find((chapter) => chapter === value) ?? "overview";
 }
 
 export interface FarmFieldLensFact {
@@ -66,9 +85,12 @@ export const FARM_LENS_MARKER_COLOR: Record<FarmLensId, string | undefined> = {
   current: undefined,
   grass: "var(--fr-v2-teal)",
   nutrients: "var(--fr-v2-harvest)",
-  soil: "var(--fr-v2-clay)",
   conditions: "var(--fr-v2-cobalt)",
 };
+
+/** The straw selection rule on the map (`--fr-v2-straw` in globals.css) —
+ * a literal because Mapbox paint properties can't read CSS variables. */
+export const FIELD_SELECTION_COLOR = "#e3c77e";
 
 /** A tracked value's real value, or undefined when absent or explicitly
  * `"unavailable"` (whose `.value` must never be read as real — `types.ts`). */
@@ -118,7 +140,7 @@ export function farmFieldLensView(
   field: Field,
   context: { slurryAllocations: readonly SlurryAllocation[]; conditionsFacts?: readonly string[] },
 ): FarmFieldLensView {
-  const fieldDetail: FarmLensLink = { href: `/fields?field=${encodeURIComponent(field.id)}`, label: "Field detail" };
+  const fieldDetail: FarmLensLink = { href: fieldWorkspaceHref(field.id), label: "Field detail" };
 
   switch (lens) {
     case "current": {
@@ -137,13 +159,18 @@ export function farmFieldLensView(
         links: [fieldDetail],
       };
     case "nutrients": {
+      // Soil evidence sits underneath nutrient state (the former Soil lens).
       const allocation = resolveFieldSlurryAllocation(context.slurryAllocations, field.id);
+      const pH = knownValue(field.fertility.pH);
+      const soil = field.mappedSoil;
       return {
         markerLabel: nutrientMarkerLabel(field),
         facts: [
           indexFact("P", field.fertility.pIndex),
           indexFact("K", field.fertility.kIndex),
+          pH === undefined ? { label: "pH", value: "Unknown", missing: true } : { label: "pH", value: formatNumber(pH, 1), ...basisOf(field.fertility.pH) },
           soilTestFact(field),
+          soil ? { label: "Soil type", value: soil.soilAssociation } : { label: "Soil type", value: "Not yet mapped", missing: true },
           allocation
             ? { label: "Slurry planned", value: `${formatNumber(allocation.volumeM3, 0)} m³` }
             : { label: "Slurry planned", value: "None planned", missing: true },
@@ -151,23 +178,9 @@ export function farmFieldLensView(
         links: [
           { href: `/nutrients?field=${encodeURIComponent(field.id)}`, label: "Nutrient planner" },
           { href: "/fertiliser-plan", label: "Farm nutrient plan" },
+          { href: "/soil", label: "Soil by field" },
           fieldDetail,
         ],
-      };
-    }
-    case "soil": {
-      const pH = knownValue(field.fertility.pH);
-      const soil = field.mappedSoil;
-      return {
-        markerLabel: pH === undefined ? "pH unknown" : `pH ${formatNumber(pH, 1)}${estimatedMark(field.fertility.pH)}`,
-        facts: [
-          pH === undefined ? { label: "pH", value: "Unknown", missing: true } : { label: "pH", value: formatNumber(pH, 1), ...basisOf(field.fertility.pH) },
-          indexFact("P", field.fertility.pIndex),
-          indexFact("K", field.fertility.kIndex),
-          soil ? { label: "Soil type", value: soil.soilAssociation } : { label: "Soil type", value: "Not yet mapped", missing: true },
-          soilTestFact(field),
-        ],
-        links: [fieldDetail, { href: "/soil", label: "Soil by field" }],
       };
     }
     case "conditions":

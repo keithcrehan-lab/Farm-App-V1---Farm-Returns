@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Sheet } from "@/components/ui/Sheet";
-import { moreNavItems } from "./nav-items";
+import { moreNavItems, type NavItem } from "./nav-items";
 
 /**
  * Mobile "More" bottom-nav slot — every pre-cutover screen
@@ -10,11 +10,11 @@ import { moreNavItems } from "./nav-items";
  * not removed). Desktop renders the same `moreNavItems` list behind
  * `DesktopSidebar`'s own compact "More" disclosure rather than a sheet.
  */
-export function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function MoreSheet({ open, onClose, items = moreNavItems }: { open: boolean; onClose: () => void; items?: readonly NavItem[] }) {
   return (
     <Sheet open={open} onClose={onClose} title="More">
       <nav aria-label="More" className="flex flex-col">
-        {moreNavItems.map((item) => (
+        {items.map((item) => (
           <Link
             key={item.href}
             href={item.href}

@@ -1,45 +1,54 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { ArrowRight, ChevronLeft, Flag, Plus } from "lucide-react";
-import { PageHeader } from "@/components/shell/PageHeader";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, Plus } from "lucide-react";
 import { AskAIButton } from "@/components/next/AskAI";
-import { Card } from "@/components/ui/Card";
 import { MapHero } from "@/components/farm/MapHero";
 import { FieldWindChip } from "@/components/farm/FieldWindChip";
-import { FieldListRow } from "@/components/farm/FieldListRow";
-import { FieldDrawer } from "@/components/farm/FieldDrawer";
-import { MapLegend } from "@/components/farm/MapLegend";
+import { FieldDrawer, ManageField } from "@/components/farm/FieldDrawer";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
+import { FarmFieldDrawer } from "@/components/farm-spatial/FarmFieldDrawer";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
 import { useAllFieldsIncludingArchived, useFarm, useFarmActions, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
-import { landUseLabel, landUseTone, promptStatusTone } from "@/lib/status";
-import { formatHa } from "@/lib/format";
+import { landUseLabel } from "@/lib/status";
+import { cn } from "@/lib/cn";
+import { formatHa, formatNumber } from "@/lib/format";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
+import { calculateActiveFarmAreaHa } from "@/domain/farm-stats";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt } from "@/orchestration/prompt/select-primary";
 import { parseSlurryDetailsRequest } from "@/lib/slurry-details-link";
+import { usePrefersReducedMotion } from "@/lib/use-prefers-reduced-motion";
+import { DESKTOP_QUERY, useMediaQuery } from "@/lib/use-media-query";
+import { useFieldNutrientPlan } from "@/lib/use-field-nutrient-plan";
+import { fieldNutrientPlanView } from "@/lib/field-nutrient-plan-presentation";
+import { FIELD_SELECTION_COLOR, farmFieldLensView, fieldWorkspaceHref, parseFieldWorkspaceChapter } from "@/lib/farm-spatial-field-lens";
+import { farmFieldSelectionView } from "@/lib/farm-field-selection";
+import { formatFieldDate } from "@/lib/field-workspace-presentation";
+import type { Field } from "@/domain/types";
+import type { Prompt } from "@/orchestration/prompt";
 import type { MissingSlurryPlanningDetail } from "@/domain/what-matters-no-recommendation";
 
 /**
- * Codex remediation Priority 6/7 — boundary-first field creation, real
- * polygon rendering.
+ * Fields — Farm + Fields redesign (2026-10-27,
+ * `docs/design/farm-fields-high-fidelity-reference.md` "Desktop Map +
+ * List", "Mapping and field management", "Field workspace").
  *
- * Strict Visual Reproduction phase (2026-09-03): explicitly selecting a
- * field (a tap, or a real `?field=` link from Today) now opens a
- * literal reproduction of media/image3.png's own Field-detail
- * composition — a full-bleed real aerial hero (glowing selected
- * boundary, real neighbour-field pins, a real leading-Prompt status
- * card, real wind) with the field's own real tab panel
- * (`FieldDrawer`'s Now/Soil/Activity/Constraints) below it, and a
- * back chevron returning to this farm-overview (list + bounded map,
- * unchanged from before this phase). Nothing in the reference this
- * build cannot honestly show (a real farm-yard building location, a
- * gate sensor, a precise "best window" time-of-day) is fabricated —
- * each is simply absent; see the hero's own inline comments for which
- * and why.
+ * Two states on one route:
+ * - Companion view (`/fields`): the real map stays dominant with a quiet
+ *   field list beside it on desktop, or a Map / List toggle on a phone.
+ *   Selecting a field in the list or on the map is the same state and
+ *   brings the same selected-field panel forward as Farm. Structural work
+ *   (add, edit boundary, rename/change use, archive) lives in an explicit
+ *   Manage fields mode, and a Select multiple fields mode holds a
+ *   selection without pretending bulk planning exists.
+ * - Field workspace (`/fields?field=<id>`, optionally `&chapter=`): the
+ *   real map as hero with the field's Overview / Nutrients / History.
+ *   The id must resolve to a real active field, otherwise the companion
+ *   view shows. Field creation stays boundary-first: a polygon drawn on
+ *   satellite imagery, its area derived from that polygon, never typed.
  */
 export default function FieldsPage() {
   return (
@@ -51,75 +60,19 @@ export default function FieldsPage() {
 
 function FieldsPageContent() {
   const fields = useFields();
-  const allFields = useAllFieldsIncludingArchived();
-  const archivedFields = allFields.filter((f) => f.archivedAt);
-  const { addField, restoreField } = useFarmActions();
   const farm = useFarm();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
   const slurryCompositionRecords = useSlurryCompositionRecords();
-  const isRealMode = useIsRealMode();
-  // Today's real map hero (`MapHero`'s `onSelectField`) links a tapped
-  // field here as `?field=<id>` — real navigation into "this place",
-  // Visual Acceptance Contract's "fields behave like an interactive
-  // world" requirement, not a fabricated deep link.
   const searchParams = useSearchParams();
+  // Real navigation into "this place" (`?field=<id>`) — from Farm, the
+  // list, What Matters or a nearby-field prompt. Derived from the URL, so
+  // an id that is unknown, archived or not yet hydrated shows the
+  // companion view rather than a guess.
   const requestedFieldId = searchParams.get("field") ?? undefined;
-  const linkedFieldId = fields.some((f) => f.id === requestedFieldId) ? requestedFieldId : undefined;
+  const workspaceField = fields.find((f) => f.id === requestedFieldId);
   // What Matters' "Add spreading details" link (`slurryDetailsHref`).
   const slurryDetailsRequest = parseSlurryDetailsRequest(searchParams.get("complete"), searchParams.get("missing"));
-  // Strict Visual Reproduction phase: `selectedFieldId` is now a real,
-  // explicit "did the farmer (or a real link) choose a field" state —
-  // undefined means the farm-overview shows, not a fallback-to-first-
-  // field guess. `detailField` (not this) is what actually decides
-  // which mode renders.
-  const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(linkedFieldId);
-  // Final whole-session Codex audit round 1 (MEDIUM): `useState`'s
-  // initial value is read only once, at first render — if `fields`
-  // hydrates *after* that first render (a real, common timing on this
-  // app's own real farm-data fetch), `requestedFieldId` only becomes a
-  // valid `linkedFieldId` later, and the requested field would never
-  // actually open. Re-syncs whenever the raw `?field=` value itself
-  // changes — but never overwrites a field the farmer has since
-  // explicitly opened or backed out of via `handleSelectField`/`onBack`
-  // below, which mark `lastAppliedRequestedFieldId` themselves so this
-  // effect treats that as "already applied," not a hydration gap to fill.
-  //
-  // Round 3 (MEDIUM): round 1's own fix only ever *opened* a field, never
-  // closed one — navigating to a URL with `?field=` removed, or changed
-  // to an id that's invalid/archived, left `selectedFieldId` (and so the
-  // detail view) stale. Syncing unconditionally to `linkedFieldId`
-  // (which is genuinely `undefined` in both those cases) on a real param
-  // change now closes that gap too — the URL is the honest source of
-  // truth for what's requested, including "nothing"/"nothing valid."
-  const lastAppliedRequestedFieldId = useRef(requestedFieldId);
-  useEffect(() => {
-    if (requestedFieldId !== lastAppliedRequestedFieldId.current) {
-      lastAppliedRequestedFieldId.current = requestedFieldId;
-      setSelectedFieldId(linkedFieldId);
-    } else if (linkedFieldId && selectedFieldId === undefined) {
-      // Same requested id as last render, but it has only just become a
-      // real, mapped field (`fields` finished hydrating) — the real
-      // "hydrates later" case round 1's own finding named directly.
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising React state from an external source (the URL's own `?field=` query param), the sanctioned use this rule itself carves out — same pattern as `handleSelectField` reacting to a real tap, just triggered by a real navigation instead.
-      setSelectedFieldId(linkedFieldId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedFieldId is read, not a trigger: this effect only ever *sets* it from a real URL change or a real hydration completion, never reacts to a farmer's own subsequent selection (handleSelectField/onBack already update lastAppliedRequestedFieldId themselves).
-  }, [requestedFieldId, linkedFieldId]);
-
-  function handleSelectField(id: string | undefined) {
-    lastAppliedRequestedFieldId.current = requestedFieldId; // a real tap is an explicit choice — don't let a stale `?field=` re-open a field the farmer just navigated away from within the map.
-    setSelectedFieldId(id);
-  }
-
-  const detailField = fields.find((f) => f.id === selectedFieldId);
-
-  const [mappingOpen, setMappingOpen] = useState(false);
-  const [pendingPolygon, setPendingPolygon] = useState<GeoJSON.Polygon | null>(null);
-  const [newName, setNewName] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const pendingGeometry = pendingPolygon ? computeBoundaryGeometry(pendingPolygon) : null;
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -130,159 +83,301 @@ function FieldsPageContent() {
     if (!mounted) return [];
     return buildAllRealPrompts(farm, fields, livestockGroups, slurryAllocations, new Date().toISOString(), slurryCompositionRecords);
   }, [mounted, farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords]);
-  const [openPrompt, setOpenPrompt] = useState(false);
-  const detailFieldPrompt = detailField ? selectPrimaryPrompt(allPrompts.filter((p) => p.fieldId === detailField.id)) : undefined;
+  const leadingPromptFor = (fieldId: string | undefined) => (fieldId ? selectPrimaryPrompt(allPrompts.filter((p) => p.fieldId === fieldId)) : undefined);
+
+  if (workspaceField) {
+    return (
+      <FieldWorkspaceView
+        key={workspaceField.id}
+        field={workspaceField}
+        allFields={fields}
+        leadingPrompt={leadingPromptFor(workspaceField.id)}
+        initialChapter={parseFieldWorkspaceChapter(searchParams.get("chapter"))}
+        slurryDetailsRequest={slurryDetailsRequest ?? undefined}
+      />
+    );
+  }
+
+  return <FieldsCompanion leadingPromptFor={leadingPromptFor} />;
+}
+
+type CompanionMode = "browse" | "manage" | "multi";
+
+function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: string | undefined) => Prompt | undefined }) {
+  const fields = useFields();
+  const allFields = useAllFieldsIncludingArchived();
+  const archivedFields = allFields.filter((f) => f.archivedAt);
+  const { addField, restoreField } = useFarmActions();
+  const farm = useFarm();
+  const slurryAllocations = useSlurryAllocations();
+  const router = useRouter();
+  const reducedMotion = usePrefersReducedMotion();
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
+
+  const [mode, setMode] = useState<CompanionMode>("browse");
+  const [mobileView, setMobileView] = useState<"map" | "list">("map");
+  // One selection for the list and the map.
+  const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(undefined);
+  // Select multiple fields — held only while that mode is on; normal taps
+  // never accumulate a hidden selection.
+  const [multiIds, setMultiIds] = useState<string[]>([]);
+
+  const [mappingOpen, setMappingOpen] = useState(false);
+  const [pendingPolygon, setPendingPolygon] = useState<GeoJSON.Polygon | null>(null);
+  const [newName, setNewName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const pendingGeometry = pendingPolygon ? computeBoundaryGeometry(pendingPolygon) : null;
+
+  const selectedField = fields.find((f) => f.id === selectedFieldId);
+  const mappedCount = fields.filter((f) => f.polygon).length;
+  const farmAreaHa = calculateActiveFarmAreaHa(fields);
+  const multiFields = fields.filter((f) => multiIds.includes(f.id));
+  const multiAreaHa = calculateActiveFarmAreaHa(multiFields);
+
+  const selectedPlanResult = useFieldNutrientPlan(mode === "multi" ? undefined : selectedField);
+  const lensView = selectedField ? farmFieldLensView("current", selectedField, { slurryAllocations }) : undefined;
+  const selection =
+    mode !== "multi" && selectedField?.polygon && lensView
+      ? farmFieldSelectionView({
+          lens: "current",
+          field: selectedField,
+          lensView,
+          nutrientPlan: selectedPlanResult ? fieldNutrientPlanView(selectedPlanResult, selectedField) : undefined,
+          leadingPrompt: leadingPromptFor(selectedField.id),
+          slurryAllocations,
+        })
+      : undefined;
+
+  function selectField(fieldId: string) {
+    if (mode === "multi") {
+      setMultiIds((ids) => (ids.includes(fieldId) ? ids.filter((id) => id !== fieldId) : [...ids, fieldId]));
+      return;
+    }
+    setSelectedFieldId((current) => (current === fieldId ? undefined : fieldId));
+  }
+
+  function changeMode(next: CompanionMode) {
+    setMode((current) => (current === next ? "browse" : next));
+    setMultiIds([]);
+  }
 
   async function handleConfirmName() {
     if (!pendingPolygon || !newName.trim()) return;
     setSaving(true);
     try {
       const field = await addField({ name: newName.trim(), polygon: pendingPolygon });
-      handleSelectField(field.id);
       setPendingPolygon(null);
       setNewName("");
+      setSelectedFieldId(field.id);
     } finally {
       setSaving(false);
     }
   }
 
   const askAIContext = {
-    screen: "Farm",
-    facts: { Farm: farm.name, Fields: String(fields.length), ...(detailField ? { "Selected field": detailField.name } : {}) },
+    screen: "Fields",
+    facts: { Farm: farm.name, Fields: String(fields.length), ...(selectedField ? { "Selected field": selectedField.name } : {}) },
   };
 
-  if (detailField) {
-    return (
-      <FieldDetailView
-        field={detailField}
-        allFields={fields}
-        onBack={() => handleSelectField(undefined)}
-        onSelectField={handleSelectField}
-        leadingPrompt={detailFieldPrompt}
-        onViewPromptDetails={() => setOpenPrompt(true)}
-        askAIContext={askAIContext}
-        openPrompt={openPrompt}
-        onClosePrompt={() => setOpenPrompt(false)}
-        canRecord={isRealMode}
-        slurryDetailsRequest={detailField.id === linkedFieldId ? (slurryDetailsRequest ?? undefined) : undefined}
-      />
-    );
-  }
-
   return (
-    <>
-      <PageHeader
-        title="Farm Map"
-        subtitle="Field boundaries, planned use and per-field detail"
-        actions={<AskAIButton context={askAIContext} />}
-      />
-
-      {/* Mobile header */}
-      <div className="mb-4 flex items-center justify-between lg:hidden">
-        <h1 className="text-title text-fr-ink-900">Fields</h1>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-fr-ink-600">All Fields ({fields.length})</span>
-          <AskAIButton context={askAIContext} />
+    <section data-farm-workspace data-fields-companion className="-mx-4 -mt-4 bg-fr-v2-cream lg:mx-0 lg:mt-0 lg:grid lg:h-dvh lg:grid-cols-[minmax(0,1fr)_400px] lg:overflow-hidden">
+      {/* Phone: one compact header with the Map / List toggle. */}
+      <div className="flex items-center justify-between gap-3 border-b border-fr-v2-cream-rule px-4 py-3 lg:hidden">
+        <div className="min-w-0">
+          <h1 className="font-display text-[26px] leading-none">Fields</h1>
+          <p className="mt-1 font-mono text-[11px] tabular-nums text-fr-v2-muted">
+            {mappedCount} of {fields.length} mapped{farmAreaHa !== null ? ` · ${formatNumber(farmAreaHa, 1)} ha` : ""}
+          </p>
+        </div>
+        <div role="group" aria-label="Fields view" className="flex shrink-0 border border-fr-v2-cream-rule">
+          {(["map", "list"] as const).map((view) => (
+            <button
+              key={view}
+              type="button"
+              aria-pressed={mobileView === view}
+              onClick={() => setMobileView(view)}
+              className={cn("min-h-11 px-4 text-sm font-semibold capitalize", mobileView === view ? "bg-fr-v2-forest-deep text-white" : "text-fr-v2-muted")}
+            >
+              {view}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-3 lg:gap-5">
-        <div className="min-w-0 lg:col-span-2">
-          <Card className="overflow-hidden p-0">
-            <MapHero
-              fields={fields}
-              getTone={(field) => (field.plannedUse ? landUseTone(field.plannedUse.value) : "neutral")}
-              onSelectField={handleSelectField}
-              center={farm.location.centroid}
-              plain
-              className="h-[50vh] min-h-[360px] lg:h-[420px]"
-            />
-            <div className="flex items-center justify-between gap-3 p-4">
-              <MapLegend />
+      <div className={cn("relative min-w-0", mobileView === "list" && "hidden lg:block")}>
+        <MapHero
+          fields={fields}
+          getTone={() => "neutral"}
+          onSelectField={selectField}
+          onMapBackgroundClick={() => (mode === "multi" ? undefined : setSelectedFieldId(undefined))}
+          selectedFieldId={mode === "multi" ? undefined : selectedField?.id}
+          selectionColor={FIELD_SELECTION_COLOR}
+          highlightedFieldIds={mode === "multi" ? multiIds : selectedField ? [selectedField.id] : undefined}
+          dimUnhighlighted
+          flyToSelection={mode !== "multi" && Boolean(selectedField?.polygon)}
+          // Desktop: clear of the panel at the lower left; phone: above the rising panel.
+          flyToPadding={isDesktop ? { top: 120, bottom: 80, left: 460, right: 60 } : { top: 60, bottom: 340, left: 32, right: 32 }}
+          flyToMaxZoom={16.5}
+          flyToDuration={reducedMotion ? 0 : 320}
+          compactNeighbourLabels
+          neighbourNameLabels
+          fitPadding={(width) => (width >= 860 ? { top: 110, bottom: 80, left: 60, right: 60 } : { top: 60, bottom: 60, left: 24, right: 120 })}
+          center={farm.location.centroid}
+          plain
+          className="h-[calc(100dvh-8.5rem)] min-h-[480px] lg:h-dvh"
+        >
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between">
+            <div aria-hidden className="absolute inset-x-0 top-0 h-40 bg-[radial-gradient(ellipse_60%_100%_at_0%_0%,rgba(10,14,11,0.5),transparent_72%)]" />
+            <div className="relative hidden p-9 pt-8 lg:block [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]">
+              <Link href="/today" className="pointer-events-auto inline-flex items-center gap-1.5 text-xs font-semibold text-white/85 hover:text-white">
+                <ArrowLeft className="size-3.5" /> Farm map
+              </Link>
+              <p className="mt-3 text-[10.5px] font-semibold uppercase tracking-[0.18em] text-white/75">Farm Return · Fields</p>
             </div>
-          </Card>
+            <div className="relative px-2 pb-2 sm:px-3 lg:w-[400px] lg:px-9 lg:pb-8">
+              {mode === "multi" ? (
+                <div className="pointer-events-auto bg-fr-v2-forest-deep/[0.96] px-5 py-4 text-white shadow-[0_18px_40px_rgba(0,0,0,0.32)]" data-multi-select-bar>
+                  <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-fr-v2-straw">Select multiple fields</p>
+                  <p className="mt-1 font-display text-[24px] leading-tight">
+                    {multiFields.length === 0 ? "Tap fields to select them" : `${multiFields.length} ${multiFields.length === 1 ? "field" : "fields"}`}
+                  </p>
+                  {multiAreaHa !== null ? <p className="mt-1 font-mono text-[12px] tabular-nums text-white/70">{formatNumber(multiAreaHa, 2)} ha selected</p> : null}
+                  <p className="mt-3 text-xs text-white/65">Bulk planning isn&apos;t available yet — open each field to plan it.</p>
+                  <p className="mt-3 flex gap-4">
+                    <button type="button" onClick={() => setMultiIds([])} className="min-h-10 text-xs font-semibold text-white/80 underline underline-offset-2">
+                      Clear
+                    </button>
+                    <button type="button" onClick={() => changeMode("multi")} className="min-h-10 text-xs font-semibold text-white underline underline-offset-2">
+                      Done
+                    </button>
+                  </p>
+                </div>
+              ) : (
+                <FarmFieldDrawer field={selection ? selectedField : undefined} lensId="current" selection={selection} onClose={() => setSelectedFieldId(undefined)} />
+              )}
+            </div>
+          </div>
+        </MapHero>
+      </div>
+
+      <aside
+        aria-label="Field list"
+        className={cn("flex min-w-0 flex-col pb-24 lg:h-dvh lg:overflow-y-auto lg:border-l lg:border-fr-v2-cream-rule lg:pb-8", mobileView === "map" && "hidden lg:flex")}
+      >
+        <header className="hidden px-7 pb-5 pt-8 lg:block">
+          <div className="flex items-start justify-between gap-3">
+            <h1 className="font-display text-[40px] leading-none tracking-[-0.02em]">Fields</h1>
+            <AskAIButton context={askAIContext} />
+          </div>
+          <p className="mt-2 font-mono text-[12px] tabular-nums text-fr-v2-muted">
+            {mappedCount} of {fields.length} mapped{farmAreaHa !== null ? ` · ${formatNumber(farmAreaHa, 1)} ha` : ""}
+          </p>
+        </header>
+
+        <div className="flex items-center gap-5 border-y border-fr-v2-cream-rule px-4 lg:px-7" role="group" aria-label="Field modes">
+          <button
+            type="button"
+            aria-pressed={mode === "multi"}
+            onClick={() => changeMode("multi")}
+            className={cn("min-h-11 text-xs font-semibold", mode === "multi" ? "text-fr-v2-graphite underline decoration-fr-v2-gold decoration-2 underline-offset-[6px]" : "text-fr-v2-muted hover:text-fr-v2-graphite")}
+          >
+            Select multiple
+          </button>
+          <button
+            type="button"
+            aria-pressed={mode === "manage"}
+            onClick={() => changeMode("manage")}
+            className={cn("min-h-11 text-xs font-semibold", mode === "manage" ? "text-fr-v2-graphite underline decoration-fr-v2-gold decoration-2 underline-offset-[6px]" : "text-fr-v2-muted hover:text-fr-v2-graphite")}
+          >
+            Manage fields
+          </button>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-2">
-          {pendingPolygon ? (
-            <Card className="p-4">
-              <p className="mb-3 text-sm font-semibold text-fr-ink-900">Name this field</p>
-              <div className="mb-3 flex flex-col gap-1 text-xs text-fr-ink-600">
-                <span>
-                  Area: <span className="font-semibold text-fr-ink-900">{formatHa(pendingGeometry?.areaHa ?? 0)}</span>{" "}
-                  — calculated from the boundary you drew, not typed.
-                </span>
-              </div>
+        {mode === "manage" ? (
+          <div className="flex flex-col gap-2 bg-fr-v2-forest-deep px-4 py-4 text-white lg:px-7" data-manage-mode>
+            <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-fr-v2-straw">Managing fields</p>
+            <p className="text-xs text-white/70">Select a field for its boundary, name and use, or archive. Split and merge are not available yet.</p>
+            <button type="button" onClick={() => setMappingOpen(true)} className="mt-1 flex min-h-11 items-center justify-center gap-2 bg-fr-v2-cream text-sm font-semibold text-fr-v2-forest-deep">
+              <Plus className="size-4" /> Add field
+            </button>
+          </div>
+        ) : null}
+
+        {pendingPolygon ? (
+          <div className="flex flex-col gap-3 border-b border-fr-v2-cream-rule bg-white/55 px-4 py-5 lg:px-7" data-new-field>
+            <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">New field</p>
+            <p className="text-sm">
+              <span className="font-mono tabular-nums font-semibold">{formatHa(pendingGeometry?.areaHa ?? 0)}</span>
+              <span className="text-fr-v2-muted"> — calculated from the boundary you drew, not typed.</span>
+            </p>
+            <label className="flex flex-col gap-1.5 text-xs text-fr-v2-muted">
+              Name this field
               <input
                 type="text"
                 autoFocus
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="e.g. Bog Field"
-                className="mb-3 w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                className="rounded-[4px] border border-fr-v2-cream-rule bg-white px-2.5 py-2 text-sm text-fr-v2-graphite"
               />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPendingPolygon(null);
-                    setNewName("");
-                  }}
-                  className="flex-1 rounded-fr-control border border-fr-border py-2 text-sm font-medium text-fr-ink-600"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={!newName.trim() || saving}
-                  onClick={handleConfirmName}
-                  className="flex-1 rounded-fr-control bg-fr-green-700 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {saving ? "Saving…" : "Save field"}
-                </button>
-              </div>
-              <p className="mt-3 text-xs text-fr-ink-400">
-                Planned use, soil and fertility are set afterward on this field&apos;s own detail screen — nothing is
-                assumed here.
-              </p>
-            </Card>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setMappingOpen(true)}
-              className="flex items-center justify-center gap-2 rounded-fr-control border border-dashed border-fr-border py-2.5 text-sm font-semibold text-fr-green-700 hover:border-fr-green-700"
-            >
-              <Plus className="size-4" />
-              Add field
-            </button>
-          )}
-          {fields.map((field) => (
-            <FieldListRow key={field.id} field={field} selected={false} onSelect={handleSelectField} />
-          ))}
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingPolygon(null);
+                  setNewName("");
+                }}
+                className="min-h-11 flex-1 border border-fr-v2-cream-rule text-sm font-semibold text-fr-v2-muted"
+              >
+                Cancel
+              </button>
+              <button type="button" disabled={!newName.trim() || saving} onClick={handleConfirmName} className="min-h-11 flex-1 bg-fr-v2-forest-deep text-sm font-semibold text-white disabled:opacity-40">
+                {saving ? "Saving…" : "Save field"}
+              </button>
+            </div>
+            <p className="text-xs text-fr-v2-muted">Planned use, soil and fertility are set afterward in the field&apos;s workspace — nothing is assumed here.</p>
+          </div>
+        ) : null}
 
-          {archivedFields.length > 0 ? (
-            <details className="mt-2 rounded-fr-control border border-fr-border p-3 text-sm">
-              <summary className="cursor-pointer font-medium text-fr-ink-600">
-                Archived fields ({archivedFields.length})
-              </summary>
-              <ul className="mt-2 flex flex-col divide-y divide-fr-border">
-                {archivedFields.map((field) => (
-                  <li key={field.id} className="flex items-center justify-between py-2">
-                    <span className="text-fr-ink-900">{field.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => restoreField(field.id)}
-                      className="text-xs font-semibold text-fr-green-700"
-                    >
-                      Restore
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
-        </div>
-      </div>
+        <ul className="flex flex-col" data-field-list>
+          {fields.map((field) => (
+            <FieldListItem
+              key={field.id}
+              field={field}
+              mode={mode}
+              selected={mode === "multi" ? multiIds.includes(field.id) : field.id === selectedFieldId}
+              onSelect={() => selectField(field.id)}
+              onOpen={() => router.push(fieldWorkspaceHref(field.id))}
+            />
+          ))}
+        </ul>
+        {fields.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-fr-v2-muted lg:px-7">No fields yet. Draw your first boundary on the satellite map to add one.</p>
+        ) : null}
+
+        {mode !== "manage" && !pendingPolygon ? (
+          <button type="button" onClick={() => setMappingOpen(true)} className="mx-4 mt-4 flex min-h-11 items-center gap-2 self-start text-sm font-semibold text-fr-v2-forest lg:mx-7">
+            <Plus className="size-4" /> Add field
+          </button>
+        ) : null}
+
+        {mode === "manage" && archivedFields.length > 0 ? (
+          <div className="mx-4 mt-6 lg:mx-7" data-archived-fields>
+            <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-muted">Archived fields ({archivedFields.length})</p>
+            <ul className="mt-2 flex flex-col">
+              {archivedFields.map((field) => (
+                <li key={field.id} className="flex min-h-11 items-center justify-between border-b border-fr-v2-cream-rule text-sm">
+                  <span>{field.name}</span>
+                  <button type="button" onClick={() => restoreField(field.id)} className="text-xs font-semibold text-fr-v2-forest">
+                    Restore
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </aside>
 
       {mappingOpen ? (
         <FieldBoundaryMapModal
@@ -292,217 +387,145 @@ function FieldsPageContent() {
           onSave={(polygon) => {
             setPendingPolygon(polygon);
             setMappingOpen(false);
+            setMobileView("list");
           }}
         />
       ) : null}
-    </>
+    </section>
+  );
+}
+
+function FieldListItem({ field, mode, selected, onSelect, onOpen }: { field: Field; mode: CompanionMode; selected: boolean; onSelect: () => void; onOpen: () => void }) {
+  const use = field.plannedUse && field.plannedUse.status !== "unavailable" ? landUseLabel(field.plannedUse.value) : undefined;
+  return (
+    <li className={cn("relative border-b border-fr-v2-cream-rule", selected && "bg-white/70")} data-field-row={field.id} data-selected={selected ? "true" : "false"}>
+      {selected ? <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-fr-v2-gold" /> : null}
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={selected}
+        className="flex min-h-14 w-full items-baseline justify-between gap-4 px-4 py-3 text-left transition-colors duration-[160ms] hover:bg-white/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fr-v2-gold motion-reduce:transition-none lg:px-7"
+      >
+        <span className="min-w-0">
+          <span className="flex items-center gap-2">
+            {mode === "multi" ? (
+              <span aria-hidden className={cn("size-3.5 shrink-0 border", selected ? "border-fr-v2-gold bg-fr-v2-gold" : "border-fr-v2-muted")} />
+            ) : null}
+            <span className="truncate font-display text-[19px] leading-tight text-fr-v2-graphite">{field.name}</span>
+          </span>
+          <span className={cn("mt-0.5 block text-xs", use ? "text-fr-v2-muted" : "italic text-fr-v2-muted/80")}>{use ? `Planned · ${use}` : "Use not set"}</span>
+        </span>
+        <span className={cn("shrink-0 font-mono text-[12px] tabular-nums", field.polygon ? "text-fr-v2-charcoal" : "italic text-fr-v2-muted")}>
+          {field.polygon ? `${formatNumber(field.areaHa, 2)} ha` : "Not mapped"}
+        </span>
+      </button>
+      {selected && mode === "browse" ? (
+        <div className="px-4 pb-3 lg:px-7">
+          {field.polygon ? null : <p className="pb-2 text-xs text-fr-v2-muted">No boundary yet, so it isn&apos;t on the map.</p>}
+          <button type="button" onClick={onOpen} className="text-sm font-semibold text-fr-v2-forest underline decoration-fr-v2-forest/30 underline-offset-[3px] hover:decoration-fr-v2-gold">
+            Open field workspace →
+          </button>
+        </div>
+      ) : null}
+      {selected && mode === "manage" ? (
+        <div className="px-4 pb-4 lg:px-7">
+          <ManageField key={field.id} field={field} defaultOpen />
+        </div>
+      ) : null}
+    </li>
   );
 }
 
 /**
- * Field detail — literal reproduction of media/image3.png's own
- * composition: full-bleed real hero (back/name/more header, glowing
- * selected boundary, real neighbour pins, a real leading-Prompt status
- * card, real wind) with the field's own real tab panel below it.
- *
- * Deliberately absent, and why (never fabricated to fill the
- * reference's own slot): a real farm-yard building location (`Farm`
- * has no such coordinate — only a general area `location.centroid`);
- * a gate-sensor state (not a Farm Return concept at all); a precise
- * "best window HH:MM–HH:MM" (this app's own spreading-window engine
- * only answers a binary calendar-open question, never a time-of-day
- * forecast window).
+ * The field workspace: the real map remains the hero (the selected boundary
+ * in straw, neighbours named and receding), with the field's identity over
+ * it and its Overview / Nutrients / History below on warm cream.
  */
-function FieldDetailView({
+function FieldWorkspaceView({
   field,
   allFields,
-  onBack,
-  onSelectField,
   leadingPrompt,
-  onViewPromptDetails,
-  askAIContext,
-  openPrompt,
-  onClosePrompt,
-  canRecord,
+  initialChapter,
   slurryDetailsRequest,
 }: {
-  field: import("@/domain/types").Field;
-  allFields: import("@/domain/types").Field[];
-  onBack: () => void;
-  onSelectField: (fieldId: string) => void;
-  leadingPrompt: import("@/orchestration/prompt").Prompt | undefined;
-  onViewPromptDetails: () => void;
-  askAIContext: { screen: string; facts: Record<string, string> };
-  openPrompt: boolean;
-  onClosePrompt: () => void;
-  canRecord: boolean;
+  field: Field;
+  allFields: Field[];
+  leadingPrompt: Prompt | undefined;
+  initialChapter: ReturnType<typeof parseFieldWorkspaceChapter>;
   slurryDetailsRequest?: MissingSlurryPlanningDetail[];
 }) {
-  const promptTone = leadingPrompt ? promptStatusTone(leadingPrompt.basis.status) : undefined;
-
-  const primaryAction = leadingPrompt ? (
-    <button
-      type="button"
-      onClick={onViewPromptDetails}
-      className="flex flex-1 items-center justify-center gap-2 rounded-full bg-fr-green-700 px-5 py-3.5 text-sm font-semibold text-white shadow-fr-card"
-    >
-      View details
-      <ArrowRight className="size-4" />
-    </button>
-  ) : (
-    <Link
-      href={`/nutrients?field=${field.id}`}
-      className="flex flex-1 items-center justify-center gap-2 rounded-full bg-fr-green-700 px-5 py-3.5 text-sm font-semibold text-white shadow-fr-card"
-    >
-      Open this field&apos;s nutrient plan
-      <ArrowRight className="size-4" />
-    </Link>
-  );
+  const router = useRouter();
+  const isRealMode = useIsRealMode();
+  const reducedMotion = usePrefersReducedMotion();
+  const [promptOpen, setPromptOpen] = useState(false);
+  const use = field.plannedUse && field.plannedUse.status !== "unavailable" ? landUseLabel(field.plannedUse.value) : undefined;
+  const drawn = formatFieldDate(field.polygonCapturedAt);
+  const askAIContext = { screen: "Field", facts: { Field: field.name, Area: `${formatNumber(field.areaHa, 2)} ha` } };
 
   return (
-    <>
-      <div className="relative -mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
-        {/* Codex audit round 3 (Strict Visual Reproduction, Field
-            detail): rounds 1-2 oscillated on hero height alone (52vh
-            "too short" then 66vh "pushes the panel below the fold") —
-            the real structural problem was never the height, it was
-            that the primary action + Ask AI lived inside the hero at
-            all. Both now live in their own persistent control (below,
-            after the tab panel, matching image3's own "Plan job" sitting
-            after its Now-tab content), freeing the hero to be a
-            genuinely dominant 60vh without also being cluttered. */}
+    <div data-farm-workspace data-field-workspace-view className="-mx-4 -mt-4 min-h-dvh bg-fr-v2-cream lg:mx-0 lg:mt-0">
+      <div className="relative">
         <MapHero
           fields={allFields}
-          getTone={(f) => (f.plannedUse ? landUseTone(f.plannedUse.value) : "neutral")}
-          getStatusLabel={(f) => (f.plannedUse ? landUseLabel(f.plannedUse.value) : undefined)}
+          getTone={() => "neutral"}
           selectedFieldId={field.id}
-          onSelectField={onSelectField}
+          selectionColor={FIELD_SELECTION_COLOR}
+          highlightedFieldIds={[field.id]}
+          dimUnhighlighted
+          onSelectField={(id) => router.push(fieldWorkspaceHref(id))}
           flyToSelection
-          // Codex audit round 6: round 5's wide padding (for real
-          // neighbouring fields) left the selected boundary "too small and
-          // peripheral" — image3's own selected field dominates the
-          // centre. Tightened back toward round 4's framing; neighbours
-          // (added round 5) mostly still fit, just less generously spaced.
-          flyToPadding={{ top: 110, bottom: 70, left: 70, right: 70 }}
-          flyToMaxZoom={16}
-          glowSelection
+          flyToPadding={{ top: 150, bottom: 60, left: 80, right: 80 }}
+          flyToMaxZoom={16.5}
+          flyToDuration={reducedMotion ? 0 : 320}
           compactNeighbourLabels
+          neighbourNameLabels
           center={field.centroid}
           plain
-          className="h-[60vh] min-h-[440px] lg:h-[500px]"
+          className="h-[48dvh] min-h-[340px] lg:h-[54dvh] lg:min-h-[440px]"
         >
-          <div className="absolute inset-0 z-10 flex flex-col justify-between bg-gradient-to-b from-black/50 via-transparent to-black/35 p-4 pt-[max(env(safe-area-inset-top),1.5rem)]">
-            {/* Top cluster — header, then the informational status line
-                grouped directly beneath it (not spread to mid-map by
-                `justify-between`, which previously let it collide with
-                the selected field's own centred marker). */}
-            <div className="flex flex-col gap-3">
-              {/* Header — back + left-aligned name/area only (Codex audit
-                  round 2: a trailing Ask AI pill "competed with the field
-                  identity in the primary header row" next to image3's own
-                  quiet header). */}
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={onBack}
-                  aria-label="Back to Farm"
-                  className="flex size-9 shrink-0 items-center justify-center rounded-full border border-white/30 text-white backdrop-blur-sm"
-                >
-                  <ChevronLeft className="size-5" />
-                </button>
-                <div className="min-w-0 flex-1">
-                  <h1 className="truncate font-display text-2xl text-white drop-shadow-sm">{field.name}</h1>
-                  <p className="text-sm text-white/80">
-                    {formatHa(field.areaHa)}
-                    {field.plannedUse ? ` · ${landUseLabel(field.plannedUse.value)}` : ""}
-                  </p>
-                </div>
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between">
+            <div aria-hidden className="absolute inset-x-0 top-0 h-56 bg-[radial-gradient(ellipse_70%_100%_at_0%_0%,rgba(10,14,11,0.6),transparent_72%)]" />
+            <div className="relative flex items-start justify-between gap-4 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] lg:px-12 lg:pt-8">
+              <div className="pointer-events-auto min-w-0 [text-shadow:0_1px_3px_rgba(0,0,0,0.5)]">
+                <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold text-white/85">
+                  <Link href="/fields" className="inline-flex min-h-9 items-center gap-1.5 hover:text-white">
+                    <ArrowLeft className="size-3.5" /> Fields
+                  </Link>
+                  <Link href={`/today?field=${encodeURIComponent(field.id)}`} className="inline-flex min-h-9 items-center hover:text-white">
+                    Farm map
+                  </Link>
+                </p>
+                <p className="mt-3 font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-fr-v2-straw">Field workspace</p>
+                <h1 className="mt-1.5 max-w-[18ch] text-balance font-display text-[34px] leading-[1] tracking-[-0.02em] text-white lg:text-[56px]">{field.name}</h1>
+                <p className="mt-3 font-mono text-[12px] tabular-nums text-white/85" data-field-identity>
+                  {formatNumber(field.areaHa, 2)} ha{field.polygon ? ` · boundary ${drawn ? `drawn ${drawn}` : "drawn"}` : " · not mapped"}
+                  {use ? ` · Planned · ${use}` : " · use not set"}
+                </p>
               </div>
-
-              {/* Informational status card — Codex audit round 4: a
-                  single-line pill read as too minor next to image3's own
-                  "large, visually dominant" two-tier card. A bold
-                  headline (the real Prompt's title) plus its real
-                  description as a second line, matching that two-tier
-                  shape without inventing the reference's own unsupported
-                  time-of-day detail. Codex audit round 5: narrowed and
-                  right-aligned (image3's own card is "narrower,
-                  right-biased", not near-full-width) so more of the real
-                  aerial photo stays visible. */}
-              {leadingPrompt ? (
-                <div className="flex max-w-[78%] items-start gap-3 self-end rounded-fr-card border border-white/15 bg-black/35 p-3.5 backdrop-blur-md">
-                  <span
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full"
-                    style={{
-                      backgroundColor: promptTone === "risk" ? "#C0362C" : promptTone === "attention" ? "#D98324" : "#2E7D4F",
-                    }}
-                  >
-                    <Flag className="size-4 text-white" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-base font-semibold text-white">{leadingPrompt.title}</p>
-                    {/* Codex audit round 6: line-clamp-3 still truncated the
-                        real explanation with an ellipsis on a longer real
-                        Prompt description — image3's own card fully shows
-                        its (much shorter, invented) supporting line.
-                        Fully unclamped grew the card tall enough to cover
-                        most of the hero on this farm's own longest real
-                        description (a real regression caught in this same
-                        round's own screenshot review) — line-clamp-4 is
-                        the balance: room for most real descriptions to
-                        finish, without one long outlier swallowing the
-                        map. */}
-                    <p className="mt-0.5 line-clamp-4 text-xs text-white/75">{leadingPrompt.description}</p>
-                  </div>
-                </div>
-              ) : null}
+              <div className="pointer-events-auto shrink-0">
+                <AskAIButton context={askAIContext} />
+              </div>
             </div>
-
-            <div className="flex justify-end">
-              <FieldWindChip centroid={field.centroid} />
+            <div className="flex justify-end p-4 lg:px-12 lg:pb-6">
+              <div className="pointer-events-auto">
+                <FieldWindChip centroid={field.centroid} />
+              </div>
             </div>
           </div>
         </MapHero>
       </div>
 
-      {/* Codex audit round 3: the drawer read as "a separate white card"
-          rather than an integrated panel — a negative margin lets its
-          own rounded top corners overlap the hero's bottom edge, and
-          `hideIdentity` drops the name/area text the hero's own header
-          already shows. Extra bottom padding on mobile reserves room for
-          the fixed action bar below, which sits above it.
-          Codex audit round 5: the overlap read as "a flat, opaque white
-          sheet with hard viewport edges" rather than image3's own
-          floating panel — deeper overlap, a side inset (so the panel
-          doesn't run edge-to-edge under the still-full-bleed hero above
-          it) and a stronger shadow read more like a raised card over the
-          continuing map, not a harder cut into a new section. Codex audit
-          round 6: still "only a shallow map overlap" — deeper again. */}
-      <div className="-mt-16 flex flex-col gap-4 px-1 pb-24 lg:mt-4 lg:px-0 lg:pb-0">
-        <FieldDrawer field={field} hideIdentity slurryDetailsRequest={slurryDetailsRequest} className="rounded-2xl shadow-lg lg:rounded-fr-card lg:shadow-fr-card" />
+      <div className="mx-auto w-full max-w-[1180px] px-4 pb-28 lg:px-12 lg:pb-16">
+        <FieldDrawer
+          field={field}
+          initialChapter={initialChapter}
+          slurryDetailsRequest={slurryDetailsRequest}
+          leadingPrompt={leadingPrompt}
+          onViewPrompt={leadingPrompt ? () => setPromptOpen(true) : undefined}
+        />
       </div>
 
-      {/* Persistent primary action — Codex audit round 3: "the primary
-          action is embedded inside the map hero... and scrolls away,
-          whereas image3 places the persistent action after the panel...
-          pinned above the bottom navigation." Fixed above the mobile nav
-          (light system here, not the hero's dark overlay, since it sits
-          over the light panel); a normal static control at the end of
-          the column on desktop, which has no bottom nav to pin above. */}
-      <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-20 px-4 lg:static lg:bottom-auto lg:z-auto lg:mt-4 lg:px-0">
-        <div className="flex items-center gap-2 rounded-fr-card border border-fr-border bg-fr-surface p-3 shadow-fr-card lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
-          <AskAIButton context={askAIContext} className="shrink-0 border-fr-border bg-fr-surface-alt px-3 text-fr-ink-900" />
-          {primaryAction}
-        </div>
-      </div>
-
-      <ExpandedPromptSheet
-        open={openPrompt}
-        onClose={onClosePrompt}
-        prompt={leadingPrompt}
-        fieldName={field.name}
-        canRecord={canRecord}
-      />
-    </>
+      <ExpandedPromptSheet open={promptOpen} onClose={() => setPromptOpen(false)} prompt={leadingPrompt} fieldName={field.name} canRecord={isRealMode} />
+    </div>
   );
 }

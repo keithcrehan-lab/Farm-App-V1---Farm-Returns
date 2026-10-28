@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 describe("DesktopSidebar (Farm Spatial V2 Phase 02B)", () => {
-  it("always shows the five primary destinations", () => {
+  it("always shows the six primary destinations (Farm + Fields redesign)", () => {
     render(<DesktopSidebar />);
     const nav = screen.getByRole("navigation", { name: "Primary" });
     for (const item of primaryNavItems) expect(within(nav).getByText(item.label)).toBeTruthy();
@@ -41,8 +41,24 @@ describe("DesktopSidebar (Farm Spatial V2 Phase 02B)", () => {
   });
 
   it("names the current legacy destination on the closed More control", () => {
+    pathname.current = "/supports";
+    render(<DesktopSidebar />);
+    expect(screen.getByRole("button", { name: /more · supports/i })).toBeTruthy();
+  });
+
+  it("shows the Fields companion under Farm rather than repeating it on More", () => {
     pathname.current = "/fields";
     render(<DesktopSidebar />);
-    expect(screen.getByRole("button", { name: /more · fields/i })).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(within(nav).getByRole("link", { name: "Farm" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("button", { name: /^more$/i })).toBeTruthy();
+  });
+
+  it("reaches What Matters through More, not the primary list", () => {
+    render(<DesktopSidebar />);
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(within(nav).queryByRole("link", { name: "What Matters" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    expect(within(screen.getByRole("group", { name: "More" })).getByRole("link", { name: "What Matters" }).getAttribute("href")).toBe("/what-matters");
   });
 });

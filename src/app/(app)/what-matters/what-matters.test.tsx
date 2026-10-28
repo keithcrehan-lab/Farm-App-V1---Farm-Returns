@@ -134,8 +134,10 @@ describe("Pilot P4 — navigation", () => {
     }
   });
 
-  it("the primary destinations are Farm, What Matters, Plan, Cattle and Records; Farm stays the home", () => {
-    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/what-matters", "/plan", "/cattle", "/records"]);
+  it("Farm + Fields redesign: the primary destinations are Farm, Plan, Cattle, Housing, Finance and Records; What Matters stays reachable under More", () => {
+    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/plan", "/cattle", "/housing", "/finance", "/records"]);
+    expect(moreNavItems.map((i) => i.href)).toContain("/what-matters");
+    expect(routeExists("/what-matters")).toBe(true);
   });
 
   it("a signed-in farmer lands on Farm (not the older Dashboard, not Cattle, not Finance)", () => {
@@ -155,7 +157,9 @@ describe("Pilot P4 — navigation", () => {
       expect(shown.has(item.href), item.href).toBe(false);
       expect(routeExists(item.href), item.href).toBe(true);
     }
-    expect(pilotHiddenNavItems.map((i) => i.href)).toEqual(expect.arrayContaining(["/finance", "/silage", "/feed-optimiser", "/input-planner", "/dashboard"]));
+    // Finance became first-level in the Farm + Fields redesign.
+    expect(pilotHiddenNavItems.map((i) => i.href)).toEqual(expect.arrayContaining(["/silage", "/feed-optimiser", "/input-planner", "/dashboard"]));
+    expect(pilotHiddenNavItems.map((i) => i.href)).not.toContain("/finance");
     expect([...shown].some((h) => h.startsWith("/livestock"))).toBe(false);
   });
 });

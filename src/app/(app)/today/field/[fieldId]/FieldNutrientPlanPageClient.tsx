@@ -19,6 +19,7 @@ import {
 } from "@/lib/field-nutrient-plan-presentation";
 import { NapComplianceCard } from "@/components/farm/NapComplianceCard";
 import type { NutrientPlan } from "@/domain/types";
+import type { FieldNutrientPlanResult } from "@/orchestration/fertiliser-plan/field-nutrient-plan";
 
 /**
  * Farm Spatial V2 Phase 4 — one field's nutrient plan in the approved
@@ -61,34 +62,7 @@ export function FieldNutrientPlanPageClient({ fieldId }: { fieldId: string }) {
         <MachineNote view={view} plan={result.plan} soilTestDate={field.fertility.verifiedTest?.sampleDate} />
       </header>
 
-      {view.status === "unavailable" ? (
-        <p className="border-l-[3px] border-fr-v2-harvest bg-fr-v2-harvest-tint px-4 py-3 text-sm">{view.message}</p>
-      ) : (
-        <>
-          <NutrientPosition view={view} />
-
-          <OrganicBand organic={view.organic} />
-
-          <SolutionBand solution={view.solution} />
-
-          <section aria-labelledby="legal-status-heading" className="flex flex-col gap-2">
-            <h2 id="legal-status-heading" className="text-[11px] font-bold uppercase tracking-[0.14em] text-fr-v2-muted">
-              Legal status
-            </h2>
-            <NapComplianceCard compliance={result.displayedNapCompliance} />
-            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-              {view.legalGates.map((gate) => (
-                <div key={gate.id} data-legal-gate={gate.id} data-gate-state={gate.state} className="contents">
-                  <dt className="text-fr-v2-muted">{gate.label}</dt>
-                  <dd className={cn(gate.state === "prohibited" && "font-semibold text-fr-v2-clay")}>{gate.text}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-
-          <EvidenceBand view={view} fieldId={field.id} />
-        </>
-      )}
+      <FieldNutrientPlanBody view={view} result={result} fieldId={field.id} />
 
       <nav aria-label="Field nutrient plan actions" className="flex flex-wrap items-center gap-3 border-t border-fr-v2-rule pt-4">
         <Link href={backHref} className="rounded-[6px] border border-fr-v2-rule px-4 py-2.5 text-sm font-semibold">
@@ -102,6 +76,43 @@ export function FieldNutrientPlanPageClient({ fieldId }: { fieldId: string }) {
         </Link>
       </nav>
     </div>
+  );
+}
+
+/**
+ * The plan itself, in the approved decision order — shared by this page and
+ * the field workspace's Nutrients chapter so both render the one canonical
+ * view. Derives nothing.
+ */
+export function FieldNutrientPlanBody({ view, result, fieldId }: { view: FieldNutrientPlanView; result: FieldNutrientPlanResult; fieldId: string }) {
+  if (view.status === "unavailable") {
+    return <p className="border-l-[3px] border-fr-v2-harvest bg-fr-v2-harvest-tint px-4 py-3 text-sm">{view.message}</p>;
+  }
+  return (
+    <>
+      <NutrientPosition view={view} />
+
+      <OrganicBand organic={view.organic} />
+
+      <SolutionBand solution={view.solution} />
+
+      <section aria-labelledby="legal-status-heading" className="flex flex-col gap-2">
+        <h2 id="legal-status-heading" className="text-[11px] font-bold uppercase tracking-[0.14em] text-fr-v2-muted">
+          Legal status
+        </h2>
+        <NapComplianceCard compliance={result.displayedNapCompliance} />
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+          {view.legalGates.map((gate) => (
+            <div key={gate.id} data-legal-gate={gate.id} data-gate-state={gate.state} className="contents">
+              <dt className="text-fr-v2-muted">{gate.label}</dt>
+              <dd className={cn(gate.state === "prohibited" && "font-semibold text-fr-v2-clay")}>{gate.text}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      <EvidenceBand view={view} fieldId={fieldId} />
+    </>
   );
 }
 

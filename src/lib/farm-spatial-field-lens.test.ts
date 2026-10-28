@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { tracked, type Field, type SlurryAllocation } from "@/domain/types";
-import { FARM_LENS_MARKER_COLOR, farmFieldLensView, farmSpatialReturnHref, fieldNutrientPlanHref, parseFarmSpatialReturn } from "./farm-spatial-field-lens";
+import {
+  FARM_LENS_MARKER_COLOR,
+  farmFieldLensView,
+  farmSpatialReturnHref,
+  fieldNutrientPlanHref,
+  fieldWorkspaceHref,
+  parseFarmSpatialReturn,
+  parseFieldWorkspaceChapter,
+} from "./farm-spatial-field-lens";
 import { FARM_LENSES } from "./farm-spatial-lenses";
 
 function field(overrides: Partial<Field> = {}): Field {
@@ -19,17 +27,17 @@ function field(overrides: Partial<Field> = {}): Field {
 const none = { slurryAllocations: [] as SlurryAllocation[] };
 
 describe("farmFieldLensView — honest per-field lens data", () => {
-  it("shows Unknown, never a default, when P/K/pH/soil/test are missing", () => {
-    const soil = farmFieldLensView("soil", field(), none);
-    expect(soil.markerLabel).toBe("pH unknown");
-    expect(soil.facts).toEqual([
-      { label: "pH", value: "Unknown", missing: true },
+  it("shows Unknown, never a default, when P/K/pH/soil/test are missing (soil evidence sits inside Nutrients)", () => {
+    const nutrients = farmFieldLensView("nutrients", field(), none);
+    expect(nutrients.markerLabel).toBe("P · K unknown");
+    expect(nutrients.facts).toEqual([
       { label: "P", value: "Unknown", missing: true },
       { label: "K", value: "Unknown", missing: true },
-      { label: "Soil type", value: "Not yet mapped", missing: true },
+      { label: "pH", value: "Unknown", missing: true },
       { label: "Soil test", value: "No lab test", missing: true },
+      { label: "Soil type", value: "Not yet mapped", missing: true },
+      { label: "Slurry planned", value: "None planned", missing: true },
     ]);
-    expect(farmFieldLensView("nutrients", field(), none).markerLabel).toBe("P · K unknown");
   });
 
   it("never reads the value of an explicitly unavailable tracked value", () => {
@@ -57,22 +65,19 @@ describe("farmFieldLensView — honest per-field lens data", () => {
     ] as SlurryAllocation[];
     const nutrients = farmFieldLensView("nutrients", f, { slurryAllocations: allocations });
     expect(nutrients.markerLabel).toBe("P2 · K2");
-    expect(nutrients.facts.map((x) => x.value)).toEqual(["Index 2", "Index 2", "14 Feb 2026", "42 m³"]);
+    expect(nutrients.facts.map((x) => x.value)).toEqual(["Index 2", "Index 2", "6.2", "14 Feb 2026", "Elton", "42 m³"]);
     expect(nutrients.links[0]).toEqual({ href: "/nutrients?field=f1", label: "Nutrient planner" });
+    expect(nutrients.links).toContainEqual({ href: "/soil", label: "Soil by field" });
     expect(nutrients.unavailableNote).toBeUndefined();
-    const soil = farmFieldLensView("soil", f, none);
-    expect(soil.markerLabel).toBe("pH 6.2");
-    expect(soil.facts.find((x) => x.label === "Soil type")?.value).toBe("Elton");
   });
 
   it("labels a modelled or farmer-entered value by its provenance, never as a measurement", () => {
     const f = field({ fertility: { pIndex: tracked(2, "estimated", "Assumption"), kIndex: tracked(3, "verified", "Soil test"), pH: tracked(6.4, "farmer_adjusted", "Farmer") } });
-    expect(farmFieldLensView("nutrients", f, none).markerLabel).toBe("P2 · K3 (est.)");
-    const soil = farmFieldLensView("soil", f, none);
-    expect(soil.markerLabel).toBe("pH 6.4 (est.)");
-    expect(soil.facts[0]).toEqual({ label: "pH", value: "6.4", basis: "Farmer entered" });
-    expect(soil.facts[1]).toEqual({ label: "P", value: "Index 2", basis: "Estimated" });
-    expect(soil.facts[2]).toEqual({ label: "K", value: "Index 3" });
+    const nutrients = farmFieldLensView("nutrients", f, none);
+    expect(nutrients.markerLabel).toBe("P2 · K3 (est.)");
+    expect(nutrients.facts[0]).toEqual({ label: "P", value: "Index 2", basis: "Estimated" });
+    expect(nutrients.facts[1]).toEqual({ label: "K", value: "Index 3" });
+    expect(nutrients.facts[2]).toEqual({ label: "pH", value: "6.4", basis: "Farmer entered" });
   });
 
   it("treats an absent field use as unresolved, never grazing", () => {
@@ -94,7 +99,7 @@ describe("farmFieldLensView — honest per-field lens data", () => {
   it("gives every non-Current lens its own marker colour and keeps Current neutral", () => {
     expect(FARM_LENS_MARKER_COLOR.current).toBeUndefined();
     const colours = FARM_LENSES.filter((l) => l.id !== "current").map((l) => FARM_LENS_MARKER_COLOR[l.id]);
-    expect(new Set(colours).size).toBe(4);
+    expect(new Set(colours).size).toBe(3);
   });
 
   it("round-trips the field nutrient plan's return to the farm map, ignoring an unknown lens", () => {
@@ -102,6 +107,8 @@ describe("farmFieldLensView — honest per-field lens data", () => {
     const back = farmSpatialReturnHref("f 1");
     expect(parseFarmSpatialReturn(back.slice(back.indexOf("?")))).toEqual({ lens: "nutrients", fieldId: "f 1" });
     expect(parseFarmSpatialReturn("?lens=bogus&field=f2")).toEqual({ fieldId: "f2" });
+    // A link written before Soil joined Nutrients opens the Nutrients lens.
+    expect(parseFarmSpatialReturn("?lens=soil&field=f2")).toEqual({ lens: "nutrients", fieldId: "f2" });
     expect(parseFarmSpatialReturn("")).toEqual({});
   });
 
@@ -110,5 +117,15 @@ describe("farmFieldLensView — honest per-field lens data", () => {
       const links = farmFieldLensView(lens.id, field(), none).links;
       expect(links).toContainEqual({ href: "/fields?field=f1", label: "Field detail" });
     }
+  });
+
+  it("builds the field workspace route from the real id, with only Overview / Nutrients / History chapters", () => {
+    expect(fieldWorkspaceHref("f 1")).toBe("/fields?field=f%201");
+    expect(fieldWorkspaceHref("f1", "nutrients")).toBe("/fields?field=f1&chapter=nutrients");
+    expect(fieldWorkspaceHref("f1", "history")).toBe("/fields?field=f1&chapter=history");
+    expect(parseFieldWorkspaceChapter("history")).toBe("history");
+    expect(parseFieldWorkspaceChapter("soil")).toBe("overview");
+    expect(parseFieldWorkspaceChapter("activity")).toBe("overview");
+    expect(parseFieldWorkspaceChapter(null)).toBe("overview");
   });
 });

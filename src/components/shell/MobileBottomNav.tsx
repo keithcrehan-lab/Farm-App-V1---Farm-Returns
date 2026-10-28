@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
-import { primaryNavItems, moreNavIcon as MoreIcon } from "./nav-items";
+import { isNavItemActive, mobileNavItems, mobileMoreNavItems, moreNavIcon as MoreIcon } from "./nav-items";
 import { MoreSheet } from "./MoreSheet";
 
 /** Routes whose primary surface is a full-bleed real photo/map for the
@@ -25,9 +25,10 @@ import { MoreSheet } from "./MoreSheet";
 const OVERLAY_ROUTES = new Set(["/today"]);
 
 /** Persistent 5-slot bottom nav — mobile only (design-system.md
- * "Density"). Farm Spatial V2: Farm/What Matters/Plan/Market/Finance
- * (`primaryNavItems`) plus a "More" slot for every earlier screen
- * (`MoreSheet`) — see `nav-items.ts`'s own header comment.
+ * "Density"). Farm + Fields redesign: Farm/Plan/Cattle/Records
+ * (`mobileNavItems`) plus a "More" slot whose sheet leads with the
+ * remaining primary destinations (Housing, Finance) and then every
+ * earlier screen — see `nav-items.ts`'s own header comment.
  *
  * Strict Visual Reproduction phase (2026-09-03): the light bar is the
  * default treatment; `OVERLAY_ROUTES` opts a full-bleed photo screen
@@ -49,8 +50,8 @@ export function MobileBottomNav() {
         )}
         aria-label="Primary"
       >
-        {primaryNavItems.map((item) => {
-          const active = pathname === item.href;
+        {mobileNavItems.map((item) => {
+          const active = isNavItemActive(item, pathname);
           if (item.placeholderNote) {
             // Approved destination with no route yet — visibly disabled,
             // never a link to a missing page (`nav-items.ts`).
@@ -98,7 +99,7 @@ export function MobileBottomNav() {
           More
         </button>
       </nav>
-      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} />
+      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} items={mobileMoreNavItems} />
     </>
   );
 }

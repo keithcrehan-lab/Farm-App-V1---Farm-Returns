@@ -1,23 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Archive, ArchiveRestore, ArrowRight, Layers, MapPin, Pencil, Radio, Scissors, Sprout, Tractor } from "lucide-react";
-import { Card } from "@/components/ui/Card";
-import { Pill, StatusBadge } from "@/components/ui/StatusBadge";
+import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { landUseLabel, phStatusLabel } from "@/lib/status";
+import { phStatusLabel } from "@/lib/status";
 import { mockSilagePlans } from "@/data/mock-farm";
 import type { Field, FieldUse } from "@/domain/types";
+import type { Prompt } from "@/orchestration/prompt";
 import { formatHa, formatNumber } from "@/lib/format";
 import { nearestStationsForField } from "@/domain/weather-stations";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
 import { FieldAwarenessCard } from "@/components/farm/FieldAwarenessCard";
 import { SpreadableAreaEvidencePanel } from "@/components/farm/SpreadableAreaEvidencePanel";
-import { useFarmActions, useFarm, useSlurryAllocations } from "@/store/farm-store";
+import { FieldNutrientPlanBody } from "@/app/(app)/today/field/[fieldId]/FieldNutrientPlanPageClient";
+import { useFarmActions, useFarm, useHousingList, useIsRealMode, useSlurryAllocations } from "@/store/farm-store";
 import type { BufferFeature } from "@/domain/buffer-gate";
 import { soilTestAgeValidityForFertility } from "@/domain/nutrients";
 import type { MissingSlurryPlanningDetail } from "@/domain/what-matters-no-recommendation";
+import { useFieldNutrientPlan } from "@/lib/use-field-nutrient-plan";
+import { fieldNutrientPlanView } from "@/lib/field-nutrient-plan-presentation";
+import { fieldNutrientPlanHref, type FieldWorkspaceChapter } from "@/lib/farm-spatial-field-lens";
+import { fieldHistoryEvents, formatFieldDate, plannedUseLine, type FieldHistoryEvent } from "@/lib/field-workspace-presentation";
 
 // Codex remediation Priority 6 — a real "not set" option, not a silent
 // "grazing" default: `plannedUse` genuinely doesn't exist until the farmer
@@ -34,31 +38,6 @@ const FIELD_USE_OPTIONS: { value: FieldUse; label: string }[] = [
   { value: "other", label: "Other / not yet decided" },
 ];
 
-// Real Mode Completion Phase 9 — "Map" was dropped: boundary editing
-// already has its own dedicated "Map this field"/"Edit boundary" button
-// below, a separate tab that only said "coming in a later screen" was a
-// dead end, not a real second way to do the same thing.
-//
-// Strict Visual Reproduction phase (2026-09-03): restyled from
-// Overview/Soil to Now/Soil/Activity/Constraints, matching
-// media/image3.png's own literal tab bar — real content regrouped, not
-// rewritten. "Overview"'s own real facts split across "Now" (current
-// status: planned use, cutting window, spreading suitability, drainage,
-// weather station) and "Constraints" (the real compliance-evidence
-// dropdowns that already existed, just not their own tab). "Activity"
-// is new — an honest link to Records, not a fabricated per-field feed:
-// this app's own jobs/decisions are fetched server-side
-// (`records/page.tsx`), not from the client farm-store this component
-// reads, so a real field-scoped activity list isn't buildable here
-// without a materially larger data-layer change.
-const TABS = ["Now", "Soil", "Activity", "Constraints"] as const;
-
-/**
- * Field detail panel — spec §4/screen-specification.md "/fields":
- * "Selecting a field opens a FieldDrawer: field name + area, tab bar
- * (Overview/Map/Soil…), Planned Use row, cutting window/est. yield summary,
- * Edit Field CTA."
- */
 const BUFFER_FEATURE_OPTIONS: { value: BufferFeature; label: string }[] = [
   { value: "surface_water", label: "Surface water (stream/river/canal)" },
   { value: "major_drinking_water_abstraction", label: "Major drinking-water abstraction" },
@@ -68,153 +47,349 @@ const BUFFER_FEATURE_OPTIONS: { value: BufferFeature; label: string }[] = [
   { value: "exposed_cavernous_or_karst_limestone_feature", label: "Exposed karst/cavernous limestone" },
 ];
 
+const SLURRY_METHOD_LABEL: Record<string, string> = { LESS: "LESS", splashplate: "Splash plate", incorporate_24h: "Incorporated within 24 h", other: "Other method" };
+
+const CHAPTERS: { id: FieldWorkspaceChapter; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "nutrients", label: "Nutrients" },
+  { id: "history", label: "History" },
+];
+
+const INPUT = "w-full rounded-[4px] border border-fr-v2-cream-rule bg-white/75 px-2.5 py-2 text-sm text-fr-v2-graphite focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fr-v2-gold";
+const LABEL = "flex flex-col gap-1.5 text-xs text-fr-v2-muted";
+const TEXT_LINK = "text-sm font-semibold text-fr-v2-forest underline decoration-fr-v2-forest/30 underline-offset-[3px] transition-colors duration-[160ms] hover:decoration-fr-v2-gold motion-reduce:transition-none";
+
+/**
+ * Farm + Fields redesign — the field workspace's chapters
+ * (`docs/design/farm-fields-high-fidelity-reference.md` "Field workspace"):
+ * only Overview, Nutrients and History. The earlier Now / Soil / Activity /
+ * Constraints tabs are regrouped, not rewritten: current state, planned
+ * work, conditions and recent activity live in Overview; soil evidence and
+ * the statutory inputs (commonage, water buffers, slurry method and date,
+ * spreadable area) sit inside Nutrients beside the canonical nutrient plan
+ * they feed; History is the dated evidence ledger.
+ *
+ * Structural changes (boundary, name/use, archive) sit behind an explicit
+ * "Manage field" control, so reading the field never edits it.
+ *
+ * Every value is the persisted `Field`, a canonical store/engine export or
+ * the shared nutrient plan assembly. Nothing here calculates; unknown stays
+ * unknown.
+ */
 export function FieldDrawer({
   field,
   className,
-  hideIdentity = false,
   slurryDetailsRequest,
+  initialChapter,
+  leadingPrompt,
+  onViewPrompt,
 }: {
   field: Field;
   className?: string;
   /** Set when the farmer arrived from What Matters' "Add spreading
-   * details" link: opens the Constraints tab, explains why, and asks only
-   * for the method/date each allocation was actually missing when the
-   * drawer opened — values already on record are not asked for again. */
+   * details" link: opens Nutrients on the spreading details, explains why,
+   * and asks only for the method/date each allocation was actually missing
+   * when the workspace opened — values already on record are not asked for
+   * again. */
   slurryDetailsRequest?: MissingSlurryPlanningDetail[];
-  /** Codex audit round 3 (Strict Visual Reproduction, Field detail): the
-   * hero above this drawer already shows the field's own name/area as
-   * its literal header (media/image3.png's own composition) — showing
-   * them again here read as "a duplicated field name and area" rather
-   * than an integrated panel beginning directly with its tabs. Omits
-   * just the name/area text, not the edit/status controls beside it. */
-  hideIdentity?: boolean;
+  initialChapter?: FieldWorkspaceChapter;
+  /** The field's own leading Prompt from the real producers, if any. */
+  leadingPrompt?: Prompt;
+  /** Opens that Prompt's evidence ("Why?"). */
+  onViewPrompt?: () => void;
 }) {
-  const [tab, setTab] = useState<(typeof TABS)[number]>(slurryDetailsRequest ? "Constraints" : "Now");
-  const [mappingOpen, setMappingOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [nameInput, setNameInput] = useState(field.name);
-  const [useInput, setUseInput] = useState<FieldUse | "">(field.plannedUse?.value ?? "");
-  const [areaInput, setAreaInput] = useState(String(field.areaHa));
-  const {
-    setFieldBoundary,
-    updateFieldDetails,
-    archiveField,
-    restoreField,
-    updateFieldCommonageStatus,
-    updateFieldWaterBufferContext,
-    updateSlurryApplicationMethod,
-    updateSlurryApplicationDate,
-  } = useFarmActions();
-  const farm = useFarm();
-  const slurryAllocations = useSlurryAllocations();
-  // Codex audit HIGH (round 31): a bare `.find()` showed/edited only the
-  // first of a field's own real allocations, silently hiding a real
-  // second one from a different housing source — the schema's own
-  // `unique (field_id, housing_id)` constraint deliberately allows a
-  // field to receive slurry from more than one shed. Every one of this
-  // field's own real allocations now gets its own method selector below,
-  // never just the first.
-  const fieldSlurryAllocations = slurryAllocations.filter((a) => a.fieldId === field.id);
-  // Snapshot at open (not live) so an input the farmer has just filled
-  // stays visible with its saved value rather than vanishing mid-edit.
-  const [requestedSlurryInputs] = useState(() =>
-    slurryDetailsRequest
-      ? new Map(fieldSlurryAllocations.map((a) => [a.housingId, { method: !a.applicationMethod, date: !a.applicationDate }]))
-      : null,
-  );
-  const shownSlurryAllocations = requestedSlurryInputs
-    ? fieldSlurryAllocations.filter((a) => {
-        if (a.priority === "not_suitable") return false;
-        const requested = requestedSlurryInputs.get(a.housingId);
-        return !requested || requested.method || requested.date;
-      })
-    : fieldSlurryAllocations;
-  const slurryDetailsComplete = shownSlurryAllocations.every((a) => a.applicationMethod && a.applicationDate);
-  const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
-  // Real Met Éireann station-selection engine (src/domain/weather-stations.ts):
-  // a confirmed 25-station registry, matched by real geographic distance, not
-  // county. No live/historical observation feed is wired to any station yet —
-  // this only answers "which station," not "what's the weather there."
-  const [nearestWeatherStation] = nearestStationsForField(field, undefined, 1);
+  const [chapter, setChapter] = useState<FieldWorkspaceChapter>(slurryDetailsRequest ? "nutrients" : (initialChapter ?? "overview"));
+  const { restoreField } = useFarmActions();
 
   return (
-    <Card className={cn("flex flex-col gap-4", className)}>
-      {field.archivedAt ? (
-        <div className="flex items-center justify-between rounded-fr-control bg-fr-surface-alt px-3 py-2 text-sm">
-          <span className="text-fr-ink-600">
-            Archived {new Date(field.archivedAt).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}
-            — hidden from Nutrients, Soil and other planning screens.
-          </span>
+    <div className={cn("flex flex-col text-fr-v2-graphite", className)} data-field-workspace>
+      <nav aria-label="Field chapters" className="flex gap-7 border-b border-fr-v2-cream-rule">
+        {CHAPTERS.map((c) => (
           <button
+            key={c.id}
             type="button"
-            onClick={() => restoreField(field.id)}
-            className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-fr-green-700"
+            onClick={() => setChapter(c.id)}
+            aria-pressed={chapter === c.id}
+            data-chapter={c.id}
+            className={cn(
+              "relative -mb-px min-h-11 border-b-2 pb-2.5 pt-3 text-sm font-semibold tracking-[0.01em] transition-colors duration-[160ms] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-gold motion-reduce:transition-none",
+              chapter === c.id ? "border-fr-v2-gold text-fr-v2-graphite" : "border-transparent text-fr-v2-muted hover:text-fr-v2-graphite",
+            )}
           >
-            <ArchiveRestore className="size-3.5" />
+            {c.label}
+          </button>
+        ))}
+      </nav>
+
+      {field.archivedAt ? (
+        <div className="mt-5 flex items-center justify-between gap-4 border-l-[3px] border-fr-v2-clay bg-fr-v2-clay-tint/60 px-4 py-2.5 text-sm">
+          <span className="text-fr-v2-charcoal">
+            Archived {formatFieldDate(field.archivedAt)} — hidden from Nutrients, Soil and other planning screens.
+          </span>
+          <button type="button" onClick={() => restoreField(field.id)} className="shrink-0 text-xs font-semibold text-fr-v2-forest underline underline-offset-2">
             Restore
           </button>
         </div>
       ) : null}
 
-      <div className="flex items-start justify-between">
-        {editOpen ? (
-          <div className="flex w-full flex-col gap-2">
-            <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-              Field name
-              <input
-                className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
+      <div className="pt-7">
+        {chapter === "overview" ? (
+          <OverviewChapter field={field} leadingPrompt={leadingPrompt} onViewPrompt={onViewPrompt} onOpenHistory={() => setChapter("history")} />
+        ) : chapter === "nutrients" ? (
+          <NutrientsChapter field={field} slurryDetailsRequest={slurryDetailsRequest} />
+        ) : (
+          <HistoryChapter field={field} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Section({ kicker, children, className, id }: { kicker: string; children: ReactNode; className?: string; id?: string }) {
+  return (
+    <section aria-label={kicker} id={id} className={cn("border-t border-fr-v2-cream-rule pt-4", className)}>
+      <h3 className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-muted">{kicker}</h3>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
+
+function Row({ label, value, detail, quiet }: { label: string; value: ReactNode; detail?: ReactNode; quiet?: boolean }) {
+  return (
+    <div className="flex flex-col gap-0.5 py-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
+      <dt className="shrink-0 text-sm text-fr-v2-muted">{label}</dt>
+      <dd className="min-w-0 sm:text-right">
+        <span className={cn("text-sm", quiet ? "italic text-fr-v2-muted" : "font-semibold text-fr-v2-graphite")}>{value}</span>
+        {detail ? <span className="block font-mono text-[11px] text-fr-v2-muted">{detail}</span> : null}
+      </dd>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- Overview */
+
+function OverviewChapter({
+  field,
+  leadingPrompt,
+  onViewPrompt,
+  onOpenHistory,
+}: {
+  field: Field;
+  leadingPrompt?: Prompt;
+  onViewPrompt?: () => void;
+  onOpenHistory: () => void;
+}) {
+  const isRealMode = useIsRealMode();
+  const slurryAllocations = useSlurryAllocations();
+  const housing = useHousingList();
+  const planResult = useFieldNutrientPlan(field);
+  const planAvailable = planResult ? fieldNutrientPlanView(planResult, field).status === "available" : false;
+  const use = plannedUseLine(field);
+  const allocations = slurryAllocations.filter((a) => a.fieldId === field.id && a.priority !== "not_suitable");
+  // The silage plan source is demonstration data only — never shown to a
+  // signed-in farm.
+  const silagePlan = isRealMode ? undefined : mockSilagePlans.find((p) => p.fieldId === field.id);
+  // Real Met Éireann station-selection engine (src/domain/weather-stations.ts):
+  // a confirmed 25-station registry, matched by real geographic distance, not
+  // county. No live/historical observation feed is wired to any station yet —
+  // this only answers "which station," not "what's the weather there."
+  const [nearestWeatherStation] = nearestStationsForField(field, undefined, 1);
+  const recent = fieldHistoryEvents(field).slice(0, 3);
+
+  const primary = planAvailable
+    ? { label: "Open nutrient plan", href: fieldNutrientPlanHref(field.id) }
+    : !field.fertility.verifiedTest
+      ? { label: "Take soil sample", href: `/soil-sample/${encodeURIComponent(field.id)}` }
+      : undefined;
+
+  return (
+    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-14">
+      <div className="flex min-w-0 flex-col gap-8">
+        <section aria-label="Now" data-field-now>
+          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Now</p>
+          {leadingPrompt ? (
+            <>
+              <p className="mt-2 max-w-[34ch] font-display text-[26px] leading-[1.12] tracking-[-0.01em] text-fr-v2-graphite">{leadingPrompt.title}</p>
+              <p className="mt-2 max-w-[60ch] text-sm leading-relaxed text-fr-v2-muted">{leadingPrompt.description}</p>
+              {onViewPrompt ? (
+                <button type="button" onClick={onViewPrompt} className={cn(TEXT_LINK, "mt-3")}>
+                  Why? See the evidence
+                </button>
+              ) : null}
+            </>
+          ) : (
+            <p className="mt-2 font-display text-[22px] leading-snug text-fr-v2-muted">No open prompt for this field.</p>
+          )}
+        </section>
+
+        <Section kicker="Use">
+          <dl className="divide-y divide-fr-v2-cream-rule/70">
+            <Row label="Current use" value="Not recorded separately" detail="Farm Return keeps one planned use per field" quiet />
+            {use ? <Row label="Planned use" value={use.value} detail={use.detail} /> : <Row label="Planned use" value="Not set" quiet />}
+            <Row label="Livestock" value="Not recorded for fields yet" detail="Groups carry no field location" quiet />
+          </dl>
+        </Section>
+
+        <Section kicker="Planned work">
+          {allocations.length > 0 ? (
+            <ul className="divide-y divide-fr-v2-cream-rule/70">
+              {allocations.map((allocation) => {
+                const shed = housing.find((h) => h.id === allocation.housingId);
+                return (
+                  <li key={allocation.housingId} className="flex flex-col gap-0.5 py-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
+                    <span className="text-sm font-semibold">Slurry spreading{shed ? ` from ${shed.shedName}` : ""}</span>
+                    <span className="font-mono text-[12px] tabular-nums text-fr-v2-charcoal">
+                      {formatNumber(allocation.volumeM3, 0)} m³
+                      {allocation.applicationMethod ? ` · ${SLURRY_METHOD_LABEL[allocation.applicationMethod.value] ?? allocation.applicationMethod.value}` : " · method not recorded"}
+                      {allocation.applicationDate ? ` · ${formatFieldDate(allocation.applicationDate.value) ?? allocation.applicationDate.value}` : " · date not recorded"}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-sm italic text-fr-v2-muted">No planned work recorded for this field.</p>
+          )}
+          {silagePlan ? (
+            <dl className="mt-2 divide-y divide-fr-v2-cream-rule/70" data-demo-silage>
+              <Row
+                label="Cutting window · demonstration"
+                value={`${new Date(silagePlan.targetCutWindow.value.start).toLocaleDateString("en-IE", { day: "numeric", month: "short" })} – ${new Date(silagePlan.targetCutWindow.value.end).toLocaleDateString("en-IE", { day: "numeric", month: "short" })}`}
               />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-              Planned use
-              <select
-                className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
-                value={useInput}
-                onChange={(e) => setUseInput(e.target.value as FieldUse)}
-              >
-                <option value="" disabled>
-                  Not set — choose a planned use
-                </option>
-                {FIELD_USE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {field.polygon ? (
-              <p className="text-xs text-fr-ink-600/70">
-                Area ({formatHa(field.areaHa)}) comes from the mapped boundary — edit the boundary on the Map tab to
-                change it, not this field.
-              </p>
-            ) : (
-              <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-                Area (ha) — typed, not yet mapped
-                <input
-                  type="number"
-                  min={0.1}
-                  step={0.1}
-                  className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
-                  value={areaInput}
-                  onChange={(e) => setAreaInput(e.target.value)}
-                />
+              <Row label="Expected yield · demonstration" value={`${formatNumber(silagePlan.expectedYieldTDMha.value, 1)} t DM/ha`} />
+            </dl>
+          ) : null}
+          <Link href="/plan" className={cn(TEXT_LINK, "mt-3 inline-block")}>
+            Plan →
+          </Link>
+        </Section>
+
+        <Section kicker="Conditions">
+          <dl className="divide-y divide-fr-v2-cream-rule/70">
+            {/* Was "Spreading today: {score}/100" or "Do not spread" — an
+                unsourced mock verdict presented as fact. See
+                SpreadingSuitabilityValidationCard's doc comment. */}
+            <Row label="Spreading suitability" value="Under validation" quiet />
+            <Row label="Drainage" value={field.mappedSoil ? field.mappedSoil.drainage.replace(/_/g, " ") : "Unavailable"} quiet={!field.mappedSoil} />
+            {nearestWeatherStation ? (
+              <Row
+                label="Nearest weather station"
+                value={nearestWeatherStation.station.canonicalName}
+                detail={`${formatNumber(nearestWeatherStation.distanceKm, 1)} km · confirmed Met Éireann station, no feed connected yet`}
+              />
+            ) : null}
+          </dl>
+        </Section>
+
+        <Section kicker="Recent activity">
+          {recent.length > 0 ? <HistoryList events={recent} /> : <p className="text-sm italic text-fr-v2-muted">Nothing recorded for this field yet.</p>}
+          <button type="button" onClick={onOpenHistory} className={cn(TEXT_LINK, "mt-3")}>
+            Full history →
+          </button>
+        </Section>
+
+        {/* Farm Awareness / Satellite Field Intelligence — what Farm Return
+            currently knows about this field (src/domain/field-awareness.ts). */}
+        <Section kicker="What Farm Return knows">
+          <FieldAwarenessCard field={field} />
+        </Section>
+      </div>
+
+      <aside className="flex min-w-0 flex-col gap-6 lg:border-l lg:border-fr-v2-cream-rule lg:pl-8" aria-label="Field actions">
+        <div>
+          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-muted">Actions</p>
+          {primary ? (
+            <Link
+              href={primary.href}
+              data-primary-action
+              className="mt-3 flex min-h-11 items-center justify-between gap-3 bg-fr-v2-forest-deep px-4 text-sm font-semibold text-white transition-colors duration-[160ms] hover:bg-fr-v2-forest-deep-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-gold motion-reduce:transition-none"
+            >
+              {primary.label}
+              <ArrowRight className="size-4" />
+            </Link>
+          ) : null}
+          <ul className="mt-3 flex flex-col">
+            <ActionLink href={`/nutrients?field=${encodeURIComponent(field.id)}`}>Plan in nutrient planner</ActionLink>
+            <ActionLink href={`/soil-sample/${encodeURIComponent(field.id)}`}>Start soil sample</ActionLink>
+            <ActionLink href="/records">Records</ActionLink>
+          </ul>
+        </div>
+        <ManageField field={field} />
+      </aside>
+    </div>
+  );
+}
+
+function ActionLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <li className="border-b border-fr-v2-cream-rule/70 first:border-t">
+      <Link href={href} className="flex min-h-11 items-center justify-between gap-3 text-sm font-medium text-fr-v2-graphite transition-colors duration-[160ms] hover:text-fr-v2-forest motion-reduce:transition-none">
+        {children}
+        <ArrowRight className="size-3.5 text-fr-v2-muted" />
+      </Link>
+    </li>
+  );
+}
+
+/** Structural changes behind an explicit control — reading the field never
+ * edits it. Only what the store genuinely supports end to end. */
+export function ManageField({ field, defaultOpen = false }: { field: Field; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const [mappingOpen, setMappingOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [nameInput, setNameInput] = useState(field.name);
+  const [useInput, setUseInput] = useState<FieldUse | "">(field.plannedUse?.value ?? "");
+  const [areaInput, setAreaInput] = useState(String(field.areaHa));
+  const { setFieldBoundary, updateFieldDetails, archiveField } = useFarmActions();
+  const farm = useFarm();
+
+  return (
+    <div data-manage-field>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex min-h-11 w-full items-center justify-between border-y border-fr-v2-cream-rule text-sm font-semibold text-fr-v2-graphite"
+      >
+        Manage field
+        <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-fr-v2-muted">{open ? "Done" : "Boundary · use · archive"}</span>
+      </button>
+      {open ? (
+        <div className="flex flex-col gap-3 pt-3">
+          <button type="button" onClick={() => setMappingOpen(true)} className="flex min-h-11 items-center justify-center border border-fr-v2-forest text-sm font-semibold text-fr-v2-forest">
+            {field.polygon ? "Edit boundary" : "Map this field"}
+          </button>
+
+          {editOpen ? (
+            <div className="flex flex-col gap-2.5">
+              <label className={LABEL}>
+                Field name
+                <input className={INPUT} value={nameInput} onChange={(e) => setNameInput(e.target.value)} />
               </label>
-            )}
-            <div className="mt-1 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => {
-                  archiveField(field.id);
-                  setEditOpen(false);
-                }}
-                className="flex items-center gap-1.5 text-xs font-medium text-fr-risk"
-              >
-                <Archive className="size-3.5" />
-                Archive field
-              </button>
-              <div className="flex gap-2">
+              <label className={LABEL}>
+                Planned use
+                <select className={INPUT} value={useInput} onChange={(e) => setUseInput(e.target.value as FieldUse)}>
+                  <option value="" disabled>
+                    Not set — choose a planned use
+                  </option>
+                  {FIELD_USE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-xs text-fr-v2-muted">A change is saved as a new dated entry; the earlier use stays in History.</p>
+              {field.polygon ? (
+                <p className="text-xs text-fr-v2-muted">Area ({formatHa(field.areaHa)}) comes from the mapped boundary — edit the boundary to change it.</p>
+              ) : (
+                <label className={LABEL}>
+                  Area (ha) — typed, not yet mapped
+                  <input type="number" min={0.1} step={0.1} className={INPUT} value={areaInput} onChange={(e) => setAreaInput(e.target.value)} />
+                </label>
+              )}
+              <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -223,7 +398,7 @@ export function FieldDrawer({
                     setAreaInput(String(field.areaHa));
                     setEditOpen(false);
                   }}
-                  className="rounded-fr-control border border-fr-border px-3 py-1.5 text-xs font-medium text-fr-ink-900"
+                  className="min-h-10 border border-fr-v2-cream-rule px-3 text-xs font-semibold"
                 >
                   Cancel
                 </button>
@@ -237,376 +412,51 @@ export function FieldDrawer({
                       {
                         ...(nameInput.trim() !== field.name ? { name: nameInput.trim() } : {}),
                         ...(useInput !== "" && useInput !== field.plannedUse?.value ? { plannedUse: useInput } : {}),
-                        ...(!field.polygon && Number.isFinite(areaHa) && areaHa > 0 && areaHa !== field.areaHa
-                          ? { areaHa }
-                          : {}),
+                        ...(!field.polygon && Number.isFinite(areaHa) && areaHa > 0 && areaHa !== field.areaHa ? { areaHa } : {}),
                       },
                       farm.ownerName,
                     );
                     setEditOpen(false);
                   }}
-                  className="rounded-fr-control bg-fr-green-700 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-fr-green-700/40"
+                  className="min-h-10 bg-fr-v2-forest-deep px-3 text-xs font-semibold text-white disabled:opacity-40"
                 >
                   Save
                 </button>
               </div>
             </div>
-          </div>
-        ) : (
-          <>
-            {hideIdentity ? (
-              <div />
-            ) : (
-              <div>
-                <h3 className="text-title text-fr-ink-900">{field.name}</h3>
-                <p className="text-sm text-fr-ink-600">{formatHa(field.areaHa)}</p>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setEditOpen(true)}
-                aria-label="Edit field name, use or archive"
-                className="text-fr-ink-400 hover:text-fr-ink-600"
-              >
-                <Pencil className="size-4" />
-              </button>
-              {field.plannedUse ? <StatusBadge status={field.plannedUse.status} /> : <Pill tone="neutral">Not set</Pill>}
-            </div>
-          </>
-        )}
-      </div>
+          ) : (
+            <button type="button" onClick={() => setEditOpen(true)} className="flex min-h-11 items-center justify-center border border-fr-v2-cream-rule text-sm font-semibold">
+              Rename or change use
+            </button>
+          )}
 
-      <div className="flex gap-1 border-b border-fr-border">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={cn(
-              "border-b-2 px-1 pb-2 text-sm font-medium transition-colors",
-              tab === t
-                ? "border-fr-green-700 text-fr-green-700"
-                : "border-transparent text-fr-ink-400 hover:text-fr-ink-600",
-            )}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {tab === "Now" ? (
-        <div className="flex flex-col gap-3 text-sm">
-          <div className="flex items-center gap-3">
-            <Sprout className="size-4 shrink-0 text-fr-green-700" />
-            <span className="text-fr-ink-600">Planned use</span>
-            <span className="ml-auto font-medium text-fr-ink-900">
-              {field.plannedUse ? landUseLabel(field.plannedUse.value) : "Not set"}
-            </span>
-          </div>
-
-          {silagePlan ? (
-            <>
-              <div className="flex items-center gap-3">
-                <Scissors className="size-4 shrink-0 text-fr-green-700" />
-                <span className="text-fr-ink-600">Cutting window</span>
-                <span className="ml-auto font-medium text-fr-ink-900">
-                  {new Date(silagePlan.targetCutWindow.value.start).toLocaleDateString("en-IE", {
-                    day: "numeric",
-                    month: "short",
-                  })}
-                  {" – "}
-                  {new Date(silagePlan.targetCutWindow.value.end).toLocaleDateString("en-IE", {
-                    day: "numeric",
-                    month: "short",
-                  })}
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                <Layers className="size-4 shrink-0 text-fr-green-700" />
-                <span className="text-fr-ink-600">Expected yield</span>
-                <span className="ml-auto font-medium text-fr-ink-900">
-                  {formatNumber(silagePlan.expectedYieldTDMha.value, 1)} t DM/ha
-                </span>
-              </div>
-            </>
-          ) : null}
-
-          {/* Was "Spreading today: {score}/100" or "Do not spread" — an
-              unsourced mock verdict presented as fact. See
-              SpreadingSuitabilityValidationCard's doc comment for why
-              that's no longer shown as a real figure. */}
-          <div className="flex items-center gap-3">
-            <Tractor className="size-4 shrink-0 text-fr-green-700" />
-            <span className="text-fr-ink-600">Spreading suitability</span>
-            <Pill tone="neutral" className="ml-auto">
-              Under validation
-            </Pill>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <MapPin className="size-4 shrink-0 text-fr-green-700" />
-            <span className="text-fr-ink-600">Drainage</span>
-            <span className="ml-auto font-medium text-fr-ink-900 capitalize">
-              {field.mappedSoil?.drainage.replace(/_/g, " ") ?? "Unavailable"}
-            </span>
-          </div>
-
-          {nearestWeatherStation ? (
-            <div className="flex items-center gap-3">
-              <Radio className="size-4 shrink-0 text-fr-green-700" />
-              <span className="text-fr-ink-600">Nearest weather station</span>
-              <span className="ml-auto font-medium text-fr-ink-900">
-                {nearestWeatherStation.station.canonicalName} · {formatNumber(nearestWeatherStation.distanceKm, 1)} km
+          {field.archivedAt ? null : confirmArchive ? (
+            <div className="flex items-center justify-between gap-3 border-l-[3px] border-fr-v2-clay pl-3 text-xs">
+              <span>Archive {field.name}? Its records are kept.</span>
+              <span className="flex shrink-0 gap-2">
+                <button type="button" onClick={() => setConfirmArchive(false)} className="min-h-10 px-2 font-semibold text-fr-v2-muted">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    archiveField(field.id);
+                    setConfirmArchive(false);
+                  }}
+                  className="min-h-10 px-2 font-semibold text-fr-v2-clay"
+                >
+                  Archive
+                </button>
               </span>
             </div>
-          ) : null}
-
-          <p className="text-xs text-fr-ink-400">
-            Nearest weather station is a real, confirmed Met Éireann station match by geographic distance
-            (evidence class A-OFFICIAL) — no live or historical weather feed is connected to it yet.
-          </p>
-
-          {/* Farm Awareness / Satellite Field Intelligence campaign —
-              a real, farm-scoped "what does Farm Return currently know
-              about this field" summary (src/domain/field-awareness.ts),
-              additive to everything above rather than replacing it. */}
-          <FieldAwarenessCard field={field} />
-
-          {/* Real Mode Completion Phase 9 — a real field-detail drill-down,
-           * not a dead end: this field's real nutrient plan is one click
-           * away, deep-linked to the exact field rather than "go find it
-           * yourself" on /nutrients. */}
-          <div className="mt-1 border-t border-fr-border pt-3">
-            <Link
-              href={`/nutrients?field=${field.id}`}
-              className="flex items-center justify-between rounded-fr-control border border-fr-border px-3 py-2.5 text-sm font-medium text-fr-ink-900 hover:border-fr-green-700 hover:text-fr-green-700"
-            >
-              Open this field&apos;s nutrient plan
-              <ArrowRight className="size-4" />
-            </Link>
-          </div>
+          ) : (
+            <button type="button" onClick={() => setConfirmArchive(true)} className="min-h-10 self-start text-xs font-semibold text-fr-v2-clay">
+              Archive field
+            </button>
+          )}
+          <p className="text-xs text-fr-v2-muted">Split and merge are not available yet.</p>
         </div>
-      ) : tab === "Soil" ? (
-        <SoilTabContent field={field} />
-      ) : tab === "Activity" ? (
-        <div className="flex flex-col gap-3 text-sm">
-          {/* Strict Visual Reproduction phase: a real, honest link rather
-              than a fabricated per-field feed — see this file's own
-              TABS comment for why a real field-scoped activity list
-              isn't buildable from this component today. */}
-          <p className="text-fr-ink-600">
-            This field&apos;s completed jobs and recorded decisions appear in your farm&apos;s real activity history.
-          </p>
-          <Link
-            href="/records"
-            className="flex items-center justify-between rounded-fr-control border border-fr-border px-3 py-2.5 text-sm font-medium text-fr-ink-900 hover:border-fr-green-700 hover:text-fr-green-700"
-          >
-            Open Records
-            <ArrowRight className="size-4" />
-          </Link>
-        </div>
-      ) : (
-        // Strict Visual Reproduction phase: media/image3.png's own
-        // "Constraints" tab — the same real, tested, live-wired
-        // compliance-evidence gates (commonage-gate.ts, buffer-gate.ts,
-        // less-method-gate.ts) that used to sit inside "Overview",
-        // regrouped into their own tab, not rewritten (V3 closure pass's
-        // own comment on why this capture exists is preserved below).
-        <div className="flex flex-col gap-3 text-sm">
-          <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-            Commonage status (S.I. 588/2025 chemical-fertiliser prohibition)
-            <select
-              className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
-              value={field.commonageStatus?.value ?? "unknown"}
-              onChange={(e) =>
-                updateFieldCommonageStatus(field.id, e.target.value as "commonage" | "not_commonage" | "unknown", farm.ownerName)
-              }
-            >
-              <option value="unknown">Unknown — not yet confirmed</option>
-              <option value="not_commonage">Not commonage</option>
-              <option value="commonage">Commonage</option>
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-            Nearest regulated water feature
-            <select
-              className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
-              value={field.waterBufferContext?.value.featureType ?? ""}
-              onChange={(e) =>
-                updateFieldWaterBufferContext(
-                  field.id,
-                  {
-                    ...field.waterBufferContext?.value,
-                    featureType: (e.target.value || undefined) as BufferFeature | undefined,
-                    localOverrideStatus: field.waterBufferContext?.value.localOverrideStatus ?? "unknown",
-                  },
-                  farm.ownerName,
-                )
-              }
-            >
-              <option value="">Not assessed yet</option>
-              {BUFFER_FEATURE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {field.waterBufferContext?.value.featureType ? (
-            <>
-              <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-                Distance to that feature (metres)
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
-                  value={field.waterBufferContext?.value.distanceM ?? ""}
-                  onChange={(e) =>
-                    updateFieldWaterBufferContext(
-                      field.id,
-                      {
-                        ...field.waterBufferContext!.value,
-                        distanceM: e.target.value === "" ? undefined : Number(e.target.value),
-                      },
-                      farm.ownerName,
-                    )
-                  }
-                />
-              </label>
-
-              <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-                Local authority buffer override
-                <select
-                  className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
-                  value={field.waterBufferContext?.value.localOverrideStatus ?? "unknown"}
-                  onChange={(e) =>
-                    updateFieldWaterBufferContext(
-                      field.id,
-                      {
-                        ...field.waterBufferContext!.value,
-                        localOverrideStatus: e.target.value as "authoritative_rule" | "verified_none" | "unknown",
-                      },
-                      farm.ownerName,
-                    )
-                  }
-                >
-                  <option value="unknown">Unknown — not yet confirmed</option>
-                  <option value="verified_none">Verified — no local override applies</option>
-                  <option value="authoritative_rule">Local authority sets an alternative buffer</option>
-                </select>
-              </label>
-
-              {field.waterBufferContext?.value.localOverrideStatus === "authoritative_rule" ? (
-                <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-                  Local authority&apos;s own buffer distance (metres)
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.1}
-                    className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
-                    value={field.waterBufferContext?.value.localOverrideDistanceM ?? ""}
-                    onChange={(e) =>
-                      updateFieldWaterBufferContext(
-                        field.id,
-                        {
-                          ...field.waterBufferContext!.value,
-                          localOverrideDistanceM: e.target.value === "" ? undefined : Number(e.target.value),
-                        },
-                        farm.ownerName,
-                      )
-                    }
-                  />
-                </label>
-              ) : null}
-            </>
-          ) : null}
-
-          {slurryDetailsRequest && shownSlurryAllocations.length > 0 ? (
-            <div className="flex flex-col gap-1.5 rounded-fr-control border border-fr-green-700/30 bg-fr-surface-alt p-2.5 text-xs text-fr-ink-600">
-              <p className="text-sm font-semibold text-fr-ink-900">
-                {slurryDetailsComplete ? "Spreading details added" : "Add spreading details"}
-              </p>
-              <p>
-                {slurryDetailsComplete
-                  ? "What Matters will check your slurry again with these details when you go back to Today."
-                  : `Farm Return needs the ${slurryDetailsRequest.length === 2 ? "planned spreading method and date" : slurryDetailsRequest[0] === "method" ? "planned spreading method" : "planned spreading date"} for this field's slurry before it can work out which opportunity is likely to give you the best return.`}
-              </p>
-              <Link href="/today" className="inline-flex items-center gap-1 font-semibold text-fr-green-700">
-                Back to Today
-                <ArrowRight className="size-3.5" />
-              </Link>
-            </div>
-          ) : null}
-
-          {shownSlurryAllocations.map((allocation) => (
-            <div key={allocation.housingId} className="flex flex-col gap-2 rounded-fr-control border border-fr-border p-2.5">
-              {requestedSlurryInputs?.get(allocation.housingId)?.method === false ? null : (
-              <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-                How will this slurry be spread?
-                {fieldSlurryAllocations.length > 1 ? ` (${Math.round(allocation.volumeM3)} m³ allocation)` : " for this field's allocation"}
-                <select
-                  className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
-                  value={allocation.applicationMethod?.value ?? ""}
-                  onChange={(e) =>
-                    updateSlurryApplicationMethod(
-                      field.id,
-                      allocation.housingId,
-                      e.target.value as "LESS" | "splashplate" | "incorporate_24h" | "other",
-                      farm.ownerName,
-                    )
-                  }
-                >
-                  <option value="" disabled>
-                    Select a method
-                  </option>
-                  <option value="LESS">Low Emission Slurry Spreading (LESS)</option>
-                  <option value="splashplate">Splashplate</option>
-                  <option value="incorporate_24h">Incorporated within 24 hours</option>
-                  <option value="other">Other</option>
-                </select>
-              </label>
-              )}
-              {requestedSlurryInputs?.get(allocation.housingId)?.date === false ? null : (
-              <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-                Application date
-                <input
-                  type="date"
-                  className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
-                  value={allocation.applicationDate?.value ?? ""}
-                  onChange={(e) => {
-                    if (e.target.value === "") return;
-                    updateSlurryApplicationDate(field.id, allocation.housingId, e.target.value, farm.ownerName);
-                  }}
-                />
-              </label>
-              )}
-              {/* Slurry Application Context V1 — brief §9: concise
-                  contextual education only, no Learning Centre. */}
-              <p className="text-xs text-fr-ink-400">
-                Why does spreading method matter? Nitrogen recovery from slurry can differ depending on how it&apos;s applied — Farm
-                Return uses the Teagasc-backed table for your recorded method to work out the available nutrient contribution.
-              </p>
-            </div>
-          ))}
-
-          {/* Campaign B — the field's spreadable area, beside its other
-              spreading constraints; never its gross size. */}
-          <SpreadableAreaEvidencePanel field={field} />
-        </div>
-      )}
-
-      <button
-        type="button"
-        onClick={() => setMappingOpen(true)}
-        className="mt-1 flex items-center justify-center gap-2 rounded-fr-control border border-fr-green-700 py-2.5 text-sm font-medium text-fr-green-700"
-      >
-        <Pencil className="size-4" />
-        {field.polygon ? "Edit boundary" : "Map this field"}
-      </button>
+      ) : null}
 
       {mappingOpen ? (
         <FieldBoundaryMapModal
@@ -620,89 +470,335 @@ export function FieldDrawer({
           }}
         />
       ) : null}
-    </Card>
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------- Nutrients */
+
+function NutrientsChapter({ field, slurryDetailsRequest }: { field: Field; slurryDetailsRequest?: MissingSlurryPlanningDetail[] }) {
+  const result = useFieldNutrientPlan(field);
+  const view = result ? fieldNutrientPlanView(result, field) : undefined;
+  const legalInputs = <LegalInputs field={field} slurryDetailsRequest={slurryDetailsRequest} />;
+
+  return (
+    <div className="flex flex-col gap-10" data-field-nutrients>
+      {/* Arriving to complete spreading details: those inputs come first. */}
+      {slurryDetailsRequest ? legalInputs : null}
+
+      <section aria-label="Nutrient plan" className="flex flex-col gap-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Nutrients · decision first</p>
+          <p className="flex flex-wrap gap-x-5 gap-y-1">
+            {view?.status === "available" ? (
+              <button
+                type="button"
+                onClick={() => document.querySelector('[aria-label="Evidence chain"]')?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                className={TEXT_LINK}
+              >
+                Why? Evidence
+              </button>
+            ) : null}
+            <Link href={fieldNutrientPlanHref(field.id)} className={TEXT_LINK}>
+              Full nutrient plan →
+            </Link>
+          </p>
+        </div>
+        {result && view ? (
+          <FieldNutrientPlanBody view={view} result={result} fieldId={field.id} />
+        ) : (
+          <p className="text-sm italic text-fr-v2-muted">This field&apos;s nutrient plan isn&apos;t available.</p>
+        )}
+        <p className="text-xs text-fr-v2-muted">
+          Fertiliser cost isn&apos;t valued per field yet — prices and supplier quotes are in{" "}
+          <Link href="/quotes" className="font-semibold text-fr-v2-forest underline underline-offset-2">
+            Market
+          </Link>
+          .
+        </p>
+      </section>
+
+      <SoilEvidence field={field} />
+
+      {slurryDetailsRequest ? null : legalInputs}
+    </div>
   );
 }
 
 /**
- * Real Mode Completion Phase 9 — real Soil tab, replacing the previous
- * "coming in a later screen" dead end. Same P/K-Index/pH/validity display
- * as `SoilFieldCard` (`/soil`), condensed for the drawer — one real
- * classification, shown in two places, not two separate guesses at it.
+ * Soil evidence underneath nutrient state — the same P/K Index, pH and
+ * validity display as `SoilFieldCard` (`/soil`): one real classification,
+ * shown in two places, not two separate guesses at it.
  */
-function SoilTabContent({ field }: { field: Field }) {
+function SoilEvidence({ field }: { field: Field }) {
   const { fertility } = field;
   // Campaign A (A1.2): the laboratory's own P Index, never a farmer override.
   const validityOutcome = soilTestAgeValidityForFertility(fertility, new Date().toISOString().slice(0, 10));
   const validity = validityOutcome.status === "OK" ? validityOutcome.value : null;
+  const indexValue = (tracked: typeof fertility.pIndex) =>
+    tracked && tracked.status !== "unavailable" ? `Index ${tracked.value}` : "Not recorded";
 
   return (
-    <div className="flex flex-col gap-3 text-sm">
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <p className="text-xs text-fr-ink-600">P Index</p>
-          <p className="flex items-center gap-2 font-semibold text-fr-ink-900">
-            {fertility.pIndex ? fertility.pIndex.value : "Not recorded"}
-            <StatusBadge status={fertility.pIndex?.status ?? "unavailable"} />
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-fr-ink-600">K Index</p>
-          <p className="flex items-center gap-2 font-semibold text-fr-ink-900">
-            {fertility.kIndex ? fertility.kIndex.value : "Not recorded"}
-            <StatusBadge status={fertility.kIndex?.status ?? "unavailable"} />
-          </p>
-        </div>
-      </div>
-
-      {fertility.pH ? (
-        <div>
-          <p className="text-xs text-fr-ink-600">pH</p>
-          <p className="font-semibold text-fr-ink-900">
-            {fertility.pH.value} <span className="font-normal text-fr-ink-600">({phStatusLabel(fertility.pH.value)})</span>
-          </p>
-        </div>
-      ) : null}
-
-      {fertility.verifiedTest ? (
-        <div className="rounded-fr-control border border-fr-border p-3">
-          <p className="text-xs text-fr-ink-600">
-            Lab test — {fertility.verifiedTest.laboratory}, {new Date(fertility.verifiedTest.sampleDate).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}
-          </p>
-          {validity ? (
-            <p className={cn("mt-1 text-xs font-medium", validity === "DISREGARD" ? "text-fr-risk" : "text-fr-good")}>
-              {validity === "VALID"
+    <Section kicker="Soil evidence">
+      <dl className="divide-y divide-fr-v2-cream-rule/70">
+        <Row label="P Index" value={indexValue(fertility.pIndex)} detail={fertility.pIndex?.source} quiet={!fertility.pIndex} />
+        <Row label="K Index" value={indexValue(fertility.kIndex)} detail={fertility.kIndex?.source} quiet={!fertility.kIndex} />
+        {fertility.pH ? <Row label="pH" value={`${fertility.pH.value} (${phStatusLabel(fertility.pH.value)})`} detail={fertility.pH.source} /> : <Row label="pH" value="Not recorded" quiet />}
+        {fertility.verifiedTest ? (
+          <Row
+            label="Lab test"
+            value={`${fertility.verifiedTest.laboratory}, ${formatFieldDate(fertility.verifiedTest.sampleDate) ?? "date unknown"}`}
+            detail={
+              validity === "VALID"
                 ? "Valid for statutory ceilings"
                 : validity === "INDEX4_PERSISTED"
                   ? "P4 result still applies"
-                  : "Too old for statutory ceilings (4-year limit)"}
+                  : validity === "DISREGARD"
+                    ? "Too old for statutory ceilings (4-year limit)"
+                    : undefined
+            }
+          />
+        ) : (
+          <Row label="Lab test" value="No lab test recorded yet" detail="P/K are Farm Return assumptions until one is added" quiet />
+        )}
+      </dl>
+      {/* Fertiliser Vertical V1, Checkpoint 1 — the guided GPS sampling
+          workflow, distinct from manual lab-result entry on /soil. */}
+      <p className="mt-3 flex flex-wrap gap-x-5 gap-y-1">
+        <Link href={`/soil-sample/${field.id}`} className={TEXT_LINK}>
+          Start soil sample →
+        </Link>
+        <Link href="/soil" className={TEXT_LINK}>
+          Add or review soil tests →
+        </Link>
+      </p>
+    </Section>
+  );
+}
+
+/**
+ * The statutory inputs the nutrient plan's legal gates read — the same real,
+ * tested, live-wired compliance-evidence capture (commonage-gate.ts,
+ * buffer-gate.ts, less-method-gate.ts) formerly under "Constraints".
+ */
+function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDetailsRequest?: MissingSlurryPlanningDetail[] }) {
+  const { updateFieldCommonageStatus, updateFieldWaterBufferContext, updateSlurryApplicationMethod, updateSlurryApplicationDate } = useFarmActions();
+  const farm = useFarm();
+  const slurryAllocations = useSlurryAllocations();
+  // Codex audit HIGH (round 31): every one of this field's own real
+  // allocations gets its own method selector — the schema's
+  // `unique (field_id, housing_id)` allows slurry from more than one shed.
+  const fieldSlurryAllocations = slurryAllocations.filter((a) => a.fieldId === field.id);
+  // Snapshot at open (not live) so an input the farmer has just filled
+  // stays visible with its saved value rather than vanishing mid-edit.
+  const [requestedSlurryInputs] = useState(() =>
+    slurryDetailsRequest ? new Map(fieldSlurryAllocations.map((a) => [a.housingId, { method: !a.applicationMethod, date: !a.applicationDate }])) : null,
+  );
+  const shownSlurryAllocations = requestedSlurryInputs
+    ? fieldSlurryAllocations.filter((a) => {
+        if (a.priority === "not_suitable") return false;
+        const requested = requestedSlurryInputs.get(a.housingId);
+        return !requested || requested.method || requested.date;
+      })
+    : fieldSlurryAllocations;
+  const slurryDetailsComplete = shownSlurryAllocations.every((a) => a.applicationMethod && a.applicationDate);
+
+  return (
+    <Section kicker="Legal inputs for this field">
+      <div className="flex flex-col gap-4" data-legal-inputs>
+        {slurryDetailsRequest && shownSlurryAllocations.length > 0 ? (
+          <div className="flex flex-col gap-1.5 border-l-[3px] border-fr-v2-gold bg-white/60 px-3 py-2.5 text-xs text-fr-v2-charcoal">
+            <p className="text-sm font-semibold text-fr-v2-graphite">{slurryDetailsComplete ? "Spreading details added" : "Add spreading details"}</p>
+            <p>
+              {slurryDetailsComplete
+                ? "What Matters will check your slurry again with these details when you go back to Today."
+                : `Farm Return needs the ${slurryDetailsRequest.length === 2 ? "planned spreading method and date" : slurryDetailsRequest[0] === "method" ? "planned spreading method" : "planned spreading date"} for this field's slurry before it can work out which opportunity is likely to give you the best return.`}
             </p>
-          ) : null}
-        </div>
-      ) : (
-        <p className="text-xs text-fr-ink-600">No lab test recorded yet — P/K are Farm Return assumptions until one is added.</p>
-      )}
+            <Link href="/today" className="inline-flex items-center gap-1 font-semibold text-fr-v2-forest">
+              Back to Today
+              <ArrowRight className="size-3.5" />
+            </Link>
+          </div>
+        ) : null}
 
-      {/* Fertiliser Vertical V1, Checkpoint 1 — the new guided GPS
-          sampling workflow (SOIL_SAMPLING_ARCHITECTURE.md), distinct
-          from "Add or review soil tests" below (which is a manual lab
-          result entry point onto this V1 field's own SoilTest, not a
-          real sampling session). */}
-      <Link
-        href={`/soil-sample/${field.id}`}
-        className="mt-1 flex items-center justify-between rounded-fr-control border border-fr-border px-3 py-2.5 text-sm font-medium text-fr-ink-900 hover:border-fr-green-700 hover:text-fr-green-700"
-      >
-        Start soil sample
-        <ArrowRight className="size-4" />
-      </Link>
+        {shownSlurryAllocations.map((allocation) => (
+          <div key={allocation.housingId} className="flex flex-col gap-2.5 border-l-[3px] border-fr-v2-teal pl-3">
+            {requestedSlurryInputs?.get(allocation.housingId)?.method === false ? null : (
+              <label className={LABEL}>
+                How will this slurry be spread?
+                {fieldSlurryAllocations.length > 1 ? ` (${Math.round(allocation.volumeM3)} m³ allocation)` : " for this field's allocation"}
+                <select
+                  className={INPUT}
+                  value={allocation.applicationMethod?.value ?? ""}
+                  onChange={(e) => updateSlurryApplicationMethod(field.id, allocation.housingId, e.target.value as "LESS" | "splashplate" | "incorporate_24h" | "other", farm.ownerName)}
+                >
+                  <option value="" disabled>
+                    Select a method
+                  </option>
+                  <option value="LESS">Low Emission Slurry Spreading (LESS)</option>
+                  <option value="splashplate">Splashplate</option>
+                  <option value="incorporate_24h">Incorporated within 24 hours</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+            )}
+            {requestedSlurryInputs?.get(allocation.housingId)?.date === false ? null : (
+              <label className={LABEL}>
+                Application date
+                <input
+                  type="date"
+                  className={INPUT}
+                  value={allocation.applicationDate?.value ?? ""}
+                  onChange={(e) => {
+                    if (e.target.value === "") return;
+                    updateSlurryApplicationDate(field.id, allocation.housingId, e.target.value, farm.ownerName);
+                  }}
+                />
+              </label>
+            )}
+            {/* Slurry Application Context V1 — brief §9: concise contextual education only. */}
+            <p className="text-xs text-fr-v2-muted">
+              Why does spreading method matter? Nitrogen recovery from slurry can differ depending on how it&apos;s applied — Farm Return uses the Teagasc-backed table for your recorded
+              method to work out the available nutrient contribution.
+            </p>
+          </div>
+        ))}
 
-      <Link
-        href="/soil"
-        className="mt-1 flex items-center justify-between rounded-fr-control border border-fr-border px-3 py-2.5 text-sm font-medium text-fr-ink-900 hover:border-fr-green-700 hover:text-fr-green-700"
-      >
-        Add or review soil tests
-        <ArrowRight className="size-4" />
-      </Link>
+        <label className={LABEL}>
+          Commonage status (S.I. 588/2025 chemical-fertiliser prohibition)
+          <select
+            className={INPUT}
+            value={field.commonageStatus?.value ?? "unknown"}
+            onChange={(e) => updateFieldCommonageStatus(field.id, e.target.value as "commonage" | "not_commonage" | "unknown", farm.ownerName)}
+          >
+            <option value="unknown">Unknown — not yet confirmed</option>
+            <option value="not_commonage">Not commonage</option>
+            <option value="commonage">Commonage</option>
+          </select>
+        </label>
+
+        <label className={LABEL}>
+          Nearest regulated water feature
+          <select
+            className={INPUT}
+            value={field.waterBufferContext?.value.featureType ?? ""}
+            onChange={(e) =>
+              updateFieldWaterBufferContext(
+                field.id,
+                {
+                  ...field.waterBufferContext?.value,
+                  featureType: (e.target.value || undefined) as BufferFeature | undefined,
+                  localOverrideStatus: field.waterBufferContext?.value.localOverrideStatus ?? "unknown",
+                },
+                farm.ownerName,
+              )
+            }
+          >
+            <option value="">Not assessed yet</option>
+            {BUFFER_FEATURE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {field.waterBufferContext?.value.featureType ? (
+          <>
+            <label className={LABEL}>
+              Distance to that feature (metres)
+              <input
+                type="number"
+                min={0}
+                step={0.1}
+                className={INPUT}
+                value={field.waterBufferContext?.value.distanceM ?? ""}
+                onChange={(e) =>
+                  updateFieldWaterBufferContext(field.id, { ...field.waterBufferContext!.value, distanceM: e.target.value === "" ? undefined : Number(e.target.value) }, farm.ownerName)
+                }
+              />
+            </label>
+
+            <label className={LABEL}>
+              Local authority buffer override
+              <select
+                className={INPUT}
+                value={field.waterBufferContext?.value.localOverrideStatus ?? "unknown"}
+                onChange={(e) =>
+                  updateFieldWaterBufferContext(
+                    field.id,
+                    { ...field.waterBufferContext!.value, localOverrideStatus: e.target.value as "authoritative_rule" | "verified_none" | "unknown" },
+                    farm.ownerName,
+                  )
+                }
+              >
+                <option value="unknown">Unknown — not yet confirmed</option>
+                <option value="verified_none">Verified — no local override applies</option>
+                <option value="authoritative_rule">Local authority sets an alternative buffer</option>
+              </select>
+            </label>
+
+            {field.waterBufferContext?.value.localOverrideStatus === "authoritative_rule" ? (
+              <label className={LABEL}>
+                Local authority&apos;s own buffer distance (metres)
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  className={INPUT}
+                  value={field.waterBufferContext?.value.localOverrideDistanceM ?? ""}
+                  onChange={(e) =>
+                    updateFieldWaterBufferContext(
+                      field.id,
+                      { ...field.waterBufferContext!.value, localOverrideDistanceM: e.target.value === "" ? undefined : Number(e.target.value) },
+                      farm.ownerName,
+                    )
+                  }
+                />
+              </label>
+            ) : null}
+          </>
+        ) : null}
+
+        {/* Campaign B — the field's spreadable area, beside its other
+            spreading constraints; never its gross size. */}
+        <SpreadableAreaEvidencePanel field={field} />
+      </div>
+    </Section>
+  );
+}
+
+/* ----------------------------------------------------------------- History */
+
+function HistoryChapter({ field }: { field: Field }) {
+  const events = fieldHistoryEvents(field);
+  return (
+    <div className="flex max-w-3xl flex-col gap-6" data-field-history>
+      <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Evidence ledger · newest first</p>
+      {events.length > 0 ? <HistoryList events={events} /> : <p className="text-sm italic text-fr-v2-muted">Nothing recorded for this field yet.</p>}
+      <p className="text-sm text-fr-v2-muted">
+        Completed jobs and recorded decisions are kept farm-wide in{" "}
+        <Link href="/records" className="font-semibold text-fr-v2-forest underline underline-offset-2">
+          Records
+        </Link>
+        .
+      </p>
     </div>
+  );
+}
+
+function HistoryList({ events }: { events: FieldHistoryEvent[] }) {
+  return (
+    <ol className="flex flex-col" data-history-list>
+      {events.map((event) => (
+        <li key={event.id} data-history-kind={event.kind} className="grid grid-cols-[96px_minmax(0,1fr)] gap-4 border-b border-fr-v2-cream-rule/70 py-2.5 sm:grid-cols-[120px_minmax(0,1fr)]">
+          <span className="pt-0.5 font-mono text-[11px] tabular-nums text-fr-v2-muted">{event.dateLabel}</span>
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-fr-v2-graphite">{event.title}</span>
+            {event.detail ? <span className="block text-xs text-fr-v2-muted">{event.detail}</span> : null}
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }

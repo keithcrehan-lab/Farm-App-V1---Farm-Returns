@@ -1,85 +1,75 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { tracked, type Field } from "@/domain/types";
-import { farmFieldLensView } from "@/lib/farm-spatial-field-lens";
-import type { FieldNutrientPlanView } from "@/lib/field-nutrient-plan-presentation";
+import type { Field } from "@/domain/types";
+import type { FarmFieldSelectionView } from "@/lib/farm-field-selection";
 import { FarmFieldDrawer } from "./FarmFieldDrawer";
 
 afterEach(cleanup);
 
-const field = {
-  id: "f1",
-  farmId: "farm",
-  name: "Long Field",
-  areaHa: 4.236,
-  centroid: [-8, 53],
-  fertility: { pIndex: tracked(2, "verified", "Soil test") },
-} as Field;
+const field = { id: "f1", farmId: "farm", name: "Long Field", areaHa: 4.236, centroid: [-8, 53], fertility: {}, history: [] } as unknown as Field;
 
-describe("FarmFieldDrawer", () => {
-  it("shows the real field identity and the active lens's facts", () => {
-    const view = farmFieldLensView("nutrients", field, { slurryAllocations: [] });
-    render(<FarmFieldDrawer field={field} lensId="nutrients" view={view} onClose={() => {}} />);
+const selection: FarmFieldSelectionView = {
+  area: "4.24 ha",
+  useLine: "Planned · Grazing",
+  statement: { text: "59 kg N/ha remaining after planned slurry.", tone: "fact" },
+  context: [
+    { label: "P", value: "Unknown", tone: "unknown" },
+    { label: "Legal gate", value: "Commonage · Cannot determine", tone: "blocked" },
+  ],
+  primaryAction: { label: "Open nutrient plan", href: "/today/field/f1" },
+  secondaryLinks: [
+    { label: "Open field workspace", href: "/fields?field=f1" },
+    { label: "History", href: "/fields?field=f1&chapter=history" },
+  ],
+};
+
+describe("FarmFieldDrawer (Farm + Fields redesign)", () => {
+  it("shows identity, one statement, quiet context, one primary action and deeper links, in that order", () => {
+    const { container } = render(<FarmFieldDrawer field={field} lensId="nutrients" selection={selection} onClose={() => {}} />);
     const drawer = screen.getByRole("region", { name: "Long Field field" });
     expect(drawer.getAttribute("data-open")).toBe("true");
     expect(screen.getByRole("heading", { name: "Long Field" })).toBeTruthy();
-    expect(screen.getByText("4.24 ha")).toBeTruthy();
-    expect(screen.getByText("Index 2")).toBeTruthy();
+    expect(container.querySelector("[data-selection-identity]")!.textContent).toBe("4.24 ha · Planned · Grazing");
+    expect(container.querySelector("[data-selection-statement]")!.textContent).toBe("59 kg N/ha remaining after planned slurry.");
     expect(screen.getByText("Unknown")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /nutrient planner/i }).getAttribute("href")).toBe("/nutrients?field=f1");
+    const primary = container.querySelectorAll("[data-primary-action]");
+    expect(primary).toHaveLength(1);
+    expect(primary[0].getAttribute("href")).toBe("/today/field/f1");
+    expect(screen.getByRole("link", { name: "History" }).getAttribute("href")).toBe("/fields?field=f1&chapter=history");
   });
 
-  it("shows the plan's remaining N/P/K and organic allocation as given, Unknown never 0, and leads into the field nutrient plan", () => {
-    const view = farmFieldLensView("nutrients", field, { slurryAllocations: [] });
-    const unknown = { state: "unknown", reasonCode: "MISSING_SOIL_FERTILITY_INDEX" } as const;
-    const plan: FieldNutrientPlanView = {
-      status: "available",
-      rows: [
-        { id: "requirement", label: "Requirement", cells: { n: { state: "value", kgHa: 60 }, p: { state: "value", kgHa: 20 }, k: unknown } },
-        { id: "organic", label: "Organic contribution", cells: { n: { state: "value", kgHa: 17.2 }, p: { state: "value", kgHa: 5.7 }, k: unknown } },
-        { id: "remaining", label: "Remaining", cells: { n: { state: "value", kgHa: 42.4 }, p: { state: "value", kgHa: 12.6 }, k: unknown } },
-      ],
-      unknownReasons: ["A soil P or K Index isn't recorded — add a soil test to complete the plan."],
-      organic: { state: "planned", totalM3: 30.6, rateM3ha: 23, method: "LESS", methodAssumed: true, timingAssumed: true, creditAssessed: true },
-      solution: { kind: "unavailable", label: "Withheld", message: "Withheld" },
-      legalGates: [],
-      evidence: { calculationVersion: "v", engineVersion: "e", cropBasis: "grazing", plannedUseAssumed: true, requirementRuleRefs: [], limitations: [], remainingEvidence: {} },
-    };
-    const { container } = render(<FarmFieldDrawer field={field} lensId="nutrients" view={view} nutrientPlan={{ view: plan, href: "/today/field/f1" }} onClose={() => {}} />);
-    const section = container.querySelector("[data-drawer-nutrient-plan]")!;
-    expect(section.querySelector('[data-nutrient="n"]')!.textContent).toBe("42kg/ha");
-    expect(section.querySelector('[data-nutrient="p"]')!.textContent).toBe("13kg/ha");
-    expect(section.querySelector('[data-nutrient="k"]')!.textContent).toBe("Unknown");
-    expect(section.textContent).toContain("add a soil test");
-    expect(section.textContent).toContain("31 m³");
-    expect(section.textContent).toContain("23 m³/ha · LESS (assumed)");
-    expect(screen.getByRole("link", { name: "Open nutrient plan" }).getAttribute("href")).toBe("/today/field/f1");
+  it("uses a deep forest surface with a thin straw/gold rule, not a card grid", () => {
+    const { container } = render(<FarmFieldDrawer field={field} lensId="current" selection={selection} onClose={() => {}} />);
+    const drawer = container.querySelector("[data-field-drawer]")!;
+    expect(drawer.className).toContain("bg-fr-v2-forest-deep");
+    expect(container.querySelector("[data-selection-rule]")!.className).toContain("bg-fr-v2-gold");
+    expect(drawer.querySelectorAll("[class*='grid-cols']")).toHaveLength(0);
   });
 
-  it("shows an unavailable plan's honest message with no figures", () => {
-    const view = farmFieldLensView("nutrients", field, { slurryAllocations: [] });
-    const { container } = render(
-      <FarmFieldDrawer field={field} lensId="nutrients" view={view} nutrientPlan={{ view: { status: "unavailable", message: "This field is tillage." }, href: "/today/field/f1" }} onClose={() => {}} />,
-    );
-    const section = container.querySelector("[data-drawer-nutrient-plan]")!;
-    expect(section.textContent).toContain("This field is tillage.");
-    expect(section.querySelector("[data-nutrient]")).toBeNull();
+  it("marks a blocked statement in words, not colour alone", () => {
+    render(<FarmFieldDrawer field={field} lensId="current" selection={{ ...selection, statement: { text: "Closed period", tone: "blocked" } }} onClose={() => {}} />);
+    expect(screen.getByText("Blocked")).toBeTruthy();
   });
 
-  it("closes from the close button and from Escape", () => {
+  it("closes from the close button and from Escape, but leaves Escape to an open dialog", () => {
     const onClose = vi.fn();
-    const view = farmFieldLensView("soil", field, { slurryAllocations: [] });
-    render(<FarmFieldDrawer field={field} lensId="soil" view={view} onClose={onClose} />);
+    render(<FarmFieldDrawer field={field} lensId="grass" selection={selection} onClose={onClose} />);
     const close = screen.getByRole("button", { name: "Close Long Field" });
     expect(document.activeElement).toBe(close);
     fireEvent.click(close);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(2);
+    const dialog = document.createElement("div");
+    dialog.setAttribute("aria-modal", "true");
+    document.body.appendChild(dialog);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(2);
+    dialog.remove();
   });
 
   it("is hidden and inert with no selected field, and ignores Escape", () => {
     const onClose = vi.fn();
-    const { container } = render(<FarmFieldDrawer field={undefined} lensId="current" view={undefined} onClose={onClose} />);
+    const { container } = render(<FarmFieldDrawer field={undefined} lensId="current" selection={undefined} onClose={onClose} />);
     const drawer = container.querySelector("[data-field-drawer]")!;
     expect(drawer.getAttribute("data-open")).toBe("false");
     expect(drawer.hasAttribute("inert")).toBe(true);
@@ -89,9 +79,8 @@ describe("FarmFieldDrawer", () => {
   });
 
   it("keeps the last field rendered while it falls away after deselection", () => {
-    const view = farmFieldLensView("current", field, { slurryAllocations: [] });
-    const { rerender, container } = render(<FarmFieldDrawer field={field} lensId="current" view={view} onClose={() => {}} />);
-    rerender(<FarmFieldDrawer field={undefined} lensId="current" view={undefined} onClose={() => {}} />);
+    const { rerender, container } = render(<FarmFieldDrawer field={field} lensId="current" selection={selection} onClose={() => {}} />);
+    rerender(<FarmFieldDrawer field={undefined} lensId="current" selection={undefined} onClose={() => {}} />);
     const drawer = container.querySelector("[data-field-drawer]")!;
     expect(drawer.getAttribute("data-open")).toBe("false");
     expect(drawer.textContent).toContain("Long Field");

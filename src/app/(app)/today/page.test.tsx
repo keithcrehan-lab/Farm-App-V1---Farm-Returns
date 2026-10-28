@@ -73,6 +73,8 @@ vi.mock("@/app/actions/fertiliser-plan", () => ({
 // `TodayPage` passes it, so a test can call them directly with a real
 // affected field and assert what colour/label they'd actually produce.
 interface CapturedMapHeroProps {
+  selectionColor?: string;
+  fields?: { id: string; polygon?: unknown }[];
   getTone: (field: { id: string }) => string;
   getStatusLabel: (field: { id: string; fertility?: object }) => string | undefined;
   onSelectField?: (fieldId: string) => void;
@@ -158,7 +160,23 @@ beforeEach(() => {
   vi.mocked(evaluateWhatMattersPilot).mockResolvedValue(defaultPilotOkResult());
 });
 
+/** Farm + Fields redesign (2026-10-27): the What Matters summary, farm
+ * topics and Ask AI moved off the map into the quiet "What matters"
+ * disclosure. The pre-existing behaviour tests below exercise that same
+ * content, so this helper opens it after rendering; map-only tests use
+ * `renderTodayMap`, which leaves the map uncovered. */
+function openWhatMatters() {
+  const trigger = document.querySelector("[data-what-matters-trigger]") as HTMLElement;
+  fireEvent.click(trigger);
+}
+
 function renderToday() {
+  const result = renderTodayMap();
+  openWhatMatters();
+  return result;
+}
+
+function renderTodayMap() {
   return render(
     <FarmProvider>
       <TodayPage />
@@ -207,7 +225,8 @@ describe("TodayPage", () => {
     renderToday();
     await waitFor(() => expect(screen.queryAllByText(/what matters now/i).length).toBeGreaterThan(0));
     fireEvent.click(screen.getAllByText("Ask AI")[0]);
-    const dialog = screen.getByRole("dialog");
+    // Ask AI opens over the What matters disclosure — the topmost dialog.
+    const dialog = screen.getAllByRole("dialog").find((d) => within(d).queryByText("Leading prompt:"))!;
     expect(within(dialog).getByText("Leading prompt:")).toBeTruthy();
     expect(within(dialog).getByText("Soil test renewal due — Field 7")).toBeTruthy();
     expect(within(dialog).getByTestId("ask-ai-fact-tier").textContent).toBe("Official model");
@@ -228,6 +247,12 @@ describe("TodayPage", () => {
  * fixture content.
  */
 function renderTodayRealMode() {
+  const result = renderTodayRealModeMap();
+  openWhatMatters();
+  return result;
+}
+
+function renderTodayRealModeMap() {
   return render(
     <FarmProvider remote>
       <TodayPage />
@@ -307,7 +332,7 @@ describe("TodayPage — status-model product decision (chemical-fertiliser restr
     // recommendation (Fertiliser category, MEDIUM) at once — proving the
     // closed period doesn't suppress it, as the historical bug did.
     expect(calendarStatus(await openConditionsPanel(), "Chemical fertiliser")).toBe("Closed period");
-    const strip = await screen.findByRole("button", { name: /1 medium priority/i });
+    const strip = await screen.findByRole("group", { name: /1 medium priority/i });
     expect(within(strip).getByText("Medium priority").previousElementSibling?.textContent).toBe("1");
     // The Fertiliser opportunity's own drill-down sheet carries the same
     // real ambient status as its own summary line, independent of the
@@ -347,7 +372,7 @@ describe("TodayPage — status-model product decision (chemical-fertiliser restr
     // Lime (real requirement -> MEDIUM) and Fertiliser (real OK
     // recommendation -> MEDIUM) both contribute, independently, to the
     // same Medium priority band.
-    const strip = await screen.findByRole("button", { name: /2 medium priority/i });
+    const strip = await screen.findByRole("group", { name: /2 medium priority/i });
     expect(within(strip).getByText("Medium priority").previousElementSibling?.textContent).toBe("2");
     // Opening the card reveals the real field-level breakdown.
     fireEvent.click(limeCard);
@@ -368,7 +393,7 @@ describe("TodayPage — status-model product decision (chemical-fertiliser restr
     // Chemical fertiliser isn't a tracker category at all, and this
     // fixture has no Slurry/Lime/Fertiliser/Soil Prompt — an honest
     // all-zero tracker, and no category cards at all.
-    const strip = await screen.findByRole("button", { name: /0 high priority, 0 medium priority, 0 low priority, 0 for later/i });
+    const strip = await screen.findByRole("group", { name: /0 high priority, 0 medium priority, 0 low priority, 0 for later/i });
     expect(within(strip).getByText("Medium priority").previousElementSibling?.textContent).toBe("0");
     expect(screen.queryByText("Review slurry plan")).toBeNull();
     expect(screen.queryByText("Review fertiliser plan")).toBeNull();
@@ -424,7 +449,7 @@ describe("TodayPage — slurry closed-period wiring (2026-09-19)", () => {
     const panel = await openConditionsPanel();
     expect(calendarStatus(panel, "Chemical fertiliser")).toBe("Closed period");
     expect(calendarStatus(panel, "Slurry")).toBe("Open 1/1");
-    const strip = await screen.findByRole("button", { name: /1 high priority, 1 medium priority, 0 low priority, 0 for later/i });
+    const strip = await screen.findByRole("group", { name: /1 high priority, 1 medium priority, 0 low priority, 0 for later/i });
     expect(within(strip).getByText("High priority").previousElementSibling?.textContent).toBe("1");
     expect(within(strip).getByText("Medium priority").previousElementSibling?.textContent).toBe("1");
   });
@@ -446,7 +471,7 @@ describe("TodayPage — slurry closed-period wiring (2026-09-19)", () => {
     // total counts as the previous test (1 high, 1 medium) but driven by
     // the OPPOSITE category each time — proving neither leaks into the
     // other.
-    const strip = await screen.findByRole("button", { name: /1 high priority, 1 medium priority, 0 low priority, 0 for later/i });
+    const strip = await screen.findByRole("group", { name: /1 high priority, 1 medium priority, 0 low priority, 0 for later/i });
     expect(within(strip).getByText("High priority").previousElementSibling?.textContent).toBe("1");
     expect(within(strip).getByText("Medium priority").previousElementSibling?.textContent).toBe("1");
   });
@@ -461,7 +486,7 @@ describe("TodayPage — slurry closed-period wiring (2026-09-19)", () => {
     expect(screen.queryByText(/slurry ·/i)).toBeNull();
     // Only Fertiliser (real OK recommendation) contributes — Slurry has
     // no real Prompt at all here, so it adds to no band whatsoever.
-    const strip = await screen.findByRole("button", { name: /0 high priority, 1 medium priority, 0 low priority, 0 for later/i });
+    const strip = await screen.findByRole("group", { name: /0 high priority, 1 medium priority, 0 low priority, 0 for later/i });
     expect(within(strip).getByText("Medium priority").previousElementSibling?.textContent).toBe("1");
   });
 });
@@ -472,7 +497,7 @@ describe("TodayPage — Farm Priority Tracker V1 (2026-09-19)", () => {
     renderTodayRealMode();
     // No chemical-fertiliser closed-period Prompt in this fixture, so
     // Fertiliser's own real OK recommendation is unblocked -> HIGH.
-    const strip = await screen.findByRole("button", { name: /1 high priority, 0 medium priority, 0 low priority, 0 for later/i });
+    const strip = await screen.findByRole("group", { name: /1 high priority, 0 medium priority, 0 low priority, 0 for later/i });
     expect(within(strip).getByText("High priority")).toBeTruthy();
     expect(within(strip).getByText("Medium priority")).toBeTruthy();
     expect(within(strip).getByText("Low priority")).toBeTruthy();
@@ -486,7 +511,7 @@ describe("TodayPage — Farm Priority Tracker V1 (2026-09-19)", () => {
   it("never renders more than one segment for the same priority band WITHIN the tracker tile itself", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([fertiliserRecommendationOkPrompt()]);
     renderTodayRealMode();
-    const strip = await screen.findByRole("button", { name: /1 high priority, 0 medium priority, 0 low priority, 0 for later/i });
+    const strip = await screen.findByRole("group", { name: /1 high priority, 0 medium priority, 0 low priority, 0 for later/i });
     // Scoped to the tile itself — a category card's own priority Pill
     // (e.g. the Fertiliser card's "Medium priority" badge) legitimately
     // reuses the same farmer-facing label elsewhere on the page, which
@@ -509,7 +534,7 @@ describe("TodayPage — Farm Priority Tracker V1 (2026-09-19)", () => {
   it("renders an honest all-zero state when the farm has no active Today opportunity in any category", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([]);
     renderTodayRealMode();
-    const strip = await screen.findByRole("button", { name: /0 high priority, 0 medium priority, 0 low priority, 0 for later/i });
+    const strip = await screen.findByRole("group", { name: /0 high priority, 0 medium priority, 0 low priority, 0 for later/i });
     expect(within(strip).getByText("High priority").previousElementSibling?.textContent).toBe("0");
     expect(within(strip).getByText("Medium priority").previousElementSibling?.textContent).toBe("0");
     expect(within(strip).getByText("Low priority").previousElementSibling?.textContent).toBe("0");
@@ -524,16 +549,17 @@ describe("TodayPage — Farm Priority Tracker V1 (2026-09-19)", () => {
     // Three real fields' worth of the identical real closed-period fact
     // still contribute exactly one entry, not three — with no field
     // open, this is a real blocker (MEDIUM), not HIGH.
-    const strip = await screen.findByRole("button", { name: /0 high priority, 1 medium priority, 0 low priority, 0 for later/i });
+    const strip = await screen.findByRole("group", { name: /0 high priority, 1 medium priority, 0 low priority, 0 for later/i });
     expect(within(strip).getByText("Medium priority").previousElementSibling?.textContent).toBe("1");
   });
 
-  it("Today Control Room V1: clicking the mobile priority strip opens the rail's own 'Today's opportunities' bottom sheet (not 'Also worth a look' directly — that stays one tap further in, via the sheet's own secondary link)", async () => {
+  it("Farm + Fields redesign: the priority counts and the farm-topic rail sit together inside the What matters disclosure, not on the map", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([fertiliserRecommendationOkPrompt()]);
     renderTodayRealMode();
-    const strip = await screen.findByRole("button", { name: /1 high priority, 0 medium priority, 0 low priority, 0 for later/i });
-    fireEvent.click(strip);
-    expect(screen.getByText("Today's opportunities")).toBeTruthy();
+    const brief = await screen.findByRole("dialog", { name: "What matters" });
+    expect(await within(brief).findByRole("group", { name: /1 high priority, 0 medium priority, 0 low priority, 0 for later/i })).toBeTruthy();
+    expect(within(brief).getByText("Fertiliser")).toBeTruthy();
+    expect(screen.queryByText("Also worth a look")).toBeNull();
   });
 
   it("clicking a category card opens its own drill-down sheet, not the tracker's field-level feed", async () => {
@@ -569,7 +595,7 @@ describe("TodayPage — Today Map Notification Visual Hierarchy V1 (2026-09-19)"
     };
     vi.mocked(buildAllRealPrompts).mockReturnValue([soilAmbiguousPrompt]);
     renderTodayRealMode();
-    const strip = await screen.findByRole("button", { name: /0 high priority, 0 medium priority, 1 low priority, 0 for later/i });
+    const strip = await screen.findByRole("group", { name: /0 high priority, 0 medium priority, 1 low priority, 0 for later/i });
     // TodayPriorityHud's own DOM shape: <span>{dot}{count}{label}</span> —
     // dot, count and label are direct siblings within one wrapper span,
     // unlike the old tile's two-level nesting.
@@ -601,7 +627,7 @@ describe("TodayPage — Today Map Priority Semantics Correction (2026-09-19)", (
     // The farm-level Slurry card itself stays HIGH/red — this correction
     // only touches individual field markers, never the farm-level
     // opportunity's own real priority.
-    const strip = await screen.findByRole("button", { name: /1 high priority, 0 medium priority, 0 low priority, 0 for later/i });
+    const strip = await screen.findByRole("group", { name: /1 high priority, 0 medium priority, 0 low priority, 0 for later/i });
     expect(strip).toBeTruthy();
     expect(screen.getByText("Slurry").closest("button")?.textContent).toContain("High priority");
 
@@ -618,12 +644,14 @@ describe("TodayPage — Today Map Priority Semantics Correction (2026-09-19)", (
     expect(capturedMapHeroProps!.getTone({ id: "unrelated-field" })).toBe("neutral");
   });
 
-  it("field selection remains functional — MapHero still receives a real onSelectField handler and a selected field id", async () => {
+  it("field selection remains functional — only the farmer's own selection is emphasised, never the leading Prompt's field (Farm + Fields redesign)", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([fertiliserRecommendationOkPrompt()]);
-    renderTodayRealMode();
+    renderTodayRealModeMap();
     await screen.findByTestId("map-hero-stub");
     expect(typeof capturedMapHeroProps).toBe("object");
     expect(typeof capturedMapHeroProps!.onSelectField).toBe("function");
+    expect(capturedMapHeroProps!.selectedFieldId).toBeUndefined();
+    act(() => capturedMapHeroProps!.onSelectField!("field-home"));
     expect(capturedMapHeroProps!.selectedFieldId).toBe("field-home");
   });
 
@@ -661,10 +689,14 @@ describe("TodayPage — Today Control Room V1 (2026-09-19)", () => {
   it("selecting the same rail row again clears the focus and closes the drill-down sheet — a real toggle", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([fertiliserRecommendationOkPrompt()]);
     renderTodayRealMode();
-    const row = (await screen.findByText("Fertiliser")).closest("button")!;
-    fireEvent.click(row);
+    fireEvent.click((await screen.findByText("Fertiliser")).closest("button")!);
     expect(capturedMapHeroProps!.highlightedFieldIds).toEqual(["field-home"]);
-    fireEvent.click(row);
+    // Selecting a topic closes the disclosure so the map shows its fields;
+    // reopening it and selecting the same topic again clears the focus.
+    expect(screen.queryByRole("dialog", { name: "What matters" })).toBeNull();
+    openWhatMatters();
+    const brief = screen.getByRole("dialog", { name: "What matters" });
+    fireEvent.click(within(brief).getByText("Fertiliser").closest("button")!);
     expect(capturedMapHeroProps!.highlightedFieldIds).toBeUndefined();
     expect(screen.queryByText("Field breakdown")).toBeNull();
   });
@@ -683,19 +715,13 @@ describe("TodayPage — Today Control Room V1 (2026-09-19)", () => {
     expect(capturedMapHeroProps!.highlightedFieldIds).toBeUndefined();
   });
 
-  it("mobile: opening the rail bottom sheet and selecting a row closes it and opens the real opportunity's own drill-down sheet", async () => {
+  it("selecting a topic row inside What matters closes it and opens the real opportunity's own drill-down sheet", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([fertiliserRecommendationOkPrompt()]);
     renderTodayRealMode();
-    const strip = await screen.findByRole("button", { name: /1 high priority, 0 medium priority, 0 low priority, 0 for later/i });
-    fireEvent.click(strip);
-    // Scoped to the rail sheet's own dialog panel — the desktop overlay
-    // rail's own "Fertiliser" row is also present in this jsdom render
-    // (CSS-hidden, not DOM-absent), so an unscoped query would be
-    // ambiguous.
-    const railSheet = screen.getByRole("dialog", { name: "Today's opportunities" });
-    const fertiliserRow = within(railSheet).getByText("Fertiliser").closest("button")!;
+    const brief = await screen.findByRole("dialog", { name: "What matters" });
+    const fertiliserRow = (await within(brief).findByText("Fertiliser")).closest("button")!;
     fireEvent.click(fertiliserRow);
-    expect(screen.queryByText("Today's opportunities")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "What matters" })).toBeNull();
     expect(await screen.findByText("Field breakdown")).toBeTruthy();
     expect(screen.getByText("Home Field")).toBeTruthy();
   });
@@ -1355,7 +1381,7 @@ describe("TodayPage — slurry planning entry for zero-allocation farms", () => 
 
 describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
   it("leads with the farm's own identity and the Current lens", async () => {
-    renderToday();
+    renderTodayMap();
     await screen.findByTestId("map-hero-stub");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBeTruthy();
     expect(screen.getByText(/farm return · current/i)).toBeTruthy();
@@ -1365,12 +1391,13 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
 
   it("switching lens changes the context caption and marker text but never the map's selection, focus, camera or tone", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([fertiliserRecommendationOkPrompt()]);
-    renderTodayRealMode();
-    await screen.findByText("Fertiliser");
+    renderTodayRealModeMap();
+    await screen.findByTestId("map-hero-stub");
+    await waitFor(() => expect(document.querySelector("[data-what-matters-trigger]")!.textContent).toMatch(/1$/));
     const before = { ...capturedMapHeroProps! };
     fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
     expect(screen.getByText(/farm return · nutrients/i)).toBeTruthy();
-    expect(screen.getByText("Requirement · organic nutrients · fertiliser")).toBeTruthy();
+    expect(screen.getByText("Requirement · soil evidence · organic nutrients · fertiliser")).toBeTruthy();
     expect(capturedMapHeroProps!.selectedFieldId).toBe(before.selectedFieldId);
     expect(capturedMapHeroProps!.highlightedFieldIds).toEqual(before.highlightedFieldIds);
     expect(capturedMapHeroProps!.flyToSelection).toBe(false);
@@ -1384,7 +1411,7 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
 
   it("Conditions lens shows the real spreading-calendar facts and an honest SMD/workability note, never a suitability verdict", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt()]);
-    renderTodayRealMode();
+    renderTodayRealModeMap();
     await openConditionsPanel();
     fireEvent.click(screen.getByRole("button", { name: "Conditions" }));
     expect(screen.getByText("Chemical fertiliser · Closed period")).toBeTruthy();
@@ -1393,7 +1420,7 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
   });
 
   it("Phase 3: selecting a real mapped field opens its drawer in place, strengthens it and recedes neighbours; reselecting deselects", async () => {
-    renderToday();
+    renderTodayMap();
     await screen.findByTestId("map-hero-stub");
     const drawer = () => document.querySelector("[data-field-drawer]")!;
     expect(drawer().getAttribute("data-open")).toBe("false");
@@ -1414,14 +1441,15 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
   });
 
   it("Phase 3: open ground, the close button and Escape all deselect; the drawer follows the active lens", async () => {
-    renderToday();
+    renderTodayMap();
     await screen.findByTestId("map-hero-stub");
     const drawer = () => document.querySelector("[data-field-drawer]") as HTMLElement;
 
     act(() => capturedMapHeroProps!.onSelectField!("field-home"));
-    fireEvent.click(screen.getByRole("button", { name: "Soil" }));
-    expect(within(drawer()).getByText("pH")).toBeTruthy();
-    expect(within(drawer()).getByRole("link", { name: /soil by field/i })).toBeTruthy();
+    // Soil evidence now sits under Nutrients (no Soil lens).
+    expect(screen.queryByRole("button", { name: "Soil" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
+    expect(Array.from(drawer().querySelectorAll("[data-selection-context] dt")).map((dt) => dt.textContent)).toContain("P");
     fireEvent.click(screen.getByRole("button", { name: "Grass" }));
     expect(within(drawer()).getByText(/aren't measured for this field yet/i)).toBeTruthy();
     act(() => capturedMapHeroProps!.onMapBackgroundClick!());
@@ -1436,35 +1464,40 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     expect(drawer().getAttribute("data-open")).toBe("false");
   });
 
-  it("Phase 4: the Nutrients lens drawer shows the field's plan (remaining N/P/K, organic allocation) and leads into its nutrient plan", async () => {
-    renderToday();
+  it("Phase 4 / redesign: the panel's one primary action is neutral on Current and leads into the canonical nutrient plan on Nutrients", async () => {
+    renderTodayMap();
     await screen.findByTestId("map-hero-stub");
     act(() => capturedMapHeroProps!.onSelectField!("field-home"));
     const drawer = () => document.querySelector("[data-field-drawer]") as HTMLElement;
-    expect(drawer().querySelector("[data-drawer-nutrient-plan]")).toBeNull();
+    const primary = () => drawer().querySelectorAll("[data-primary-action]");
+    expect(primary()).toHaveLength(1);
+    expect(primary()[0].textContent).toBe("Open field workspace");
+    expect(primary()[0].getAttribute("href")).toBe("/fields?field=field-home");
     fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
-    const plan = drawer().querySelector("[data-drawer-nutrient-plan]") as HTMLElement;
-    expect(plan).toBeTruthy();
+    expect(primary()).toHaveLength(1);
     expect(within(drawer()).getByRole("link", { name: "Open nutrient plan" }).getAttribute("href")).toBe("/today/field/field-home");
+    // The statement is the canonical plan's remaining N, or its honest unknown reason — never 0.
+    const statement = drawer().querySelector("[data-selection-statement]")!;
+    expect(statement.textContent).not.toMatch(/^0 kg/);
   });
 
   it("Phase 4: returning from a field nutrient plan restores the Nutrients lens and that field's drawer", async () => {
     window.history.replaceState({}, "", "/today?lens=nutrients&field=field-home");
     try {
-      renderToday();
+      renderTodayMap();
       await screen.findByTestId("map-hero-stub");
       const drawer = document.querySelector("[data-field-drawer]") as HTMLElement;
       await waitFor(() => expect(drawer.getAttribute("data-open")).toBe("true"));
       expect(screen.getByRole("button", { name: "Nutrients" }).getAttribute("aria-pressed")).toBe("true");
       expect(within(drawer).getByRole("heading", { name: "Home Field" })).toBeTruthy();
-      expect(drawer.querySelector("[data-drawer-nutrient-plan]")).toBeTruthy();
+      expect(within(drawer).getByRole("link", { name: "Open nutrient plan" })).toBeTruthy();
     } finally {
       window.history.replaceState({}, "", "/");
     }
   });
 
   it("Phase 3: an id with no mapped field never opens a drawer", async () => {
-    renderToday();
+    renderTodayMap();
     await screen.findByTestId("map-hero-stub");
     act(() => capturedMapHeroProps!.onSelectField!("not-a-field"));
     expect(document.querySelector("[data-field-drawer]")!.getAttribute("data-open")).toBe("false");
@@ -1472,7 +1505,7 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
   });
 
   it("renders the persistent object rail with Sheep as an unsupported shell", async () => {
-    renderToday();
+    renderTodayMap();
     const rail = await screen.findByRole("navigation", { name: "Farm objects" });
     expect(within(rail).getByText("Cattle")).toBeTruthy();
     expect(within(rail).getByText("Sheds")).toBeTruthy();
@@ -1480,7 +1513,7 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
   });
 
   it("Phase 6: selecting Cattle inspects the store's real groups in place, without leaving the map", async () => {
-    renderToday();
+    renderTodayMap();
     const rail = await screen.findByRole("navigation", { name: "Farm objects" });
     const cattle = within(rail).getByRole("button", { name: /cattle/i });
     fireEvent.click(cattle);
@@ -1499,7 +1532,7 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
 describe("TodayPage — Farm Home visual refresh v1", () => {
   it("replaces the large ambient strip with a compact control whose restriction count comes from the real calendar Prompts", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt(), slurryClosedPrompt()]);
-    renderTodayRealMode();
+    renderTodayRealModeMap();
     const trigger = await screen.findByRole("button", { name: /^conditions:/i });
     await waitFor(() => expect(within(trigger).getByText("2 restrictions")).toBeTruthy());
     // The old strip printed each status line on the map; with the
@@ -1513,14 +1546,14 @@ describe("TodayPage — Farm Home visual refresh v1", () => {
 
   it("counts only real restrictions: one closed material and one open is '1 restriction'", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt(), slurryOpenPrompt()]);
-    renderTodayRealMode();
+    renderTodayRealModeMap();
     const trigger = await screen.findByRole("button", { name: /^conditions:/i });
     await waitFor(() => expect(within(trigger).getByText("1 restriction")).toBeTruthy());
   });
 
   it("says the calendar is not assessed when no spreading-window Prompt exists, never '0 restrictions'", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([]);
-    renderTodayRealMode();
+    renderTodayRealModeMap();
     const trigger = await screen.findByRole("button", { name: /^conditions:/i });
     await waitFor(() => expect(within(trigger).getByText("Calendar not assessed")).toBeTruthy());
     expect(within(trigger).queryByText(/0 restrictions/i)).toBeNull();
@@ -1528,7 +1561,7 @@ describe("TodayPage — Farm Home visual refresh v1", () => {
 
   it("closing the disclosure with Escape leaves the selected field and its drawer alone", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt()]);
-    renderTodayRealMode();
+    renderTodayRealModeMap();
     await screen.findByTestId("map-hero-stub");
     act(() => capturedMapHeroProps!.onSelectField!("field-home"));
     const panel = await openConditionsPanel();
@@ -1539,8 +1572,56 @@ describe("TodayPage — Farm Home visual refresh v1", () => {
   });
 
   it("marks the Farm screen as the edge-to-edge map workspace", async () => {
-    renderToday();
+    renderTodayMap();
     await screen.findByTestId("map-hero-stub");
     expect(document.querySelector("[data-farm-workspace]")).toBeTruthy();
+  });
+});
+
+describe("TodayPage — Farm + Fields redesign (2026-10-27)", () => {
+  it("keeps the map uncluttered: the What Matters summary and farm topics are disclosed on request, not on or under the map", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([fertiliserRecommendationOkPrompt()]);
+    renderTodayRealModeMap();
+    await screen.findByTestId("map-hero-stub");
+    await waitFor(() => expect(evaluateWhatMattersPilot).toHaveBeenCalled());
+    expect(screen.queryByText(/what matters now/i)).toBeNull();
+    expect(screen.queryByText("Farm topics")).toBeNull();
+    expect(screen.queryByRole("group", { name: /high priority/i })).toBeNull();
+    openWhatMatters();
+    const brief = screen.getByRole("dialog", { name: "What matters" });
+    expect(await within(brief).findAllByText(/what matters now/i)).not.toHaveLength(0);
+    expect(within(brief).getByRole("link", { name: /open what matters/i }).getAttribute("href")).toBe("/what-matters");
+    expect(within(brief).getByText("Farm topics")).toBeTruthy();
+  });
+
+  it("offers exactly four lenses on the map, with no Soil lens", async () => {
+    renderTodayMap();
+    const group = await screen.findByRole("group", { name: "Farm lens" });
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["Current", "Grass", "Nutrients", "Conditions"]);
+  });
+
+  it("passes the real fields to the map and emphasises selection in straw, keyed by the real field id", async () => {
+    renderTodayMap();
+    await screen.findByTestId("map-hero-stub");
+    expect(capturedMapHeroProps!.selectionColor).toBe("#e3c77e");
+    const mapped = capturedMapHeroProps!.fields!.filter((f) => f.polygon).length;
+    expect(screen.getByText(new RegExp(`^${mapped} (of \\d+ )?fields? mapped`))).toBeTruthy();
+    act(() => capturedMapHeroProps!.onSelectField!("field-home"));
+    const drawer = document.querySelector("[data-field-drawer]") as HTMLElement;
+    expect(within(drawer).getByRole("link", { name: "History" }).getAttribute("href")).toBe("/fields?field=field-home&chapter=history");
+  });
+
+  it("the selected-field panel never invents livestock on a field", async () => {
+    renderTodayMap();
+    await screen.findByTestId("map-hero-stub");
+    act(() => capturedMapHeroProps!.onSelectField!("field-home"));
+    const drawer = document.querySelector("[data-field-drawer]") as HTMLElement;
+    expect(drawer.textContent).not.toMatch(/cattle|livestock|weanling|head\b|move .* here/i);
+  });
+
+  it("keeps the Fields companion one quiet utility away", async () => {
+    renderTodayMap();
+    await screen.findByTestId("map-hero-stub");
+    expect(screen.getByRole("link", { name: "Fields list" }).getAttribute("href")).toBe("/fields");
   });
 });

@@ -8,6 +8,18 @@ import { cn } from "@/lib/cn";
 import type { Field } from "@/domain/types";
 import type { MapTone } from "@/components/farm/FieldMap";
 
+type MapPadding = number | { top: number; bottom: number; left: number; right: number };
+
+/** Boundary colour per tone (fill, line and glow layers). */
+const MAP_TONE_LINE_COLOR: Record<MapTone, string> = {
+  good: "#2E7D4F",
+  attention: "#D98324",
+  risk: "#C0362C",
+  info: "#2563AC",
+  neutral: "#98A2B3",
+  silage: "#8BA23A",
+};
+
 /**
  * Full-bleed real Mapbox satellite hero — Farm Return Next v1.1's
  * "open your farm, not an app" (spec §1) and the Visual Acceptance
@@ -41,6 +53,8 @@ export function MapHero({
   flyToPadding,
   flyToMaxZoom = 18,
   glowSelection = false,
+  selectionColor,
+  fitPadding = 32,
   compactNeighbourLabels = false,
   neighbourNameLabels = false,
   neighbourDetailLabels = false,
@@ -102,6 +116,20 @@ export function MapHero({
    * (media/image3.png's own literal "Field detail" composition) —
    * opt-in, since Today's whole-farm overview doesn't want a glow. */
   glowSelection?: boolean;
+  /** Farm + Fields redesign (`docs/design/farm-fields-high-fidelity-reference.md`
+   * "Field selection"): one CSS colour (the straw/gold selection rule) for
+   * the selected field's boundary, a soft halo just outside it and its
+   * marker, instead of the tone colour — selection emphasis only, never a
+   * status. The marker keeps the field's name as bare text rather than a
+   * filled tag, because the selected-field panel carries the detail. Read
+   * once at mount; omit to keep the tone-coloured selection. */
+  selectionColor?: string;
+  /** Padding for the whole-farm camera fit, so a caller's own overlays
+   * (identity, utilities, lens switcher) don't cover mapped fields. A
+   * function receives the map container's width at fit time, so one
+   * caller can pad differently on a phone and a desktop. Applied at mount
+   * and on a real boundary change; default 32. */
+  fitPadding?: MapPadding | ((containerWidth: number) => MapPadding);
   /** Codex audit round 3 (Strict Visual Reproduction, Field detail):
    * every marker's own name+status label, fine on Today's whole-farm
    * overview (image2.png shows every pin fully labelled), "visually
@@ -210,6 +238,12 @@ export function MapHero({
   // (inline closures), and this effect's own internal marker-refresh
   // effect (the second one) already re-reads the latest via refs so the
   // map itself isn't torn down and rebuilt on every parent re-render.
+  const fitPaddingRef = useRef(fitPadding);
+  function resolveFitPadding(): MapPadding {
+    const padding = fitPaddingRef.current;
+    return typeof padding === "function" ? padding(containerRef.current?.clientWidth ?? 0) : padding;
+  }
+
   const getToneRef = useRef(getTone);
   const onSelectFieldRef = useRef(onSelectField);
   const onMapBackgroundClickRef = useRef(onMapBackgroundClick);
@@ -236,6 +270,7 @@ export function MapHero({
     onMapBackgroundClickRef.current = onMapBackgroundClick;
     mappedFieldsRef.current = mappedFields;
     selectedFieldIdRef.current = selectedFieldId;
+    fitPaddingRef.current = fitPadding;
   });
 
   useEffect(() => {
@@ -279,14 +314,17 @@ export function MapHero({
           [minLng, minLat],
           [maxLng, maxLat],
         ],
-        { padding: 32, maxZoom: 17, duration: 0 },
+        { padding: resolveFitPadding(), maxZoom: 17, duration: 0 },
       );
     }
 
     const ro = new ResizeObserver(() => map.resize());
     ro.observe(containerRef.current);
 
-    map.on("load", () => {
+    // Farm + Fields redesign: boundaries are added once the style is ready
+    // (`style.load`), not after every initial satellite tile has arrived
+    // (`load`), so real polygons never wait on a slow imagery connection.
+    map.once("style.load", () => {
       map.addSource("fr-fields", {
         type: "geojson",
         data: {
@@ -302,14 +340,8 @@ export function MapHero({
           })),
         },
       });
-      const toneColor: Record<MapTone, string> = {
-        good: "#2E7D4F",
-        attention: "#D98324",
-        risk: "#C0362C",
-        info: "#2563AC",
-        neutral: "#98A2B3",
-        silage: "#8BA23A",
-      };
+      const toneColor = MAP_TONE_LINE_COLOR;
+      const toneLineColor = ["match", ["get", "tone"], ...Object.entries(toneColor).flatMap(([tone, color]) => [tone, color]), "#ffffff"] as unknown as mapboxgl.ExpressionSpecification;
       map.addLayer({
         id: "fr-field-fill",
         type: "fill",
@@ -365,17 +397,27 @@ export function MapHero({
           },
         });
       }
+      if (selectionColor) {
+        map.addLayer({
+          id: "fr-field-selection-halo",
+          type: "line",
+          source: "fr-fields",
+          paint: {
+            "line-color": selectionColor,
+            "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 9, 0],
+            "line-blur": 5,
+            "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 0.35, 0],
+          },
+        });
+      }
       map.addLayer({
         id: "fr-field-line",
         type: "line",
         source: "fr-fields",
         paint: {
-          "line-color": [
-            "match",
-            ["get", "tone"],
-            ...Object.entries(toneColor).flatMap(([tone, color]) => [tone, color]),
-            "#ffffff",
-          ],
+          "line-color": selectionColor
+            ? ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], selectionColor, toneLineColor]
+            : toneLineColor,
           "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 2.5, 1.5],
           "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 0.9, 0.75],
         },
@@ -446,6 +488,19 @@ export function MapHero({
     if (map.getLayer("fr-field-line")) {
       map.setPaintProperty("fr-field-line", "line-width", ["case", isSelected, 3.5, isHighlighted, 2.5, 1.5]);
       map.setPaintProperty("fr-field-line", "line-opacity", ["case", isSelected, 0.95, isHighlighted, 0.9, dimmed ? 0.3 : 0.7]);
+      if (selectionColor) {
+        map.setPaintProperty("fr-field-line", "line-color", [
+          "case",
+          isSelected,
+          selectionColor,
+          ["match", ["get", "tone"], ...Object.entries(MAP_TONE_LINE_COLOR).flatMap(([tone, color]) => [tone, color]), "#ffffff"],
+        ]);
+        map.setPaintProperty("fr-field-line", "line-width", ["case", isSelected, 2.75, isHighlighted, 2, 1.25]);
+      }
+    }
+    if (map.getLayer("fr-field-selection-halo")) {
+      map.setPaintProperty("fr-field-selection-halo", "line-width", ["case", isSelected, 9, 0]);
+      map.setPaintProperty("fr-field-selection-halo", "line-opacity", ["case", isSelected, 0.35, 0]);
     }
     if (map.getLayer("fr-field-fill")) {
       map.setPaintProperty(
@@ -453,7 +508,9 @@ export function MapHero({
         "fill-opacity",
         glowSelection
           ? ["case", isSelected, 0.14, isHighlighted, 0.12, dimmed ? 0.05 : 0.1]
-          : ["case", isSelected, 0.34, isHighlighted, 0.26, dimmed ? 0.08 : 0.16],
+          : selectionColor
+            ? ["case", isSelected, 0.12, isHighlighted, 0.14, dimmed ? 0.04 : 0.1]
+            : ["case", isSelected, 0.34, isHighlighted, 0.26, dimmed ? 0.08 : 0.16],
       );
     }
     if (map.getLayer("fr-field-glow")) {
@@ -525,7 +582,7 @@ export function MapHero({
       // system" — a bigger scale step (was 1.15) gives it the same kind
       // of clear focal presence image3's own central selected marker has,
       // without fabricating a field number this app has no real data for.
-      if (selected) el.style.transform = "scale(1.35)";
+      if (selected) el.style.transform = selectionColor ? "scale(1.15)" : "scale(1.35)";
       // Today Control Room V1 — dimmed markers stay fully present (never
       // `display: none`/removed) and still clickable, just visually
       // secondary while a category is focused.
@@ -541,12 +598,20 @@ export function MapHero({
       pin.className = cn("relative block shrink-0", quietNeighbour ? "size-[18px]" : "size-[26px]");
       const pinShape = document.createElement("span");
       pinShape.className = "absolute inset-0 rounded-tl-full rounded-tr-full rounded-bl-full border-[2px] border-white shadow-md";
-      pinShape.style.backgroundColor = markerAccentColor ?? toneBg[tone];
+      pinShape.style.backgroundColor = selected && selectionColor ? selectionColor : (markerAccentColor ?? toneBg[tone]);
       pinShape.style.transform = "rotate(-45deg)";
       pin.appendChild(pinShape);
       el.appendChild(pin);
 
-      if (!compactNeighbourLabels || selected) {
+      if (selected && selectionColor) {
+        // Straw selection: the name as bare text beside a straw pin.
+        const name = document.createElement("span");
+        name.className = "whitespace-nowrap text-[13px] font-semibold leading-none";
+        name.style.color = selectionColor;
+        name.style.textShadow = "0 1px 2px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.5)";
+        name.textContent = shortName;
+        el.appendChild(name);
+      } else if (!compactNeighbourLabels || selected) {
         const label = document.createElement("span");
         label.className = cn(
           "flex flex-col items-start rounded-lg px-2 py-1 text-left leading-tight shadow-sm",
@@ -623,7 +688,7 @@ export function MapHero({
         [minLng, minLat],
         [maxLng, maxLat],
       ],
-      { padding: 32, maxZoom: 17, duration: 400 },
+      { padding: resolveFitPadding(), maxZoom: 17, duration: 400 },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; wholeFarmBoundsSignature (a real id+centroid summary) is what actually determines whether this should re-fit, not a new array identity for the same real field set.
   }, [wholeFarmBoundsSignature, flyToSelection]);

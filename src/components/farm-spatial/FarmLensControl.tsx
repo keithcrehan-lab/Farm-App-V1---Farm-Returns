@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 import { FARM_LENSES, type FarmLensId } from "@/lib/farm-spatial-lenses";
 
 /**
- * Farm Spatial V2 — the five-lens control along the map's lower edge
+ * Farm lens control (Current · Grass · Nutrients · Conditions) along the map's lower edge
  * (DESIGN_CONTRACT "Five lenses"; reference `.lensbar`). Switching lens
  * only changes contextual information: the caller must never move the
  * camera on a lens change (IMPLEMENTATION_MAP §5).
@@ -22,7 +22,7 @@ export function FarmLensControl({ value, onChange }: { value: FarmLensId; onChan
     <div
       role="group"
       aria-label="Farm lens"
-      className="grid grid-cols-5 rounded-fr-v2-control bg-fr-v2-shell/72 px-0.5 shadow-[0_2px_12px_rgba(0,0,0,0.2)] backdrop-blur-md sm:inline-grid"
+      className="grid grid-cols-4 rounded-fr-v2-control bg-fr-v2-shell/72 px-0.5 shadow-[0_2px_12px_rgba(0,0,0,0.2)] backdrop-blur-md sm:inline-grid"
     >
       {FARM_LENSES.map((lens) => {
         const active = lens.id === value;

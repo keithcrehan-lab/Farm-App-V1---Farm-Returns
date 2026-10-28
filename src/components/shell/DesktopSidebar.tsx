@@ -5,12 +5,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, Sprout } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { primaryNavItems, moreNavItems, moreNavIcon as MoreIcon } from "./nav-items";
+import { isNavItemActive, primaryNavItems, moreNavItems, moreNavIcon as MoreIcon } from "./nav-items";
 import { useFarm } from "@/store/farm-store";
 
 /** Persistent dark-green left rail — desktop only (design-system.md).
- * `primaryNavItems` (Farm Spatial V2: Farm/What Matters/Plan/Market/
- * Finance) stay visible. Phase 02B (spatial shell visual refinement):
+ * `primaryNavItems` (Farm + Fields redesign: Farm/Plan/Cattle/Housing/
+ * Finance/Records) stay visible. Phase 02B (spatial shell visual refinement):
  * every earlier screen (`moreNavItems`) sits behind one compact "More"
  * disclosure instead of a permanently expanded second list, so the rail
  * supports the Farm map rather than reading as an admin sidebar. Nothing
@@ -27,10 +27,14 @@ export function DesktopSidebar() {
   const pathname = usePathname();
   const farm = useFarm();
   const [moreOpen, setMoreOpen] = useState(false);
-  const activeMoreItem = moreNavItems.find((item) => item.href === pathname);
+  // A More route a primary destination owns (Fields, under Farm) is shown
+  // through that primary item, not repeated on the closed More control.
+  const activeMoreItem = primaryNavItems.some((item) => isNavItemActive(item, pathname)) ? undefined : moreNavItems.find((item) => item.href === pathname);
 
   function renderLink(item: (typeof primaryNavItems)[number], onNavigate?: () => void) {
-    const active = pathname === item.href;
+    // A nested route (e.g. `/cattle/groups/<id>`) keeps its primary
+    // destination marked; `/today/field/<id>` stays under Farm.
+    const active = isNavItemActive(item, pathname);
     if (item.placeholderNote) {
       // Approved destination with no route yet (`nav-items.ts`).
       return (

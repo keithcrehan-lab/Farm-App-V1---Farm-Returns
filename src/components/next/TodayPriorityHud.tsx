@@ -18,6 +18,7 @@ export function TodayPriorityHud({ counts, variant = "overlay" }: { counts: Toda
   const overlay = variant === "overlay";
   return (
     <div
+      role="group"
       className={cn(
         "flex items-center gap-3 rounded-full px-3 py-1.5",
         overlay ? "border border-white/15 bg-fr-ink-900/55 backdrop-blur-sm" : "border border-fr-border bg-fr-surface shadow-fr-card",

@@ -1,12 +1,15 @@
 /**
- * Farm Spatial V2 — the five Farm lenses (`design/farm-spatial-v2/
- * DESIGN_CONTRACT.md` "Five lenses"). Presentation copy and domain colour
+ * Farm lenses — Current, Grass, Nutrients, Conditions
+ * (`docs/design/farm-fields-high-fidelity-reference.md` "Farm lenses").
+ * The earlier Farm Spatial V2 Soil lens is absorbed into Nutrients: soil
+ * evidence (pH, P/K index, soil type, test age) sits underneath nutrient
+ * state rather than competing with it. Presentation copy and domain colour
  * only: no lens computes or invents a value. Each lens states honestly
  * which of its contract elements have a real production source today
  * (`docs/farm-spatial-v2/IMPLEMENTATION_MAP.md` §5) and which are not yet
  * available, so the shell never implies data it doesn't have.
  */
-export type FarmLensId = "current" | "grass" | "nutrients" | "soil" | "conditions";
+export type FarmLensId = "current" | "grass" | "nutrients" | "conditions";
 
 export interface FarmLensLink {
   href: string;
@@ -54,22 +57,15 @@ export const FARM_LENSES: readonly FarmLens[] = [
   {
     id: "nutrients",
     label: "Nutrients",
-    caption: "Requirement · organic nutrients · fertiliser",
-    unavailableNote: "Markers show recorded P and K indices. Field requirement and fertiliser stay in each field's nutrient plan.",
+    caption: "Requirement · soil evidence · organic nutrients · fertiliser",
+    unavailableNote: "Markers show recorded P and K indices. Requirement, soil evidence and fertiliser stay in each field's nutrient plan.",
     links: [
       { href: "/fertiliser-plan", label: "Farm nutrient plan" },
       { href: "/nutrients", label: "Field nutrient plan" },
+      { href: "/soil", label: "Soil by field" },
     ],
     accentClassName: "bg-fr-v2-harvest",
     kickerClassName: "text-fr-v2-harvest-strong",
-  },
-  {
-    id: "soil",
-    label: "Soil",
-    caption: "pH · P and K index · soil type · test age",
-    links: [{ href: "/soil", label: "Soil by field" }],
-    accentClassName: "bg-fr-v2-clay",
-    kickerClassName: "text-fr-v2-clay-tint",
   },
   {
     id: "conditions",
@@ -83,6 +79,13 @@ export const FARM_LENSES: readonly FarmLens[] = [
 ];
 
 export const DEFAULT_FARM_LENS: FarmLensId = "current";
+
+/** Links written before Soil joined Nutrients (`?lens=soil`) open the
+ * Nutrients lens; anything else unknown is ignored by the caller. */
+export function resolveFarmLensId(id: string | null | undefined): FarmLensId | undefined {
+  if (id === "soil") return "nutrients";
+  return FARM_LENSES.some((l) => l.id === id) ? (id as FarmLensId) : undefined;
+}
 
 export function farmLensById(id: FarmLensId): FarmLens {
   const lens = FARM_LENSES.find((l) => l.id === id);

@@ -70,6 +70,9 @@ describe("FieldDrawer — real field mapping entry point", () => {
     delete field.polygonCapturedAt;
     expect(field.polygon).toBeUndefined();
     renderDrawer(field);
+    // Structural changes sit behind an explicit Manage field control.
+    expect(screen.queryByRole("button", { name: /map this field/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /manage field/i }));
     const button = screen.getByRole("button", { name: /map this field/i });
     expect(button).toBeTruthy();
     expect(button.hasAttribute("disabled")).toBe(false);
@@ -96,6 +99,8 @@ describe("FieldDrawer — real field mapping entry point", () => {
       polygonCapturedAt: "2026-08-25T10:00:00.000Z",
     };
     renderDrawer(withBoundary);
+    expect(screen.queryByRole("button", { name: /edit boundary/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /manage field/i }));
     expect(screen.getByRole("button", { name: /edit boundary/i })).toBeTruthy();
   });
 
@@ -106,12 +111,11 @@ describe("FieldDrawer — real field mapping entry point", () => {
 });
 
 describe("FieldDrawer — compliance evidence capture (V3 closure pass)", () => {
-  // Strict Visual Reproduction phase (2026-09-03): this evidence now
-  // lives under its own "Constraints" tab (media/image3.png's own
-  // literal Now/Soil/Activity/Constraints tab bar), not "Overview" by
-  // default — same real fields/behaviour, just behind one real tap.
+  // Farm + Fields redesign (2026-10-27): the statutory inputs the
+  // nutrient plan's legal gates read now sit inside the Nutrients chapter
+  // ("Legal inputs for this field") — same real fields/behaviour, one tap.
   function openConstraintsTab() {
-    fireEvent.click(screen.getByRole("button", { name: "Constraints" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
   }
 
   it("defaults commonage status to 'unknown' and fails closed until a farmer sets it", () => {
@@ -256,3 +260,74 @@ describe("FieldDrawer — arriving from What Matters' 'Add spreading details'", 
     expect(document.body.textContent).not.toMatch(/you will (get|see) a recommendation/i);
   });
 });
+
+describe("FieldDrawer — field workspace chapters (Farm + Fields redesign)", () => {
+  it("has only Overview, Nutrients and History — no Soil, Activity or Constraints chapter", () => {
+    renderDrawer(mockFields[0]);
+    const nav = screen.getByRole("navigation", { name: "Field chapters" });
+    expect(Array.from(nav.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["Overview", "Nutrients", "History"]);
+    for (const name of ["Soil", "Activity", "Constraints", "Now"]) expect(screen.queryByRole("button", { name })).toBeNull();
+    expect(screen.getByRole("button", { name: "Overview" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("Overview never presents the planned use as the current use, and says livestock on a field isn't recorded", () => {
+    const field: Field = { ...mockFields[0], plannedUse: { value: "silage_1st_cut", status: "farmer_adjusted", source: "Farmer", sourceDate: "2026-03-02" } };
+    renderDrawer(field);
+    const use = screen.getByRole("region", { name: "Use" });
+    expect(use.textContent).toContain("Current useNot recorded separately");
+    expect(use.textContent).toMatch(/Planned use.*silage/i);
+    expect(use.textContent).toContain("set 2 Mar 2026");
+    expect(use.textContent).toMatch(/Livestock.*Not recorded for fields yet/);
+  });
+
+  it("Nutrients holds the canonical nutrient plan, soil evidence and the legal inputs", () => {
+    renderDrawer(mockFields[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
+    const chapter = document.querySelector("[data-field-nutrients]") as HTMLElement;
+    expect(chapter).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Soil evidence" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Legal inputs for this field" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /full nutrient plan/i }).getAttribute("href")).toBe(`/today/field/${mockFields[0].id}`);
+  });
+
+  it("History lists dated planned-use changes from the provenance chain, newest first, and points to Records", () => {
+    const field: Field = {
+      ...mockFields[0],
+      plannedUse: {
+        value: "silage_1st_cut",
+        status: "farmer_adjusted",
+        source: "Mary",
+        sourceDate: "2026-04-10",
+        previous: { value: "grazing", status: "farmer_adjusted", source: "Mary", sourceDate: "2026-02-01" },
+      },
+    };
+    renderDrawer(field);
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    const list = document.querySelector("[data-history-list]") as HTMLElement;
+    const uses = Array.from(list.querySelectorAll('[data-history-kind="use"]')).map((li) => li.textContent);
+    expect(uses[0]).toContain("10 Apr 2026");
+    expect(uses[0]).toMatch(/Planned use changed to .*silage/i);
+    expect(uses[0]).toContain("Was Grazing");
+    expect(uses[1]).toContain("Planned use set to Grazing");
+    expect(screen.getByRole("link", { name: "Records" }).getAttribute("href")).toBe("/records");
+  });
+
+  it("opens the requested chapter", () => {
+    renderDrawerWith(<FieldDrawer field={mockFields[0]} initialChapter="history" />);
+    expect(screen.getByRole("button", { name: "History" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("archiving asks in place first (no browser dialog) and Split/Merge are honestly unavailable", () => {
+    renderDrawer(mockFields[0]);
+    fireEvent.click(screen.getByRole("button", { name: /manage field/i }));
+    expect(screen.getByText(/split and merge are not available yet/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Archive field" }));
+    expect(screen.getByText(/archive .*\? its records are kept/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Archive field" })).toBeTruthy();
+  });
+});
+
+function renderDrawerWith(node: React.ReactNode) {
+  return render(<FarmProvider>{node}</FarmProvider>);
+}

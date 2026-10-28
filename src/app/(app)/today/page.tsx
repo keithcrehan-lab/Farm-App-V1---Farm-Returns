@@ -1,7 +1,17 @@
 "use client";
 
 /**
- * Farm — Farm Spatial V2 shell (Phase 2, 2026-10-07;
+ * Farm — Farm + Fields redesign (2026-10-27,
+ * `docs/design/farm-fields-high-fidelity-reference.md`). The real map is
+ * the page: farm identity top-left, compact utilities top-right, the four
+ * lenses (Current / Grass / Nutrients / Conditions — Soil now sits inside
+ * Nutrients) bottom-centre, and a selected field coming forward on a deep
+ * forest panel with a straw selection rule. The What Matters summary and
+ * the farm-topic rail no longer sit on or beneath the map: they are one
+ * quiet "What matters" disclosure away (same producers, same state, same
+ * map focus behaviour), and `/what-matters` keeps the full view.
+ *
+ * Earlier: Farm Spatial V2 shell (Phase 2, 2026-10-07;
  * `design/farm-spatial-v2/DESIGN_CONTRACT.md`,
  * `docs/farm-spatial-v2/IMPLEMENTATION_MAP.md` §11). This route is the
  * primary-nav "Farm" screen: the real map is the dominant canvas with the
@@ -49,16 +59,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
 import { MapHero } from "@/components/farm/MapHero";
 import { FarmLensControl } from "@/components/farm-spatial/FarmLensControl";
 import { FarmLensContext } from "@/components/farm-spatial/FarmLensContext";
 import { FarmObjectRail } from "@/components/farm-spatial/FarmObjectRail";
 import { FarmFieldDrawer } from "@/components/farm-spatial/FarmFieldDrawer";
-import { FARM_LENS_MARKER_COLOR, farmFieldLensView, fieldNutrientPlanHref, parseFarmSpatialReturn } from "@/lib/farm-spatial-field-lens";
+import { FARM_LENS_MARKER_COLOR, FIELD_SELECTION_COLOR, farmFieldLensView, parseFarmSpatialReturn } from "@/lib/farm-spatial-field-lens";
+import { farmFieldSelectionView } from "@/lib/farm-field-selection";
 import { useFieldNutrientPlan } from "@/lib/use-field-nutrient-plan";
 import { fieldNutrientPlanView } from "@/lib/field-nutrient-plan-presentation";
 import { usePrefersReducedMotion } from "@/lib/use-prefers-reduced-motion";
+import { DESKTOP_QUERY, useMediaQuery } from "@/lib/use-media-query";
 import { DEFAULT_FARM_LENS, farmLensById, type FarmLensId } from "@/lib/farm-spatial-lenses";
 import { calculateActiveFarmAreaHa, calculateFarmObjectRailCounts, calculateFarmSetupProgress } from "@/domain/farm-stats";
 import { formatNumber } from "@/lib/format";
@@ -133,6 +144,7 @@ export default function TodayPage() {
   const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(undefined);
   const selectedField = fields.find((f) => f.id === selectedFieldId && f.polygon);
   const reducedMotion = usePrefersReducedMotion();
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
   function toggleSelectedField(fieldId: string) {
     setSelectedFieldId((current) => (current === fieldId ? undefined : fieldId));
   }
@@ -259,13 +271,9 @@ export default function TodayPage() {
   // Prompts (real Prompt kinds outside the four aggregated categories)
   // are reachable at all.
   const [secondaryOpen, setSecondaryOpen] = useState(false);
-  // Today Control Room V1 — mobile's own collapsible bottom sheet for
-  // the opportunity rail (section 9 of this checkpoint's brief: "do NOT
-  // squeeze a permanent right rail over the map... collapsible bottom
-  // sheet/drawer"), reusing the exact same `TodayControlRoomRail` rows
-  // the desktop map overlay renders, just inside `Sheet`'s own existing
-  // mobile "slides up from bottom" behaviour instead of a new drawer.
-  const [railSheetOpen, setRailSheetOpen] = useState(false);
+  // Farm + Fields redesign — the What Matters summary, farm topics and Ask
+  // AI live in one quiet disclosure over the map instead of on/under it.
+  const [briefOpen, setBriefOpen] = useState(false);
 
   const [openPrompt, setOpenPrompt] = useState<Prompt | undefined>(undefined);
   const fieldNameFor = (prompt: Prompt | undefined) => fields.find((f) => f.id === prompt?.fieldId)?.name;
@@ -402,17 +410,26 @@ export default function TodayPage() {
   const lensViewContext = { slurryAllocations, conditionsFacts };
   const fieldStatusLabel = (field: (typeof fields)[number]) => farmFieldLensView(lens, field, lensViewContext).markerLabel;
   const selectedFieldView = selectedField ? farmFieldLensView(lens, selectedField, lensViewContext) : undefined;
-  // Farm Spatial V2 Phase 4 — the selected field's canonical nutrient plan
-  // (the shared assembly the Nutrients screen uses), computed only for the
-  // Nutrients lens and only for that one field.
-  const selectedNutrientPlanResult = useFieldNutrientPlan(lens === "nutrients" ? selectedField : undefined);
-  const selectedNutrientPlan = useMemo(
-    () =>
-      selectedNutrientPlanResult && selectedField
-        ? { view: fieldNutrientPlanView(selectedNutrientPlanResult, selectedField), href: fieldNutrientPlanHref(selectedField.id) }
-        : undefined,
-    [selectedNutrientPlanResult, selectedField],
-  );
+  // The selected field's canonical nutrient plan (the shared assembly the
+  // Nutrients screen uses), computed only for that one field, so its real
+  // nutrient state and statutory gates can inform the panel on any lens.
+  const selectedNutrientPlanResult = useFieldNutrientPlan(selectedField);
+  const selectedNutrientPlanView = selectedNutrientPlanResult && selectedField ? fieldNutrientPlanView(selectedNutrientPlanResult, selectedField) : undefined;
+  // The field's own leading Prompt from the same real producers — the one
+  // current-state statement on the Current lens, never a new ranking.
+  const selectedFieldPrompt = selectedField ? selectPrimaryPrompt(allPrompts.filter((p) => p.fieldId === selectedField.id)) : undefined;
+  const selection =
+    selectedField && selectedFieldView
+      ? farmFieldSelectionView({
+          lens,
+          field: selectedField,
+          lensView: selectedFieldView,
+          nutrientPlan: selectedNutrientPlanView,
+          leadingPrompt: selectedFieldPrompt,
+          conditionsFacts,
+          slurryAllocations,
+        })
+      : undefined;
 
   const askAIContext = {
     screen: "Farm",
@@ -437,107 +454,145 @@ export default function TodayPage() {
     },
   };
 
+  // The quiet What Matters summary — identical producers and handlers to
+  // the former plane under the map, now inside the disclosure below.
+  const whatMattersSummary =
+    !mounted || (pilotLoading && !pilotState) ? (
+      <div className="animate-pulse py-2" aria-busy="true">
+        <div className="h-4 w-40 bg-fr-v2-cream-rule" />
+        <div className="mt-3 h-3 w-full bg-fr-v2-cream-rule/70" />
+      </div>
+    ) : pilotError ? (
+      <p className="text-sm text-fr-v2-muted">Unable to verify a recommendation right now.</p>
+    ) : pilotState ? (
+      <>
+        <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} multiSourceSlurryFieldIds={pilotState.multiSourceSlurryFieldIds} slurryPlanningEntry={slurryPlanningEntry} disabled={pilotLoading} variant="light" />
+        {/* One-time setup only: once a contractor rate is on record (from
+            this evaluation or an already-persisted one seen on load), this
+            row disappears for good here -- editing later happens elsewhere
+            (brief: "Do not add Edit on Today"). */}
+        {!pilotState.contractorRatePerHa ? (
+          <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="light" currentRatePerHa={pilotState.contractorRatePerHa} error={contractorRateError} />
+        ) : null}
+        {/* Pilot P4: Farm keeps the summary; the fuller view (with its evidence) is What Matters. */}
+        <Link href="/what-matters" className="self-start text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2">
+          Open What Matters →
+        </Link>
+      </>
+    ) : null;
+
+  const farmTopicCount = mounted ? todayOpportunities.length : 0;
+
   return (
     <>
-      {/* Farm Spatial V2 shell (Phase 2): map + object rail. The real
-          `MapHero` is the dominant canvas; desktop places the persistent
-          object rail in its own column to the right of the map, mobile
-          places it as a band directly under the map. Map overlays:
-          identity (top-left), the compact conditions control (top-right),
-          GPS/nearby field cards and the active lens caption (bottom-left),
-          and the lens mode switcher (bottom-centre).
-
-          Phase 02B (spatial shell visual refinement): no global veil over
-          the photo. Two local scrims (behind the identity and behind the
-          lower lens information) carry legibility, so the aerial imagery
-          stays clearly visible across the middle of the farm.
-
-          Farm Home visual refresh v1: the workspace runs edge to edge
-          beside the navigation (`data-farm-workspace` drops the app
-          shell's desktop gutters, see `AppShell`) and fills the viewport
-          height, so the map owns the screen rather than sitting in a page.
-          The former full-width weather/calendar strip is now the compact
-          `FarmConditionsControl`; the lens band is a compact mode switcher. */}
-      <section data-farm-workspace className="-mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:grid lg:grid-cols-[minmax(0,1fr)_120px] lg:overflow-hidden">
+      {/* Farm + Fields redesign: the map is the page. Overlays: identity
+          (top-left), compact utilities (top-right: Fields list, What
+          matters, conditions), GPS cards and the lens caption
+          (bottom-left, stepping aside while a field is selected), the
+          selected-field panel rising above the lens switcher, and the
+          lens switcher (bottom-centre). Two local scrims carry legibility
+          so the aerial imagery stays clear across the farm. Desktop keeps
+          the quiet object rail beside the map; mobile places it under it.
+          `data-farm-workspace` runs the map edge to edge beside the
+          navigation (see `AppShell`). */}
+      <section data-farm-workspace className="-mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:grid lg:grid-cols-[minmax(0,1fr)_112px] lg:overflow-hidden">
         <div className="relative min-w-0">
           <MapHero
             fields={fields}
             getTone={fieldTone}
             getStatusLabel={fieldStatusLabel}
-            // Phase 3 — a tap selects the field in place (drawer below);
-            // Field detail stays one link away inside the drawer.
+            // A tap selects the field in place; its workspace stays one
+            // link away inside the selected-field panel.
             onSelectField={toggleSelectedField}
             onMapBackgroundClick={() => setSelectedFieldId(undefined)}
-            selectedFieldId={selectedField?.id ?? primaryPrompt?.fieldId}
-            // Only a farmer's own selection moves the camera, never the
-            // leading Prompt's preselection or a lens change. Bottom
-            // padding keeps the field clear of the rising drawer, and the
-            // zoom cap keeps neighbours in frame.
+            // Only the farmer's own selection is emphasised — a leading
+            // Prompt never pre-selects a field in straw.
+            selectedFieldId={selectedField?.id}
+            selectionColor={FIELD_SELECTION_COLOR}
+            // Only a farmer's own selection moves the camera, never a lens
+            // change. Bottom padding keeps the field clear of the rising
+            // panel, and the zoom cap keeps neighbours in frame.
             flyToSelection={Boolean(selectedField)}
-            flyToPadding={{ top: 120, bottom: 280, left: 48, right: 48 }}
-            flyToMaxZoom={16.5}
+            flyToPadding={isDesktop ? { top: 140, bottom: 110, left: 470, right: 60 } : { top: 150, bottom: 500, left: 32, right: 32 }}
+            flyToMaxZoom={16}
             flyToDuration={reducedMotion ? 0 : 320}
             compactNeighbourLabels
-            // Phase 02B — every mapped field keeps its real name on the
-            // map (bare text, no status or colour claim) so fields read
-            // as this farm's named fields, not anonymous polygons.
+            // Every mapped field keeps its real name on the map (bare
+            // text, no status or colour claim) plus the active lens's real
+            // marker text.
             neighbourNameLabels
-            // Phase 3 — plus the active lens's real marker text.
             neighbourDetailLabels
             markerAccentColor={FARM_LENS_MARKER_COLOR[lens]}
             markerContentKey={lens}
-            // Today Control Room V1 — real category-focus membership only
-            // (see `MapHero.tsx`'s own doc comment): the currently focused
-            // opportunity's own real `affectedFieldIds`, softening every
-            // other real mapped field and (opt-in) fitting the camera to
-            // just that set. `undefined` (no category focused) leaves the
-            // map at its normal, unfocused default. A lens change never
-            // touches the camera (IMPLEMENTATION_MAP §5).
-            //
-            // Phase 3 — a selected field takes over the highlight so its
-            // neighbours recede (dimmed, never hidden); the camera is then
-            // owned by `flyToSelection`.
+            // Real category-focus membership only (see `MapHero.tsx`): the
+            // focused farm topic's own real `affectedFieldIds`, softening
+            // every other mapped field and fitting the camera to that set.
+            // A selected field takes over the highlight so its neighbours
+            // recede (dimmed, never hidden); the camera is then owned by
+            // `flyToSelection`. A lens change never touches the camera.
             highlightedFieldIds={selectedField ? [selectedField.id] : focusedOpportunity?.affectedFieldIds}
             dimUnhighlighted
             fitHighlightedFields={!selectedField}
             center={farm.location.centroid}
             userPosition={position}
             plain
-            className="h-[78dvh] min-h-[520px] lg:h-[max(600px,calc(100dvh-2.5rem))]"
+            // Keep the whole farm clear of the identity, utilities and
+            // lens switcher: a wide left margin beside the desktop identity.
+            fitPadding={(width) => (width >= 860 ? { top: 120, bottom: 110, left: 380, right: 60 } : { top: 250, bottom: 190, left: 24, right: 120 })}
+            className="h-[calc(100dvh-0.5rem)] min-h-[600px] lg:h-dvh lg:min-h-[640px]"
           >
             <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between">
-              <div aria-hidden className="absolute inset-x-0 top-0 h-56 bg-[radial-gradient(ellipse_70%_100%_at_0%_0%,rgba(10,14,11,0.5),transparent_70%)]" />
-              <div aria-hidden className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black/45 via-black/12 to-transparent" />
+              <div aria-hidden className="absolute inset-x-0 top-0 h-64 bg-[radial-gradient(ellipse_70%_100%_at_0%_0%,rgba(10,14,11,0.55),transparent_72%)]" />
+              <div aria-hidden className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/50 via-black/12 to-transparent" />
 
-              <div className="relative flex flex-col gap-3 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] sm:flex-row sm:items-start sm:justify-between lg:px-7 lg:pt-6">
+              <div className="relative flex flex-col gap-4 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] sm:flex-row sm:items-start sm:justify-between lg:px-9 lg:pt-8">
                 <div className="pointer-events-auto min-w-0 [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]">
-                  <p className={cn("text-[10.5px] font-semibold uppercase tracking-[0.16em]", activeLens.kickerClassName)}>
-                    Farm Return · {activeLens.label}
-                  </p>
-                  <h1 className="mt-1.5 max-w-[18ch] text-balance font-display text-[32px] leading-[1.02] tracking-[-0.01em] text-white lg:text-[44px]">{farm.name}</h1>
-                  <p className="mt-2 text-xs font-medium tabular-nums tracking-[0.01em] text-white/90">
+                  <p className={cn("text-[10.5px] font-semibold uppercase tracking-[0.18em]", activeLens.kickerClassName)}>Farm Return · {activeLens.label}</p>
+                  <h1 className="mt-2 max-w-[16ch] text-balance font-display text-[34px] leading-[0.98] tracking-[-0.02em] text-white lg:text-[56px]">{farm.name}</h1>
+                  <p className="mt-3 font-mono text-[12px] tabular-nums tracking-[0.01em] text-white/90" data-farm-identity-measure>
                     {fieldCountLabel}
                     {farmAreaHa !== null ? ` · ${formatNumber(farmAreaHa, 1)} ha` : ""}
                   </p>
-                  <p className="mt-0.5 text-xs text-white/70">
+                  <p className={cn("mt-1 text-xs text-white/65", selectedField && "max-sm:hidden")}>
                     {greetingText}, {farm.ownerName}
                   </p>
                 </div>
 
-                {/* Farm Home visual refresh v1 — real station weather and
-                    the real spreading-calendar restriction count (T3/T4),
-                    with the detail one disclosure away. Settings sits
-                    beside it at every width. */}
-                <div className="pointer-events-auto min-w-0 self-start sm:shrink-0">
+                {/* Compact utilities only: the Fields companion list, the
+                    quiet What matters disclosure, and the real station
+                    weather + spreading-calendar control (with Settings). */}
+                {/* On a phone the utilities step aside while a field is
+                    selected, so the field stays visible above its panel. */}
+                <div className={cn("pointer-events-auto flex min-w-0 flex-wrap items-start gap-1 self-start sm:shrink-0 sm:justify-end", selectedField && "max-sm:hidden")}>
+                  <Link
+                    href="/fields"
+                    className="flex h-9 items-center rounded-fr-v2-control bg-fr-v2-shell/72 px-3 text-xs font-medium text-white shadow-[0_2px_10px_rgba(0,0,0,0.18)] backdrop-blur-md transition-colors duration-[160ms] hover:bg-fr-v2-shell/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-reduce:transition-none"
+                  >
+                    Fields list
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setBriefOpen(true)}
+                    aria-haspopup="dialog"
+                    data-what-matters-trigger
+                    className="flex h-9 items-center gap-2 rounded-fr-v2-control bg-fr-v2-shell/72 px-3 text-xs font-medium text-white shadow-[0_2px_10px_rgba(0,0,0,0.18)] backdrop-blur-md transition-colors duration-[160ms] hover:bg-fr-v2-shell/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-reduce:transition-none"
+                  >
+                    What matters
+                    {farmTopicCount > 0 ? (
+                      <span className="font-mono text-[11px] tabular-nums text-fr-v2-straw" aria-label={`${farmTopicCount} farm ${farmTopicCount === 1 ? "topic" : "topics"}`}>
+                        {farmTopicCount}
+                      </span>
+                    ) : null}
+                  </button>
                   <FarmConditionsControl centroid={farm.location.centroid} summary={conditionsSummary} ready={mounted} />
                 </div>
               </div>
 
               <div className="relative flex flex-col">
-                {/* With a field selected the drawer carries the lens
+                {/* With a field selected the panel carries the lens
                     information, so the farm-wide caption and GPS cards
                     step aside rather than stacking under it. */}
-                <div className={cn("flex flex-col gap-3 px-4 pb-3 transition-opacity duration-[180ms] motion-reduce:transition-none lg:px-7 lg:pb-4", selectedField && "invisible opacity-0")}>
+                <div className={cn("flex flex-col gap-3 px-4 pb-3 transition-opacity duration-[180ms] motion-reduce:transition-none lg:px-9 lg:pb-4", selectedField && "invisible opacity-0")}>
                   <div className="pointer-events-auto flex max-w-md flex-col gap-2">
                     <GpsActivityCandidateCard fields={fields} />
                     <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
@@ -547,12 +602,12 @@ export default function TodayPage() {
                   </div>
                 </div>
                 <div className="relative">
-                  {/* Phase 3 field drawer — rises from the lens band, attached
-                      to the map, never a full-screen modal. */}
-                  <div className="absolute inset-x-0 bottom-full overflow-hidden lg:left-7 lg:right-auto lg:w-96">
-                    <FarmFieldDrawer field={selectedField} lensId={lens} view={selectedFieldView} nutrientPlan={selectedNutrientPlan} onClose={() => setSelectedFieldId(undefined)} />
+                  {/* The selected field comes forward, attached to the map
+                      above the lens switcher — never a full-screen modal. */}
+                  <div className="absolute inset-x-0 bottom-full px-2 pb-2 sm:px-3 lg:left-9 lg:right-auto lg:w-[400px] lg:px-0 lg:pb-3">
+                    <FarmFieldDrawer field={selectedField} lensId={lens} selection={selection} onClose={() => setSelectedFieldId(undefined)} />
                   </div>
-                  <div className="flex justify-center px-2 pb-3 sm:px-3 lg:pb-5">
+                  <div className="flex justify-center px-2 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-3 lg:pb-6">
                     <div className="pointer-events-auto w-full sm:w-auto">
                       <FarmLensControl value={lens} onChange={setLens} />
                     </div>
@@ -566,136 +621,61 @@ export default function TodayPage() {
         <FarmObjectRail counts={objectRailCounts} livestockGroups={livestockGroups} housing={housingList} />
       </section>
 
-      {/* Desktop plane under the map — the What Matters pilot (T7/T25)
-          and the farm-topic opportunity rail, priority counts, secondary
-          feed and Ask AI (T8/T9/T11/T14/T17/T24) moved off the map so the
-          map stays the dominant, uncluttered surface. Asymmetric columns
-          and a rule, not a card grid. Mobile keeps its own section below
-          (`lg:hidden`); never both at once. */}
-      <section className="hidden gap-10 px-10 pb-10 pt-8 lg:grid lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
-        <div className="flex min-w-0 flex-col gap-3">
-          {!mounted || (pilotLoading && !pilotState) ? (
-            <div className="animate-pulse py-2">
-              <div className="h-4 w-40 rounded bg-fr-surface" />
-              <div className="mt-3 h-3 w-full rounded bg-fr-surface" />
-            </div>
-          ) : pilotError ? (
-            <p className="text-sm text-fr-ink-600">Unable to verify a recommendation right now.</p>
-          ) : pilotState ? (
-            <>
-              <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} multiSourceSlurryFieldIds={pilotState.multiSourceSlurryFieldIds} slurryPlanningEntry={slurryPlanningEntry} disabled={pilotLoading} variant="light" />
-              {/* One-time setup only: once a contractor rate is on
-                  record (from this evaluation or an already-persisted
-                  one seen on load), this row disappears for good on
-                  this screen -- editing later happens elsewhere, not
-                  here (brief: "Do not add Edit on Today"). */}
-              {!pilotState.contractorRatePerHa ? (
-                <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="light" currentRatePerHa={pilotState.contractorRatePerHa} error={contractorRateError} />
-              ) : null}
-              {/* Pilot P4: Farm keeps the summary; the fuller view (with its evidence) is What Matters. */}
-              <Link href="/what-matters" className="self-start text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2">
-                Open What Matters →
-              </Link>
-            </>
-          ) : null}
-        </div>
+      {/* What matters — the What Matters pilot summary (T7/T25), the
+          farm-topic rail with its priority counts and secondary feed, and
+          Ask AI (T8/T9/T11/T14/T17/T24), progressively disclosed rather
+          than competing with the map. Selecting a topic closes this panel
+          so the map can show that topic's real fields. */}
+      <Sheet
+        open={briefOpen}
+        onClose={() => setBriefOpen(false)}
+        title="What matters"
+        placement="side"
+        panelClassName="bg-fr-v2-cream border-fr-v2-cream-rule lg:rounded-none lg:border-l-[3px] lg:border-y-0 lg:border-r-0 lg:border-l-fr-v2-gold"
+      >
+        <div className="flex flex-col gap-8" data-what-matters-brief>
+          <section aria-label="What Matters" className="flex min-w-0 flex-col gap-3">
+            {whatMattersSummary}
+          </section>
 
-        <div className="flex min-w-0 flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-fr-v2-muted">Farm topics</p>
-            <AskAIButton context={askAIContext} />
-          </div>
-          {/* Priority counts and the honest working-window placeholder,
-              only for a farm with mapped fields (T27). */}
-          {mounted && mappedFields.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <TodayPriorityHud counts={priorityCounts} variant="surface" />
+          <section aria-labelledby="farm-topics-heading" className="flex min-w-0 flex-col gap-3 border-t border-fr-v2-cream-rule pt-5">
+            <div className="flex items-center justify-between gap-3">
+              <h3 id="farm-topics-heading" className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-muted">
+                Farm topics
+              </h3>
+              <AskAIButton context={askAIContext} />
             </div>
-          ) : null}
-          {mounted && todayOpportunities.length > 0 ? (
-            <TodayControlRoomRail opportunities={todayOpportunities} selectedCategory={focusedCategory} onSelectOpportunity={selectOpportunity} variant="surface" />
-          ) : null}
-          {mounted && secondaryFeedPrompts.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => setSecondaryOpen(true)}
-              className="self-start text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2"
-            >
-              View all today&apos;s items →
-            </button>
-          ) : null}
-        </div>
-      </section>
-
-      {/* Mobile/tablet only — the map and object rail stay the main
-          visual (above); this normal-flow section stays intentionally
-          light: "What matters now", a compact priority strip that opens
-          the same rail data in a bottom `Sheet`, and Ask AI. */}
-      <div className="mt-4 flex flex-col gap-3 lg:hidden">
-        {!mounted || (pilotLoading && !pilotState) ? (
-          <div className="animate-pulse rounded-fr-card bg-fr-surface p-5 shadow-fr-card">
-            <div className="h-5 w-40 rounded bg-fr-surface-alt" />
-            <div className="mt-3 h-4 w-full rounded bg-fr-surface-alt" />
-          </div>
-        ) : pilotError ? (
-          <div className="rounded-fr-card border border-fr-border bg-fr-surface p-5 shadow-fr-card">
-            <p className="text-sm text-fr-ink-600">Unable to verify a recommendation right now.</p>
-          </div>
-        ) : pilotState ? (
-          <>
-            <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} multiSourceSlurryFieldIds={pilotState.multiSourceSlurryFieldIds} slurryPlanningEntry={slurryPlanningEntry} disabled={pilotLoading} variant="light" />
-            {!pilotState.contractorRatePerHa ? (
-              <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="light" currentRatePerHa={pilotState.contractorRatePerHa} error={contractorRateError} />
+            {/* Priority counts only for a farm with mapped fields (T27). */}
+            {mounted && mappedFields.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <TodayPriorityHud counts={priorityCounts} variant="surface" />
+              </div>
             ) : null}
-            {/* Pilot P4: Farm keeps the summary; the fuller view (with its evidence) is What Matters. */}
-            <Link href="/what-matters" className="self-start text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2">
-              Open What Matters →
-            </Link>
-          </>
-        ) : null}
-
-        {mounted && mappedFields.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => setRailSheetOpen(true)}
-            className="flex items-center justify-between gap-2 rounded-fr-v2-row border border-fr-v2-rule bg-fr-surface px-3 py-2.5"
-          >
-            <TodayPriorityHud counts={priorityCounts} variant="surface" />
-            <ChevronRight className="size-4 shrink-0 text-fr-ink-400" />
-          </button>
-        ) : null}
-
-        <div className="flex justify-end">
-          <AskAIButton context={askAIContext} />
-        </div>
-      </div>
-
-      {/* Today Control Room V1 — mobile's own collapsible bottom sheet
-          for the same real opportunity rail the desktop overlay renders
-          (section 9's own "no permanent right rail on mobile" rule). */}
-      <Sheet open={railSheetOpen} onClose={() => setRailSheetOpen(false)} title="Today's opportunities">
-        <div className="flex flex-col gap-3">
-          <TodayControlRoomRail
-            opportunities={todayOpportunities}
-            selectedCategory={focusedCategory}
-            onSelectOpportunity={(opportunity) => {
-              setRailSheetOpen(false);
-              selectOpportunity(opportunity);
-            }}
-            variant="surface"
-          />
-          {secondaryFeedPrompts.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => {
-                setRailSheetOpen(false);
-                setSecondaryOpen(true);
-              }}
-              className="self-start text-xs font-semibold text-fr-green-700"
-            >
-              View all today&apos;s items →
-            </button>
-          ) : null}
+            {mounted && todayOpportunities.length > 0 ? (
+              <TodayControlRoomRail
+                opportunities={todayOpportunities}
+                selectedCategory={focusedCategory}
+                onSelectOpportunity={(opportunity) => {
+                  setBriefOpen(false);
+                  setSelectedFieldId(undefined);
+                  selectOpportunity(opportunity);
+                }}
+                variant="surface"
+              />
+            ) : null}
+            {mounted && secondaryFeedPrompts.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setBriefOpen(false);
+                  setSecondaryOpen(true);
+                }}
+                className="self-start text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2"
+              >
+                View all today&apos;s items →
+              </button>
+            ) : null}
+          </section>
         </div>
       </Sheet>
 
@@ -716,16 +696,14 @@ export default function TodayPage() {
 
       {/* Farm-Topic Notification Aggregation V1 — the FARM-LEVEL
           OPPORTUNITY -> FIELD BREAKDOWN -> SCIENTIFIC EVIDENCE hierarchy:
-          a rail row opens this sheet's field breakdown; a field row
-          either navigates to its own real Field Detail screen, or (for
+          a topic row opens this sheet's field breakdown; a field row
+          either navigates to its own real field workspace, or (for
           Slurry/Fertiliser/Soil, which have a real underlying `Prompt` —
           Lime doesn't yet) opens `ExpandedPromptSheet` below for that
           field's own real evidence, nested on top rather than replacing
           this sheet. Rendered BEFORE `ExpandedPromptSheet` in the DOM
           deliberately — every `Sheet` instance shares the same `z-50`,
-          so when both are open at once, the one rendered later here is
-          the one that visually sits on top; `ExpandedPromptSheet` must
-          win that stack whenever it's nested inside this one. */}
+          so the one rendered later visually sits on top. */}
       <TodayOpportunitySheet
         opportunity={openOpportunity}
         open={Boolean(openOpportunity)}

@@ -4,14 +4,21 @@ import { FarmLensControl } from "./FarmLensControl";
 import { FarmLensContext } from "./FarmLensContext";
 import { FarmObjectRail } from "./FarmObjectRail";
 import { FARM_LENSES, farmLensById } from "@/lib/farm-spatial-lenses";
-import { primaryNavItems, moreNavItems } from "@/components/shell/nav-items";
+import { isNavItemActive, mobileMoreNavItems, mobileNavItems, moreNavItems, primaryNavItems } from "@/components/shell/nav-items";
 import { tracked, type Housing, type LivestockGroup } from "@/domain/types";
 
 afterEach(cleanup);
 
-describe("Farm Spatial V2 lenses", () => {
-  it("defines exactly the five approved lenses in order", () => {
-    expect(FARM_LENSES.map((l) => l.label)).toEqual(["Current", "Grass", "Nutrients", "Soil", "Conditions"]);
+describe("Farm lenses (Farm + Fields redesign)", () => {
+  it("defines exactly the four approved lenses in order — no separate Soil lens", () => {
+    expect(FARM_LENSES.map((l) => l.label)).toEqual(["Current", "Grass", "Nutrients", "Conditions"]);
+    expect(FARM_LENSES.map((l) => l.id)).not.toContain("soil");
+  });
+
+  it("absorbs soil evidence into Nutrients", () => {
+    const nutrients = farmLensById("nutrients");
+    expect(nutrients.caption).toMatch(/soil evidence/i);
+    expect(nutrients.links).toContainEqual({ href: "/soil", label: "Soil by field" });
   });
 
   it("gives each non-Current lens its own domain colour, not green", () => {
@@ -38,14 +45,14 @@ describe("FarmLensControl", () => {
   });
 
   it("marks the active lens with its domain-colour rule, not a filled button (Phase 02B)", () => {
-    render(<FarmLensControl value="soil" onChange={() => {}} />);
+    render(<FarmLensControl value="conditions" onChange={() => {}} />);
     const group = screen.getByRole("group", { name: "Farm lens" });
     for (const lens of FARM_LENSES) {
       const button = within(group).getByRole("button", { name: lens.label });
       expect(button.className).not.toMatch(/\bbg-/);
       const rule = button.querySelector("[data-lens-rule]")!;
       expect(rule.className).toContain(lens.accentClassName);
-      expect(rule.className).toContain(lens.id === "soil" ? "opacity-100" : "opacity-0");
+      expect(rule.className).toContain(lens.id === "conditions" ? "opacity-100" : "opacity-0");
     }
   });
 });
@@ -53,7 +60,7 @@ describe("FarmLensControl", () => {
 describe("FarmLensContext", () => {
   it("links the Nutrients lens to the existing real nutrient plan screens", () => {
     render(<FarmLensContext lensId="nutrients" />);
-    expect(screen.getByText("Requirement · organic nutrients · fertiliser")).toBeTruthy();
+    expect(screen.getByText("Requirement · soil evidence · organic nutrients · fertiliser")).toBeTruthy();
     expect(screen.getByRole("link", { name: /farm nutrient plan/i }).getAttribute("href")).toBe("/fertiliser-plan");
     expect(screen.getByRole("link", { name: /field nutrient plan/i }).getAttribute("href")).toBe("/nutrients");
   });
@@ -181,21 +188,44 @@ describe("FarmObjectRail", () => {
   });
 });
 
-describe("Pilot primary navigation (Pilot Integration P4, D15)", () => {
-  it("is Farm · What Matters · Plan · Cattle · Records, with Farm on the map-led screen", () => {
-    expect(primaryNavItems.map((i) => i.label)).toEqual(["Farm", "What Matters", "Plan", "Cattle", "Records"]);
-    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/what-matters", "/plan", "/cattle", "/records"]);
+describe("Primary navigation (Farm + Fields redesign)", () => {
+  it("is Farm · Plan · Cattle · Housing · Finance · Records, with Farm on the map-led screen", () => {
+    expect(primaryNavItems.map((i) => i.label)).toEqual(["Farm", "Plan", "Cattle", "Housing", "Finance", "Records"]);
+    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/plan", "/cattle", "/housing", "/finance", "/records"]);
   });
 
-  it("has no placeholder destinations: What Matters is a real screen now", () => {
+  it("has no placeholder destinations", () => {
     expect(primaryNavItems.filter((i) => i.placeholderNote)).toEqual([]);
   });
 
-  it("keeps the pilot screens under More, without duplicating a primary item", () => {
+  it("keeps What Matters reachable, but not first-level: it heads More", () => {
+    expect(primaryNavItems.map((i) => i.href)).not.toContain("/what-matters");
+    expect(moreNavItems[0]).toMatchObject({ href: "/what-matters", label: "What Matters" });
+  });
+
+  it("keeps every earlier screen under More, without duplicating a primary item", () => {
     const moreHrefs = moreNavItems.map((i) => i.href);
-    for (const href of ["/fields", "/soil", "/supports", "/quotes", "/market-prices", "/nutrients", "/fertiliser-plan", "/spreading", "/reports", "/settings"]) {
+    for (const href of ["/what-matters", "/fields", "/soil", "/supports", "/quotes", "/market-prices", "/nutrients", "/fertiliser-plan", "/spreading", "/reports", "/settings"]) {
       expect(moreHrefs).toContain(href);
     }
     for (const item of primaryNavItems) expect(moreHrefs).not.toContain(item.href);
+  });
+
+  it("mobile keeps four primary slots plus More, and More leads with Housing and Finance so no destination is lost", () => {
+    expect(mobileNavItems.map((i) => i.label)).toEqual(["Farm", "Plan", "Cattle", "Records"]);
+    expect(mobileMoreNavItems.slice(0, 3).map((i) => i.label)).toEqual(["Housing", "Finance", "What Matters"]);
+    const reachable = new Set([...mobileNavItems, ...mobileMoreNavItems].map((i) => i.href));
+    for (const item of [...primaryNavItems, ...moreNavItems]) expect(reachable).toContain(item.href);
+  });
+
+  it("marks Farm current on its Fields companion and nested routes, and Cattle on a group page", () => {
+    const farm = primaryNavItems[0];
+    expect(isNavItemActive(farm, "/today")).toBe(true);
+    expect(isNavItemActive(farm, "/fields")).toBe(true);
+    expect(isNavItemActive(farm, "/today/field/f1")).toBe(true);
+    expect(isNavItemActive(farm, "/fertiliser-plan")).toBe(false);
+    const cattle = primaryNavItems.find((i) => i.href === "/cattle")!;
+    expect(isNavItemActive(cattle, "/cattle/groups/g1")).toBe(true);
+    expect(isNavItemActive(cattle, "/cattlefeed")).toBe(false);
   });
 });

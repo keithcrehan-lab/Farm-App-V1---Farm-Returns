@@ -71,6 +71,17 @@
   --fr-v2-clay: #aa644c;
   --fr-v2-clay-tint: #f8e7df;
 
+  /* Farm + Fields redesign (docs/design/farm-fields-high-fidelity-reference.md)
+     — the approved object language shared with Cattle continuity: deep
+     forest selected-object surfaces, warm cream supporting surfaces and a
+     thin straw/gold selection rule. Gold marks selection and identity only. */
+  --fr-v2-forest-deep: #18241d;
+  --fr-v2-forest-deep-2: #1f3127;
+  --fr-v2-cream: #f4efe5;
+  --fr-v2-cream-rule: #d6cec0;
+  --fr-v2-straw: #e3c77e;
+  --fr-v2-gold: #d1a22a;
+
   /* Overlay plane over map photography (lens bar). */
   --fr-v2-glass: rgba(18, 24, 20, 0.86);
 
@@ -142,6 +153,12 @@
   --color-fr-v2-clay: var(--fr-v2-clay);
   --color-fr-v2-clay-tint: var(--fr-v2-clay-tint);
   --color-fr-v2-glass: var(--fr-v2-glass);
+  --color-fr-v2-forest-deep: var(--fr-v2-forest-deep);
+  --color-fr-v2-forest-deep-2: var(--fr-v2-forest-deep-2);
+  --color-fr-v2-cream: var(--fr-v2-cream);
+  --color-fr-v2-cream-rule: var(--fr-v2-cream-rule);
+  --color-fr-v2-straw: var(--fr-v2-straw);
+  --color-fr-v2-gold: var(--fr-v2-gold);
 
   --radius-fr-v2-plane: var(--fr-v2-radius-plane);
   --radius-fr-v2-row: var(--fr-v2-radius-row);

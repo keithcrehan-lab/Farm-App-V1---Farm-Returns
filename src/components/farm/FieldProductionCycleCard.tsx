@@ -27,6 +27,23 @@ function numericValue(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+type ChemicalAppliedState = "none" | "yes" | "unknown";
+
+function chemicalAppliedState(n: string, p: string, k: string): ChemicalAppliedState {
+  const values = [n, p, k];
+  if (values.every((value) => value.trim() === "")) return "unknown";
+  if (values.every((value) => numericValue(value) === 0)) return "none";
+  return "yes";
+}
+
+function farmerFacingSaveError(error: unknown): string {
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (!message || message.startsWith("{") || /\b(code|details|hint)\b/i.test(message)) {
+    return "Could not save production evidence. Please try again.";
+  }
+  return message;
+}
+
 function gateCopy(gate: FertiliserInputGateResult | null): { title: string; detail: string } {
   if (!gate) return { title: "Evidence not set", detail: "Choose this season's crop system and record the field evidence Farm Return needs." };
   if (gate.status === "READY_FOR_CALCULATION") {
@@ -57,6 +74,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
   const [nApplied, setNApplied] = useState("");
   const [pApplied, setPApplied] = useState("");
   const [kApplied, setKApplied] = useState("");
+  const [chemicalApplied, setChemicalApplied] = useState<ChemicalAppliedState>("unknown");
   const [cloverPct, setCloverPct] = useState("");
   const [grazingSystem, setGrazingSystem] = useState<GrazingProductionSystem | "">("");
   const [message, setMessage] = useState<string | null>(null);
@@ -75,7 +93,13 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
           setTarget(state.cycle.evidence.productionTargetTDMHa?.value?.toString() ?? "");
           setNApplied(state.cycle.evidence.chemicalNAppliedKgHa?.value?.toString() ?? "");
           setPApplied(state.cycle.evidence.chemicalPAppliedKgHa?.value?.toString() ?? "");
-          setKApplied(state.cycle.evidence.chemicalKAppliedKgHa?.value?.toString() ?? "");
+          const loadedN = state.cycle.evidence.chemicalNAppliedKgHa?.value?.toString() ?? "";
+          const loadedP = state.cycle.evidence.chemicalPAppliedKgHa?.value?.toString() ?? "";
+          const loadedK = state.cycle.evidence.chemicalKAppliedKgHa?.value?.toString() ?? "";
+          setNApplied(loadedN);
+          setPApplied(loadedP);
+          setKApplied(loadedK);
+          setChemicalApplied(chemicalAppliedState(loadedN, loadedP, loadedK));
           setCloverPct(state.cycle.evidence.whiteCloverPct?.value?.toString() ?? "");
         setGrazingSystem(state.cycle.evidence.grazingProductionSystem?.value ?? "");
         }
@@ -164,15 +188,51 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
         </label>
       ) : null}
 
-      <div>
-        <p className="mb-2 text-xs font-semibold text-fr-v2-graphite">Chemical fertiliser already applied this season (kg nutrient/ha)</p>
-        <p className="mb-3 text-xs text-fr-v2-muted">Enter 0 only when you are explicitly declaring that none has been applied. Blank means unknown.</p>
-        <div className="grid grid-cols-3 gap-2">
-          <label className={LABEL}>N<input aria-label="Chemical N applied" type="number" min="0" step="0.1" className={INPUT} value={nApplied} onChange={(e) => setNApplied(e.target.value)} /></label>
-          <label className={LABEL}>P<input aria-label="Chemical P applied" type="number" min="0" step="0.1" className={INPUT} value={pApplied} onChange={(e) => setPApplied(e.target.value)} /></label>
-          <label className={LABEL}>K<input aria-label="Chemical K applied" type="number" min="0" step="0.1" className={INPUT} value={kApplied} onChange={(e) => setKApplied(e.target.value)} /></label>
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-xs font-semibold text-fr-v2-graphite">Has chemical fertiliser already been applied to this field this season?</legend>
+        <p className="text-xs text-fr-v2-muted">Only enter nutrient amounts when fertiliser has actually been applied.</p>
+        <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Chemical fertiliser already applied">
+          {[
+            ["none", "No"],
+            ["yes", "Yes"],
+            ["unknown", "Not sure"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={chemicalApplied === value}
+              onClick={() => {
+                const next = value as ChemicalAppliedState;
+                setChemicalApplied(next);
+                if (next === "none") {
+                  setNApplied("0");
+                  setPApplied("0");
+                  setKApplied("0");
+                } else if (next === "unknown") {
+                  setNApplied("");
+                  setPApplied("");
+                  setKApplied("");
+                } else if (chemicalApplied !== "yes") {
+                  setNApplied("");
+                  setPApplied("");
+                  setKApplied("");
+                }
+              }}
+              className={`min-h-10 border px-3 text-sm font-semibold ${chemicalApplied === value ? "border-fr-v2-forest bg-fr-v2-forest-deep text-white" : "border-fr-v2-cream-rule bg-white text-fr-v2-graphite"}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      </div>
+        {chemicalApplied === "yes" ? (
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            <label className={LABEL}>N (kg/ha)<input aria-label="Chemical N applied" type="number" min="0" step="0.1" className={INPUT} value={nApplied} onChange={(e) => setNApplied(e.target.value)} /></label>
+            <label className={LABEL}>P (kg/ha)<input aria-label="Chemical P applied" type="number" min="0" step="0.1" className={INPUT} value={pApplied} onChange={(e) => setPApplied(e.target.value)} /></label>
+            <label className={LABEL}>K (kg/ha)<input aria-label="Chemical K applied" type="number" min="0" step="0.1" className={INPUT} value={kApplied} onChange={(e) => setKApplied(e.target.value)} /></label>
+          </div>
+        ) : null}
+      </fieldset>
 
       <div className="border-l-[3px] border-fr-v2-forest pl-3">
         <p className="text-sm font-semibold text-fr-v2-graphite">{status.title}</p>
@@ -206,7 +266,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
               setMessage("Field evidence saved.");
               onSaved?.();
             } catch (error) {
-              setMessage(error instanceof Error ? error.message : "Could not save field evidence.");
+              setMessage(farmerFacingSaveError(error));
             }
           });
         }}

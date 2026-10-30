@@ -102,7 +102,8 @@ describe("HousingPage -- fill-level provenance (Codex audit CRITICAL, round 1 + 
     renderPage([housing({ storageFillPct: 0, storageFillStatus: "estimated" })]);
     expect(screen.getByTestId("fill-status-probe").textContent).toBe("estimated:0");
 
-    fireEvent.click(screen.getByText(/edit this shed/i));
+    fireEvent.click(screen.getByText(/2 · shed & storage details/i));
+    fireEvent.click(screen.getByRole("button", { name: /edit shed & fill/i }));
     await waitFor(() => expect(screen.getByRole("button", { name: /save changes/i })).toBeTruthy());
     // Only rename the shed -- the fill field is prefilled but never touched.
     fireEvent.change(screen.getByDisplayValue("Shed 1"), { target: { value: "Renamed Shed" } });
@@ -115,7 +116,8 @@ describe("HousingPage -- fill-level provenance (Codex audit CRITICAL, round 1 + 
   it("stamps farmer_recorded when an edit genuinely does touch the fill field", async () => {
     renderPage([housing({ storageFillPct: 0, storageFillStatus: "estimated" })]);
 
-    fireEvent.click(screen.getByText(/edit this shed/i));
+    fireEvent.click(screen.getByText(/2 · shed & storage details/i));
+    fireEvent.click(screen.getByRole("button", { name: /edit shed & fill/i }));
     await waitFor(() => expect(screen.getByRole("button", { name: /save changes/i })).toBeTruthy());
     fireEvent.change(screen.getByLabelText(/current fill/i), { target: { value: "60" } });
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
@@ -134,11 +136,12 @@ describe("HousingPage -- fill-level provenance (Codex audit CRITICAL, round 1 + 
   // analysis entry), so the field it protects against regressing is
   // "does the tooltip still claim fill level is unavailable" -- it never
   // should, editable or not.
-  it("never tells a farmer fill level is unavailable via the Slurry analysis button's tooltip", () => {
+  it("has one canonical slurry-analysis action and never claims fill level is unavailable", () => {
     renderPage([housing()]);
-    const analysisButton = screen.getByRole("button", { name: /slurry analysis/i });
+    const analysisButton = screen.getByRole("button", { name: /add slurry result/i });
     expect(analysisButton).toHaveProperty("disabled", false);
-    expect(analysisButton.getAttribute("title")).not.toMatch(/fill level/i);
+    expect(screen.queryByRole("button", { name: /^slurry analysis$/i })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/fill level arrives with/i);
   });
 });
 
@@ -180,15 +183,16 @@ describe("HousingPage -- slurry composition (Slurry Evidence & Composition V1)",
   });
 });
 
-describe("HousingPage -- real mode never shows mock slurry allocation priority/score as a genuine scientific output (brief §8)", () => {
-  it("shows an honest 'not yet assessed' state, never a fabricated priority/score, for a real signed-in farm", () => {
+describe("HousingPage -- slurry planning has one canonical home", () => {
+  it("does not render a second allocation recommendation and links to Fertiliser Plan instead", () => {
     render(
       <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [housing()], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <HousingPage />
       </FarmProvider>,
     );
-    expect(screen.getByText(/suggested allocation/i)).toBeTruthy();
-    expect(screen.getByText(/isn.t assessed yet/i)).toBeTruthy();
+    expect(screen.queryByText(/suggested allocation/i)).toBeNull();
+    const link = screen.getByRole("link", { name: /plan slurry & fertiliser/i });
+    expect(link.getAttribute("href")).toBe("/fertiliser-plan");
   });
 });
 

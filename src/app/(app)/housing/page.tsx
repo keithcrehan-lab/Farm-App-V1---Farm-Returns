@@ -1,18 +1,18 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { ArrowRight, Pencil, Plus, SlidersHorizontal, Warehouse, X } from "lucide-react";
+import { ArrowRight, Pencil, Plus, Warehouse, X } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MobileDetailHeader } from "@/components/shell/MobileDetailHeader";
 import { Card } from "@/components/ui/Card";
 import { ShedCard } from "@/components/farm/ShedCard";
 import { AssignedGroupsCard } from "@/components/farm/AssignedGroupsCard";
 import { NutrientValueRow } from "@/components/farm/NutrientValueRow";
-import { SuggestedAllocationCard } from "@/components/farm/SuggestedAllocationCard";
 import { SlurryCompositionCard } from "@/components/farm/SlurryCompositionCard";
 import { AddSlurryCompositionSheet } from "@/components/farm/AddSlurryCompositionSheet";
+import { ProgressiveDisclosure } from "@/components/ui/ProgressiveDisclosure";
 import { NeatSlurryEvidenceCard } from "@/components/farm/NeatSlurryEvidenceCard";
-import { useFarmActions, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
+import { useFarmActions, useHousingList, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
 
 /**
@@ -26,7 +26,6 @@ export default function HousingPage() {
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
   const slurryCompositionRecords = useSlurryCompositionRecords();
-  const isRealMode = useIsRealMode();
   const { addHousing, updateHousing } = useFarmActions();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
@@ -67,6 +66,8 @@ export default function HousingPage() {
   const compositionHistoryCount = housing
     ? slurryCompositionRecords.filter((r) => r.housingId === housing.id).length - (currentComposition ? 1 : 0)
     : 0;
+  const linkedHeadcount = linkedGroups.reduce((sum, group) => sum + group.count.value, 0);
+  const housingAllocations = housing ? slurryAllocations.filter((allocation) => allocation.housingId === housing.id) : [];
 
   function startEdit(h: NonNullable<typeof housing>) {
     setEditingId(h.id);
@@ -217,117 +218,117 @@ export default function HousingPage() {
 
   return (
     <>
-      <MobileDetailHeader title="Housing & Slurry" backHref="/cattle/manage" />
-      <PageHeader title="Housing & Slurry" subtitle="Shed assignment, slurry inventory and organic nutrient value" />
+      <MobileDetailHeader title="Housing" backHref="/cattle/manage" />
+      <PageHeader title="Housing" subtitle="Select a shed or tank, then open only the evidence or action you need." />
 
       {!housing ? (
         <div className="flex flex-col items-center gap-3 rounded-fr-card border border-dashed border-fr-border py-12 text-center">
           <Warehouse className="size-8 text-fr-ink-400" />
           <p className="text-sm font-medium text-fr-ink-900">No housing recorded yet</p>
-          <p className="max-w-xs text-sm text-fr-ink-600">
-            Add your winter housing to see slurry capacity, storage fill and organic nutrient value.
+          <p className="max-w-sm text-sm leading-relaxed text-fr-ink-600">
+            Add the physical shed and slurry store once. Animal links, slurry evidence and spreading plans will use that same record.
           </p>
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col">
         {!housing || addOpen ? (
-          addForm
-        ) : (
-          <button
-            type="button"
-            onClick={() => setAddOpen(true)}
-            className="flex items-center justify-center gap-2 rounded-fr-control border border-dashed border-fr-border py-2.5 text-sm font-semibold text-fr-green-700 hover:border-fr-green-700"
-          >
-            <Plus className="size-4" />
-            Add another shed
-          </button>
-        )}
+          <div className="mb-5">{addForm}</div>
+        ) : null}
 
         {housing ? (
           <>
-            {housingList.length > 1 ? (
-              <div className="flex gap-2 overflow-x-auto">
-                {housingList.map((h, i) => (
-                  <button
-                    key={h.id}
-                    type="button"
-                    onClick={() => setSelectedIndex(i)}
-                    className={`shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                      i === selectedIndex ? "border-fr-green-700 text-fr-green-700" : "border-fr-border text-fr-ink-600"
-                    }`}
-                  >
-                    {h.shedName}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <ShedCard housing={housing} />
-            {!addOpen ? (
-              <button
-                type="button"
-                onClick={() => {
-                  startEdit(housing);
-                  setAddOpen(true);
-                }}
-                className="flex items-center justify-center gap-1.5 self-start text-xs font-semibold text-fr-green-700"
-              >
-                <Pencil className="size-3.5" />
-                Edit this shed
-              </button>
-            ) : null}
-            <AssignedGroupsCard groups={linkedGroups} />
-            <NutrientValueRow slurry={housing.slurryEstimate} />
-            <SlurryCompositionCard
-              current={currentComposition}
-              historyCount={compositionHistoryCount}
-              onAddResult={() => setCompositionSheetOpen(true)}
-            />
-            {/* Campaign B — this tank's regulatory neat cattle slurry, a
-                separate fact from its physical volume above. */}
-            <NeatSlurryEvidenceCard housingId={housing.id} />
-            {/* Slurry Evidence & Composition V1, campaign brief §8 — this
-                app's real slurry-allocation priority/score have no real
-                computing logic behind them yet (mock-fixture-only,
-                `docs/farm-return-next` campaign investigation) — a real
-                signed-in farm must never see them presented as a genuine
-                scientific output. `slurryAllocations` is always `[]` for a
-                real farm today anyway (no real write path creates a real
-                allocation row), but this gate is explicit rather than
-                relying on that incidentally — matching this same page's
-                sibling gates and `spreading/page.tsx`'s own
-                `isRealMode ? [] : mockPlannedApplications` precedent.
-                `SuggestedAllocationCard` itself renders an honest "not yet
-                assessed" empty state for `[]`, never a blank card. Mock/
-                demo mode is unaffected. */}
-            <SuggestedAllocationCard allocations={isRealMode ? [] : slurryAllocations} />
-
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                // Fertiliser Overview and Stock Visuals campaign already
-                // made "Current fill (%)" genuinely editable via "Edit
-                // this shed" above (storage_fill_status/recorded_at
-                // provenance). Slurry Evidence & Composition V1 now makes
-                // slurry analysis genuinely editable too (this button used
-                // to be permanently disabled, telling farmers this
-                // "arrives with the Phase 2 data model"). Tank dimensions
-                // (`Housing.tankRefinement`) genuinely remain unbuilt.
-                title="Record a dry matter estimate or laboratory analysis for this shed/tank's slurry"
-                onClick={() => setCompositionSheetOpen(true)}
-                className="flex flex-1 items-center justify-center gap-2 rounded-fr-control border border-fr-border py-3 text-sm font-semibold text-fr-ink-900"
-              >
-                <SlidersHorizontal className="size-4" />
-                Slurry analysis
-              </button>
-              <a
-                href="/spreading"
-                className="flex flex-1 items-center justify-center gap-2 rounded-fr-control bg-fr-green-700 py-3 text-sm font-semibold text-white"
-              >
-                View spreading plan
-                <ArrowRight className="size-4" />
-              </a>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              {housingList.length > 1 ? (
+                <div className="flex min-w-0 gap-2 overflow-x-auto" aria-label="Housing objects">
+                  {housingList.map((h, i) => (
+                    <button
+                      key={h.id}
+                      type="button"
+                      onClick={() => setSelectedIndex(i)}
+                      aria-pressed={i === selectedIndex}
+                      className={`shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                        i === selectedIndex ? "border-fr-green-700 bg-fr-green-50 text-fr-green-700" : "border-fr-border text-fr-ink-600"
+                      }`}
+                    >
+                      {h.shedName}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Housing object</p>
+              )}
+              {!addOpen ? (
+                <button type="button" onClick={() => setAddOpen(true)} className="flex items-center gap-1.5 text-sm font-semibold text-fr-green-700">
+                  <Plus className="size-4" /> Add shed
+                </button>
+              ) : null}
             </div>
+
+            <ShedCard housing={housing} />
+
+            <ProgressiveDisclosure
+              label="1 · Animals in this shed"
+              summary={linkedGroups.length > 0 ? `${linkedHeadcount.toFixed(0)} head · ${linkedGroups.length} group${linkedGroups.length === 1 ? "" : "s"}` : "No livestock groups linked yet"}
+              status={linkedGroups.length > 0 ? "good" : "attention"}
+              defaultOpen={linkedGroups.length === 0}
+            >
+              <AssignedGroupsCard groups={linkedGroups} />
+            </ProgressiveDisclosure>
+
+            <ProgressiveDisclosure
+              label="2 · Shed & storage details"
+              summary={`${housing.storageCapacityM3.toFixed(0)} m³ capacity · housing period ${housing.housingPeriod.start} to ${housing.housingPeriod.end}`}
+              status={housing.storageFillStatus === "farmer_recorded" ? "good" : "attention"}
+            >
+              <div className="flex flex-col gap-3">
+                <p className="text-sm leading-relaxed text-fr-ink-600">The summary above is the canonical physical record for this shed and its store. Edit it only when the housing period, capacity or observed fill changes.</p>
+                <button
+                  type="button"
+                  onClick={() => { startEdit(housing); setAddOpen(true); }}
+                  className="flex min-h-11 items-center justify-center gap-2 self-start rounded-fr-control border border-fr-border px-4 text-sm font-semibold text-fr-green-700"
+                >
+                  <Pencil className="size-4" /> Edit shed & fill
+                </button>
+              </div>
+            </ProgressiveDisclosure>
+
+            <ProgressiveDisclosure
+              label="3 · Slurry evidence"
+              summary={currentComposition ? `Composition recorded · ${compositionHistoryCount} earlier result${compositionHistoryCount === 1 ? "" : "s"}` : "Composition not recorded · nutrient value may remain unknown"}
+              status={currentComposition ? "good" : "attention"}
+            >
+              <div className="grid gap-4 lg:grid-cols-2">
+                <NutrientValueRow slurry={housing.slurryEstimate} />
+                <SlurryCompositionCard
+                  current={currentComposition}
+                  historyCount={compositionHistoryCount}
+                  onAddResult={() => setCompositionSheetOpen(true)}
+                />
+              </div>
+              <div className="mt-4">
+                <NeatSlurryEvidenceCard housingId={housing.id} />
+              </div>
+            </ProgressiveDisclosure>
+
+            <ProgressiveDisclosure
+              label="4 · Slurry planning"
+              summary={housingAllocations.length > 0 ? `${housingAllocations.length} field allocation${housingAllocations.length === 1 ? "" : "s"} linked to this store` : "No field allocation adopted for this store"}
+              status={housingAllocations.length > 0 ? "good" : "neutral"}
+            >
+              <p className="max-w-2xl text-sm leading-relaxed text-fr-ink-600">
+                This screen owns the physical store and its evidence. Field allocation and chemical-fertiliser balancing are planned once in Fertiliser Plan.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <a href="/fertiliser-plan" className="flex min-h-11 items-center justify-center gap-2 rounded-fr-control bg-fr-green-700 px-4 text-sm font-semibold text-white">
+                  Plan slurry & fertiliser <ArrowRight className="size-4" />
+                </a>
+                <a href="/spreading" className="flex min-h-11 items-center justify-center gap-2 rounded-fr-control border border-fr-border px-4 text-sm font-semibold text-fr-green-700">
+                  View spreading plan
+                </a>
+              </div>
+            </ProgressiveDisclosure>
+
             <AddSlurryCompositionSheet
               open={compositionSheetOpen}
               onClose={() => setCompositionSheetOpen(false)}

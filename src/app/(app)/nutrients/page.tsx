@@ -1,14 +1,14 @@
-import { Suspense } from "react";
-import { NutrientsPageClient } from "./NutrientsPageClient";
+import { redirect } from "next/navigation";
 
-// NutrientsPageClient reads `?field=` via useSearchParams, which opts the
-// tree into client-side rendering up to the nearest Suspense boundary
-// during prerendering — see next/dist/docs use-search-params.md (same
-// pattern as (auth)/sign-in/page.tsx).
-export default function NutrientsPage() {
-  return (
-    <Suspense fallback={null}>
-      <NutrientsPageClient />
-    </Suspense>
-  );
+/**
+ * Compatibility route only. Field-specific nutrient planning now lives in
+ * the field workspace so crop, soil, legal evidence and recommendation are
+ * captured/reviewed in one place rather than two competing planners.
+ */
+export default async function NutrientsPage({ searchParams }: { searchParams: Promise<{ field?: string }> }) {
+  const params = await searchParams;
+  if (params.field) {
+    redirect(`/fields?field=${encodeURIComponent(params.field)}&chapter=nutrients`);
+  }
+  redirect("/fields");
 }

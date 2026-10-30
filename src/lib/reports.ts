@@ -2,7 +2,7 @@
  * Reports screen CSV builders — real per-field data, not a summary
  * re-typed by hand. Each function calls the same real domain engines the
  * live screens already use (nutrients.ts's `calculateNutrientPlan` is the
- * exact call `/nutrients` and `/fields`'s Fertiliser Plan tab make) and
+ * same canonical nutrient-plan assembly used by the field workspace and Fertiliser Plan) and
  * serialises the result with `lib/csv.ts`. Presentation/export logic, not
  * a calculation of its own — nothing here computes a number that isn't
  * already produced by an existing, tested domain function.

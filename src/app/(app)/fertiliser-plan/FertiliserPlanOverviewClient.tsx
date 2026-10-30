@@ -9,11 +9,11 @@
  * and this campaign's own new pure visual components — no calculation of
  * any kind happens in this file (CLAUDE.md's own never-rule).
  *
- * Preserves, never replaces: `/nutrients` remains the real, individually
+ * Field-specific setup now lives in the field workspace; this page remains the
  * field-scoped plan with its full scientific-engine detail (soil, NAP
  * compliance, organic offset, "Plan this application", remaining
  * requirement) — this screen only ever links to it
- * (`/nutrients?field=<id>`), never duplicates its logic. The quote
+ * canonical whole-farm aggregation/procurement view and deep-links back to each field. The quote
  * workflow (`RequestQuoteSheet`, `/quotes`) is reused exactly as
  * `input-planner/page.tsx` already does it.
  *
@@ -301,9 +301,9 @@ function OverviewContent({
       </section>
 
       <section className="flex flex-wrap gap-3">
-        <Link href="/nutrients" className="flex items-center gap-1.5 text-sm font-semibold text-fr-green-700">
+        <Link href="/fields" className="flex items-center gap-1.5 text-sm font-semibold text-fr-green-700">
           <ClipboardList className="size-4" />
-          Open the detailed field-by-field plan
+          Open fields and recommendations
         </Link>
       </section>
     </div>

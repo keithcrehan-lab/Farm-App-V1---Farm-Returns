@@ -176,7 +176,7 @@ export function farmFieldLensView(
             : { label: "Slurry planned", value: "None planned", missing: true },
         ],
         links: [
-          { href: `/nutrients?field=${encodeURIComponent(field.id)}`, label: "Nutrient planner" },
+          { href: `/fields?field=${encodeURIComponent(field.id)}&chapter=nutrients`, label: "Recommendation setup" },
           { href: "/fertiliser-plan", label: "Farm nutrient plan" },
           { href: "/soil", label: "Soil by field" },
           fieldDetail,

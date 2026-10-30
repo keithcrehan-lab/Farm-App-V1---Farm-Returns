@@ -97,7 +97,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
   const evidenceLabel = gate?.status === "READY_FOR_CALCULATION" ? "Evidence complete" : gate?.status === "UNSUPPORTED_PATHWAY" ? "Agronomy not enabled" : "Evidence incomplete";
 
   return (
-    <section className="border-t border-fr-v2-cream-rule" aria-label="Crop & production">
+    <section className="border-t border-fr-v2-cream-rule" aria-label="1 · Crop & production">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -105,7 +105,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
         className="flex min-h-16 w-full items-center justify-between gap-5 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-gold"
       >
         <span className="min-w-0">
-          <span className="block text-sm font-semibold text-fr-v2-graphite">Crop & production</span>
+          <span className="block text-sm font-semibold text-fr-v2-graphite">1 · Crop & production</span>
           <span className="mt-0.5 block text-xs leading-relaxed text-fr-v2-muted">{cropLabel} · {season} · {evidenceLabel}</span>
         </span>
         <span className="shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-v2-forest">{open ? "Hide" : "Open"}</span>

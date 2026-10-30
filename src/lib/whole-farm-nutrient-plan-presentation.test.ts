@@ -122,7 +122,7 @@ describe("wholeFarmFieldRows", () => {
 
   it("links to the field's spatial plan and its persisted planner", () => {
     expect(byId.get("a")!.fieldPlanHref).toBe("/today/field/a");
-    expect(byId.get("a")!.plannerHref).toBe("/nutrients?field=a");
+    expect(byId.get("a")!.plannerHref).toBe("/fields?field=a&chapter=nutrients");
     expect(byId.get("d")!.purchase.label).toBe("Excluded from purchasing");
   });
 

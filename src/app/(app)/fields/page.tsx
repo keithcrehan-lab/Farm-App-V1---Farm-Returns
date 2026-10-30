@@ -12,7 +12,6 @@ import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
 import { FarmFieldDrawer } from "@/components/farm-spatial/FarmFieldDrawer";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
 import { useAllFieldsIncludingArchived, useFarm, useFarmActions, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
-import { landUseLabel } from "@/lib/status";
 import { cn } from "@/lib/cn";
 import { formatHa, formatNumber } from "@/lib/format";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
@@ -168,7 +167,7 @@ function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: str
       const field = await addField({ name: newName.trim(), polygon: pendingPolygon });
       setPendingPolygon(null);
       setNewName("");
-      setSelectedFieldId(field.id);
+      router.push(fieldWorkspaceHref(field.id, "nutrients"));
     } finally {
       setSaving(false);
     }
@@ -336,7 +335,7 @@ function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: str
                 {saving ? "Saving…" : "Save field"}
               </button>
             </div>
-            <p className="text-xs text-fr-v2-muted">Planned use, soil and fertility are set afterward in the field&apos;s workspace — nothing is assumed here.</p>
+            <p className="text-xs text-fr-v2-muted">After saving, Farm Return takes you straight to this field&apos;s recommendation setup. Crop, soil and legal evidence are captured once there.</p>
           </div>
         ) : null}
 
@@ -396,7 +395,6 @@ function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: str
 }
 
 function FieldListItem({ field, mode, selected, onSelect, onOpen }: { field: Field; mode: CompanionMode; selected: boolean; onSelect: () => void; onOpen: () => void }) {
-  const use = field.plannedUse && field.plannedUse.status !== "unavailable" ? landUseLabel(field.plannedUse.value) : undefined;
   return (
     <li className={cn("relative border-b border-fr-v2-cream-rule", selected && "bg-white/70")} data-field-row={field.id} data-selected={selected ? "true" : "false"}>
       {selected ? <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-fr-v2-gold" /> : null}
@@ -413,7 +411,7 @@ function FieldListItem({ field, mode, selected, onSelect, onOpen }: { field: Fie
             ) : null}
             <span className="truncate font-display text-[19px] leading-tight text-fr-v2-graphite">{field.name}</span>
           </span>
-          <span className={cn("mt-0.5 block text-xs", use ? "text-fr-v2-muted" : "italic text-fr-v2-muted/80")}>{use ? `Planned · ${use}` : "Use not set"}</span>
+          <span className="mt-0.5 block text-xs text-fr-v2-muted">{field.polygon ? "Mapped field" : "Boundary not mapped"}</span>
         </span>
         <span className={cn("shrink-0 font-mono text-[12px] tabular-nums", field.polygon ? "text-fr-v2-charcoal" : "italic text-fr-v2-muted")}>
           {field.polygon ? `${formatNumber(field.areaHa, 2)} ha` : "Not mapped"}
@@ -458,7 +456,6 @@ function FieldWorkspaceView({
   const isRealMode = useIsRealMode();
   const reducedMotion = usePrefersReducedMotion();
   const [promptOpen, setPromptOpen] = useState(false);
-  const use = field.plannedUse && field.plannedUse.status !== "unavailable" ? landUseLabel(field.plannedUse.value) : undefined;
   const drawn = formatFieldDate(field.polygonCapturedAt);
   const askAIContext = { screen: "Field", facts: { Field: field.name, Area: `${formatNumber(field.areaHa, 2)} ha` } };
 
@@ -499,7 +496,6 @@ function FieldWorkspaceView({
                 <h1 className="mt-1.5 max-w-[18ch] text-balance font-display text-[34px] leading-[1] tracking-[-0.02em] text-white lg:text-[56px]">{field.name}</h1>
                 <p className="mt-3 font-mono text-[12px] tabular-nums text-white/85" data-field-identity>
                   {formatNumber(field.areaHa, 2)} ha{field.polygon ? ` · boundary ${drawn ? `drawn ${drawn}` : "drawn"}` : " · not mapped"}
-                  {use ? ` · Planned · ${use}` : " · use not set"}
                 </p>
               </div>
               <div className="pointer-events-auto shrink-0">

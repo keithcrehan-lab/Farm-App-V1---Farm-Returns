@@ -159,6 +159,18 @@ describe("Fields companion (Farm + Fields redesign)", () => {
     expect(document.querySelector("[data-new-field]")).toBeNull();
     expect(mapProps!.fields.length).toBe(before);
   });
+
+  it("saving a newly drawn field goes straight to that field's canonical recommendation setup", async () => {
+    renderFields();
+    fireEvent.click(screen.getByRole("button", { name: /add field/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Use drawn boundary" }));
+    const form = document.querySelector("[data-new-field]") as HTMLElement;
+    fireEvent.change(within(form).getByRole("textbox"), { target: { value: "Setup Test Field" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Save field" }));
+    await vi.waitFor(() => expect(push).toHaveBeenCalled());
+    const destination = String(push.mock.calls.at(-1)?.[0] ?? "");
+    expect(destination).toMatch(/^\/fields\?field=.+&chapter=nutrients$/);
+  });
 });
 
 describe("Field workspace (Farm + Fields redesign)", () => {
@@ -186,7 +198,9 @@ describe("Field workspace (Farm + Fields redesign)", () => {
   it("What Matters' 'Add spreading details' link opens Nutrients on the legal inputs", () => {
     renderFields("field=field-home&complete=slurry&missing=method");
     expect(screen.getByRole("button", { name: "Nutrients" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("region", { name: "Legal inputs for this field" })).toBeTruthy();
+    const legal = screen.getByRole("button", { name: /legal & spreading checks/i });
+    expect(legal.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText(/planned spreading method for this field/i)).toBeTruthy();
   });
 
   it("tapping a neighbour on the hero map moves to that field's workspace", () => {

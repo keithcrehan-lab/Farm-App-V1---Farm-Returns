@@ -6,7 +6,7 @@ import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { phStatusLabel } from "@/lib/status";
 import { mockSilagePlans } from "@/data/mock-farm";
-import type { Field, FieldUse } from "@/domain/types";
+import type { Field } from "@/domain/types";
 import type { Prompt } from "@/orchestration/prompt";
 import { formatHa, formatNumber } from "@/lib/format";
 import { nearestStationsForField } from "@/domain/weather-stations";
@@ -15,6 +15,7 @@ import { FieldAwarenessCard } from "@/components/farm/FieldAwarenessCard";
 import { FieldSatelliteHistory } from "@/components/farm/FieldSatelliteHistory";
 import { SpreadableAreaEvidencePanel } from "@/components/farm/SpreadableAreaEvidencePanel";
 import { FieldProductionCycleCard } from "@/components/farm/FieldProductionCycleCard";
+import { FieldSoilTestEditor } from "@/components/farm/FieldSoilTestEditor";
 import { CROP_SYSTEM_LABELS } from "@/domain/fertiliser-field-evidence";
 import { getFieldWorkspaceContextAction, type FieldWorkspaceContext, type FieldActivityEvent } from "@/app/actions/field-workspace";
 import { FieldNutrientPlanBody } from "@/app/(app)/today/field/[fieldId]/FieldNutrientPlanPageClient";
@@ -25,22 +26,7 @@ import type { MissingSlurryPlanningDetail } from "@/domain/what-matters-no-recom
 import { useFieldNutrientPlan } from "@/lib/use-field-nutrient-plan";
 import { fieldNutrientPlanView } from "@/lib/field-nutrient-plan-presentation";
 import { fieldNutrientPlanHref, type FieldWorkspaceChapter } from "@/lib/farm-spatial-field-lens";
-import { fieldHistoryEvents, formatFieldDate, plannedUseLine, type FieldHistoryEvent } from "@/lib/field-workspace-presentation";
-
-// Codex remediation Priority 6 — a real "not set" option, not a silent
-// "grazing" default: `plannedUse` genuinely doesn't exist until the farmer
-// (or this form) sets it, and pre-selecting a real FieldUse in this
-// dropdown would save it as though the farmer had chosen it the moment
-// they touched Save, even if they never opened this select at all.
-const FIELD_USE_OPTIONS: { value: FieldUse; label: string }[] = [
-  { value: "grazing", label: "Grazing" },
-  { value: "silage_1st_cut", label: "Silage — 1st cut" },
-  { value: "silage_2nd_cut", label: "Silage — 2nd cut" },
-  { value: "silage_3rd_cut", label: "Silage — 3rd cut" },
-  { value: "mixed", label: "Mixed" },
-  { value: "tillage", label: "Tillage" },
-  { value: "other", label: "Other / not yet decided" },
-];
+import { fieldHistoryEvents, formatFieldDate, type FieldHistoryEvent } from "@/lib/field-workspace-presentation";
 
 const BUFFER_FEATURE_OPTIONS: { value: BufferFeature; label: string }[] = [
   { value: "surface_water", label: "Surface water (stream/river/canal)" },
@@ -253,7 +239,6 @@ function OverviewChapter({
   const housing = useHousingList();
   const planResult = useFieldNutrientPlan(field);
   const planAvailable = planResult ? fieldNutrientPlanView(planResult, field).status === "available" : false;
-  const use = plannedUseLine(field);
   const allocations = slurryAllocations.filter((a) => a.fieldId === field.id && a.priority !== "not_suitable");
   // The silage plan source is demonstration data only — never shown to a
   // signed-in farm.
@@ -310,7 +295,6 @@ function OverviewChapter({
             ) : (
               <Row label="Current crop / use" value="Not recorded" detail="Set the production cycle in Nutrients" quiet />
             )}
-            {use ? <Row label="Planned use" value={use.value} detail={use.detail} /> : <Row label="Planned use" value="Not set" quiet />}
             <Row label="Livestock" value="Not recorded for fields yet" detail="Groups carry no field location" quiet />
           </dl>
         </Section>
@@ -398,7 +382,7 @@ function OverviewChapter({
             </Link>
           ) : null}
           <ul className="mt-3 flex flex-col">
-            <ActionLink href={`/nutrients?field=${encodeURIComponent(field.id)}`}>Plan in nutrient planner</ActionLink>
+            <ActionLink href={`/fields?field=${encodeURIComponent(field.id)}&chapter=nutrients`}>Recommendation setup</ActionLink>
             <ActionLink href={`/soil-sample/${encodeURIComponent(field.id)}`}>Start soil sample</ActionLink>
             <ActionLink href="/records">Records</ActionLink>
           </ul>
@@ -428,7 +412,6 @@ export function ManageField({ field, defaultOpen = false }: { field: Field; defa
   const [editOpen, setEditOpen] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [nameInput, setNameInput] = useState(field.name);
-  const [useInput, setUseInput] = useState<FieldUse | "">(field.plannedUse?.value ?? "");
   const [areaInput, setAreaInput] = useState(String(field.areaHa));
   const { setFieldBoundary, updateFieldDetails, archiveField } = useFarmActions();
   const farm = useFarm();
@@ -442,7 +425,7 @@ export function ManageField({ field, defaultOpen = false }: { field: Field; defa
         className="flex min-h-11 w-full items-center justify-between border-y border-fr-v2-cream-rule text-sm font-semibold text-fr-v2-graphite"
       >
         Manage field
-        <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-fr-v2-muted">{open ? "Done" : "Boundary · use · archive"}</span>
+        <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-fr-v2-muted">{open ? "Done" : "Boundary · name · archive"}</span>
       </button>
       {open ? (
         <div className="flex flex-col gap-3 pt-3">
@@ -456,20 +439,6 @@ export function ManageField({ field, defaultOpen = false }: { field: Field; defa
                 Field name
                 <input className={INPUT} value={nameInput} onChange={(e) => setNameInput(e.target.value)} />
               </label>
-              <label className={LABEL}>
-                Planned use
-                <select className={INPUT} value={useInput} onChange={(e) => setUseInput(e.target.value as FieldUse)}>
-                  <option value="" disabled>
-                    Not set — choose a planned use
-                  </option>
-                  {FIELD_USE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="text-xs text-fr-v2-muted">A change is saved as a new dated entry; the earlier use stays in History.</p>
               {field.polygon ? (
                 <p className="text-xs text-fr-v2-muted">Area ({formatHa(field.areaHa)}) comes from the mapped boundary — edit the boundary to change it.</p>
               ) : (
@@ -483,7 +452,6 @@ export function ManageField({ field, defaultOpen = false }: { field: Field; defa
                   type="button"
                   onClick={() => {
                     setNameInput(field.name);
-                    setUseInput(field.plannedUse?.value ?? "");
                     setAreaInput(String(field.areaHa));
                     setEditOpen(false);
                   }}
@@ -500,7 +468,6 @@ export function ManageField({ field, defaultOpen = false }: { field: Field; defa
                       field.id,
                       {
                         ...(nameInput.trim() !== field.name ? { name: nameInput.trim() } : {}),
-                        ...(useInput !== "" && useInput !== field.plannedUse?.value ? { plannedUse: useInput } : {}),
                         ...(!field.polygon && Number.isFinite(areaHa) && areaHa > 0 && areaHa !== field.areaHa ? { areaHa } : {}),
                       },
                       farm.ownerName,
@@ -515,7 +482,7 @@ export function ManageField({ field, defaultOpen = false }: { field: Field; defa
             </div>
           ) : (
             <button type="button" onClick={() => setEditOpen(true)} className="flex min-h-11 items-center justify-center border border-fr-v2-cream-rule text-sm font-semibold">
-              Rename or change use
+              Rename field
             </button>
           )}
 
@@ -584,49 +551,48 @@ function NutrientsChapter({ field, slurryDetailsRequest, onProductionCycleSaved 
         : "Slurry details incomplete",
   ].join(" · ");
 
+  const recommendationReady = view?.status === "available";
+  const soilReady = Boolean(field.fertility.verifiedTest && field.fertility.pIndex && field.fertility.kIndex);
+  const legalReady =
+    field.commonageStatus?.value !== undefined &&
+    field.commonageStatus.value !== "unknown" &&
+    field.waterBufferContext?.value.featureType !== undefined &&
+    field.waterBufferContext.value.distanceM !== undefined &&
+    field.waterBufferContext.value.localOverrideStatus !== "unknown" &&
+    slurryAllocations.every((allocation) => Boolean(allocation.applicationMethod && allocation.applicationDate));
+
   return (
     <div className="flex flex-col" data-field-nutrients>
-      <section aria-label="Nutrient plan" className="flex flex-col gap-6 pb-8">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Nutrients · decision first</p>
-          <p className="flex flex-wrap gap-x-5 gap-y-1">
-            {view?.status === "available" ? (
-              <button
-                type="button"
-                onClick={() => document.querySelector('[aria-label="Evidence chain"]')?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                className={TEXT_LINK}
-              >
-                Why? Evidence
-              </button>
-            ) : null}
-            <Link href={fieldNutrientPlanHref(field.id)} className={TEXT_LINK}>
-              Full nutrient plan →
-            </Link>
-          </p>
-        </div>
-        {result && view ? (
-          <FieldNutrientPlanBody view={view} result={result} fieldId={field.id} />
-        ) : (
-          <p className="text-sm italic text-fr-v2-muted">This field&apos;s nutrient plan isn&apos;t available.</p>
-        )}
-        <p className="text-xs text-fr-v2-muted">
-          Fertiliser cost isn&apos;t valued per field yet — prices and supplier quotes are in{" "}
-          <Link href="/quotes" className="font-semibold text-fr-v2-forest underline underline-offset-2">
-            Market
-          </Link>
-          .
-        </p>
+      <section className="pb-6">
+        <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Recommendation setup</p>
+        <h2 className="mt-1 font-display text-[28px] leading-tight text-fr-v2-graphite">One field. One evidence path.</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-fr-v2-muted">Complete the field evidence below once. Farm Return uses those same records for the recommendation, evidence report and farm procurement totals.</p>
       </section>
 
-      <FieldProductionCycleCard field={field} onSaved={onProductionCycleSaved} />
+      <div className="border-t border-fr-v2-cream-rule">
+        <FieldProductionCycleCard field={field} onSaved={onProductionCycleSaved} />
+      </div>
 
-      <ProgressiveStage label="Soil evidence" summary={soilSummary}>
+      <ProgressiveStage label="2 · Laboratory soil evidence" summary={soilReady ? soilSummary : "Required · add the field's laboratory P, K and pH result"} defaultOpen={!soilReady}>
         <SoilEvidence field={field} />
       </ProgressiveStage>
 
-      <ProgressiveStage label="Legal & spreading inputs" summary={legalSummary} defaultOpen={Boolean(slurryDetailsRequest)}>
+      <ProgressiveStage label="3 · Legal & spreading checks" summary={legalReady ? "Complete · " + legalSummary : "Required · confirm commonage, water buffer and any slurry spreading details"} defaultOpen={Boolean(slurryDetailsRequest) || (soilReady && !legalReady)}>
         <LegalInputs field={field} slurryDetailsRequest={slurryDetailsRequest} />
       </ProgressiveStage>
+
+      <section aria-label="Nutrient recommendation" className="border-t border-fr-v2-cream-rule pt-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+          <div>
+            <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">4 · Recommendation</p>
+            <p className="mt-1 text-sm text-fr-v2-muted">{recommendationReady ? "Ready from the evidence above." : "Held until the required field evidence above is complete."}</p>
+          </div>
+          {recommendationReady ? <Link href={fieldNutrientPlanHref(field.id)} className={TEXT_LINK}>Full calculation & evidence →</Link> : null}
+        </div>
+        <div className="mt-5">
+          {result && view ? <FieldNutrientPlanBody view={view} result={result} fieldId={field.id} hideSupportingDisclosures /> : <p className="text-sm italic text-fr-v2-muted">Complete the setup stages above to generate this field&apos;s recommendation.</p>}
+        </div>
+      </section>
     </div>
   );
 }
@@ -670,13 +636,10 @@ function SoilEvidence({ field }: { field: Field }) {
       </dl>
       {/* Fertiliser Vertical V1, Checkpoint 1 — the guided GPS sampling
           workflow, distinct from manual lab-result entry on /soil. */}
+      <FieldSoilTestEditor field={field} />
       <p className="mt-3 flex flex-wrap gap-x-5 gap-y-1">
-        <Link href={`/soil-sample/${field.id}`} className={TEXT_LINK}>
-          Start soil sample →
-        </Link>
-        <Link href="/soil" className={TEXT_LINK}>
-          Add or review soil tests →
-        </Link>
+        <Link href={`/soil-sample/${field.id}`} className={TEXT_LINK}>Start guided field sampling →</Link>
+        <Link href="/soil" className={TEXT_LINK}>View farm soil overview →</Link>
       </p>
     </div>
   );

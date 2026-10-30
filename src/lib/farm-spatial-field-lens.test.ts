@@ -66,7 +66,7 @@ describe("farmFieldLensView — honest per-field lens data", () => {
     const nutrients = farmFieldLensView("nutrients", f, { slurryAllocations: allocations });
     expect(nutrients.markerLabel).toBe("P2 · K2");
     expect(nutrients.facts.map((x) => x.value)).toEqual(["Index 2", "Index 2", "6.2", "14 Feb 2026", "Elton", "42 m³"]);
-    expect(nutrients.links[0]).toEqual({ href: "/nutrients?field=f1", label: "Nutrient planner" });
+    expect(nutrients.links[0]).toEqual({ href: "/fields?field=f1&chapter=nutrients", label: "Recommendation setup" });
     expect(nutrients.links).toContainEqual({ href: "/soil", label: "Soil by field" });
     expect(nutrients.unavailableNote).toBeUndefined();
   });

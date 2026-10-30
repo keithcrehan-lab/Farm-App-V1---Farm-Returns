@@ -120,7 +120,7 @@ describe("FieldDrawer — compliance evidence capture (V3 closure pass)", () => 
   // ("Legal inputs for this field") — same real fields/behaviour, one tap.
   function openConstraintsTab() {
     fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
-    fireEvent.click(screen.getByRole("button", { name: /legal & spreading inputs/i }));
+    fireEvent.click(screen.getByRole("button", { name: /legal & spreading checks/i }));
   }
 
   it("defaults commonage status to 'unknown' and fails closed until a farmer sets it", () => {
@@ -275,17 +275,16 @@ describe("FieldDrawer — field workspace chapters (Farm + Fields redesign)", ()
     expect(screen.getByRole("button", { name: "Overview" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("Overview never presents the planned use as the current use, and says livestock on a field isn't recorded", () => {
+  it("Overview uses only the production cycle for crop/use and does not repeat the legacy planned-use field", () => {
     const field: Field = { ...mockFields[0], plannedUse: { value: "silage_1st_cut", status: "farmer_adjusted", source: "Farmer", sourceDate: "2026-03-02" } };
     renderDrawer(field);
     const use = screen.getByRole("region", { name: "Use" });
     expect(use.textContent).toContain("Current crop / useNot recorded");
-    expect(use.textContent).toMatch(/Planned use.*silage/i);
-    expect(use.textContent).toContain("set 2 Mar 2026");
+    expect(use.textContent).not.toMatch(/Planned use/);
     expect(use.textContent).toMatch(/Livestock.*Not recorded for fields yet/);
   });
 
-  it("Overview uses the active production cycle as the current crop/use without overwriting planned use", async () => {
+  it("Overview uses the active production cycle as the sole displayed crop/use", async () => {
     vi.mocked(getFieldWorkspaceContextAction).mockResolvedValueOnce({
       cycle: {
         id: "cycle-1",
@@ -305,7 +304,7 @@ describe("FieldDrawer — field workspace chapters (Farm + Fields redesign)", ()
     const field: Field = { ...mockFields[0], plannedUse: { value: "grazing", status: "farmer_adjusted", source: "Farmer", sourceDate: "2026-02-01" } };
     renderDrawer(field);
     await waitFor(() => expect(screen.getByRole("region", { name: "Use" }).textContent).toContain("Current crop / useGrass — first-cut silage"));
-    expect(screen.getByRole("region", { name: "Use" }).textContent).toMatch(/Planned use.*Grazing/);
+    expect(screen.getByRole("region", { name: "Use" }).textContent).not.toMatch(/Planned use/);
   });
 
   it("History includes confirmed field job actuals with provenance", async () => {
@@ -334,14 +333,13 @@ describe("FieldDrawer — field workspace chapters (Farm + Fields redesign)", ()
     fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
     const chapter = document.querySelector("[data-field-nutrients]") as HTMLElement;
     expect(chapter).toBeTruthy();
-    expect(screen.getByRole("link", { name: /full nutrient plan/i }).getAttribute("href")).toBe(`/today/field/${mockFields[0].id}`);
+    expect(screen.getByRole("heading", { name: /one field\. one evidence path/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /crop & production/i }).getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByRole("button", { name: /soil evidence/i }).getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByRole("button", { name: /legal & spreading inputs/i }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByRole("button", { name: /laboratory soil evidence/i }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: /legal & spreading checks/i }).getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByLabelText(/commonage status/i)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /soil evidence/i }));
-    expect(screen.getAllByText(/P Index|P not recorded/i).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: /legal & spreading inputs/i }));
+    expect(screen.getByRole("form", { name: /laboratory soil test/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /legal & spreading checks/i }));
     expect(screen.getByLabelText(/commonage status/i)).toBeTruthy();
   });
 

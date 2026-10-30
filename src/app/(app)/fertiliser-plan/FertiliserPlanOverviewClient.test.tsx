@@ -153,7 +153,7 @@ describe("FertiliserPlanOverviewClient", () => {
     });
     await waitFor(() => expect(screen.getByText("Home Field")).toBeTruthy());
     const link = screen.getByText("Home Field").closest("a");
-    expect(link?.getAttribute("href")).toBe("/nutrients?field=f1");
+    expect(link?.getAttribute("href")).toBe("/fields?field=f1&chapter=nutrients");
     expect(screen.getByText("Included in plan")).toBeTruthy();
     expect(screen.getByText("Missing evidence")).toBeTruthy();
   });
@@ -206,7 +206,7 @@ describe("FertiliserPlanOverviewClient", () => {
       const row = document.querySelector('[data-field-row="f1"]') as HTMLElement;
       expect(within(row).getByText("2,004 kg")).toBeTruthy();
       expect(within(row).getByText("Field plan").closest("a")?.getAttribute("href")).toBe("/today/field/f1");
-      expect(within(row).getByText("Plan application").closest("a")?.getAttribute("href")).toBe("/nutrients?field=f1");
+      expect(within(row).getByText("Plan application").closest("a")?.getAttribute("href")).toBe("/fields?field=f1&chapter=nutrients");
       const bog = document.querySelector('[data-field-row="f2"]') as HTMLElement;
       expect(within(bog).getByText("Needs more information")).toBeTruthy();
       expect(within(bog).queryByText("Plan application")).toBeNull();

@@ -222,7 +222,7 @@ export function wholeFarmFieldRows(fields: readonly WholeFarmFieldInput[], aggre
       requirement: input ? { label: REQUIREMENT_STATUS_LABEL[input.status], tone: requirementStatusTone(input.status) } : null,
       purchase,
       fieldPlanHref: `/today/field/${encodeURIComponent(fieldId)}`,
-      plannerHref: `/nutrients?field=${fieldId}`,
+      plannerHref: `/fields?field=${encodeURIComponent(fieldId)}&chapter=nutrients`,
       canPlanApplication: entry?.purchaseClass === "INCLUDED",
     };
   };
@@ -237,7 +237,7 @@ export function wholeFarmFieldRows(fields: readonly WholeFarmFieldInput[], aggre
 /**
  * Plan handoff. Farm Return has no whole-farm plan record: the only
  * persisted fertiliser plan is a field's accepted Decision, created by
- * "Plan this application" on `/nutrients?field=<id>`. This screen therefore
+ * "Plan this application" in the field Recommendation setup. This screen therefore
  * hands off per field and never claims to have saved anything.
  */
 export const PLAN_HANDOFF = {

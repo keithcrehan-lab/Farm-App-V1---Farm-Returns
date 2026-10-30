@@ -77,11 +77,7 @@ export const moreNavItems: NavItem[] = [
   { href: "/what-matters", label: "What Matters", icon: Target },
   { href: "/fields", label: "Fields", icon: Map },
   { href: "/soil", label: "Soil", icon: Sprout },
-  // Fertiliser Overview and Stock Visuals campaign — the farm-wide landing
-  // page carries the "Fertiliser Plan" label; the per-field detailed plan
-  // (`/nutrients`) is relabelled so the two aren't confused.
   { href: "/fertiliser-plan", label: "Fertiliser Plan", icon: FlaskConical },
-  { href: "/nutrients", label: "Field Nutrient Plan", icon: FlaskConical },
   { href: "/spreading", label: "Spreading", icon: Tractor },
   { href: "/supports", label: "Supports", icon: HandCoins },
   { href: "/quotes", label: "Market", icon: Store },

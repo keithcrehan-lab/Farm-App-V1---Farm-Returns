@@ -68,8 +68,8 @@ export function FieldNutrientPlanPageClient({ fieldId }: { fieldId: string }) {
         <Link href={backHref} className="rounded-[6px] border border-fr-v2-rule px-4 py-2.5 text-sm font-semibold">
           Farm map
         </Link>
-        <Link href={`/nutrients?field=${encodeURIComponent(field.id)}`} className="rounded-[6px] border border-fr-v2-rule px-4 py-2.5 text-sm font-semibold">
-          Plan in nutrient planner
+        <Link href={`/fields?field=${encodeURIComponent(field.id)}&chapter=nutrients`} className="rounded-[6px] border border-fr-v2-rule px-4 py-2.5 text-sm font-semibold">
+          Back to recommendation setup
         </Link>
         <Link href="/fertiliser-plan" className="ml-auto rounded-[6px] bg-fr-v2-graphite px-4 py-2.5 text-sm font-semibold text-white">
           Whole-farm nutrient plan →
@@ -84,7 +84,7 @@ export function FieldNutrientPlanPageClient({ fieldId }: { fieldId: string }) {
  * the field workspace's Nutrients chapter so both render the one canonical
  * view. Derives nothing.
  */
-export function FieldNutrientPlanBody({ view, result, fieldId }: { view: FieldNutrientPlanView; result: FieldNutrientPlanResult; fieldId: string }) {
+export function FieldNutrientPlanBody({ view, result, fieldId, hideSupportingDisclosures = false }: { view: FieldNutrientPlanView; result: FieldNutrientPlanResult; fieldId: string; hideSupportingDisclosures?: boolean }) {
   if (view.status === "unavailable") {
     return <p className="border-l-[3px] border-fr-v2-harvest bg-fr-v2-harvest-tint px-4 py-3 text-sm">{view.message}</p>;
   }
@@ -100,35 +100,39 @@ export function FieldNutrientPlanBody({ view, result, fieldId }: { view: FieldNu
 
       <SolutionBand solution={view.solution} />
 
-      <CompactDisclosure
-        label="Legal status"
-        status={legalState.label}
-        statusTone={legalState.tone}
-        hint={legalState.hint}
-        ariaLabel="Legal status"
-      >
-        <div className="flex flex-col gap-3">
-          <NapComplianceCard compliance={result.displayedNapCompliance} />
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-            {view.legalGates.map((gate) => (
-              <div key={gate.id} data-legal-gate={gate.id} data-gate-state={gate.state} className="contents">
-                <dt className="text-fr-v2-muted">{gate.label}</dt>
-                <dd className={cn(gate.state === "prohibited" && "font-semibold text-fr-v2-clay")}>{gate.text}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      </CompactDisclosure>
+      {hideSupportingDisclosures ? null : (
+        <>
+          <CompactDisclosure
+            label="Legal status"
+            status={legalState.label}
+            statusTone={legalState.tone}
+            hint={legalState.hint}
+            ariaLabel="Legal status"
+          >
+            <div className="flex flex-col gap-3">
+              <NapComplianceCard compliance={result.displayedNapCompliance} />
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                {view.legalGates.map((gate) => (
+                  <div key={gate.id} data-legal-gate={gate.id} data-gate-state={gate.state} className="contents">
+                    <dt className="text-fr-v2-muted">{gate.label}</dt>
+                    <dd className={cn(gate.state === "prohibited" && "font-semibold text-fr-v2-clay")}>{gate.text}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </CompactDisclosure>
 
-      <CompactDisclosure
-        label="Evidence report"
-        status={evidenceState.label}
-        statusTone={evidenceState.tone}
-        hint={evidenceState.hint}
-        ariaLabel="Evidence chain"
-      >
-        <EvidenceBand view={view} fieldId={fieldId} bare />
-      </CompactDisclosure>
+          <CompactDisclosure
+            label="Evidence report"
+            status={evidenceState.label}
+            statusTone={evidenceState.tone}
+            hint={evidenceState.hint}
+            ariaLabel="Evidence chain"
+          >
+            <EvidenceBand view={view} fieldId={fieldId} bare />
+          </CompactDisclosure>
+        </>
+      )}
     </div>
   );
 }

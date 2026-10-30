@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 // This suite exercises FieldDrawer's own store-driven behaviour, not the
 // separate, already-tested FieldAwarenessCard
@@ -7,6 +7,9 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 // here purely to keep this suite from exercising a real Server Action
 // (createClient()/next/headers) outside a request context.
 vi.mock("@/app/actions/field-awareness", () => ({ getFieldAwarenessAction: vi.fn().mockResolvedValue(null) }));
+vi.mock("@/app/actions/field-workspace", () => ({
+  getFieldWorkspaceContextAction: vi.fn().mockResolvedValue({ cycle: null, activities: [], activitiesTruncated: false }),
+}));
 // Real-mode store writes go through these canonical Server Actions — mocked
 // only at that I/O boundary so the drawer + store logic run for real.
 vi.mock("@/app/actions/farm", async (importOriginal) => {
@@ -23,6 +26,7 @@ import { FieldDrawer } from "./FieldDrawer";
 import { mockFields, mockSlurryAllocations } from "@/data/mock-farm";
 import type { Field, SlurryAllocation } from "@/domain/types";
 import { updateSlurryApplicationDateAction, updateSlurryApplicationMethodAction } from "@/app/actions/farm";
+import { getFieldWorkspaceContextAction } from "@/app/actions/field-workspace";
 
 afterEach(() => {
   cleanup();
@@ -274,10 +278,54 @@ describe("FieldDrawer — field workspace chapters (Farm + Fields redesign)", ()
     const field: Field = { ...mockFields[0], plannedUse: { value: "silage_1st_cut", status: "farmer_adjusted", source: "Farmer", sourceDate: "2026-03-02" } };
     renderDrawer(field);
     const use = screen.getByRole("region", { name: "Use" });
-    expect(use.textContent).toContain("Current useNot recorded separately");
+    expect(use.textContent).toContain("Current crop / useNot recorded");
     expect(use.textContent).toMatch(/Planned use.*silage/i);
     expect(use.textContent).toContain("set 2 Mar 2026");
     expect(use.textContent).toMatch(/Livestock.*Not recorded for fields yet/);
+  });
+
+  it("Overview uses the active production cycle as the current crop/use without overwriting planned use", async () => {
+    vi.mocked(getFieldWorkspaceContextAction).mockResolvedValueOnce({
+      cycle: {
+        id: "cycle-1",
+        fieldId: mockFields[0].id,
+        season: "2026",
+        cropSystem: "GRASS_FIRST_CUT_SILAGE",
+        status: "active",
+        evidence: {
+          cropSystem: { value: "GRASS_FIRST_CUT_SILAGE", method: "FARMER_DECLARED", source: "Farmer", observedAt: "2026-03-10T09:00:00.000Z" },
+        },
+        createdAt: "2026-03-10T09:00:00.000Z",
+        updatedAt: "2026-03-10T09:00:00.000Z",
+      },
+      activities: [],
+      activitiesTruncated: false,
+    });
+    const field: Field = { ...mockFields[0], plannedUse: { value: "grazing", status: "farmer_adjusted", source: "Farmer", sourceDate: "2026-02-01" } };
+    renderDrawer(field);
+    await waitFor(() => expect(screen.getByRole("region", { name: "Use" }).textContent).toContain("Current crop / useGrass — first-cut silage"));
+    expect(screen.getByRole("region", { name: "Use" }).textContent).toMatch(/Planned use.*Grazing/);
+  });
+
+  it("History includes confirmed field job actuals with provenance", async () => {
+    vi.mocked(getFieldWorkspaceContextAction).mockResolvedValueOnce({
+      cycle: null,
+      activities: [{
+        id: "actual-1",
+        kind: "fertiliser_spreading",
+        confirmedAt: "2026-04-12T10:00:00.000Z",
+        title: "Fertiliser spreading",
+        detail: "Completed · 18-6-12 · 500 kg · 4.2 ha",
+        provenance: "Confirmed by farmer · manual job",
+      }],
+      activitiesTruncated: false,
+    });
+    renderDrawer(mockFields[0]);
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    await waitFor(() => expect(document.body.textContent).toContain("Fertiliser spreading"));
+    const activity = document.querySelector('[data-history-kind="activity"]') as HTMLElement;
+    expect(activity.textContent).toContain("12 Apr 2026");
+    expect(activity.textContent).toContain("Confirmed by farmer");
   });
 
   it("Nutrients holds the canonical nutrient plan, soil evidence and the legal inputs", () => {

@@ -21,7 +21,7 @@ import { landUseLabel } from "@/lib/status";
  * fetched server-side for the whole farm (Records) and are not merged here.
  */
 
-export type FieldHistoryKind = "use" | "boundary" | "soil_test" | "season" | "archive";
+export type FieldHistoryKind = "use" | "boundary" | "soil_test" | "season" | "archive" | "activity";
 
 export interface FieldHistoryEvent {
   id: string;

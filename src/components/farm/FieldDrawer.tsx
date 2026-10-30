@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -15,6 +15,8 @@ import { FieldAwarenessCard } from "@/components/farm/FieldAwarenessCard";
 import { FieldSatelliteHistory } from "@/components/farm/FieldSatelliteHistory";
 import { SpreadableAreaEvidencePanel } from "@/components/farm/SpreadableAreaEvidencePanel";
 import { FieldProductionCycleCard } from "@/components/farm/FieldProductionCycleCard";
+import { CROP_SYSTEM_LABELS } from "@/domain/fertiliser-field-evidence";
+import { getFieldWorkspaceContextAction, type FieldWorkspaceContext, type FieldActivityEvent } from "@/app/actions/field-workspace";
 import { FieldNutrientPlanBody } from "@/app/(app)/today/field/[fieldId]/FieldNutrientPlanPageClient";
 import { useFarmActions, useFarm, useHousingList, useIsRealMode, useSlurryAllocations } from "@/store/farm-store";
 import type { BufferFeature } from "@/domain/buffer-gate";
@@ -101,7 +103,37 @@ export function FieldDrawer({
   onViewPrompt?: () => void;
 }) {
   const [chapter, setChapter] = useState<FieldWorkspaceChapter>(slurryDetailsRequest ? "nutrients" : (initialChapter ?? "overview"));
+  const [workspaceContext, setWorkspaceContext] = useState<FieldWorkspaceContext | null>(null);
+  const [workspaceUnavailable, setWorkspaceUnavailable] = useState(false);
   const { restoreField } = useFarmActions();
+
+  const refreshWorkspace = () => {
+    setWorkspaceUnavailable(false);
+    void getFieldWorkspaceContextAction(field.id)
+      .then(setWorkspaceContext)
+      .catch(() => {
+        setWorkspaceContext(null);
+        setWorkspaceUnavailable(true);
+      });
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    setWorkspaceUnavailable(false);
+    void getFieldWorkspaceContextAction(field.id)
+      .then((context) => {
+        if (!cancelled) setWorkspaceContext(context);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setWorkspaceContext(null);
+          setWorkspaceUnavailable(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [field.id]);
 
   return (
     <div className={cn("flex flex-col text-fr-v2-graphite", className)} data-field-workspace>
@@ -136,11 +168,11 @@ export function FieldDrawer({
 
       <div className="pt-7">
         {chapter === "overview" ? (
-          <OverviewChapter field={field} leadingPrompt={leadingPrompt} onViewPrompt={onViewPrompt} onOpenHistory={() => setChapter("history")} />
+          <OverviewChapter field={field} workspaceContext={workspaceContext} workspaceUnavailable={workspaceUnavailable} leadingPrompt={leadingPrompt} onViewPrompt={onViewPrompt} onOpenHistory={() => setChapter("history")} />
         ) : chapter === "nutrients" ? (
-          <NutrientsChapter field={field} slurryDetailsRequest={slurryDetailsRequest} />
+          <NutrientsChapter field={field} slurryDetailsRequest={slurryDetailsRequest} onProductionCycleSaved={refreshWorkspace} />
         ) : (
-          <HistoryChapter field={field} />
+          <HistoryChapter field={field} workspaceContext={workspaceContext} workspaceUnavailable={workspaceUnavailable} />
         )}
       </div>
     </div>
@@ -172,11 +204,15 @@ function Row({ label, value, detail, quiet }: { label: string; value: ReactNode;
 
 function OverviewChapter({
   field,
+  workspaceContext,
+  workspaceUnavailable,
   leadingPrompt,
   onViewPrompt,
   onOpenHistory,
 }: {
   field: Field;
+  workspaceContext: FieldWorkspaceContext | null;
+  workspaceUnavailable: boolean;
   leadingPrompt?: Prompt;
   onViewPrompt?: () => void;
   onOpenHistory: () => void;
@@ -196,7 +232,13 @@ function OverviewChapter({
   // county. No live/historical observation feed is wired to any station yet —
   // this only answers "which station," not "what's the weather there."
   const [nearestWeatherStation] = nearestStationsForField(field, undefined, 1);
-  const recent = fieldHistoryEvents(field).slice(0, 3);
+  const recent = [
+    ...fieldHistoryEvents(field),
+    ...(workspaceContext?.activities.map(activityToHistoryEvent) ?? []),
+  ]
+    .sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0))
+    .slice(0, 3);
+  const currentCycle = workspaceContext?.cycle;
 
   const primary = planAvailable
     ? { label: "Open nutrient plan", href: fieldNutrientPlanHref(field.id) }
@@ -226,7 +268,17 @@ function OverviewChapter({
 
         <Section kicker="Use">
           <dl className="divide-y divide-fr-v2-cream-rule/70">
-            <Row label="Current use" value="Not recorded separately" detail="Farm Return keeps one planned use per field" quiet />
+            {currentCycle ? (
+              <Row
+                label="Current crop / use"
+                value={CROP_SYSTEM_LABELS[currentCycle.cropSystem]}
+                detail={`${currentCycle.season} production cycle · ${currentCycle.status}${currentCycle.evidence.cropSystem?.source ? ` · ${currentCycle.evidence.cropSystem.source}` : ""}`}
+              />
+            ) : workspaceUnavailable ? (
+              <Row label="Current crop / use" value="Temporarily unavailable" detail="Production-cycle evidence could not be loaded" quiet />
+            ) : (
+              <Row label="Current crop / use" value="Not recorded" detail="Set the production cycle in Nutrients" quiet />
+            )}
             {use ? <Row label="Planned use" value={use.value} detail={use.detail} /> : <Row label="Planned use" value="Not set" quiet />}
             <Row label="Livestock" value="Not recorded for fields yet" detail="Groups carry no field location" quiet />
           </dl>
@@ -482,7 +534,7 @@ export function ManageField({ field, defaultOpen = false }: { field: Field; defa
 
 /* --------------------------------------------------------------- Nutrients */
 
-function NutrientsChapter({ field, slurryDetailsRequest }: { field: Field; slurryDetailsRequest?: MissingSlurryPlanningDetail[] }) {
+function NutrientsChapter({ field, slurryDetailsRequest, onProductionCycleSaved }: { field: Field; slurryDetailsRequest?: MissingSlurryPlanningDetail[]; onProductionCycleSaved?: () => void }) {
   const result = useFieldNutrientPlan(field);
   const view = result ? fieldNutrientPlanView(result, field) : undefined;
   const legalInputs = <LegalInputs field={field} slurryDetailsRequest={slurryDetailsRequest} />;
@@ -524,7 +576,7 @@ function NutrientsChapter({ field, slurryDetailsRequest }: { field: Field; slurr
         </p>
       </section>
 
-      <FieldProductionCycleCard field={field} />
+      <FieldProductionCycleCard field={field} onSaved={onProductionCycleSaved} />
 
       <SoilEvidence field={field} />
 
@@ -778,14 +830,33 @@ function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDeta
 
 /* ----------------------------------------------------------------- History */
 
-function HistoryChapter({ field }: { field: Field }) {
-  const events = fieldHistoryEvents(field);
+function activityToHistoryEvent(activity: FieldActivityEvent): FieldHistoryEvent {
+  return {
+    id: activity.id,
+    kind: "activity",
+    date: activity.confirmedAt,
+    dateLabel: formatFieldDate(activity.confirmedAt) ?? "Date not recorded",
+    title: activity.title,
+    detail: [activity.detail, activity.provenance].filter(Boolean).join(" · "),
+  };
+}
+
+function HistoryChapter({ field, workspaceContext, workspaceUnavailable }: { field: Field; workspaceContext: FieldWorkspaceContext | null; workspaceUnavailable: boolean }) {
+  const events = [
+    ...fieldHistoryEvents(field),
+    ...(workspaceContext?.activities.map(activityToHistoryEvent) ?? []),
+  ].sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0));
   return (
     <div className="flex max-w-3xl flex-col gap-6" data-field-history>
-      <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Evidence ledger · newest first</p>
+      <div>
+        <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Field history · newest first</p>
+        <p className="mt-2 text-sm text-fr-v2-muted">Confirmed field work, crop/use changes and soil evidence in one dated record. Planned work stays labelled as planned elsewhere.</p>
+      </div>
+      {workspaceUnavailable ? <p className="border-l-[3px] border-fr-v2-clay pl-3 text-sm text-fr-v2-muted">Confirmed job activity is temporarily unavailable. Field metadata and soil history below are still complete for what is loaded.</p> : null}
       {events.length > 0 ? <HistoryList events={events} /> : <p className="text-sm italic text-fr-v2-muted">Nothing recorded for this field yet.</p>}
+      {workspaceContext?.activitiesTruncated ? <p className="text-xs text-fr-v2-muted">Older confirmed job activity exists beyond the current records limit and is not shown here.</p> : null}
       <p className="text-sm text-fr-v2-muted">
-        Completed jobs and recorded decisions are kept farm-wide in{" "}
+        The complete farm-wide evidence ledger remains in{" "}
         <Link href="/records" className="font-semibold text-fr-v2-forest underline underline-offset-2">
           Records
         </Link>

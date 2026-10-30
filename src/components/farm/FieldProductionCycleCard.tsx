@@ -47,7 +47,7 @@ function gateCopy(gate: FertiliserInputGateResult | null): { title: string; deta
   };
 }
 
-export function FieldProductionCycleCard({ field }: { field: Field }) {
+export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onSaved?: () => void }) {
   const farm = useFarm();
   const season = String(new Date().getFullYear());
   const [cycle, setCycle] = useState<FieldProductionCycle | null>(null);
@@ -186,6 +186,7 @@ export function FieldProductionCycleCard({ field }: { field: Field }) {
               setCycle(state.cycle);
               setGate(state.gate);
               setMessage("Field evidence saved.");
+              onSaved?.();
             } catch (error) {
               setMessage(error instanceof Error ? error.message : "Could not save field evidence.");
             }

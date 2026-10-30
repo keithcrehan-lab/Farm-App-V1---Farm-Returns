@@ -188,6 +188,37 @@ function Section({ kicker, children, className, id }: { kicker: string; children
   );
 }
 
+function ProgressiveStage({
+  label,
+  summary,
+  children,
+  defaultOpen = false,
+}: {
+  label: string;
+  summary: ReactNode;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="border-t border-fr-v2-cream-rule" aria-label={label}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex min-h-16 w-full items-center justify-between gap-5 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-gold"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-fr-v2-graphite">{label}</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-fr-v2-muted">{summary}</span>
+        </span>
+        <span className="shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-v2-forest">{open ? "Hide" : "Open"}</span>
+      </button>
+      {open ? <div className="pb-6 pt-2">{children}</div> : null}
+    </section>
+  );
+}
+
 function Row({ label, value, detail, quiet }: { label: string; value: ReactNode; detail?: ReactNode; quiet?: boolean }) {
   return (
     <div className="flex flex-col gap-0.5 py-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
@@ -537,14 +568,25 @@ export function ManageField({ field, defaultOpen = false }: { field: Field; defa
 function NutrientsChapter({ field, slurryDetailsRequest, onProductionCycleSaved }: { field: Field; slurryDetailsRequest?: MissingSlurryPlanningDetail[]; onProductionCycleSaved?: () => void }) {
   const result = useFieldNutrientPlan(field);
   const view = result ? fieldNutrientPlanView(result, field) : undefined;
-  const legalInputs = <LegalInputs field={field} slurryDetailsRequest={slurryDetailsRequest} />;
+  const slurryAllocations = useSlurryAllocations().filter((allocation) => allocation.fieldId === field.id && allocation.priority !== "not_suitable");
+  const soilSummary = [
+    field.fertility.pIndex && field.fertility.pIndex.status !== "unavailable" ? `P Index ${field.fertility.pIndex.value}` : "P not recorded",
+    field.fertility.kIndex && field.fertility.kIndex.status !== "unavailable" ? `K Index ${field.fertility.kIndex.value}` : "K not recorded",
+    field.fertility.pH && field.fertility.pH.status !== "unavailable" ? `pH ${field.fertility.pH.value}` : "pH not recorded",
+  ].join(" · ");
+  const legalSummary = [
+    field.commonageStatus?.value === "commonage" ? "Commonage" : field.commonageStatus?.value === "not_commonage" ? "Not commonage" : "Commonage not confirmed",
+    field.waterBufferContext?.value.featureType ? "Water feature assessed" : "Water buffer not assessed",
+    slurryAllocations.length === 0
+      ? "No slurry allocation"
+      : slurryAllocations.every((allocation) => allocation.applicationMethod && allocation.applicationDate)
+        ? "Slurry details complete"
+        : "Slurry details incomplete",
+  ].join(" · ");
 
   return (
-    <div className="flex flex-col gap-10" data-field-nutrients>
-      {/* Arriving to complete spreading details: those inputs come first. */}
-      {slurryDetailsRequest ? legalInputs : null}
-
-      <section aria-label="Nutrient plan" className="flex flex-col gap-6">
+    <div className="flex flex-col" data-field-nutrients>
+      <section aria-label="Nutrient plan" className="flex flex-col gap-6 pb-8">
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
           <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Nutrients · decision first</p>
           <p className="flex flex-wrap gap-x-5 gap-y-1">
@@ -578,9 +620,13 @@ function NutrientsChapter({ field, slurryDetailsRequest, onProductionCycleSaved 
 
       <FieldProductionCycleCard field={field} onSaved={onProductionCycleSaved} />
 
-      <SoilEvidence field={field} />
+      <ProgressiveStage label="Soil evidence" summary={soilSummary}>
+        <SoilEvidence field={field} />
+      </ProgressiveStage>
 
-      {slurryDetailsRequest ? null : legalInputs}
+      <ProgressiveStage label="Legal & spreading inputs" summary={legalSummary} defaultOpen={Boolean(slurryDetailsRequest)}>
+        <LegalInputs field={field} slurryDetailsRequest={slurryDetailsRequest} />
+      </ProgressiveStage>
     </div>
   );
 }
@@ -599,7 +645,7 @@ function SoilEvidence({ field }: { field: Field }) {
     tracked && tracked.status !== "unavailable" ? `Index ${tracked.value}` : "Not recorded";
 
   return (
-    <Section kicker="Soil evidence">
+    <div>
       <dl className="divide-y divide-fr-v2-cream-rule/70">
         <Row label="P Index" value={indexValue(fertility.pIndex)} detail={fertility.pIndex?.source} quiet={!fertility.pIndex} />
         <Row label="K Index" value={indexValue(fertility.kIndex)} detail={fertility.kIndex?.source} quiet={!fertility.kIndex} />
@@ -632,7 +678,7 @@ function SoilEvidence({ field }: { field: Field }) {
           Add or review soil tests →
         </Link>
       </p>
-    </Section>
+    </div>
   );
 }
 
@@ -664,8 +710,7 @@ function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDeta
   const slurryDetailsComplete = shownSlurryAllocations.every((a) => a.applicationMethod && a.applicationDate);
 
   return (
-    <Section kicker="Legal inputs for this field">
-      <div className="flex flex-col gap-4" data-legal-inputs>
+    <div className="flex flex-col gap-4" data-legal-inputs>
         {slurryDetailsRequest && shownSlurryAllocations.length > 0 ? (
           <div className="flex flex-col gap-1.5 border-l-[3px] border-fr-v2-gold bg-white/60 px-3 py-2.5 text-xs text-fr-v2-charcoal">
             <p className="text-sm font-semibold text-fr-v2-graphite">{slurryDetailsComplete ? "Spreading details added" : "Add spreading details"}</p>
@@ -823,8 +868,7 @@ function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDeta
         {/* Campaign B — the field's spreadable area, beside its other
             spreading constraints; never its gross size. */}
         <SpreadableAreaEvidencePanel field={field} />
-      </div>
-    </Section>
+    </div>
   );
 }
 

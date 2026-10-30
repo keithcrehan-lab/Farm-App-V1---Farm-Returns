@@ -60,6 +60,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
   const [cloverPct, setCloverPct] = useState("");
   const [grazingSystem, setGrazingSystem] = useState<GrazingProductionSystem | "">("");
   const [message, setMessage] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -92,11 +93,28 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
   const needsClover = cropSystem === "GRASS_WHITE_CLOVER_GRAZING" || cropSystem === "GRASS_WHITE_CLOVER_SILAGE";
   const status = useMemo(() => gateCopy(gate), [gate]);
 
+  const cropLabel = cycle ? CROP_SYSTEM_LABELS[cycle.cropSystem] : "Crop not recorded";
+  const evidenceLabel = gate?.status === "READY_FOR_CALCULATION" ? "Evidence complete" : gate?.status === "UNSUPPORTED_PATHWAY" ? "Agronomy not enabled" : "Evidence incomplete";
+
   return (
-    <section className="flex flex-col gap-4 border-t border-fr-v2-cream-rule pt-6" aria-label="Field production cycle">
+    <section className="border-t border-fr-v2-cream-rule" aria-label="Crop & production">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex min-h-16 w-full items-center justify-between gap-5 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-gold"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-fr-v2-graphite">Crop & production</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-fr-v2-muted">{cropLabel} · {season} · {evidenceLabel}</span>
+        </span>
+        <span className="shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-v2-forest">{open ? "Hide" : "Open"}</span>
+      </button>
+
+      {open ? <div className="flex flex-col gap-4 pb-6 pt-2">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Fertiliser P2 · field evidence</p>
+          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Field evidence</p>
           <h3 className="mt-1 text-base font-semibold text-fr-v2-graphite">{season} production cycle</h3>
         </div>
         <span className="text-xs font-semibold text-fr-v2-muted">{cycle ? "Saved" : "Not saved"}</span>
@@ -196,6 +214,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
       >
         {isPending ? "Saving…" : "Save production evidence"}
       </button>
+      </div> : null}
     </section>
   );
 }

@@ -120,6 +120,7 @@ describe("FieldDrawer — compliance evidence capture (V3 closure pass)", () => 
   // ("Legal inputs for this field") — same real fields/behaviour, one tap.
   function openConstraintsTab() {
     fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
+    fireEvent.click(screen.getByRole("button", { name: /legal & spreading inputs/i }));
   }
 
   it("defaults commonage status to 'unknown' and fails closed until a farmer sets it", () => {
@@ -328,14 +329,20 @@ describe("FieldDrawer — field workspace chapters (Farm + Fields redesign)", ()
     expect(activity.textContent).toContain("Confirmed by farmer");
   });
 
-  it("Nutrients holds the canonical nutrient plan, soil evidence and the legal inputs", () => {
+  it("Nutrients leads with the canonical plan and progressively reveals supporting evidence", () => {
     renderDrawer(mockFields[0]);
     fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
     const chapter = document.querySelector("[data-field-nutrients]") as HTMLElement;
     expect(chapter).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Soil evidence" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Legal inputs for this field" })).toBeTruthy();
     expect(screen.getByRole("link", { name: /full nutrient plan/i }).getAttribute("href")).toBe(`/today/field/${mockFields[0].id}`);
+    expect(screen.getByRole("button", { name: /crop & production/i }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByRole("button", { name: /soil evidence/i }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByRole("button", { name: /legal & spreading inputs/i }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByLabelText(/commonage status/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /soil evidence/i }));
+    expect(screen.getAllByText(/P Index|P not recorded/i).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /legal & spreading inputs/i }));
+    expect(screen.getByLabelText(/commonage status/i)).toBeTruthy();
   });
 
   it("History lists dated planned-use changes from the provenance chain, newest first, and points to Records", () => {

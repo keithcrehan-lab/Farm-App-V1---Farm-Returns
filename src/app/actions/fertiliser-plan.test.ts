@@ -13,6 +13,7 @@ vi.mock("@/lib/farm-data/decisions", () => ({ listDecisionsForFarm: vi.fn(), get
 vi.mock("@/lib/farm-data/job-sessions", () => ({ listJobSessionDecisionIdsForFarm: vi.fn(), getJobSessionById: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/housing", () => ({ listHousingForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry-composition", () => ({ listSlurryCompositionRecordsForFarm: vi.fn(async () => []) }));
 vi.mock("@/orchestration/job-session", () => ({ startJobSessionFromPlan: vi.fn() }));
 // `sanitiseDecisionRecordForClient` is a real, pure, no-I/O function
@@ -32,6 +33,8 @@ import { listDecisionsForFarm, getDecisionById } from "@/lib/farm-data/decisions
 import { listJobSessionDecisionIdsForFarm, getJobSessionById } from "@/lib/farm-data/job-sessions";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listHousingForFarm } from "@/lib/farm-data/housing";
+import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
 import { getFieldProductionCycle, listFieldProductionCyclesForSeason } from "@/lib/farm-data/field-production-cycles";
 import { startJobSessionFromPlan } from "@/orchestration/job-session";
 import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand } from "@/orchestration/fertiliser-plan";
@@ -41,6 +44,7 @@ import {
   getLinkedFertiliserPlanForJobSessionAction,
   getFieldFertiliserStatusAction,
   getFarmFertiliserDemandAction,
+  previewSlurryFirstFertiliserPlanAction,
   getFarmLimeRequirementAction,
 } from "./fertiliser-plan";
 import type { Farm, Field } from "@/domain/types";
@@ -56,6 +60,8 @@ const mockGetJobSessionById = vi.mocked(getJobSessionById);
 const mockStartJobSessionFromPlan = vi.mocked(startJobSessionFromPlan);
 const mockListLivestockGroups = vi.mocked(listLivestockGroupsForFarm);
 const mockListSlurryAllocations = vi.mocked(listSlurryAllocationsForFarm);
+const mockListHousing = vi.mocked(listHousingForFarm);
+const mockListSlurryCompositionRecords = vi.mocked(listSlurryCompositionRecordsForFarm);
 const mockGetFieldProductionCycle = vi.mocked(getFieldProductionCycle);
 const mockListFieldProductionCyclesForSeason = vi.mocked(listFieldProductionCyclesForSeason);
 const mockGetFieldRemainingFertiliserRequirement = vi.mocked(getFieldRemainingFertiliserRequirement);
@@ -985,6 +991,91 @@ describe("getFarmFertiliserDemandAction", () => {
     expect(result.purchaseRequirementTonnes).toEqual([
       { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0.4, confirmedAppliedTotalTonnes: 0.3, remainingTotalTonnes: 0.7, remainingTotalKg: 700, fieldsCount: 2 },
     ]);
+  });
+});
+
+
+describe("previewSlurryFirstFertiliserPlanAction", () => {
+  it("uses forecast slurry first and reduces the P3 chemical procurement preview without writing current slurry state", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([p3Field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListHousing.mockResolvedValue([{
+      id: "h1", farmId: farm.id, shedName: "Main tank", animalType: "cattle", headCount: 0, weeksHoused: 0,
+      storageCapacityM3: 500, storageFillPct: 10, storageFillStatus: "farmer_recorded",
+      slurryEstimate: { volumeM3: 0, nKg: 0, pKg: 0, kKg: 0, source: "mock" },
+    } as any]);
+    mockListFieldProductionCyclesForSeason.mockResolvedValue([p3FirstCutCycle({ season: "2027", evidence: {
+      cropSystem: { value: "GRASS_FIRST_CUT_SILAGE", method: "FARMER_DECLARED", source: "Keith" },
+      productionTargetTDMHa: { value: 5, method: "FARMER_DECLARED", source: "Keith" },
+      chemicalNAppliedKgHa: { value: 0, method: "FARMER_DECLARED", source: "Keith" },
+      chemicalPAppliedKgHa: { value: 0, method: "FARMER_DECLARED", source: "Keith" },
+      chemicalKAppliedKgHa: { value: 0, method: "FARMER_DECLARED", source: "Keith" },
+    } })]);
+    mockListSlurryCompositionRecords.mockResolvedValue([{
+      id: "comp-1", farmId: farm.id, housingId: "h1", slurryType: "cattle_slurry", status: "farmer_adjusted", dmPct: 6,
+      sampleDate: "2026-10-01", source: "Farmer estimate", recordedAt: "2026-10-01T12:00:00.000Z",
+    }]);
+
+    const result = await previewSlurryFirstFertiliserPlanAction({
+      planningDate: "2027-01-30",
+      expectedAvailableM3: 300,
+      source: "FARMER_FORECAST",
+      productionBasis: "TARGET_SEASON_SAVED",
+      candidates: [{ fieldId: "field-1", housingId: "h1", volumeM3: 100, applicationMethod: "LESS", applicationDate: "2027-02-01" }],
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.scenario).toMatchObject({ expectedAvailableM3: 300, allocatedM3: 100, unallocatedM3: 200, source: "FARMER_FORECAST" });
+    const baselineKg = result.baseline.purchaseRequirementTonnes.reduce((sum, line) => sum + line.remainingTotalKg, 0);
+    const afterSlurryKg = result.withPlannedSlurry.purchaseRequirementTonnes.reduce((sum, line) => sum + line.remainingTotalKg, 0);
+    expect(afterSlurryKg).toBeLessThan(baselineKg);
+    expect(mockListSlurryAllocations).not.toHaveBeenCalled();
+    expect(result.automaticOptimisation).toMatchObject({ status: "BLOCKED", reasonCode: "P3_ECONOMIC_ADAPTER_NOT_AVAILABLE" });
+  });
+
+  it("can explicitly carry current production settings into the future scenario and resets prior chemical applications to zero", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([p3Field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListHousing.mockResolvedValue([{ id: "h1", farmId: farm.id, shedName: "Main tank", storageCapacityM3: 500 } as any]);
+    mockListSlurryCompositionRecords.mockResolvedValue([{
+      id: "comp-1", farmId: farm.id, housingId: "h1", slurryType: "cattle_slurry", status: "farmer_adjusted", dmPct: 6,
+      sampleDate: "2026-10-01", source: "Farmer estimate", recordedAt: "2026-10-01T12:00:00.000Z",
+    }]);
+    mockListFieldProductionCyclesForSeason
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([p3FirstCutCycle()]);
+
+    const result = await previewSlurryFirstFertiliserPlanAction({
+      planningDate: "2027-01-30", expectedAvailableM3: 300, source: "FARMER_FORECAST", productionBasis: "CARRY_FORWARD_CURRENT_SETTINGS",
+      candidates: [{ fieldId: "field-1", housingId: "h1", volumeM3: 100, applicationMethod: "LESS", applicationDate: "2027-02-01" }],
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.scenario).toMatchObject({ productionBasis: "CARRY_FORWARD_CURRENT_SETTINGS", carriedForwardFromSeason: "2026" });
+    expect(result.baseline.fieldsWithBlockedEvidence).toBe(0);
+    expect(result.withPlannedSlurry.fieldsWithBlockedEvidence).toBe(0);
+    const baselineKg = result.baseline.purchaseRequirementTonnes.reduce((sum, line) => sum + line.remainingTotalKg, 0);
+    const afterSlurryKg = result.withPlannedSlurry.purchaseRequirementTonnes.reduce((sum, line) => sum + line.remainingTotalKg, 0);
+    expect(baselineKg).toBeGreaterThan(0);
+    expect(afterSlurryKg).toBeLessThan(baselineKg);
+  });
+
+  it("blocks a future preview until every active field has an explicit target-season production cycle", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([p3Field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListHousing.mockResolvedValue([{ id: "h1", farmId: farm.id, shedName: "Main tank", storageCapacityM3: 500 } as any]);
+    mockListFieldProductionCyclesForSeason.mockResolvedValue([]);
+
+    const result = await previewSlurryFirstFertiliserPlanAction({
+      planningDate: "2027-01-30", expectedAvailableM3: 300, source: "FARMER_FORECAST", productionBasis: "TARGET_SEASON_SAVED",
+      candidates: [{ fieldId: "field-1", housingId: "h1", volumeM3: 100, applicationMethod: "LESS", applicationDate: "2027-02-01" }],
+    });
+    expect(result).toMatchObject({ status: "blocked", reasonCode: "MISSING_TARGET_SEASON_PRODUCTION_CYCLES" });
   });
 });
 

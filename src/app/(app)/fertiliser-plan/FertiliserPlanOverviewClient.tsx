@@ -32,6 +32,7 @@ import { RequestQuoteSheet } from "@/components/farm/RequestQuoteSheet";
 import { SlurryStorageSection } from "@/components/farm/SlurryTankVisual";
 import { FertiliserStockColumn } from "@/components/farm/FertiliserStockColumnVisual";
 import { AddFertiliserStockRecordSheet } from "@/components/farm/AddFertiliserStockRecordSheet";
+import { SlurryFirstPlanningPanel } from "@/components/farm/SlurryFirstPlanningPanel";
 import { getFertiliserPlanOverviewAction, type FertiliserPlanOverview } from "@/app/actions/fertiliser-plan-overview";
 import { useIsRealMode } from "@/store/farm-store";
 import { formatHa, formatNonNegative } from "@/lib/format";
@@ -231,6 +232,12 @@ function OverviewContent({
           Review quote requests
         </Link>
       </section>
+
+      <SlurryFirstPlanningPanel
+        fields={overview.fieldBreakdown.map((field) => ({ fieldId: field.fieldId, fieldName: field.fieldName }))}
+        stores={overview.slurry.tanks.map((tank) => ({ housingId: tank.housingId, shedName: tank.shedName, capacityM3: tank.capacityM3 }))}
+        currentUnallocatedM3={overview.slurry.totalUnallocatedM3}
+      />
 
       {/* 2. FIELD ROWS — requirement state beside canonical contribution */}
       <section className="flex flex-col gap-2">

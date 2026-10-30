@@ -120,18 +120,17 @@ describe("FarmFertiliserPurchaseRequirementCard", () => {
     expect(screen.getByText(/tillage/)).toBeTruthy();
     expect(screen.queryByText(/require more information/)).toBeNull();
     // No products → nothing to prepare a quote for.
-    expect(screen.queryByRole("button", { name: /prepare quote/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /review supplier request/i })).toBeNull();
   });
 
   it("opens the quote request workflow on the canonical basket — no submission to any supplier", async () => {
     mockAction.mockResolvedValue(result(TWO_FIELDS_SAME_PRODUCT));
     render(<FarmFertiliserPurchaseRequirementCard canRecord />);
-    const button = await screen.findByRole("button", { name: /prepare quote/i });
+    const button = await screen.findByRole("button", { name: /review supplier request/i });
     fireEvent.click(button);
-    expect(await screen.findByText("1. Review requirement")).toBeTruthy();
-    expect(screen.getByText("Draft")).toBeTruthy();
-    expect((screen.getByLabelText("Requested tonnes for 18-6-12 (18-6-12)") as HTMLInputElement).value).toBe("1.01");
-    expect(screen.queryByRole("button", { name: /submit|send/i })).toBeNull();
+    expect(await screen.findByText("Fertiliser to buy")).toBeTruthy();
+    expect((screen.getByLabelText("Request tonnes for 18-6-12 (18-6-12)") as HTMLInputElement).value).toBe("1.01");
+    expect(screen.getByRole("button", { name: "Send request" })).toBeTruthy();
   });
 
   it("shows the real tonnes still to buy per product", async () => {

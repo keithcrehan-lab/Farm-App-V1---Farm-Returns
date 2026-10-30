@@ -756,6 +756,38 @@ export type FieldPurchaseStatus =
 
 export interface NutrientPlan {
   fieldId: string;
+  /** Additive audit trace for the exact arithmetic that produced the gross
+   * grazing N/P/K requirement. It is generated inside calculateNutrientPlan
+   * alongside the canonical figures so UI/report surfaces never have to
+   * recreate the agronomy maths independently. */
+  calculationTrace?: {
+    basis: "grazing" | "silage";
+    grazing?: {
+      totalLivestockUnits: number;
+      farmGrasslandAreaHa: number;
+      stockingRateLUHa: number;
+      n: {
+        lowerRow: { stockingRateLUHa: number; totalNKgHa: number };
+        upperRow: { stockingRateLUHa: number; totalNKgHa: number };
+        interpolationFraction: number;
+        resultKgHa: number;
+      };
+      p: {
+        soilIndex: 1 | 2 | 3 | 4;
+        buildUpKgHa: number;
+        maintenanceBandMaxOrgNKgHa: number | null;
+        maintenanceKgHa: number;
+        resultKgHa: number;
+      };
+      k: {
+        soilIndex: 1 | 2 | 3 | 4;
+        baseAt170KgOrgNHa: number;
+        stockingRateKgNHa: number;
+        adjustmentKgHa: number;
+        resultKgHa: number;
+      };
+    };
+  };
   /** Codex remediation Priority 1 (fail-closed nutrients) — whether this
    * field's soil fertility (P Index + K Index) is real evidence, not a
    * fabricated default. `BLOCKED_INSUFFICIENT_EVIDENCE` means

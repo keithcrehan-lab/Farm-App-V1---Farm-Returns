@@ -3595,6 +3595,7 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
   // Nothing else is normalised.
   const digestWithoutNewField = (plan: NutrientPlan) => {
     const existing: Partial<NutrientPlan> = { ...plan };
+    delete existing.calculationTrace;
     delete existing.purchaseStatus;
     delete existing.fertilityEvidenceByNutrient;
     delete existing.fieldRequirement;

@@ -229,19 +229,24 @@ export function FarmFertiliserPurchaseRequirementCard({ canRecord }: { canRecord
         <button
           type="button"
           onClick={() => {
-            if (!quoteRequest || quoteRequest.status === "CANCELLED") {
+            if (!quoteRequest || quoteRequest.status === "CANCELLED" || quoteRequest.status === "SENT") {
               const draft = createFertiliserQuoteRequestDraft(basket, { requestId: crypto.randomUUID(), createdAt: new Date().toISOString() });
               setQuoteRequest(draft.ok ? draft.value : null);
               setQuoteIssues(draft.ok ? [] : draft.issues);
             }
             setQuoteOpen(true);
           }}
-          className="mt-3 w-full rounded-lg border border-fr-border px-3 py-2 text-sm font-medium text-fr-ink-900 hover:bg-fr-surface-alt"
+          className="mt-4 w-full border border-fr-v2-forest-deep bg-fr-v2-forest-deep px-4 py-3 text-sm font-semibold text-fr-v2-straw transition-opacity hover:opacity-95"
         >
-          Prepare quote
+          Review supplier request
         </button>
       ) : null}
-      <Sheet open={quoteOpen} onClose={() => setQuoteOpen(false)} title="Fertiliser quote request">
+      <Sheet
+        open={quoteOpen}
+        onClose={() => setQuoteOpen(false)}
+        title="Fertiliser quote request"
+        panelClassName="lg:max-w-[760px] lg:p-7"
+      >
         {quoteRequest ? (
           <FertiliserQuoteRequestFlow key={quoteRequest.requestId} request={quoteRequest} onRequestChange={setQuoteRequest} />
         ) : (

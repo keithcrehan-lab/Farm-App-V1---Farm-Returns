@@ -455,6 +455,37 @@ export function nGrazingSucklerToBeefKgHa(stockingRateLUHa: number): number {
   return last.totalNKgHa;
 }
 
+function nGrazingCalculationTrace(stockingRateLUHa: number): NonNullable<NonNullable<NutrientPlan["calculationTrace"]>["grazing"]>["n"] {
+  const table = N_GRAZING_SUCKLER_TO_BEEF_TABLE;
+  if (stockingRateLUHa <= table[0].stockingRateLUHa) {
+    return {
+      lowerRow: table[0],
+      upperRow: table[0],
+      interpolationFraction: 0,
+      resultKgHa: table[0].totalNKgHa,
+    };
+  }
+  const last = table[table.length - 1];
+  if (stockingRateLUHa >= last.stockingRateLUHa) {
+    return { lowerRow: last, upperRow: last, interpolationFraction: 0, resultKgHa: last.totalNKgHa };
+  }
+  for (let i = 0; i < table.length - 1; i++) {
+    const lowerRow = table[i];
+    const upperRow = table[i + 1];
+    if (stockingRateLUHa >= lowerRow.stockingRateLUHa && stockingRateLUHa <= upperRow.stockingRateLUHa) {
+      const interpolationFraction =
+        (stockingRateLUHa - lowerRow.stockingRateLUHa) / (upperRow.stockingRateLUHa - lowerRow.stockingRateLUHa);
+      return {
+        lowerRow,
+        upperRow,
+        interpolationFraction,
+        resultKgHa: lowerRow.totalNKgHa + interpolationFraction * (upperRow.totalNKgHa - lowerRow.totalNKgHa),
+      };
+    }
+  }
+  return { lowerRow: last, upperRow: last, interpolationFraction: 0, resultKgHa: last.totalNKgHa };
+}
+
 /**
  * Table 12-3 footnote 2 — standard Livestock Unit (LU) definitions used to
  * convert a headcount into a grazing stocking rate. Sourced, not invented:
@@ -2372,20 +2403,58 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   let grossP: number;
   let grossK: number;
 
+  let calculationTrace: NutrientPlan["calculationTrace"];
+
   if (silage) {
     const { cutNumber, expectedYieldTDMha, wasGrazedPreviousYear = false } = silage;
     grossN = nSilageKgHa(cutNumber, wasGrazedPreviousYear);
     grossP = pBuildUpKgHa(pIndex) + pMaintenanceSilageKgHa(cutNumber, pIndex, expectedYieldTDMha);
     grossK = kSilageKgHa(cutNumber, kIndex, expectedYieldTDMha);
+    calculationTrace = { basis: "silage" };
   } else {
     // The grazing N requirement (Table 12-3's "Total N" column) and the
     // AGRONOMIC stocking rate that the P/K tables key off are the same
     // number in this source — both are read off the same table/row. This
     // is deliberately the Green Book figure, not the statutory GSR — see
     // this function's own doc comment.
-    grossN = agronomicStockingRateKgHa;
-    grossP = pBuildUpKgHa(pIndex) + pMaintenanceGrazingKgHa(agronomicStockingRateKgHa, system);
-    grossK = kGrazingKgHa(kIndex, system, agronomicStockingRateKgHa);
+    const livestockUnitsTotal = totalLivestockUnits(livestockGroups);
+    const stockingRateLUHa = farmGrasslandAreaHa > 0 ? livestockUnitsTotal / farmGrasslandAreaHa : 0;
+    const nTrace = nGrazingCalculationTrace(stockingRateLUHa);
+    grossN = nTrace.resultKgHa;
+
+    const pBuildUp = pBuildUpKgHa(pIndex);
+    const pBand = P_GRAZING_MAINTENANCE_BANDS.find((band) => agronomicStockingRateKgHa <= band.maxOrgNKgHa)!;
+    const pMaintenance = pBand[system];
+    grossP = pBuildUp + pMaintenance;
+
+    const kBase = K_GRAZING_BASE_KG_HA[kIndex][system];
+    const kAdjustment =
+      kIndex === 4 ? 0 : ((agronomicStockingRateKgHa - K_GRAZING_BASE_ORG_N_KG_HA) / 40) * K_GRAZING_STEP_KG_PER_40_ORG_N;
+    grossK = Math.max(0, kBase + kAdjustment);
+
+    calculationTrace = {
+      basis: "grazing",
+      grazing: {
+        totalLivestockUnits: livestockUnitsTotal,
+        farmGrasslandAreaHa,
+        stockingRateLUHa,
+        n: nTrace,
+        p: {
+          soilIndex: pIndex,
+          buildUpKgHa: pBuildUp,
+          maintenanceBandMaxOrgNKgHa: Number.isFinite(pBand.maxOrgNKgHa) ? pBand.maxOrgNKgHa : null,
+          maintenanceKgHa: pMaintenance,
+          resultKgHa: grossP,
+        },
+        k: {
+          soilIndex: kIndex,
+          baseAt170KgOrgNHa: kBase,
+          stockingRateKgNHa: agronomicStockingRateKgHa,
+          adjustmentKgHa: kAdjustment,
+          resultKgHa: grossK,
+        },
+      },
+    };
   }
 
   const rateM3ha = slurryAllocation && slurryAllocation.priority !== "not_suitable" ? slurryAllocation.volumeM3 / field.areaHa : 0;
@@ -3050,6 +3119,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
 
   return {
     fieldId: field.id,
+    calculationTrace,
     fertilityEvidence,
     fertilityEvidenceByNutrient,
     soilIndexProvenance: resolveFieldSoilIndexProvenance(field.fertility),

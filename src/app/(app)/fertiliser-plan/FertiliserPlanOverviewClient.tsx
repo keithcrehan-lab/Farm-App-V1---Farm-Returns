@@ -25,7 +25,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ClipboardList, FlaskConical, MapPinned, ShoppingCart } from "lucide-react";
+import { Calculator, ClipboardList, FlaskConical, MapPinned, ShoppingCart, X } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { RequestQuoteSheet } from "@/components/farm/RequestQuoteSheet";
@@ -53,6 +53,7 @@ export function FertiliserPlanOverviewClient() {
   const [quoteSheetOpen, setQuoteSheetOpen] = useState(false);
   const [stockSheetProduct, setStockSheetProduct] = useState<string | undefined>(undefined);
   const [stockSheetOpen, setStockSheetOpen] = useState(false);
+  const [calculationAuditOpen, setCalculationAuditOpen] = useState(false);
 
   // Bumped by `refresh()` to force a genuine refetch (e.g. after saving a
   // stock record) — same pattern `NutrientsPageClient`'s own
@@ -107,6 +108,7 @@ export function FertiliserPlanOverviewClient() {
         <OverviewContent
           overview={load.overview}
           onOpenQuoteSheet={() => setQuoteSheetOpen(true)}
+          onOpenCalculationAudit={() => setCalculationAuditOpen(true)}
           onOpenStockSheet={(product) => {
             setStockSheetProduct(product);
             setStockSheetOpen(true);
@@ -115,6 +117,14 @@ export function FertiliserPlanOverviewClient() {
       )}
 
       <RequestQuoteSheet open={quoteSheetOpen} onClose={() => setQuoteSheetOpen(false)} onSubmitted={() => setQuoteSheetOpen(false)} />
+
+      {load.status === "ready" ? (
+        <CalculationAuditChooser
+          open={calculationAuditOpen}
+          onClose={() => setCalculationAuditOpen(false)}
+          fields={load.overview.fieldBreakdown}
+        />
+      ) : null}
 
       {load.status === "ready" ? (
         <AddFertiliserStockRecordSheet
@@ -136,10 +146,12 @@ export function FertiliserPlanOverviewClient() {
 function OverviewContent({
   overview,
   onOpenQuoteSheet,
+  onOpenCalculationAudit,
   onOpenStockSheet,
 }: {
   overview: FertiliserPlanOverview;
   onOpenQuoteSheet: () => void;
+  onOpenCalculationAudit: () => void;
   onOpenStockSheet: (product?: string) => void;
 }) {
   const router = useRouter();
@@ -201,6 +213,14 @@ function OverviewContent({
         <Link href="/fields" className="rounded-full border border-fr-border px-4 py-2 text-sm font-medium text-fr-ink-900">
           Resolve missing inputs
         </Link>
+        <button
+          type="button"
+          onClick={onOpenCalculationAudit}
+          className="flex items-center gap-1.5 rounded-full border border-fr-border px-4 py-2 text-sm font-semibold text-fr-ink-900"
+        >
+          <Calculator className="size-4" />
+          View calculations
+        </button>
         <Link href="/reports" className="rounded-full border border-fr-border px-4 py-2 text-sm font-medium text-fr-ink-900">
           View scientific evidence
         </Link>
@@ -279,6 +299,61 @@ function OverviewContent({
           Open the detailed field-by-field plan
         </Link>
       </section>
+    </div>
+  );
+}
+
+function CalculationAuditChooser({
+  open,
+  onClose,
+  fields,
+}: {
+  open: boolean;
+  onClose: () => void;
+  fields: FertiliserPlanOverview["fieldBreakdown"];
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-label="Fertiliser calculation audit">
+      <div className="max-h-[82vh] w-full max-w-xl overflow-hidden rounded-t-2xl bg-fr-v2-cream shadow-2xl sm:rounded-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-fr-v2-rule px-5 py-4">
+          <div>
+            <p className="font-display text-xl text-fr-v2-graphite">Fertiliser calculations</p>
+            <p className="mt-1 text-sm text-fr-v2-muted">Reverse-engineer the current recommendation from the same canonical nutrient-plan outputs.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full p-2 text-fr-v2-muted" aria-label="Close calculation audit">
+            <X className="size-5" />
+          </button>
+        </div>
+        <div className="max-h-[66vh] overflow-y-auto px-5 py-4">
+          <Link
+            href="/fertiliser-plan/calculations"
+            onClick={onClose}
+            className="flex items-center justify-between border-b border-fr-v2-rule py-3 text-sm font-semibold text-fr-v2-graphite"
+          >
+            <span>All fields calculation audit</span>
+            <span className="text-fr-v2-forest">Open →</span>
+          </Link>
+          <div className="mt-3">
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-v2-muted">Individual fields</p>
+            {fields.map((field) => (
+              <Link
+                key={field.fieldId}
+                href={`/fertiliser-plan/calculations?field=${encodeURIComponent(field.fieldId)}`}
+                onClick={onClose}
+                className="flex items-center justify-between border-b border-fr-v2-rule py-3 text-sm text-fr-v2-graphite"
+              >
+                <span>
+                  <span className="font-semibold">{field.fieldName}</span>
+                  <span className="ml-2 text-xs text-fr-v2-muted">{field.areaHa.toFixed(2)} ha</span>
+                </span>
+                <span className="text-xs font-semibold text-fr-v2-forest">View calculation →</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

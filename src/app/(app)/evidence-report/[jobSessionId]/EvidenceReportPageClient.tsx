@@ -315,7 +315,54 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
             <>
               <p className="mb-2 text-xs text-fr-ink-400">Grazing basis (Teagasc Green Book, 5th Ed., 2020) — kg/ha.</p>
               <Row label="Gross N / P / K" value={`${plan.requirement.value.n} / ${plan.requirement.value.p} / ${plan.requirement.value.k}`} />
+
+              {plan.calculationTrace?.basis === "grazing" && plan.calculationTrace.grazing ? (() => {
+                const trace = plan.calculationTrace.grazing;
+                const n = trace.n;
+                const nFormula =
+                  n.lowerRow.stockingRateLUHa === n.upperRow.stockingRateLUHa
+                    ? `Table 12-3 row ${n.lowerRow.stockingRateLUHa.toFixed(2)} LU/ha → ${n.resultKgHa.toFixed(2)} kg N/ha`
+                    : `${n.lowerRow.totalNKgHa} + ((${trace.stockingRateLUHa.toFixed(4)} − ${n.lowerRow.stockingRateLUHa}) ÷ (${n.upperRow.stockingRateLUHa} − ${n.lowerRow.stockingRateLUHa})) × (${n.upperRow.totalNKgHa} − ${n.lowerRow.totalNKgHa}) = ${n.resultKgHa.toFixed(2)} kg N/ha`;
+                const pBand = trace.p.maintenanceBandMaxOrgNKgHa === null ? "> 210" : `≤ ${trace.p.maintenanceBandMaxOrgNKgHa}`;
+                return (
+                  <div className="my-3 border-l-2 border-fr-v2-straw bg-fr-v2-cream/50 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-fr-v2-graphite">Actual gross requirement maths</p>
+                    <div className="mt-2 space-y-2">
+                      <Row
+                        label="Stocking rate input"
+                        value={`${trace.totalLivestockUnits.toFixed(3)} livestock units ÷ ${trace.farmGrasslandAreaHa.toFixed(3)} ha = ${trace.stockingRateLUHa.toFixed(4)} LU/ha`}
+                      />
+                      <Row label="N — Table 12-3" value={nFormula} />
+                      <Row
+                        label="P — Tables 13-2 + 13-3"
+                        value={`Index ${trace.p.soilIndex}: build-up ${trace.p.buildUpKgHa.toFixed(2)} + maintenance ${trace.p.maintenanceKgHa.toFixed(2)} (drystock band ${pBand} kg organic N/ha) = ${trace.p.resultKgHa.toFixed(2)} kg P/ha`}
+                      />
+                      <Row
+                        label="K — Table 14-1"
+                        value={`Index ${trace.k.soilIndex}: base ${trace.k.baseAt170KgOrgNHa.toFixed(2)} + stocking-rate adjustment ${trace.k.adjustmentKgHa.toFixed(2)} = ${trace.k.resultKgHa.toFixed(2)} kg K/ha`}
+                      />
+                      <Row
+                        label="K adjustment formula"
+                        value={`((${trace.k.stockingRateKgNHa.toFixed(2)} − 170) ÷ 40) × 5 = ${trace.k.adjustmentKgHa.toFixed(2)} kg K/ha`}
+                      />
+                    </div>
+                  </div>
+                );
+              })() : null}
+
               <Row label="Organic offset (N / P / K)" value={`${plan.organicApplication.offsetN} / ${plan.organicApplication.offsetP} / ${plan.organicApplication.offsetK}`} />
+              <Row
+                label="Net N maths"
+                value={`max(0, ${plan.requirement.value.n} − ${plan.organicApplication.offsetN}) = ${plan.netRequirement.value.n} kg/ha`}
+              />
+              <Row
+                label="Net P maths"
+                value={`max(0, ${plan.requirement.value.p} − ${plan.organicApplication.offsetP}) = ${plan.netRequirement.value.p} kg/ha`}
+              />
+              <Row
+                label="Net K maths"
+                value={`max(0, ${plan.requirement.value.k} − ${plan.organicApplication.offsetK}) = ${plan.netRequirement.value.k} kg/ha`}
+              />
               <Row label="Net requirement (N / P / K)" value={`${plan.netRequirement.value.n} / ${plan.netRequirement.value.p} / ${plan.netRequirement.value.k}`} />
             </>
           ) : mixed ? (

@@ -14,6 +14,7 @@ import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
 import { FieldAwarenessCard } from "@/components/farm/FieldAwarenessCard";
 import { FieldSatelliteHistory } from "@/components/farm/FieldSatelliteHistory";
 import { SpreadableAreaEvidencePanel } from "@/components/farm/SpreadableAreaEvidencePanel";
+import { FieldProductionCycleCard } from "@/components/farm/FieldProductionCycleCard";
 import { FieldNutrientPlanBody } from "@/app/(app)/today/field/[fieldId]/FieldNutrientPlanPageClient";
 import { useFarmActions, useFarm, useHousingList, useIsRealMode, useSlurryAllocations } from "@/store/farm-store";
 import type { BufferFeature } from "@/domain/buffer-gate";
@@ -522,6 +523,8 @@ function NutrientsChapter({ field, slurryDetailsRequest }: { field: Field; slurr
           .
         </p>
       </section>
+
+      <FieldProductionCycleCard field={field} />
 
       <SoilEvidence field={field} />
 

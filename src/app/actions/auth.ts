@@ -16,6 +16,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { AuthActionState } from "./auth-state";
 import { HOME_ROUTE } from "@/lib/home-route";
+import { humanAuthError } from "@/lib/auth-errors";
 
 function readCredentials(formData: FormData): { email: string; password: string } | null {
   const email = formData.get("email");
@@ -32,7 +33,8 @@ export async function signIn(_prev: AuthActionState, formData: FormData): Promis
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword(credentials);
-  if (error) return { error: error.message };
+  // Supabase's own wording is never shown to the farmer (human, specific copy instead).
+  if (error) return { error: humanAuthError(error, "SIGN_IN") };
 
   const next = formData.get("next");
   redirect(typeof next === "string" && next.startsWith("/") ? next : HOME_ROUTE);
@@ -49,16 +51,16 @@ export async function signUp(_prev: AuthActionState, formData: FormData): Promis
   const origin = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3100";
   const { error, data } = await supabase.auth.signUp({
     ...credentials,
-    options: { emailRedirectTo: `${origin}/auth/callback` },
+    options: { emailRedirectTo: `${origin}/auth/callback?next=/onboarding` },
   });
-  if (error) return { error: error.message };
+  if (error) return { error: humanAuthError(error, "SIGN_UP") };
 
   // Supabase's default project setting requires email confirmation before
   // a session exists — `data.session` is null in that case, and the
   // farmer needs to be told to check their inbox rather than land on a
   // dashboard that silently isn't signed in.
   if (!data.session) {
-    return { error: null, info: "Check your email to confirm your account, then sign in." };
+    return { error: null, info: "Check your email and open the link to confirm your account. You'll go straight on to setting up your farm." };
   }
 
   redirect("/onboarding");
@@ -83,7 +85,7 @@ export async function requestPasswordReset(
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${origin}/auth/callback?next=/update-password`,
   });
-  if (error) return { error: error.message };
+  if (error) return { error: humanAuthError(error, "RESET") };
 
   return { error: null, info: "If that email has an account, a reset link is on its way." };
 }
@@ -99,7 +101,7 @@ export async function updatePassword(
 
   const supabase = await createClient();
   const { error } = await supabase.auth.updateUser({ password });
-  if (error) return { error: error.message };
+  if (error) return { error: humanAuthError(error, "RESET") };
 
   redirect(HOME_ROUTE);
 }

@@ -1,53 +1,29 @@
 import { redirect } from "next/navigation";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { getOnboardingStatusForCurrentUser } from "@/lib/farm-data/farms";
-import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
-import { createClient } from "@/lib/supabase/server";
-import { OnboardingWizard } from "./OnboardingWizard";
+import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { HOME_ROUTE } from "@/lib/home-route";
+import { onboardingStage } from "@/lib/onboarding";
+import { OnboardingWorkspace, type OnboardingField } from "@/components/onboarding/OnboardingWorkspace";
+
+export const metadata = { title: "Set up your farm · Farm Return" };
 
 /**
- * Real Mode Completion Phase 2/3 — real resumability, not just a redirect.
- *
- * Previously: no farm -> show onboarding from scratch; any farm at all ->
- * redirect straight to `/dashboard`, even if the farmer had never finished
- * (no livestock captured, no explicit "done"). That meant leaving
- * onboarding after the Farm step silently skipped the rest of it forever,
- * and refreshing/reopening the tab had no way to resume where you left
- * off — the "Back-button data-loss issue" the brief names, one level up
- * from the in-session Back button itself (see `OnboardingWizard.tsx`'s
- * own header comment for the in-session half of the fix).
- *
- * Now: a real `farms.onboarding_completed_at` flag (migration
- * `20260828030000_onboarding_completion.sql`) distinguishes "has a farm"
- * from "finished onboarding". Three real states, not two:
- *   - no farm yet -> start at the Farm step.
- *   - a farm but not completed -> resume at the Livestock step, with the
- *     real farm and any livestock groups already added loaded in, not
- *     re-asked for.
- *   - completed -> redirect into the app, unchanged.
+ * Map-led first-farm onboarding. The stage is read from what already exists — no farm (find and establish it), a farm
+ * without a field (map the first one), a farm with a field but not finished (choose where to go next), or finished
+ * (never shown onboarding again). So a farmer who leaves part-way resumes where they stopped, and nothing is created
+ * twice: the farm is one-per-user in the database and every write resolves the farm server-side.
  */
 export default async function OnboardingPage() {
-  let suggestedOwnerName = "";
-
-  if (isSupabaseConfigured()) {
-    const status = await getOnboardingStatusForCurrentUser();
-
-    if (status?.completed) {
-      redirect(HOME_ROUTE);
-    }
-
-    if (status && !status.completed) {
-      const livestockGroups = await listLivestockGroupsForFarm(status.farm.id);
-      return <OnboardingWizard suggestedOwnerName={status.farm.ownerName} resumeFarm={status.farm} resumeLivestockGroups={livestockGroups} />;
-    }
-
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    suggestedOwnerName = user?.email?.split("@")[0] ?? "";
+  if (!isSupabaseConfigured()) {
+    // Demonstration mode has no account or farm to set up.
+    redirect(HOME_ROUTE);
   }
-
-  return <OnboardingWizard suggestedOwnerName={suggestedOwnerName} resumeFarm={null} resumeLivestockGroups={[]} />;
+  const status = await getOnboardingStatusForCurrentUser();
+  // Active fields only: an archived field isn't one of the farm's fields any more.
+  const fields = status ? (await listFieldsForFarm(status.farm.id)).filter((f) => !f.archivedAt) : [];
+  const mapped: OnboardingField[] = fields.flatMap((f) => (f.polygon ? [{ id: f.id, name: f.name, polygon: f.polygon }] : []));
+  const stage = onboardingStage({ hasFarm: status !== null, completed: status?.completed ?? false, fieldCount: fields.length });
+  if (stage === "DONE") redirect(HOME_ROUTE);
+  return <OnboardingWorkspace stage={stage} farm={status?.farm ?? null} fields={mapped} />;
 }

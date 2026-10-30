@@ -1,19 +1,7 @@
-import { BrandMark } from "@/components/shell/BrandMark";
-
 /**
- * Real Farm V1 Phase 4 — onboarding shell. Not the AppShell (no
- * sidebar/bottom-nav — there's no farm to navigate around yet) and wider
- * than the `(auth)` card (multi-field forms need the room).
+ * Onboarding shell: full-bleed, so the farm's real satellite map is the workspace from the first screen (the
+ * onboarding panel and Farm Return mark sit over it). No sidebar yet — there's no farm to navigate around.
  */
 export default function OnboardingLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen bg-fr-surface-alt px-4 py-8 lg:py-12">
-      <div className="mx-auto w-full max-w-2xl">
-        <div className="mb-6">
-          <BrandMark />
-        </div>
-        {children}
-      </div>
-    </div>
-  );
+  return <div className="min-h-dvh bg-fr-v2-forest-deep">{children}</div>;
 }

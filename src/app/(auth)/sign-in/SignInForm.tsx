@@ -3,68 +3,46 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Mail } from "lucide-react";
 import { signIn } from "@/app/actions/auth";
 import { EMPTY_STATE, type AuthActionState } from "@/app/actions/auth-state";
-import { AlertBanner } from "@/components/ui/AlertBanner";
+import { AuthField, AuthHeading, AuthMessage, AuthSubmit, authInputClass } from "@/components/auth/AuthFields";
 import { HOME_ROUTE } from "@/lib/home-route";
 
+/** Returning farmer: quiet and focused. Where they land is decided by their farm (Farm, or the setup they left). */
 export function SignInForm() {
   const [state, formAction, pending] = useActionState<AuthActionState, FormData>(signIn, EMPTY_STATE);
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? HOME_ROUTE;
+  const linkFailed = searchParams.get("error") === "confirmation_failed";
 
   return (
     <>
-      <h1 className="text-lg font-semibold text-fr-ink-900">Sign in</h1>
-      <p className="mt-1 text-sm text-fr-ink-600">Sign in to your farm.</p>
+      <AuthHeading title="Welcome back" lead={null} />
 
-      {state.error ? (
-        <AlertBanner tone="risk" icon={Mail} title="Couldn't sign you in" description={state.error} className="mt-4" />
-      ) : null}
-
-      <form action={formAction} className="mt-5 flex flex-col gap-4">
+      <form action={formAction} className="mt-8 flex flex-col gap-5">
+        {state.error ? <AuthMessage tone="error">{state.error}</AuthMessage> : null}
+        {!state.error && linkFailed ? <AuthMessage tone="error">That email link didn&apos;t work or has expired. Sign in below, or create your account again.</AuthMessage> : null}
         <input type="hidden" name="next" value={next} />
-        <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-          Email
-          <input
-            type="email"
-            name="email"
-            required
-            autoComplete="email"
-            className="rounded-fr-control border border-fr-border bg-fr-surface px-3 py-2 text-sm text-fr-ink-900"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-          Password
-          <input
-            type="password"
-            name="password"
-            required
-            autoComplete="current-password"
-            className="rounded-fr-control border border-fr-border bg-fr-surface px-3 py-2 text-sm text-fr-ink-900"
-          />
-        </label>
-        <div className="flex justify-end">
-          <Link href="/forgot-password" className="text-xs font-medium text-fr-green-700">
-            Forgot password?
-          </Link>
-        </div>
-        <button
-          type="submit"
-          disabled={pending}
-          className="flex items-center justify-center gap-1.5 rounded-fr-control bg-fr-green-700 py-3 text-sm font-semibold text-white transition-colors disabled:bg-fr-green-700/40"
-        >
-          {pending ? "Signing in…" : "Sign in"}
-        </button>
+        <AuthField label="Email">
+          <input type="email" name="email" required autoComplete="email" inputMode="email" className={authInputClass} />
+        </AuthField>
+        <AuthField label="Password">
+          <input type="password" name="password" required autoComplete="current-password" className={authInputClass} />
+        </AuthField>
+        <AuthSubmit pending={pending} label="Sign in" pendingLabel="Signing in…" />
       </form>
 
-      <p className="mt-6 text-center text-xs text-fr-ink-600">
-        New to Farm Return?{" "}
-        <Link href="/sign-up" className="font-semibold text-fr-green-700">
-          Create an account
+      <div className="mt-6 flex flex-col gap-3 text-sm text-fr-v2-charcoal">
+        <Link href="/forgot-password" className="self-start font-semibold text-fr-v2-forest underline decoration-fr-v2-forest/30 underline-offset-[3px] hover:decoration-fr-v2-forest">
+          Forgot password?
         </Link>
-      </p>
+        <p>
+          New to Farm Return?{" "}
+          <Link href="/sign-up" className="font-semibold text-fr-v2-forest underline decoration-fr-v2-forest/30 underline-offset-[3px] hover:decoration-fr-v2-forest">
+            Create an account
+          </Link>
+        </p>
+      </div>
     </>
   );
 }

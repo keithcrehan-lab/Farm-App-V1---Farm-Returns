@@ -2,61 +2,38 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import { Mail, TriangleAlert } from "lucide-react";
 import { signUp } from "@/app/actions/auth";
 import { EMPTY_STATE, type AuthActionState } from "@/app/actions/auth-state";
-import { AlertBanner } from "@/components/ui/AlertBanner";
+import { AuthField, AuthHeading, AuthMessage, AuthSubmit, authInputClass } from "@/components/auth/AuthFields";
 
+/** Create account: email and password only — the farm itself is set up next, on the map. */
 export default function SignUpPage() {
   const [state, formAction, pending] = useActionState<AuthActionState, FormData>(signUp, EMPTY_STATE);
 
   return (
     <>
-      <h1 className="text-lg font-semibold text-fr-ink-900">Create your account</h1>
-      <p className="mt-1 text-sm text-fr-ink-600">Free — set up your own farm next.</p>
+      <AuthHeading title="Create your account" lead="Start by setting up your farm. It only takes a few minutes." />
 
-      {state.error ? (
-        <AlertBanner tone="risk" icon={TriangleAlert} title="Couldn't create your account" description={state.error} className="mt-4" />
-      ) : null}
       {state.info ? (
-        <AlertBanner tone="info" icon={Mail} title="Almost there" description={state.info} className="mt-4" />
-      ) : null}
+        <div className="mt-6">
+          <AuthMessage tone="info">{state.info}</AuthMessage>
+        </div>
+      ) : (
+        <form action={formAction} className="mt-8 flex flex-col gap-5">
+          {state.error ? <AuthMessage tone="error">{state.error}</AuthMessage> : null}
+          <AuthField label="Email">
+            <input type="email" name="email" required autoComplete="email" inputMode="email" className={authInputClass} />
+          </AuthField>
+          <AuthField label="Password" hint="At least 8 characters.">
+            <input type="password" name="password" required minLength={8} autoComplete="new-password" className={authInputClass} />
+          </AuthField>
+          <AuthSubmit pending={pending} label="Create account" pendingLabel="Creating your account…" />
+        </form>
+      )}
 
-      <form action={formAction} className="mt-5 flex flex-col gap-4">
-        <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-          Email
-          <input
-            type="email"
-            name="email"
-            required
-            autoComplete="email"
-            className="rounded-fr-control border border-fr-border bg-fr-surface px-3 py-2 text-sm text-fr-ink-900"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-          Password
-          <input
-            type="password"
-            name="password"
-            required
-            minLength={8}
-            autoComplete="new-password"
-            className="rounded-fr-control border border-fr-border bg-fr-surface px-3 py-2 text-sm text-fr-ink-900"
-          />
-          <span className="text-fr-ink-600/70">At least 8 characters.</span>
-        </label>
-        <button
-          type="submit"
-          disabled={pending}
-          className="flex items-center justify-center gap-1.5 rounded-fr-control bg-fr-green-700 py-3 text-sm font-semibold text-white transition-colors disabled:bg-fr-green-700/40"
-        >
-          {pending ? "Creating account…" : "Create account"}
-        </button>
-      </form>
-
-      <p className="mt-6 text-center text-xs text-fr-ink-600">
+      <p className="mt-8 text-sm text-fr-v2-charcoal">
         Already have an account?{" "}
-        <Link href="/sign-in" className="font-semibold text-fr-green-700">
+        <Link href="/sign-in" className="font-semibold text-fr-v2-forest underline decoration-fr-v2-forest/30 underline-offset-[3px] hover:decoration-fr-v2-forest">
           Sign in
         </Link>
       </p>

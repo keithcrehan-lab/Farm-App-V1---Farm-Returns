@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { FarmProvider } from "@/store/farm-store";
 import { calculateNutrientPlan } from "@/domain/nutrients";
 import { roundKgUpToDisplayTonnes } from "@/domain/fertiliser-plan";
@@ -75,6 +75,7 @@ describe("FieldNutrientPlanPageClient — real engine output, end to end", () =>
     expect(organic.textContent).toContain("100m³");
     expect(organic.textContent).toContain("Splash plate");
     expect(organic.textContent).toContain("Not available yet");
+    fireEvent.click(screen.getByRole("button", { name: /evidence report/i }));
     expect(screen.getByRole("region", { name: "Evidence chain" }).textContent).toContain(plan.calculationVersion);
     expect(screen.getByText(/Long Field on the farm map/).closest("a")!.getAttribute("href")).toBe("/today?lens=nutrients&field=field-1");
     expect(screen.getByRole("link", { name: /whole-farm nutrient plan/i }).getAttribute("href")).toBe("/fertiliser-plan");
@@ -108,6 +109,7 @@ describe("FieldNutrientPlanPageClient — real engine output, end to end", () =>
       recordedAt: "2026-02-11T09:00:00Z",
     });
     renderPlan([field()], [SPLASH, { ...SPLASH, housingId: "h2" }], HERD, "field-1", [composition("c1", "h1", 4), composition("c2", "h2", 7)]);
+    fireEvent.click(screen.getByRole("button", { name: /evidence report/i }));
     const evidence = screen.getByRole("region", { name: "Evidence chain" });
     const dm = within(evidence).getByText("Slurry dry matter").nextElementSibling!.textContent ?? "";
     expect(dm).toContain("Not resolved · unavailable");
@@ -119,6 +121,7 @@ describe("FieldNutrientPlanPageClient — real engine output, end to end", () =>
     const plan = calculateNutrientPlan({ field: field({ commonageStatus: tracked("commonage", "farmer_adjusted", "Farmer") }), farmGrasslandAreaHa: 4, livestockGroups: HERD, slurryAllocation: SPLASH, nonGrassPct: 0 });
     expect(plan.lessMethodCompliance).toMatchObject({ status: "LEGAL_PROHIBITION", reasonCode: "LESS_REQUIRED_GSR100" });
     expect(plan.commonageFertiliserGate.status).toBe("LEGAL_PROHIBITION");
+    fireEvent.click(screen.getByRole("button", { name: /legal status/i }));
     const less = container.querySelector('[data-legal-gate="less"]') as HTMLElement;
     expect(less.dataset.gateState).toBe("prohibited");
     expect(less.textContent).toContain("less required gsr100");
@@ -127,6 +130,7 @@ describe("FieldNutrientPlanPageClient — real engine output, end to end", () =>
 
   it("keeps missing buffer evidence visible as Cannot determine", () => {
     const { container } = renderPlan([field()]);
+    fireEvent.click(screen.getByRole("button", { name: /legal status/i }));
     const gate = container.querySelector('[data-legal-gate="local_buffer"]') as HTMLElement;
     expect(gate.dataset.gateState).toBe("blocked");
     expect(gate.textContent).toContain("Cannot determine");
@@ -137,6 +141,7 @@ describe("FieldNutrientPlanPageClient — real engine output, end to end", () =>
     const f = field({ fertility: { pIndex: tracked(1, "verified", "Soil test"), kIndex: farmerAdjust<1 | 2 | 3 | 4>(labK, 4, "Farmer", "2026-01-15") } });
     const { container } = renderPlan([f]);
     expect(container.textContent).toContain("K4 (farmer override)");
+    fireEvent.click(screen.getByRole("button", { name: /evidence report/i }));
     const evidence = screen.getByRole("region", { name: "Evidence chain" });
     const soil = within(evidence).getByText("Soil index").nextElementSibling!.textContent ?? "";
     expect(soil).toContain("K4 · farmer override (Farmer, 2026-01-15) of laboratory K2 (Teagasc Johnstown, 2025-11-04)");

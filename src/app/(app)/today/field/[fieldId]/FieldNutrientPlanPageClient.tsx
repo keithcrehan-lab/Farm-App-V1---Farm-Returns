@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -88,32 +88,116 @@ export function FieldNutrientPlanBody({ view, result, fieldId }: { view: FieldNu
   if (view.status === "unavailable") {
     return <p className="border-l-[3px] border-fr-v2-harvest bg-fr-v2-harvest-tint px-4 py-3 text-sm">{view.message}</p>;
   }
+
+  const legalState = legalStatusSummary(view.legalGates);
+  const evidenceState = evidenceStatusSummary(view);
+
   return (
-    <>
+    <div className="flex flex-col gap-4">
       <NutrientPosition view={view} />
 
       <OrganicBand organic={view.organic} />
 
       <SolutionBand solution={view.solution} />
 
-      <section aria-labelledby="legal-status-heading" className="flex flex-col gap-2">
-        <h2 id="legal-status-heading" className="text-[11px] font-bold uppercase tracking-[0.14em] text-fr-v2-muted">
-          Legal status
-        </h2>
-        <NapComplianceCard compliance={result.displayedNapCompliance} />
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-          {view.legalGates.map((gate) => (
-            <div key={gate.id} data-legal-gate={gate.id} data-gate-state={gate.state} className="contents">
-              <dt className="text-fr-v2-muted">{gate.label}</dt>
-              <dd className={cn(gate.state === "prohibited" && "font-semibold text-fr-v2-clay")}>{gate.text}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+      <CompactDisclosure
+        label="Legal status"
+        status={legalState.label}
+        statusTone={legalState.tone}
+        hint={legalState.hint}
+        ariaLabel="Legal status"
+      >
+        <div className="flex flex-col gap-3">
+          <NapComplianceCard compliance={result.displayedNapCompliance} />
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+            {view.legalGates.map((gate) => (
+              <div key={gate.id} data-legal-gate={gate.id} data-gate-state={gate.state} className="contents">
+                <dt className="text-fr-v2-muted">{gate.label}</dt>
+                <dd className={cn(gate.state === "prohibited" && "font-semibold text-fr-v2-clay")}>{gate.text}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </CompactDisclosure>
 
-      <EvidenceBand view={view} fieldId={fieldId} />
-    </>
+      <CompactDisclosure
+        label="Evidence report"
+        status={evidenceState.label}
+        statusTone={evidenceState.tone}
+        hint={evidenceState.hint}
+        ariaLabel="Evidence chain"
+      >
+        <EvidenceBand view={view} fieldId={fieldId} bare />
+      </CompactDisclosure>
+    </div>
   );
+}
+
+function CompactDisclosure({
+  label,
+  status,
+  statusTone,
+  hint,
+  ariaLabel,
+  children,
+}: {
+  label: string;
+  status: string;
+  statusTone: "ok" | "warning" | "blocked" | "neutral";
+  hint: string;
+  ariaLabel: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section aria-label={ariaLabel} className="border-t border-fr-v2-rule">
+      <button
+        type="button"
+        aria-expanded={open}
+        title={hint}
+        onClick={() => setOpen((value) => !value)}
+        className="group flex min-h-14 w-full items-center justify-between gap-4 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-gold"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-fr-v2-graphite">{label}</span>
+          <span className="mt-0.5 block text-xs text-fr-v2-muted">{hint}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          <span
+            className={cn(
+              "size-2 rounded-full",
+              statusTone === "ok" && "bg-fr-v2-teal",
+              statusTone === "warning" && "bg-fr-v2-gold",
+              statusTone === "blocked" && "bg-fr-v2-clay",
+              statusTone === "neutral" && "bg-fr-v2-muted",
+            )}
+            aria-hidden="true"
+          />
+          <span className="text-xs font-semibold text-fr-v2-graphite">{status}</span>
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-v2-forest">{open ? "Hide" : "Open"}</span>
+        </span>
+      </button>
+      {open ? <div className="pb-4 pt-1">{children}</div> : null}
+    </section>
+  );
+}
+
+function legalStatusSummary(gates: Extract<FieldNutrientPlanView, { status: "available" }>["legalGates"]) {
+  if (gates.some((gate) => gate.state === "prohibited")) {
+    return { label: "Blocked", tone: "blocked" as const, hint: "A legal gate currently prohibits this fertiliser action." };
+  }
+  if (gates.some((gate) => gate.state === "blocked" || gate.state === "unknown")) {
+    return { label: "Needs information", tone: "warning" as const, hint: "One or more legal checks need more evidence before Farm Return can be certain." };
+  }
+  return { label: "Open", tone: "ok" as const, hint: "No current legal gate is blocking this fertiliser action." };
+}
+
+function evidenceStatusSummary(view: Extract<FieldNutrientPlanView, { status: "available" }>) {
+  if (view.evidence.limitations.length > 0 || view.unknownReasons.length > 0) {
+    const count = view.evidence.limitations.length + view.unknownReasons.length;
+    return { label: `${count} item${count === 1 ? "" : "s"} to review`, tone: "warning" as const, hint: "Evidence is available, with limitations or unknowns worth reviewing." };
+  }
+  return { label: "Available", tone: "ok" as const, hint: "The calculation evidence and provenance are available to inspect." };
 }
 
 const BASIS_LABEL: Record<NutrientPlan["fieldRequirement"]["cropContext"]["basis"], string> = {
@@ -296,15 +380,15 @@ function SolutionBand({ solution }: { solution: Extract<FieldNutrientPlanView, {
   );
 }
 
-function EvidenceBand({ view, fieldId }: { view: Extract<FieldNutrientPlanView, { status: "available" }>; fieldId: string }) {
+function EvidenceBand({ view, fieldId, bare = false }: { view: Extract<FieldNutrientPlanView, { status: "available" }>; fieldId: string; bare?: boolean }) {
   const { evidence } = view;
   const remainingEvidence = NUTRIENT_KEYS.flatMap((key) => {
     const state = evidence.remainingEvidence[key];
     return state ? [`${NUTRIENT_HEAD[key].label} ${EVIDENCE_STATE_LABEL[state].toLowerCase()}`] : [];
   });
   return (
-    <section aria-label="Evidence chain" className="border-l-[3px] border-fr-v2-clay bg-fr-v2-clay-tint px-4 py-3 text-xs">
-      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-fr-v2-clay">Evidence chain</p>
+    <div className={cn("text-xs", !bare && "border-l-[3px] border-fr-v2-clay bg-fr-v2-clay-tint px-4 py-3")}>
+      {bare ? null : <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-fr-v2-clay">Evidence chain</p>}
       <p className="mt-1 font-mono text-[11px] text-fr-v2-muted">
         soil index → field area → requirement engine → organic allocation → remaining requirement → product solver
       </p>
@@ -362,6 +446,6 @@ function EvidenceBand({ view, fieldId }: { view: Extract<FieldNutrientPlanView, 
           Evidence report →
         </Link>
       </p>
-    </section>
+    </div>
   );
 }

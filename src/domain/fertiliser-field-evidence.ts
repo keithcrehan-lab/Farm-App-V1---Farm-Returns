@@ -10,6 +10,11 @@ import type { Field } from "./types";
  * Unsupported crops are recordable but never fall back to grassland rules.
  */
 
+export type GrazingProductionSystem =
+  | "SUCKLER_CALF_TO_BEEF"
+  | "SUCKLER_CALF_TO_WEANING"
+  | "OTHER_DRYSTOCK";
+
 export type CropFamily =
   | "grassland"
   | "forage_brassica"
@@ -95,6 +100,8 @@ export interface EvidenceValue<T> {
 export interface FieldProductionCycleEvidence {
   /** Canonical farmer-declared crop-system provenance for this cycle. */
   cropSystem?: EvidenceValue<CropSystem>;
+  /** Required by grazing rule packs; never inferred from enterprise name. */
+  grazingProductionSystem?: EvidenceValue<GrazingProductionSystem>;
   /**
    * Farmer's intended dry-matter production for the cycle. Required for
    * cut systems because future agronomy rules scale nutrient demand to yield.
@@ -141,7 +148,8 @@ export type FertiliserEvidenceInputKey =
   | "chemicalNAppliedKgHa"
   | "chemicalPAppliedKgHa"
   | "chemicalKAppliedKgHa"
-  | "whiteCloverPct";
+  | "whiteCloverPct"
+  | "grazingProductionSystem";
 
 export interface FertiliserInputGateResult {
   status: FertiliserInputGateStatus;
@@ -195,6 +203,10 @@ export function evaluateFertiliserInputGate(
   const missingInputs: FertiliserEvidenceInputKey[] = [];
 
   if (cycle.evidence.cropSystem?.value !== cycle.cropSystem) missingInputs.push("cropSystem");
+  if (cycle.cropSystem === "GRASS_GRAZING" && !cycle.evidence.grazingProductionSystem) {
+    missingInputs.push("grazingProductionSystem");
+  }
+
   if (!field.fertility.pIndex) missingInputs.push("fertility.pIndex");
   if (!field.fertility.kIndex) missingInputs.push("fertility.kIndex");
   if (!field.fertility.verifiedTest?.sampleDate) {

@@ -48,6 +48,19 @@ export async function getFieldProductionCycle(fieldId: string, season: string): 
   return data ? rowToCycle(data as FieldProductionCycleRow) : null;
 }
 
+
+export async function listFieldProductionCyclesForSeason(fieldIds: string[], season: string): Promise<FieldProductionCycle[]> {
+  if (fieldIds.length === 0) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("field_production_cycles")
+    .select("*")
+    .in("field_id", fieldIds)
+    .eq("season", season);
+  if (error) throw error;
+  return (data as FieldProductionCycleRow[]).map(rowToCycle);
+}
+
 export interface UpsertFieldProductionCycleInput {
   fieldId: string;
   season: string;

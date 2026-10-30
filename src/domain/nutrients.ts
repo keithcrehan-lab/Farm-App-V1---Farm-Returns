@@ -1845,7 +1845,7 @@ export function reconcileDeliveredSupply(
  * byproduct the farmer is entitled to see, rather than an apparently
  * complete total that silently omits it.
  */
-function allocatePurchasedProducts(
+export function allocatePurchasedProducts(
   remainingNKgHa: number,
   remainingPKgHa: number,
   remainingKKgHa: number,

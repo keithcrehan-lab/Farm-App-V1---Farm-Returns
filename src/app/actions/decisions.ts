@@ -58,6 +58,7 @@ import { activeFields } from "@/domain/types";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import { getFieldProductionCycle } from "@/lib/farm-data/field-production-cycles";
 import { decideAsFarmer, type DecisionOutcome } from "@/orchestration/decide";
 import { recomputePromptByKind, type RecomputablePromptKind } from "@/orchestration/prompt/recompute";
 import {
@@ -113,6 +114,12 @@ export async function submitPromptDecisionAction(input: SubmitPromptDecisionInpu
   }
 
   const now = new Date().toISOString();
+  if (input.promptKind === FERTILISER_RECOMMENDATION_PROMPT_KIND) {
+    const p3Cycle = await getFieldProductionCycle(field.id, now.slice(0, 4));
+    if (p3Cycle) {
+      throw new Error("submitPromptDecisionAction: legacy fertiliser recommendation decisions are disabled for fields with a current P3 production cycle");
+    }
+  }
   const prompt =
     input.promptKind === FERTILISER_RECOMMENDATION_PROMPT_KIND
       ? recomputePromptByKind({

@@ -23,6 +23,7 @@ import { listJobSessionDecisionIdsForFarm, getJobSessionById } from "@/lib/farm-
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import { getFieldProductionCycle, listFieldProductionCyclesForSeason } from "@/lib/farm-data/field-production-cycles";
 import type { SlurryComposition } from "@/domain/slurry-composition";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
 import { startJobSessionFromPlan, type StartJobSessionResult } from "@/orchestration/job-session";
@@ -38,6 +39,9 @@ import {
   toFarmFertiliserPurchaseRequirementTonnes,
   aggregateFarmLimeRequirement,
   buildFarmFertiliserQuoteBasket,
+  aggregateFarmFertiliserPurchasing,
+  toFarmFertiliserProductTotals,
+  aggregateFarmFertiliserDemand,
   type FarmFertiliserAggregation,
   type FarmFertiliserQuoteBasket,
   type FertiliserNutrientContributionKg,
@@ -46,6 +50,15 @@ import {
   type FarmLimeRequirement,
 } from "@/domain/fertiliser-plan";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "@/domain/closed-period-calendar";
+import { cropFamilyFor } from "@/domain/fertiliser-field-evidence";
+import { calculateGrassFertiliserV2 } from "@/domain/grass-fertiliser-engine-v2";
+import { calculateStatutoryGrasslandStockingRateKgHa } from "@/domain/statutory-excretion";
+import { allocatePurchasedProducts, resolveAvailableSlurryNutrients, resolveEffectiveSlurryComposition, resolveFieldSlurryAllocation } from "@/domain/nutrients";
+import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
+import { resolveFieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
+import { checkCommonageFertiliserGate } from "@/domain/commonage-gate";
+import { checkNationalBufferDistance, checkLocalBufferOverride } from "@/domain/buffer-gate";
+import { requireCommonageStatus, resolveLocalWaterBufferOverrideStatus } from "@/domain/input-gates";
 import { activeFields, type Farm, type Field, type FertiliserProduct, type LivestockGroup, type SlurryAllocation } from "@/domain/types";
 
 /** `Decision.calculationKind` for a real planned fertiliser application —
@@ -204,6 +217,8 @@ export async function getMatchablePlanForFieldAction(fieldId: string): Promise<M
   // means no real candidate either way.
   const field = fields.find((f) => f.id === fieldId);
   if (!field) return { status: "none" };
+  const p3Cycle = await getFieldProductionCycle(field.id, new Date().toISOString().slice(0, 4));
+  if (p3Cycle) return { status: "none" };
 
   const candidates = decisions.filter(
     (d) =>
@@ -276,6 +291,10 @@ export async function startJobSessionFromPlanAction(input: StartJobSessionFromPl
   const field = fields.find((f) => f.id === input.fieldId);
   if (!field) {
     throw new Error(`startJobSessionFromPlanAction: field ${input.fieldId} not found on the current session's farm`);
+  }
+  const p3CycleForExecution = await getFieldProductionCycle(field.id, now.slice(0, 4));
+  if (p3CycleForExecution) {
+    throw new Error("startJobSessionFromPlanAction: legacy fertiliser plans are disabled for fields with a current P3 production cycle");
   }
 
   // listDecisionsForFarm is farm-scoped (RLS + explicit farm_id filter) —
@@ -481,62 +500,124 @@ export type FieldFertiliserStatusResult =
 
 export async function getFieldFertiliserStatusAction(fieldId: string): Promise<FieldFertiliserStatusResult> {
   const farm = await getFarmForCurrentUser();
-  if (!farm) {
-    throw new Error("getFieldFertiliserStatusAction: no real farm for the current session");
-  }
-  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
-  // F2) — an archived field's own current status/requirement must not
-  // be computable, and its real area must not silently inflate the
-  // farm-wide grassland denominator `allFields` below feeds.
+  if (!farm) throw new Error("getFieldFertiliserStatusAction: no real farm for the current session");
+
   const fields = activeFields(await listFieldsForFarm(farm.id));
-  const field = fields.find((f) => f.id === fieldId);
-  if (!field) {
-    throw new Error(`getFieldFertiliserStatusAction: field ${fieldId} not found on the current session's farm`);
-  }
+  const field = fields.find((candidate) => candidate.id === fieldId);
+  if (!field) throw new Error("getFieldFertiliserStatusAction: field " + fieldId + " not found on the current session's farm");
 
   const now = new Date().toISOString();
-  const prompt = recomputePromptByKind({
-    promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
-    farm,
+  const season = now.slice(0, 4);
+  const [cycle, cycles, livestockGroups, slurryAllocations, slurryCompositionRecords] = await Promise.all([
+    getFieldProductionCycle(field.id, season),
+    listFieldProductionCyclesForSeason(fields.map((candidate) => candidate.id), season),
+    listLivestockGroupsForFarm(farm.id),
+    listSlurryAllocationsForFarm(farm.id),
+    listSlurryCompositionRecordsForFarm(farm.id),
+  ]);
+
+  if (!cycle) return { status: "blocked", reasonCode: "MISSING_FIELD_PRODUCTION_CYCLE" };
+
+  const cycleByFieldId = new Map(cycles.map((candidate) => [candidate.fieldId, candidate]));
+  const missingCycles = fields.filter((candidate) => !cycleByFieldId.has(candidate.id));
+  if (cycle.cropSystem === "GRASS_GRAZING" && missingCycles.length > 0) {
+    return { status: "blocked", reasonCode: "MISSING_FARM_PRODUCTION_CYCLES_FOR_GRASSLAND_AREA" };
+  }
+
+  const grasslandAreaHa = fields.reduce((sum, candidate) => {
+    const candidateCycle = cycleByFieldId.get(candidate.id);
+    return candidateCycle && cropFamilyFor(candidateCycle.cropSystem) === "grassland" ? sum + candidate.areaHa : sum;
+  }, 0);
+
+  let annualOrganicNStockingRateKgHa: number | undefined;
+  if (cycle.cropSystem === "GRASS_GRAZING") {
+    const stocking = calculateStatutoryGrasslandStockingRateKgHa(livestockGroups, grasslandAreaHa);
+    if (stocking.status !== "OK") return { status: "blocked", reasonCode: stocking.reasonCode };
+    annualOrganicNStockingRateKgHa = stocking.value.gsrKgNHa;
+  }
+
+  const allocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
+  let organicCreditsKgHa = { n: 0, p: 0, k: 0 };
+  if (allocation) {
+    if (!allocation.applicationMethod?.value) return { status: "blocked", reasonCode: "MISSING_SLURRY_APPLICATION_METHOD" };
+    if (!allocation.applicationDate?.value) return { status: "blocked", reasonCode: "MISSING_SLURRY_APPLICATION_DATE" };
+    const compositionInput = resolveFieldSlurryCompositionInput(
+      slurryAllocations,
+      field.id,
+      currentSlurryCompositionByHousing(slurryCompositionRecords),
+    );
+    if (compositionInput.unresolved) return { status: "blocked", reasonCode: "SLURRY_COMPOSITION_SOURCES_UNRESOLVED" };
+    const composition = resolveEffectiveSlurryComposition(compositionInput.composition);
+    const pIndex = field.fertility.pIndex?.value;
+    const kIndex = field.fertility.kIndex?.value;
+    if (!pIndex || !kIndex) return { status: "blocked", reasonCode: "MISSING_SOIL_FERTILITY_INDEX" };
+    const available = resolveAvailableSlurryNutrients({
+      allocation,
+      applicationRateM3ha: allocation.volumeM3 / field.areaHa,
+      dmPct: composition.dmPct,
+      dmPctStatus: composition.status,
+      pIndex,
+      kIndex,
+    });
+    if (available.status !== "OK") return { status: "blocked", reasonCode: available.reasonCode };
+    organicCreditsKgHa = { n: available.value.n, p: available.value.p, k: available.value.k };
+  }
+
+  const result = calculateGrassFertiliserV2({
     field,
-    allFields: fields,
-    livestockGroups: await listLivestockGroupsForFarm(farm.id),
-    slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
-    slurryCompositionRecords: await listSlurryCompositionRecordsForFarm(farm.id),
-    now,
+    cycle,
+    ...(annualOrganicNStockingRateKgHa !== undefined ? { annualOrganicNStockingRateKgHa } : {}),
+    ...(cycle.evidence.grazingProductionSystem?.value
+      ? { grazingProductionSystem: cycle.evidence.grazingProductionSystem.value }
+      : {}),
+    organicCreditsKgHa,
   });
 
-  if (prompt.basis.status === "NOT_APPLICABLE") return { status: "not_applicable" };
-  if (prompt.basis.status !== "OK") return { status: "blocked", reasonCode: prompt.basis.reasonCode };
+  if (result.status === "UNSUPPORTED_PATHWAY") return { status: "not_applicable" };
+  if (result.status !== "READY" || !result.grossRequirementKgHa || !result.remainingRequirementKgHa || !result.priorChemicalCreditsKgHa) {
+    return { status: "blocked", reasonCode: result.status === "SOURCE_CONFLICT" ? "P3_SOURCE_CONFLICT" : "P3_INCOMPLETE_EVIDENCE" };
+  }
 
-  const recommendation = prompt.basis.value as FertiliserRecommendationSummary;
-  const remaining = await getFieldRemainingFertiliserRequirement({
-    farmId: farm.id,
-    fieldId: field.id,
-    requirementKgHa: recommendation.requirementKgHa,
-    areaHa: field.areaHa,
-    // Codex audit LOW (round 20): this action already captured `now`
-    // for the recommendation recompute above, but never threaded it
-    // here — this call independently read the process clock for its
-    // own confirmed-session season boundary. A request straddling a
-    // calendar-year rollover could therefore combine one date's
-    // recommendation/soil-evidence state with a different date's
-    // season boundary. Passing the already-captured `now` keeps the
-    // whole operation internally consistent, the same discipline round
-    // 14 already required for every other deterministic recompute path.
-    asOfDate: now,
-  });
+  const allocationResult = allocatePurchasedProducts(
+    result.remainingRequirementKgHa.n,
+    result.remainingRequirementKgHa.p,
+    result.remainingRequirementKgHa.k,
+    field.areaHa,
+  );
+
+  if (allocationResult.products.length > 0) {
+    const commonage = checkCommonageFertiliserGate(requireCommonageStatus(field), "chemical_fertiliser");
+    if (commonage.status === "LEGAL_PROHIBITION") return { status: "not_applicable" };
+    if (commonage.status === "BLOCKED_INSUFFICIENT_EVIDENCE") return { status: "blocked", reasonCode: commonage.reasonCode };
+
+    if (field.waterBufferContext?.value.featureType === undefined || field.waterBufferContext.value.distanceM === undefined) {
+      return { status: "blocked", reasonCode: "MISSING_NATIONAL_BUFFER_ASSESSMENT" };
+    }
+    const nationalBuffer = checkNationalBufferDistance({
+      material: "chemical_fertiliser",
+      feature: field.waterBufferContext.value.featureType,
+      distanceM: field.waterBufferContext.value.distanceM,
+    });
+    if (nationalBuffer.status === "LEGAL_PROHIBITION") return { status: "not_applicable" };
+
+    const localBuffer = checkLocalBufferOverride({
+      actualDistanceM: field.waterBufferContext.value.distanceM,
+      localOverrideStatus: resolveLocalWaterBufferOverrideStatus(field),
+      localOverrideDistanceM: field.waterBufferContext.value.localOverrideDistanceM,
+    });
+    if (localBuffer.status === "LEGAL_PROHIBITION") return { status: "not_applicable" };
+    if (localBuffer.status !== "OK") return { status: "blocked", reasonCode: localBuffer.reasonCode };
+  }
 
   return {
     status: "ok",
-    requirementKgHa: remaining.requirementKgHa,
-    confirmedAppliedKgHa: remaining.confirmedAppliedKgHa,
-    remainingKgHa: remaining.remainingKgHa,
-    blockedReasonCode: remaining.blockedReasonCode,
-    confirmedApplications: remaining.confirmedApplications,
-    applicationsWithUnknownComposition: remaining.applicationsWithUnknownComposition,
-    applicationsExcludedMultiField: remaining.applicationsExcludedMultiField,
-    truncated: remaining.truncated,
+    requirementKgHa: result.grossRequirementKgHa,
+    confirmedAppliedKgHa: result.priorChemicalCreditsKgHa,
+    remainingKgHa: result.remainingRequirementKgHa,
+    confirmedApplications: 0,
+    applicationsWithUnknownComposition: 0,
+    applicationsExcludedMultiField: 0,
+    truncated: false,
   };
 }
 
@@ -595,33 +676,231 @@ export interface FarmFertiliserDemandActionResult {
 
 export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDemandActionResult> {
   const farm = await getFarmForCurrentUser();
-  if (!farm) {
-    throw new Error("getFarmFertiliserDemandAction: no real farm for the current session");
-  }
+  if (!farm) throw new Error("getFarmFertiliserDemandAction: no real farm for the current session");
+
   const [allFields, livestockGroups, slurryAllocations, slurryCompositionRecords] = await Promise.all([
     listFieldsForFarm(farm.id),
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
     listSlurryCompositionRecordsForFarm(farm.id),
   ]);
-  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
-  // F2) — the exact "purchasing totals changed after an apparently
-  // successful archive" defect: an archived field must never contribute
-  // to the farm-wide Purchase Requirement (recommended/planned/confirmed/
-  // remaining kg by product) or to the stocking-rate denominator that
-  // requirement is computed from.
   const fields = activeFields(allFields);
   const now = new Date().toISOString();
+  const season = now.slice(0, 4);
+  const p3Cycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), season);
+
+  if (p3Cycles.length > 0) {
+    const cycleByFieldId = new Map(p3Cycles.map((cycle) => [cycle.fieldId, cycle]));
+    const missingCycles = fields.filter((field) => !cycleByFieldId.has(field.id));
+    if (missingCycles.length > 0) {
+      throw new Error("getFarmFertiliserDemandAction: P3 farm demand requires a current production cycle for every active field");
+    }
+
+    const grasslandAreaHa = fields.reduce((sum, field) => {
+      const cycle = cycleByFieldId.get(field.id)!;
+      return cropFamilyFor(cycle.cropSystem) === "grassland" ? sum + field.areaHa : sum;
+    }, 0);
+    const stocking = calculateStatutoryGrasslandStockingRateKgHa(livestockGroups, grasslandAreaHa);
+    const compositionByHousing = currentSlurryCompositionByHousing(slurryCompositionRecords);
+    let fieldsWithBlockedEvidence = 0;
+
+    const aggregationInputs = fields.map((field) => {
+      const cycle = cycleByFieldId.get(field.id)!;
+      let organicCreditsKgHa = { n: 0, p: 0, k: 0 };
+      const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
+      if (slurryAllocation) {
+        const compositionInput = resolveFieldSlurryCompositionInput(slurryAllocations, field.id, compositionByHousing);
+        if (
+          !slurryAllocation.applicationMethod?.value ||
+          !slurryAllocation.applicationDate?.value ||
+          compositionInput.unresolved ||
+          !field.fertility.pIndex?.value ||
+          !field.fertility.kIndex?.value
+        ) {
+          fieldsWithBlockedEvidence++;
+          return {
+            fieldId: field.id,
+            fieldName: field.name,
+            plan: {
+              calculationVersion: "grass_fertiliser_engine_v2.0.0",
+              purchaseStatus: { status: "UNKNOWN" as const, reasonCode: "P3_INCOMPLETE_SLURRY_EVIDENCE", missingInputs: ["slurry"] },
+              purchasedProducts: [],
+            },
+          };
+        }
+        const composition = resolveEffectiveSlurryComposition(compositionInput.composition);
+        const available = resolveAvailableSlurryNutrients({
+          allocation: slurryAllocation,
+          applicationRateM3ha: slurryAllocation.volumeM3 / field.areaHa,
+          dmPct: composition.dmPct,
+          dmPctStatus: composition.status,
+          pIndex: field.fertility.pIndex.value,
+          kIndex: field.fertility.kIndex.value,
+        });
+        if (available.status !== "OK") {
+          fieldsWithBlockedEvidence++;
+          return {
+            fieldId: field.id,
+            fieldName: field.name,
+            plan: {
+              calculationVersion: "grass_fertiliser_engine_v2.0.0",
+              purchaseStatus: { status: "UNKNOWN" as const, reasonCode: available.reasonCode, missingInputs: "missingInputs" in available ? available.missingInputs : [] },
+              purchasedProducts: [],
+            },
+          };
+        }
+        organicCreditsKgHa = { n: available.value.n, p: available.value.p, k: available.value.k };
+      }
+
+      const annualOrganicNStockingRateKgHa =
+        cycle.cropSystem === "GRASS_GRAZING" && stocking.status === "OK" ? stocking.value.gsrKgNHa : undefined;
+      const result = calculateGrassFertiliserV2({
+        field,
+        cycle,
+        ...(annualOrganicNStockingRateKgHa !== undefined ? { annualOrganicNStockingRateKgHa } : {}),
+        ...(cycle.evidence.grazingProductionSystem?.value
+          ? { grazingProductionSystem: cycle.evidence.grazingProductionSystem.value }
+          : {}),
+        organicCreditsKgHa,
+      });
+
+      if (result.status !== "READY" || !result.remainingRequirementKgHa) {
+        fieldsWithBlockedEvidence++;
+        return {
+          fieldId: field.id,
+          fieldName: field.name,
+          plan: {
+            calculationVersion: result.engineVersion,
+            purchaseStatus:
+              result.status === "UNSUPPORTED_PATHWAY"
+                ? { status: "NOT_APPLICABLE" as const, reasonCode: "P3_UNSUPPORTED_PATHWAY" }
+                : { status: "UNKNOWN" as const, reasonCode: result.status, missingInputs: result.missingInputs },
+            purchasedProducts: [],
+          },
+        };
+      }
+
+      const products = allocatePurchasedProducts(
+        result.remainingRequirementKgHa.n,
+        result.remainingRequirementKgHa.p,
+        result.remainingRequirementKgHa.k,
+        field.areaHa,
+      ).products;
+
+      if (products.length === 0) {
+        return {
+          fieldId: field.id,
+          fieldName: field.name,
+          plan: {
+            calculationVersion: result.engineVersion,
+            purchaseStatus: { status: "NONE_NEEDED" as const, basis: "REMAINING_ZERO" as const },
+            purchasedProducts: [],
+          },
+        };
+      }
+
+      const commonage = checkCommonageFertiliserGate(requireCommonageStatus(field), "chemical_fertiliser");
+      if (commonage.status === "LEGAL_PROHIBITION") {
+        return {
+          fieldId: field.id,
+          fieldName: field.name,
+          plan: {
+            calculationVersion: result.engineVersion,
+            purchaseStatus: { status: "PROHIBITED" as const, reasonCode: "COMMONAGE_CHEMICAL_FERTILISER_PROHIBITED" as const },
+            purchasedProducts: [],
+          },
+        };
+      }
+      if (commonage.status !== "NOT_APPLICABLE") {
+        fieldsWithBlockedEvidence++;
+        return {
+          fieldId: field.id,
+          fieldName: field.name,
+          plan: {
+            calculationVersion: result.engineVersion,
+            purchaseStatus: { status: "UNKNOWN" as const, reasonCode: ("reasonCode" in commonage ? commonage.reasonCode : "P3_COMMONAGE_GATE_UNRESOLVED"), missingInputs: ["FIELD_COMMONAGE_STATUS"] },
+            purchasedProducts: [],
+          },
+        };
+      }
+
+      if (field.waterBufferContext?.value.featureType === undefined || field.waterBufferContext.value.distanceM === undefined) {
+        fieldsWithBlockedEvidence++;
+        return {
+          fieldId: field.id,
+          fieldName: field.name,
+          plan: {
+            calculationVersion: result.engineVersion,
+            purchaseStatus: { status: "UNKNOWN" as const, reasonCode: "MISSING_NATIONAL_BUFFER_ASSESSMENT", missingInputs: ["waterBufferContext"] },
+            purchasedProducts: [],
+          },
+        };
+      }
+      const national = checkNationalBufferDistance({
+        material: "chemical_fertiliser",
+        feature: field.waterBufferContext.value.featureType,
+        distanceM: field.waterBufferContext.value.distanceM,
+      });
+      const local = checkLocalBufferOverride({
+        actualDistanceM: field.waterBufferContext.value.distanceM,
+        localOverrideStatus: resolveLocalWaterBufferOverrideStatus(field),
+        localOverrideDistanceM: field.waterBufferContext.value.localOverrideDistanceM,
+      });
+      if (national.status === "LEGAL_PROHIBITION" || local.status === "LEGAL_PROHIBITION") {
+        return {
+          fieldId: field.id,
+          fieldName: field.name,
+          plan: {
+            calculationVersion: result.engineVersion,
+            purchaseStatus: { status: "PROHIBITED" as const, reasonCode: "WATER_BUFFER_CHEMICAL_FERTILISER_PROHIBITED" as const },
+            purchasedProducts: [],
+          },
+        };
+      }
+      if (local.status !== "OK") {
+        fieldsWithBlockedEvidence++;
+        return {
+          fieldId: field.id,
+          fieldName: field.name,
+          plan: {
+            calculationVersion: result.engineVersion,
+            purchaseStatus: { status: "UNKNOWN" as const, reasonCode: local.reasonCode, missingInputs: ["LOCAL_WATER_BUFFER_OVERRIDE"] },
+            purchasedProducts: [],
+          },
+        };
+      }
+
+      return {
+        fieldId: field.id,
+        fieldName: field.name,
+        plan: {
+          calculationVersion: result.engineVersion,
+          purchaseStatus: { status: "RECOMMENDED" as const },
+          purchasedProducts: products,
+        },
+      };
+    });
+
+    const aggregation = aggregateFarmFertiliserPurchasing(aggregationInputs);
+    const recommended = toFarmFertiliserProductTotals(aggregation);
+    const demand = aggregateFarmFertiliserDemand(recommended, new Map(), new Map());
+    return {
+      demand: demand.map((row) => toFarmInputDemand(farm.id, row)),
+      purchaseRequirementTonnes: toFarmFertiliserPurchaseRequirementTonnes(demand),
+      truncated: false,
+      applicationsWithUnknownComposition: 0,
+      fieldsWithBlockedEvidence,
+      aggregation,
+      basket: buildFarmFertiliserQuoteBasket(aggregation, { farmId: farm.id, createdAt: now }),
+    };
+  }
+
   const { demand, truncated, applicationsWithUnknownComposition, fieldsWithBlockedEvidence, aggregation } = await getFarmFertiliserDemand({
     farmId: farm.id,
     fields,
     livestockGroups,
     slurryAllocations,
-    // Codex audit HIGH (round 14): this farm's real Article 17(6)
-    // evidence — previously never supplied, forcing every farm's
-    // recommendation through the "not proven" P route.
     pBuildUpCompliance: farm.pBuildUpCompliance?.value,
-    // Session 3b: the same recorded composition the Nutrients page uses.
     slurryCompositionRecords,
     asOfDate: now,
   });

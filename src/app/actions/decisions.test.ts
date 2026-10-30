@@ -21,6 +21,7 @@ vi.mock("@/lib/farm-data/decisions", () => ({ insertDecision: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry-composition", () => ({ listSlurryCompositionRecordsForFarm: vi.fn(async () => []) }));
+vi.mock("@/lib/farm-data/field-production-cycles", () => ({ getFieldProductionCycle: vi.fn(async () => null), listFieldProductionCyclesForSeason: vi.fn(async () => []) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";

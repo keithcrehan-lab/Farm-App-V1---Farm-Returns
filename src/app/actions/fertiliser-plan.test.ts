@@ -23,6 +23,7 @@ vi.mock("@/orchestration/fertiliser-plan", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/orchestration/fertiliser-plan")>();
   return { ...actual, getFieldRemainingFertiliserRequirement: vi.fn(), getFarmFertiliserDemand: vi.fn() };
 });
+vi.mock("@/lib/farm-data/field-production-cycles", () => ({ getFieldProductionCycle: vi.fn(async () => null), listFieldProductionCyclesForSeason: vi.fn(async () => []) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
@@ -31,6 +32,7 @@ import { listDecisionsForFarm, getDecisionById } from "@/lib/farm-data/decisions
 import { listJobSessionDecisionIdsForFarm, getJobSessionById } from "@/lib/farm-data/job-sessions";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { getFieldProductionCycle, listFieldProductionCyclesForSeason } from "@/lib/farm-data/field-production-cycles";
 import { startJobSessionFromPlan } from "@/orchestration/job-session";
 import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand } from "@/orchestration/fertiliser-plan";
 import {
@@ -54,11 +56,15 @@ const mockGetJobSessionById = vi.mocked(getJobSessionById);
 const mockStartJobSessionFromPlan = vi.mocked(startJobSessionFromPlan);
 const mockListLivestockGroups = vi.mocked(listLivestockGroupsForFarm);
 const mockListSlurryAllocations = vi.mocked(listSlurryAllocationsForFarm);
+const mockGetFieldProductionCycle = vi.mocked(getFieldProductionCycle);
+const mockListFieldProductionCyclesForSeason = vi.mocked(listFieldProductionCyclesForSeason);
 const mockGetFieldRemainingFertiliserRequirement = vi.mocked(getFieldRemainingFertiliserRequirement);
 const mockGetFarmFertiliserDemand = vi.mocked(getFarmFertiliserDemand);
 
 afterEach(() => {
   vi.clearAllMocks();
+  mockGetFieldProductionCycle.mockResolvedValue(null);
+  mockListFieldProductionCyclesForSeason.mockResolvedValue([]);
 });
 
 const farm: Farm = {
@@ -85,6 +91,43 @@ function fertiliserField(overrides: Partial<Field> = {}): Field {
     fertility: { pIndex: { value: 1, status: "verified", source: "Soil test" }, kIndex: { value: 1, status: "verified", source: "Soil test" } },
     ...overrides,
   });
+}
+
+function p3Field(overrides: Partial<Field> = {}): Field {
+  return field({
+    fertility: {
+      pIndex: { value: 1, status: "verified", source: "Soil test" },
+      kIndex: { value: 1, status: "verified", source: "Soil test" },
+      verifiedTest: { sampleDate: "2026-01-10", laboratory: "Lab", sampleRef: "S1", p: 4, k: 90, pH: 6.3 },
+    },
+    commonageStatus: { value: "not_commonage", status: "verified", source: "Farmer" },
+    waterBufferContext: {
+      value: { featureType: "surface_water", distanceM: 10, localOverrideStatus: "verified_none" },
+      status: "verified",
+      source: "Farmer",
+    },
+    ...overrides,
+  });
+}
+
+function p3FirstCutCycle(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "cycle-1",
+    fieldId: "field-1",
+    season: "2026",
+    cropSystem: "GRASS_FIRST_CUT_SILAGE",
+    status: "active",
+    evidence: {
+      cropSystem: { value: "GRASS_FIRST_CUT_SILAGE", method: "FARMER_DECLARED", source: "Keith" },
+      productionTargetTDMHa: { value: 5, method: "FARMER_DECLARED", source: "Keith" },
+      chemicalNAppliedKgHa: { value: 10, method: "FARMER_DECLARED", source: "Keith" },
+      chemicalPAppliedKgHa: { value: 0, method: "FARMER_DECLARED", source: "Keith" },
+      chemicalKAppliedKgHa: { value: 0, method: "FARMER_DECLARED", source: "Keith" },
+    },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  } as any;
 }
 
 const REAL_LIVESTOCK_GROUPS = [
@@ -744,117 +787,80 @@ describe("getFieldFertiliserStatusAction", () => {
     await expect(getFieldFertiliserStatusAction("field-1")).rejects.toThrow(/not found/i);
   });
 
-  it("returns 'blocked' when the real recomputed recommendation itself is blocked (no soil index) — never fabricates a remaining figure", async () => {
+  it("returns blocked when the P3 cycle exists but soil evidence is missing", async () => {
     mockGetFarm.mockResolvedValue(farm);
-    mockListFields.mockResolvedValue([field()]); // no fertility index
+    mockListFields.mockResolvedValue([field()]);
+    mockGetFieldProductionCycle.mockResolvedValue(p3FirstCutCycle());
+    mockListFieldProductionCyclesForSeason.mockResolvedValue([p3FirstCutCycle()]);
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
 
-    await expect(getFieldFertiliserStatusAction("field-1")).resolves.toEqual({
-      status: "blocked",
-      reasonCode: "MISSING_SOIL_FERTILITY_INDEX",
-    });
-    expect(mockGetFieldRemainingFertiliserRequirement).not.toHaveBeenCalled();
+    const result = await getFieldFertiliserStatusAction("field-1");
+    expect(result.status).toBe("blocked");
   });
 
-  it("returns 'not_applicable' when a real recommendation genuinely recommends nothing (e.g. commonage-suppressed)", async () => {
+  it("applies the existing commonage prohibition after P3 agronomy and before a recommendation is actionable", async () => {
     mockGetFarm.mockResolvedValue(farm);
-    mockListFields.mockResolvedValue([fertiliserField({ commonageStatus: { value: "commonage", status: "verified", source: "Farmer" } })]);
+    mockListFields.mockResolvedValue([
+      p3Field({ commonageStatus: { value: "commonage", status: "verified", source: "Farmer" } }),
+    ]);
+    mockGetFieldProductionCycle.mockResolvedValue(p3FirstCutCycle());
+    mockListFieldProductionCyclesForSeason.mockResolvedValue([p3FirstCutCycle()]);
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
 
     await expect(getFieldFertiliserStatusAction("field-1")).resolves.toEqual({ status: "not_applicable" });
-    expect(mockGetFieldRemainingFertiliserRequirement).not.toHaveBeenCalled();
   });
 
-  it("returns the real remaining requirement, derived from the recomputed recommendation and real confirmed applications", async () => {
+  it("returns the P3 gross and remaining first-cut requirement from explicit in-season chemical evidence", async () => {
     mockGetFarm.mockResolvedValue(farm);
-    mockListFields.mockResolvedValue([fertiliserField()]);
-    // Codex audit CRITICAL (round 6): an empty read no longer reaches the
-    // recomputed basis's `OK` arm (see fertiliser-recommendation.ts's own
-    // `MISSING_LIVESTOCK_DATA` gate) — this test needs a real,
-    // non-empty herd to exercise the "ok" branch it actually asserts on.
-    mockListLivestockGroups.mockResolvedValue([
-      {
-        id: "g1",
-        farmId: "farm-1",
-        category: "suckler_cow",
-        label: "Cows",
-        count: { value: 20, status: "verified", source: "Farmer" },
-        system: "grazing",
-        value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
-      },
-    ]);
+    mockListFields.mockResolvedValue([p3Field()]);
+    mockGetFieldProductionCycle.mockResolvedValue(p3FirstCutCycle());
+    mockListFieldProductionCyclesForSeason.mockResolvedValue([p3FirstCutCycle()]);
+    mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFieldRemainingFertiliserRequirement.mockResolvedValue({
-      requirementKgHa: { n: 35, p: 4, k: 0 },
-      confirmedAppliedKgHa: { n: 10, p: 0, k: 0 },
-      remainingKgHa: { n: 25, p: 4, k: 0 },
-      confirmedApplications: 1,
-      applicationsWithUnknownComposition: 0,
-      applicationsExcludedMultiField: 0,
-      truncated: false,
-    });
 
     const result = await getFieldFertiliserStatusAction("field-1");
     expect(result.status).toBe("ok");
     if (result.status !== "ok") throw new Error("expected ok");
-    expect(result.remainingKgHa).toEqual({ n: 25, p: 4, k: 0 });
-
-    // The requirement passed through is the real, server-recomputed
-    // recommendation's own figure — never a client-supplied one.
-    expect(mockGetFieldRemainingFertiliserRequirement).toHaveBeenCalledWith(
-      expect.objectContaining({ farmId: "farm-1", fieldId: "field-1", areaHa: 4.2 }),
-    );
+    expect(result.requirementKgHa).toEqual({ n: 100, p: 40, k: 175 });
+    expect(result.confirmedAppliedKgHa).toEqual({ n: 10, p: 0, k: 0 });
+    expect(result.remainingKgHa).toEqual({ n: 90, p: 40, k: 175 });
   });
 
-  // Codex audit LOW (round 20): this action already captures a real
-  // `now` for the recommendation recompute — it must thread the
-  // identical value into `getFieldRemainingFertiliserRequirement`'s own
-  // `asOfDate`, not leave that call to independently read the process
-  // clock for its confirmed-session season boundary (a request
-  // straddling a calendar-year rollover could otherwise combine one
-  // date's recommendation state with a different date's season
-  // boundary).
-  it("threads the same captured 'now' into getFieldRemainingFertiliserRequirement's own asOfDate, never leaving it to read the process clock independently", async () => {
+  it("does not call the legacy confirmed-application remaining calculator for a P3 cycle", async () => {
     mockGetFarm.mockResolvedValue(farm);
-    mockListFields.mockResolvedValue([fertiliserField()]);
-    mockListLivestockGroups.mockResolvedValue([
-      {
-        id: "g1",
-        farmId: "farm-1",
-        category: "suckler_cow",
-        label: "Cows",
-        count: { value: 20, status: "verified", source: "Farmer" },
-        system: "grazing",
-        value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
-      },
-    ]);
+    mockListFields.mockResolvedValue([p3Field()]);
+    mockGetFieldProductionCycle.mockResolvedValue(p3FirstCutCycle());
+    mockListFieldProductionCyclesForSeason.mockResolvedValue([p3FirstCutCycle()]);
+    mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFieldRemainingFertiliserRequirement.mockResolvedValue({
-      requirementKgHa: { n: 35, p: 4, k: 0 },
-      confirmedAppliedKgHa: { n: 10, p: 0, k: 0 },
-      remainingKgHa: { n: 25, p: 4, k: 0 },
-      confirmedApplications: 1,
-      applicationsWithUnknownComposition: 0,
-      applicationsExcludedMultiField: 0,
-      truncated: false,
-    });
 
-    const before = new Date();
     await getFieldFertiliserStatusAction("field-1");
-    const after = new Date();
-
-    const call = mockGetFieldRemainingFertiliserRequirement.mock.calls[0][0];
-    expect(typeof call.asOfDate).toBe("string");
-    const asOfDate = new Date(call.asOfDate as string);
-    expect(asOfDate.getTime()).toBeGreaterThanOrEqual(before.getTime());
-    expect(asOfDate.getTime()).toBeLessThanOrEqual(after.getTime());
+    expect(mockGetFieldRemainingFertiliserRequirement).not.toHaveBeenCalled();
   });
+
 });
 
 // Fertiliser Vertical campaign, items 19/20 — farm-wide demand.
 describe("getFarmFertiliserDemandAction", () => {
+  it("aggregates P3 field product lines directly into the procurement basket without calling the legacy farm-demand engine", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([p3Field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockListFieldProductionCyclesForSeason.mockResolvedValue([p3FirstCutCycle()]);
+
+    const result = await getFarmFertiliserDemandAction();
+
+    expect(mockGetFarmFertiliserDemand).not.toHaveBeenCalled();
+    expect(result.fieldsWithBlockedEvidence).toBe(0);
+    expect(result.aggregation.engineVersions).toEqual(["grass_fertiliser_engine_v2.0.0"]);
+    expect(result.aggregation.status).toBe("READY");
+    expect(result.demand.map((row) => row.product).sort()).toEqual(["0-7-30", "Protected Urea"].sort());
+    expect(result.purchaseRequirementTonnes.every((line) => line.remainingTotalKg > 0)).toBe(true);
+  });
+
   it("rejects when there is no real signed-in farm", async () => {
     mockGetFarm.mockResolvedValue(null);
     await expect(getFarmFertiliserDemandAction()).rejects.toThrow(/no real farm/i);

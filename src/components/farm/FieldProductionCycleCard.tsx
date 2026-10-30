@@ -7,6 +7,7 @@ import {
   P2_SUPPORTED_CROP_SYSTEMS,
   type CropSystem,
   type FertiliserInputGateResult,
+  type GrazingProductionSystem,
   type FieldProductionCycle,
 } from "@/domain/fertiliser-field-evidence";
 import {
@@ -57,6 +58,7 @@ export function FieldProductionCycleCard({ field }: { field: Field }) {
   const [pApplied, setPApplied] = useState("");
   const [kApplied, setKApplied] = useState("");
   const [cloverPct, setCloverPct] = useState("");
+  const [grazingSystem, setGrazingSystem] = useState<GrazingProductionSystem | "">("");
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -74,6 +76,7 @@ export function FieldProductionCycleCard({ field }: { field: Field }) {
           setPApplied(state.cycle.evidence.chemicalPAppliedKgHa?.value?.toString() ?? "");
           setKApplied(state.cycle.evidence.chemicalKAppliedKgHa?.value?.toString() ?? "");
           setCloverPct(state.cycle.evidence.whiteCloverPct?.value?.toString() ?? "");
+        setGrazingSystem(state.cycle.evidence.grazingProductionSystem?.value ?? "");
         }
       })
       .catch(() => {
@@ -109,6 +112,19 @@ export function FieldProductionCycleCard({ field }: { field: Field }) {
           ))}
         </select>
       </label>
+
+      {cropSystem === "GRASS_GRAZING" ? (
+        <label className={LABEL}>
+          Grazing production system
+          <select className={INPUT} value={grazingSystem} onChange={(event) => setGrazingSystem(event.target.value as GrazingProductionSystem | "")}>
+            <option value="">Not recorded</option>
+            <option value="SUCKLER_CALF_TO_BEEF">Suckler calf-to-beef</option>
+            <option value="SUCKLER_CALF_TO_WEANING">Suckler calf-to-weaning</option>
+            <option value="OTHER_DRYSTOCK">Other drystock</option>
+          </select>
+          <span className="font-normal text-fr-v2-muted">Farm Return does not infer this from the farm enterprise because different Teagasc N tables apply.</span>
+        </label>
+      ) : null}
 
       {!supported ? (
         <p className="border-l-[3px] border-fr-v2-gold pl-3 text-xs text-fr-v2-muted">
@@ -164,6 +180,7 @@ export function FieldProductionCycleCard({ field }: { field: Field }) {
                 ...(numericValue(pApplied) !== undefined ? { chemicalPAppliedKgHa: numericValue(pApplied) } : {}),
                 ...(numericValue(kApplied) !== undefined ? { chemicalKAppliedKgHa: numericValue(kApplied) } : {}),
                 ...(numericValue(cloverPct) !== undefined ? { whiteCloverPct: numericValue(cloverPct) } : {}),
+                ...(grazingSystem ? { grazingProductionSystem: grazingSystem } : {}),
                 farmerName: farm.ownerName,
               });
               setCycle(state.cycle);

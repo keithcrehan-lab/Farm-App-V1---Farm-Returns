@@ -36,6 +36,7 @@ const cycle = (overrides: Partial<FieldProductionCycle> = {}): FieldProductionCy
   status: "active",
   evidence: {
     cropSystem: createFarmerEvidence("GRASS_GRAZING", "Farmer"),
+    grazingProductionSystem: createFarmerEvidence("SUCKLER_CALF_TO_BEEF", "Farmer"),
     chemicalNAppliedKgHa: createFarmerEvidence(0, "Farmer"),
     chemicalPAppliedKgHa: createFarmerEvidence(0, "Farmer"),
     chemicalKAppliedKgHa: createFarmerEvidence(0, "Farmer"),
@@ -68,7 +69,7 @@ describe("Fertiliser P2 field evidence gate", () => {
   it("never treats absence of previous chemical fertiliser as zero", () => {
     const result = evaluateFertiliserInputGate(
       field(),
-      cycle({ evidence: { cropSystem: createFarmerEvidence("GRASS_GRAZING", "Farmer") } }),
+      cycle({ evidence: { cropSystem: createFarmerEvidence("GRASS_GRAZING", "Farmer"), grazingProductionSystem: createFarmerEvidence("SUCKLER_CALF_TO_BEEF", "Farmer") } }),
     );
     expect(result.missingInputs).toEqual([
       "chemicalNAppliedKgHa",

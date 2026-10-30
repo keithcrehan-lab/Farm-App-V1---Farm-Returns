@@ -60,6 +60,7 @@ describe("fertiliser field evidence actions", () => {
     const cycle = savedCycle({
       evidence: {
         cropSystem: { value: "GRASS_GRAZING", method: "FARMER_DECLARED", source: "Keith" },
+        grazingProductionSystem: { value: "SUCKLER_CALF_TO_BEEF", method: "FARMER_DECLARED", source: "Keith" },
         chemicalNAppliedKgHa: { value: 0, method: "FARMER_DECLARED", source: "Keith" },
         chemicalPAppliedKgHa: { value: 0, method: "FARMER_DECLARED", source: "Keith" },
         chemicalKAppliedKgHa: { value: 0, method: "FARMER_DECLARED", source: "Keith" },
@@ -71,6 +72,7 @@ describe("fertiliser field evidence actions", () => {
       fieldId: "field-1",
       season: "2026",
       cropSystem: "GRASS_GRAZING",
+      grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       chemicalNAppliedKgHa: 0,
       chemicalPAppliedKgHa: 0,
       chemicalKAppliedKgHa: 0,
@@ -82,6 +84,7 @@ describe("fertiliser field evidence actions", () => {
       season: "2026",
       cropSystem: "GRASS_GRAZING",
       evidence: expect.objectContaining({
+        grazingProductionSystem: expect.objectContaining({ value: "SUCKLER_CALF_TO_BEEF", method: "FARMER_DECLARED", source: "Keith" }),
         chemicalNAppliedKgHa: expect.objectContaining({ value: 0, method: "FARMER_DECLARED", source: "Keith" }),
         chemicalPAppliedKgHa: expect.objectContaining({ value: 0, method: "FARMER_DECLARED", source: "Keith" }),
         chemicalKAppliedKgHa: expect.objectContaining({ value: 0, method: "FARMER_DECLARED", source: "Keith" }),

@@ -8,6 +8,7 @@ import {
   type CropSystem,
   type FieldProductionCycle,
   type FieldProductionCycleEvidence,
+  type GrazingProductionSystem,
   type FertiliserInputGateResult,
   type ProductionCycleStatus,
 } from "@/domain/fertiliser-field-evidence";
@@ -56,6 +57,7 @@ export interface SaveFieldProductionCycleActionInput {
   chemicalPAppliedKgHa?: number;
   chemicalKAppliedKgHa?: number;
   whiteCloverPct?: number;
+  grazingProductionSystem?: GrazingProductionSystem;
   farmerName: string;
 }
 
@@ -76,6 +78,9 @@ export async function saveFieldProductionCycleAction(
   const evidence: FieldProductionCycleEvidence = {
     ...previousEvidence,
     cropSystem: createFarmerEvidence(input.cropSystem, source, undefined, previousEvidence.cropSystem),
+    ...(input.grazingProductionSystem
+      ? { grazingProductionSystem: createFarmerEvidence(input.grazingProductionSystem, source, undefined, previousEvidence.grazingProductionSystem) }
+      : {}),
     ...(finiteNonNegative(input.productionTargetTDMHa)
       ? { productionTargetTDMHa: createFarmerEvidence(input.productionTargetTDMHa, source, undefined, previousEvidence.productionTargetTDMHa) }
       : {}),

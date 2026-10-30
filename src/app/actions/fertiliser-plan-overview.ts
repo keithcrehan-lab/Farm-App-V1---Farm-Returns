@@ -8,13 +8,11 @@
  *  - `getFarmFertiliserDemandAction`/`getFarmLimeRequirementAction`
  *    (`src/app/actions/fertiliser-plan.ts`) — real per-product/lime
  *    kg/tonnes totals, reused VERBATIM, never recomputed.
- *  - `recomputePromptByKind` (`src/orchestration/prompt/recompute.ts`) —
- *    the identical real fertiliser-recommendation engine every other
- *    per-field screen already calls, run once per active field here to
- *    build the field-breakdown list and the real farm-wide N/P/K
- *    requirement total (`aggregateFarmNutrientRequirementKg`,
- *    `src/domain/fertiliser-plan.ts`) — never a second recommendation
- *    engine.
+ *  - `getFieldFertiliserStatusAction` (`src/app/actions/fertiliser-plan.ts`)
+ *    — the same P3 field-status contract used by the live field view and
+ *    calculation audit. The overview never reconstructs nutrient science;
+ *    it only aggregates each field's canonical P3 gross requirement via
+ *    `aggregateFarmNutrientRequirementKg`.
  *  - `buildFarmSlurryStorageOverview` (`src/domain/slurry-storage.ts`) and
  *    `buildFertiliserStockBand`/`currentFertiliserStockByProduct`
  *    (`src/domain/fertiliser-stock.ts`) — this campaign's own new, pure
@@ -39,15 +37,10 @@
 import { revalidatePath } from "next/cache";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
-import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listHousingForFarm } from "@/lib/farm-data/housing";
-import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
-import type { SlurryComposition } from "@/domain/slurry-composition";
 import { listFertiliserStockRecordsForFarm, createFertiliserStockRecord } from "@/lib/farm-data/fertiliser-stock";
-import { getFarmFertiliserDemandAction, getFarmLimeRequirementAction } from "./fertiliser-plan";
-import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
-import { FERTILISER_RECOMMENDATION_PROMPT_KIND, type FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
+import { getFarmFertiliserDemandAction, getFarmLimeRequirementAction, getFieldFertiliserStatusAction } from "./fertiliser-plan";
 import {
   aggregateFarmNutrientRequirementKg,
   type FarmFertiliserAggregation,
@@ -67,7 +60,7 @@ import {
   type FertiliserStockRecord,
   type NewFertiliserStockRecordInput,
 } from "@/domain/fertiliser-stock";
-import { activeFields, type Farm, type Field, type FieldUse, type LivestockGroup, type SlurryAllocation } from "@/domain/types";
+import { activeFields, type FieldUse } from "@/domain/types";
 
 export interface FertiliserPlanFieldBreakdownRow {
   fieldId: string;
@@ -111,28 +104,6 @@ export interface FertiliserPlanOverview {
   basket: FarmFertiliserQuoteBasket;
 }
 
-function fieldRecommendationStatus(
-  field: Field,
-  farm: Farm,
-  allFields: readonly Field[],
-  livestockGroups: readonly LivestockGroup[],
-  slurryAllocations: readonly SlurryAllocation[],
-  slurryCompositionRecords: readonly SlurryComposition[],
-  now: string,
-) {
-  return recomputePromptByKind({
-    promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
-    farm,
-    field,
-    allFields,
-    livestockGroups,
-    slurryAllocations,
-    // Campaign A audit HIGH: the farm's recorded composition, so this
-    // overview never silently falls back to the national-average DM%.
-    slurryCompositionRecords,
-    now,
-  });
-}
 
 export async function getFertiliserPlanOverviewAction(): Promise<FertiliserPlanOverview> {
   const farm = await getFarmForCurrentUser();
@@ -141,11 +112,9 @@ export async function getFertiliserPlanOverviewAction(): Promise<FertiliserPlanO
   }
   const now = new Date().toISOString();
 
-  const [allFields, livestockGroups, slurryAllocations, slurryCompositionRecords, housingList, stockRecords, demandResult, limeResult] = await Promise.all([
+  const [allFields, slurryAllocations, housingList, stockRecords, demandResult, limeResult] = await Promise.all([
     listFieldsForFarm(farm.id),
-    listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
-    listSlurryCompositionRecordsForFarm(farm.id),
     listHousingForFarm(farm.id),
     listFertiliserStockRecordsForFarm(farm.id),
     getFarmFertiliserDemandAction(),
@@ -153,28 +122,33 @@ export async function getFertiliserPlanOverviewAction(): Promise<FertiliserPlanO
   ]);
   const fields = activeFields(allFields);
 
-  // One real recompute per active field — reused for BOTH the field
-  // breakdown list AND the farm-wide N/P/K requirement total, so this
-  // farm's own real fertiliser-recommendation engine only ever runs
-  // once per field for this whole overview.
+  // P4 presentation adapter: the overview reads the exact same P3 field
+  // status contract as the field screen. No legacy Prompt/NutrientPlan
+  // recompute is permitted here, so the overview, calculation audit and
+  // procurement basket all trace back to one agronomy engine.
+  const p3FieldResults = await Promise.all(
+    fields.map(async (field) => ({ field, result: await getFieldFertiliserStatusAction(field.id) })),
+  );
   const perFieldRequirements: { areaHa: number; requirementKgHa?: { n: number; p: number; k: number } }[] = [];
-  const fieldBreakdown: FertiliserPlanFieldBreakdownRow[] = fields.map((field) => {
-    const prompt = fieldRecommendationStatus(field, farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, now);
-    const status = prompt.basis.status;
-    const reasonCode = status === "OK" ? undefined : (prompt.basis as { reasonCode?: string }).reasonCode;
-    if (status === "OK") {
-      const recommendation = prompt.basis.value as FertiliserRecommendationSummary;
-      perFieldRequirements.push({ areaHa: field.areaHa, requirementKgHa: recommendation.requirementKgHa });
-    } else {
-      perFieldRequirements.push({ areaHa: field.areaHa, requirementKgHa: undefined });
+  const fieldBreakdown: FertiliserPlanFieldBreakdownRow[] = p3FieldResults.map(({ field, result }) => {
+    if (result.status === "ok") {
+      perFieldRequirements.push({ areaHa: field.areaHa, requirementKgHa: result.requirementKgHa });
+      return {
+        fieldId: field.id,
+        fieldName: field.name,
+        areaHa: field.areaHa,
+        seasonalUse: field.plannedUse?.value,
+        status: "OK" as const,
+      };
     }
+    perFieldRequirements.push({ areaHa: field.areaHa, requirementKgHa: undefined });
     return {
       fieldId: field.id,
       fieldName: field.name,
       areaHa: field.areaHa,
       seasonalUse: field.plannedUse?.value,
-      status,
-      reasonCode,
+      status: result.status === "not_applicable" ? ("NOT_APPLICABLE" as const) : ("BLOCKED_INSUFFICIENT_EVIDENCE" as const),
+      ...(result.status === "blocked" ? { reasonCode: result.reasonCode } : {}),
     };
   });
 

@@ -51,7 +51,7 @@ import {
 } from "@/domain/fertiliser-plan";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "@/domain/closed-period-calendar";
 import { cropFamilyFor } from "@/domain/fertiliser-field-evidence";
-import { calculateGrassFertiliserV2 } from "@/domain/grass-fertiliser-engine-v2";
+import { calculateGrassFertiliserV2, type GrassRuleTrace } from "@/domain/grass-fertiliser-engine-v2";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "@/domain/statutory-excretion";
 import { allocatePurchasedProducts, resolveAvailableSlurryNutrients, resolveEffectiveSlurryComposition, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
@@ -483,9 +483,15 @@ export type FieldFertiliserStatusResult =
   | { status: "not_applicable" }
   | {
       status: "ok";
+      engineVersion: string;
+      cropSystem: string;
       requirementKgHa: FertiliserNutrientContributionKg;
+      organicCreditsKgHa: FertiliserNutrientContributionKg;
       confirmedAppliedKgHa?: FertiliserNutrientContributionKg;
       remainingKgHa?: FertiliserNutrientContributionKg;
+      recommendedProducts: FertiliserProduct[];
+      ruleTraces: { n?: GrassRuleTrace; p?: GrassRuleTrace; k?: GrassRuleTrace };
+      limitations: string[];
       blockedReasonCode?: string;
       confirmedApplications: number;
       applicationsWithUnknownComposition: number;
@@ -611,9 +617,15 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
 
   return {
     status: "ok",
+    engineVersion: result.engineVersion,
+    cropSystem: result.cropSystem,
     requirementKgHa: result.grossRequirementKgHa,
+    organicCreditsKgHa: result.organicCreditsKgHa ?? { n: 0, p: 0, k: 0 },
     confirmedAppliedKgHa: result.priorChemicalCreditsKgHa,
     remainingKgHa: result.remainingRequirementKgHa,
+    recommendedProducts: allocationResult.products,
+    ruleTraces: result.traces,
+    limitations: result.limitations,
     confirmedApplications: 0,
     applicationsWithUnknownComposition: 0,
     applicationsExcludedMultiField: 0,

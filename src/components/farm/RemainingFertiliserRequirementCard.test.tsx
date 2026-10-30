@@ -37,6 +37,12 @@ describe("RemainingFertiliserRequirementCard", () => {
   it("shows the real requirement/applied/remaining figures per nutrient when a real status resolves", async () => {
     mockAction.mockResolvedValue({
       status: "ok",
+      engineVersion: "grass_fertiliser_engine_v2.0.0",
+      cropSystem: "GRASS_FIRST_CUT_SILAGE",
+      organicCreditsKgHa: { n: 0, p: 0, k: 0 },
+      recommendedProducts: [],
+      ruleTraces: {},
+      limitations: [],
       requirementKgHa: { n: 35, p: 4, k: 0 },
       confirmedAppliedKgHa: { n: 10, p: 0, k: 0 },
       remainingKgHa: { n: 25, p: 4, k: 0 },
@@ -54,6 +60,12 @@ describe("RemainingFertiliserRequirementCard", () => {
   it("discloses when no confirmed applications exist yet", async () => {
     mockAction.mockResolvedValue({
       status: "ok",
+      engineVersion: "grass_fertiliser_engine_v2.0.0",
+      cropSystem: "GRASS_FIRST_CUT_SILAGE",
+      organicCreditsKgHa: { n: 0, p: 0, k: 0 },
+      recommendedProducts: [],
+      ruleTraces: {},
+      limitations: [],
       requirementKgHa: { n: 35, p: 4, k: 0 },
       confirmedAppliedKgHa: { n: 0, p: 0, k: 0 },
       remainingKgHa: { n: 35, p: 4, k: 0 },
@@ -69,6 +81,12 @@ describe("RemainingFertiliserRequirementCard", () => {
   it("discloses a confirmed application that could not be included in the nutrient total — never silently drops it", async () => {
     mockAction.mockResolvedValue({
       status: "ok",
+      engineVersion: "grass_fertiliser_engine_v2.0.0",
+      cropSystem: "GRASS_FIRST_CUT_SILAGE",
+      organicCreditsKgHa: { n: 0, p: 0, k: 0 },
+      recommendedProducts: [],
+      ruleTraces: {},
+      limitations: [],
       requirementKgHa: { n: 35, p: 4, k: 0 },
       confirmedAppliedKgHa: { n: 0, p: 0, k: 0 },
       remainingKgHa: { n: 35, p: 4, k: 0 },
@@ -84,6 +102,12 @@ describe("RemainingFertiliserRequirementCard", () => {
   it("discloses a confirmed application that covered more than one field and could not be attributed to this one", async () => {
     mockAction.mockResolvedValue({
       status: "ok",
+      engineVersion: "grass_fertiliser_engine_v2.0.0",
+      cropSystem: "GRASS_FIRST_CUT_SILAGE",
+      organicCreditsKgHa: { n: 0, p: 0, k: 0 },
+      recommendedProducts: [],
+      ruleTraces: {},
+      limitations: [],
       requirementKgHa: { n: 35, p: 4, k: 0 },
       confirmedAppliedKgHa: { n: 0, p: 0, k: 0 },
       remainingKgHa: { n: 35, p: 4, k: 0 },
@@ -99,6 +123,12 @@ describe("RemainingFertiliserRequirementCard", () => {
   it("discloses when the real confirmed-session read was truncated", async () => {
     mockAction.mockResolvedValue({
       status: "ok",
+      engineVersion: "grass_fertiliser_engine_v2.0.0",
+      cropSystem: "GRASS_FIRST_CUT_SILAGE",
+      organicCreditsKgHa: { n: 0, p: 0, k: 0 },
+      recommendedProducts: [],
+      ruleTraces: {},
+      limitations: [],
       requirementKgHa: { n: 35, p: 4, k: 0 },
       confirmedAppliedKgHa: { n: 0, p: 0, k: 0 },
       remainingKgHa: { n: 35, p: 4, k: 0 },
@@ -114,6 +144,12 @@ describe("RemainingFertiliserRequirementCard", () => {
   it("shows the real, honest reason when the remaining conversion itself is blocked (e.g. missing field area)", async () => {
     mockAction.mockResolvedValue({
       status: "ok",
+      engineVersion: "grass_fertiliser_engine_v2.0.0",
+      cropSystem: "GRASS_FIRST_CUT_SILAGE",
+      organicCreditsKgHa: { n: 0, p: 0, k: 0 },
+      recommendedProducts: [],
+      ruleTraces: {},
+      limitations: [],
       requirementKgHa: { n: 35, p: 4, k: 0 },
       blockedReasonCode: "MISSING_VALID_FIELD_AREA",
       confirmedApplications: 0,
@@ -139,6 +175,12 @@ describe("RemainingFertiliserRequirementCard", () => {
   it("clears the previous field's figures immediately on a field change, never showing them under the new field", async () => {
     mockAction.mockResolvedValueOnce({
       status: "ok",
+      engineVersion: "grass_fertiliser_engine_v2.0.0",
+      cropSystem: "GRASS_FIRST_CUT_SILAGE",
+      organicCreditsKgHa: { n: 0, p: 0, k: 0 },
+      recommendedProducts: [],
+      ruleTraces: {},
+      limitations: [],
       requirementKgHa: { n: 35, p: 4, k: 0 },
       confirmedAppliedKgHa: { n: 10, p: 0, k: 0 },
       remainingKgHa: { n: 25, p: 4, k: 0 },
@@ -162,6 +204,12 @@ describe("RemainingFertiliserRequirementCard", () => {
 
     resolveFieldB({
       status: "ok",
+      engineVersion: "grass_fertiliser_engine_v2.0.0",
+      cropSystem: "GRASS_FIRST_CUT_SILAGE",
+      organicCreditsKgHa: { n: 0, p: 0, k: 0 },
+      recommendedProducts: [],
+      ruleTraces: {},
+      limitations: [],
       requirementKgHa: { n: 50, p: 0, k: 0 },
       confirmedAppliedKgHa: { n: 0, p: 0, k: 0 },
       remainingKgHa: { n: 50, p: 0, k: 0 },
@@ -176,6 +224,12 @@ describe("RemainingFertiliserRequirementCard", () => {
   it("clears a stale figure rather than leaving it forever when the new field's lookup rejects", async () => {
     mockAction.mockResolvedValueOnce({
       status: "ok",
+      engineVersion: "grass_fertiliser_engine_v2.0.0",
+      cropSystem: "GRASS_FIRST_CUT_SILAGE",
+      organicCreditsKgHa: { n: 0, p: 0, k: 0 },
+      recommendedProducts: [],
+      ruleTraces: {},
+      limitations: [],
       requirementKgHa: { n: 35, p: 4, k: 0 },
       confirmedAppliedKgHa: { n: 10, p: 0, k: 0 },
       remainingKgHa: { n: 25, p: 4, k: 0 },

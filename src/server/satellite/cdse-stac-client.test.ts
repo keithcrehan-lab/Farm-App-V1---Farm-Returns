@@ -11,7 +11,7 @@ const request = {
 describe("buildSentinel2SearchUrl", () => {
   it("matches the real, live-confirmed request shape", () => {
     expect(buildSentinel2SearchUrl(request)).toBe(
-      "https://catalogue.dataspace.copernicus.eu/stac/collections/sentinel-2-l2a/items?bbox=-8.5%2C52%2C-8%2C52.5&datetime=2026-06-01T00%3A00%3A00Z%2F2026-06-30T23%3A59%3A59Z&limit=20",
+      "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-2-l2a/items?bbox=-8.5%2C52%2C-8%2C52.5&datetime=2026-06-01T00%3A00%3A00Z%2F2026-06-30T23%3A59%3A59Z&limit=20",
     );
   });
 

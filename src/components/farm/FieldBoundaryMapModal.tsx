@@ -261,18 +261,15 @@ export function FieldBoundaryMapModal({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/50" role="dialog" aria-modal="true" aria-label={`Map ${fieldName}`}>
-      <div className="flex items-center justify-between border-b border-fr-border bg-fr-surface px-4 py-3 sm:px-6">
+      <div className="flex items-center justify-between border-b border-black/10 bg-[#f4f0e7] px-4 py-3 sm:px-6">
         <div>
-          <h2 className="text-base font-semibold text-fr-ink-900">Map {fieldName}</h2>
-          <p className="text-xs text-fr-ink-600">
-            Search an area, then trace the field boundary — switch to the map view (top right) if satellite imagery
-            makes it hard to find.
-          </p>
+          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fr-green-700">Field boundary</p>
+          <h2 className="mt-0.5 font-display text-xl leading-none text-fr-ink-900">Map {fieldName}</h2>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="flex size-9 shrink-0 items-center justify-center rounded-full text-fr-ink-600 hover:bg-fr-surface-alt"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full text-fr-ink-600 hover:bg-black/5"
           aria-label="Close"
         >
           <X className="size-5" />
@@ -281,15 +278,41 @@ export function FieldBoundaryMapModal({
 
       <div className="relative flex-1 bg-[#1a2e1e]">
         {mapboxConfigured ? (
-          // h-full/w-full, not absolute+inset-0: Mapbox GL JS force-sets
-          // `position: relative` on whatever container element it's given
-          // (an inline style it applies itself, overriding this className)
-          // — depending on absolute positioning to fill the flex parent
-          // silently breaks the moment Mapbox does that, collapsing this
-          // div to zero height. Percentage sizing against the parent's
-          // real flex-resolved height (set on `mapArea` above) works
-          // regardless of what position Mapbox ends up setting.
-          <div ref={containerRef} className="h-full w-full" />
+          <>
+            {/* h-full/w-full, not absolute+inset-0: Mapbox GL JS force-sets
+                position: relative on the map container. */}
+            <div ref={containerRef} className="h-full w-full" />
+
+            <aside
+              className="pointer-events-none absolute bottom-4 left-4 z-10 w-[min(360px,calc(100%-2rem))] border-l-[3px] border-fr-v2-straw bg-fr-v2-forest-deep/95 px-4 py-3 text-white shadow-lg backdrop-blur-sm sm:bottom-5 sm:left-5"
+              aria-live="polite"
+            >
+              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-fr-v2-straw">
+                {hasDrawing ? "Boundary ready" : "Trace this field"}
+              </p>
+              {hasDrawing ? (
+                <>
+                  <p className="mt-1 font-display text-lg leading-tight">Hit save now</p>
+                  <p className="mt-1.5 text-[13px] leading-snug text-white/75">
+                    Your field boundary is drawn. If it looks right, hit Save boundary below. Use Redraw if you want to change it.
+                  </p>
+                  {previewAreaHa !== null ? (
+                    <p className="mt-2 font-mono text-xs tabular-nums text-white/70">{formatHa(previewAreaHa)} from your boundary</p>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 font-display text-lg leading-tight">Click around the field edge</p>
+                  <p className="mt-1.5 text-[13px] leading-snug text-white/75">
+                    Start at a clear corner, click each corner as you go around the field, then click your first point again to close the shape.
+                  </p>
+                  <p className="mt-2 text-[11px] leading-snug text-white/50">
+                    Tip · Satellite is best for hedges and ditches. Switch to Map when roads or place names help.
+                  </p>
+                </>
+              )}
+            </aside>
+          </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 bg-fr-surface-alt p-6 text-center">
             <TriangleAlert className="size-6 text-fr-attention" />
@@ -303,7 +326,7 @@ export function FieldBoundaryMapModal({
       </div>
 
       {mapboxConfigured ? (
-        <div className="flex flex-col gap-2 border-t border-fr-border bg-fr-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="flex flex-col gap-2 border-t border-black/10 bg-[#f4f0e7] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="flex items-center gap-3 text-sm">
             {previewAreaHa !== null ? (
               <span className="font-medium text-fr-ink-900">{formatHa(previewAreaHa)}</span>
@@ -317,7 +340,7 @@ export function FieldBoundaryMapModal({
               <button
                 type="button"
                 onClick={handleClearDrawing}
-                className="flex items-center gap-1.5 rounded-fr-control border border-fr-border px-3 py-2 text-sm font-medium text-fr-ink-600"
+                className="flex min-h-11 items-center gap-2 border border-fr-v2-forest-deep/20 px-4 text-sm font-semibold text-fr-v2-forest-deep transition-colors duration-[160ms] hover:border-fr-v2-forest-deep/45 hover:bg-white/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-straw motion-reduce:transition-none"
               >
                 <RotateCcw className="size-4" />
                 Redraw
@@ -327,7 +350,7 @@ export function FieldBoundaryMapModal({
               type="button"
               onClick={handleSave}
               disabled={!hasDrawing}
-              className="flex items-center gap-1.5 rounded-fr-control bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              className="flex min-h-11 items-center gap-2 border-l-[3px] border-fr-v2-straw bg-fr-v2-forest-deep px-5 text-sm font-semibold text-white transition-colors duration-[160ms] hover:bg-fr-v2-forest focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-straw disabled:cursor-not-allowed disabled:opacity-45 motion-reduce:transition-none"
             >
               <Save className="size-4" />
               Save boundary

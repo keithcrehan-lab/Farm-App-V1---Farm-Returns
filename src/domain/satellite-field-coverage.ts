@@ -12,12 +12,12 @@
  * explicit instruction**: "NDVI/vegetation indices are never presented
  * as direct grass biomass — precision biomass prediction stays out of
  * scope unless genuine calibration evidence exists." This module never
- * computes NDVI or any other vegetation index — that requires
- * downloading and processing a scene's raw spectral bands, which itself
- * requires CDSE `oidc`/`s3` credentials this build session does not
- * have and cannot create (account creation is a hard policy prohibition
- * regardless of network access — see
- * `cdse-stac-client.ts`'s own doc comment). `vegetationPixelPercent`
+ * computes NDVI or any other vegetation index. That processing now
+ * lives in the server-only Sentinel Hub client and satellite-history
+ * actions, not in this pure coverage-selection domain module. The
+ * scientific boundary remains unchanged: an NDVI value is vegetation
+ * evidence, not a direct biomass/yield measurement unless a separately
+ * validated calibration model exists. `vegetationPixelPercent`
  * below is CDSE's own real, provider-computed, scene-*wide* pixel-
  * classification statistic (from the STAC item's own `statistics`
  * field) — evidence about the scene as a whole, never a field-specific

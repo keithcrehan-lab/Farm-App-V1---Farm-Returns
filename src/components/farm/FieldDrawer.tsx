@@ -12,6 +12,7 @@ import { formatHa, formatNumber } from "@/lib/format";
 import { nearestStationsForField } from "@/domain/weather-stations";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
 import { FieldAwarenessCard } from "@/components/farm/FieldAwarenessCard";
+import { FieldSatelliteHistory } from "@/components/farm/FieldSatelliteHistory";
 import { SpreadableAreaEvidencePanel } from "@/components/farm/SpreadableAreaEvidencePanel";
 import { FieldNutrientPlanBody } from "@/app/(app)/today/field/[fieldId]/FieldNutrientPlanPageClient";
 import { useFarmActions, useFarm, useHousingList, useIsRealMode, useSlurryAllocations } from "@/store/farm-store";
@@ -292,6 +293,10 @@ function OverviewChapter({
             currently knows about this field (src/domain/field-awareness.ts). */}
         <Section kicker="What Farm Return knows">
           <FieldAwarenessCard field={field} />
+        </Section>
+
+        <Section kicker="Satellite history">
+          <FieldSatelliteHistory field={field} />
         </Section>
       </div>
 

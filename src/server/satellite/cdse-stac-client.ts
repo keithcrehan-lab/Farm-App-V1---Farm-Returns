@@ -8,8 +8,8 @@
  * `src/server/satellite/` knows CDSE's own URL shape or response
  * format).
  *
- * ✅ LIVE, VERIFIED — 2026-09-01. Real endpoint
- * (`https://catalogue.dataspace.copernicus.eu/stac`), confirmed via a
+ * ✅ LIVE, VERIFIED — current CDSE STAC v1 endpoint
+ * (`https://stac.dataspace.copernicus.eu/v1`), re-verified 2026-10-30 via a
  * real request during this build session: an unauthenticated `GET` to
  * `/collections/sentinel-2-l2a/items?bbox=...&datetime=.../...&limit=...`
  * returned HTTP 200 with real Sentinel-2 L2A scenes covering Irish
@@ -17,15 +17,13 @@
  * `eo:cloud_cover` percentages and a real, provider-computed
  * `statistics` breakdown (water/vegetation/cloud/etc. pixel
  * percentages) per scene. **STAC catalogue search/metadata does not
- * require authentication** — only actually downloading a scene's raw
- * band data does (CDSE's own `auth:schemes` field on each asset names
- * `oidc`/`s3` credentials this build session does not have and cannot
- * create — account creation is a hard policy prohibition regardless of
- * network access). This client is therefore genuinely real and working
- * today for catalogue search; it does not and cannot download or
- * process raw band imagery (no real NDVI/vegetation-index computation
- * from raw bands is possible without those credentials — see
- * `BLOCKERS.md`'s dedicated entry). A real, live response was saved as
+ * require authentication.** This client deliberately remains metadata-
+ * only: actual field imagery and NDVI processing live behind the
+ * authenticated Sentinel Hub boundary in `sentinel-hub-client.ts`.
+ * Keeping the catalogue and processing clients separate means public
+ * history discovery still works when processing credentials are absent,
+ * while rendered imagery/indices fail closed rather than being
+ * approximated. A real, live response was saved as
  * this file's own fixture (`cdse-stac-client.real-fixtures.ts`) — the
  * same "capture a real response as evidence, don't hand-write a
  * plausible-looking one" discipline `forecast-parser.real-fixtures.ts`
@@ -40,7 +38,7 @@
 import "server-only";
 import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
 
-export const CDSE_STAC_BASE_URL = "https://catalogue.dataspace.copernicus.eu/stac";
+export const CDSE_STAC_BASE_URL = "https://stac.dataspace.copernicus.eu/v1";
 export const CDSE_STAC_DEFAULT_TIMEOUT_MS = 10_000;
 export const CDSE_STAC_DEFAULT_RETRIES = 2;
 export const CDSE_STAC_RETRY_BACKOFF_MS = 500;

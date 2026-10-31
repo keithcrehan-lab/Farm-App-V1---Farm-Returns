@@ -67,12 +67,13 @@ describe("FieldNutrientPlanPageClient — real engine output, end to end", () =>
     expect(plan.purchasedProducts.length).toBeGreaterThan(0);
     for (const product of plan.purchasedProducts) {
       const row = solution.querySelector(`[data-product="${product.name}"]`) as HTMLElement;
-      expect(within(row).getByText(`${product.npkAnalysis} · ${Math.round(product.rateKgHa)} kg/ha`)).toBeTruthy();
-      expect(row.textContent).toContain(`${roundKgUpToDisplayTonnes(product.totalKg)}t`);
+      expect(row.textContent).toContain(product.npkAnalysis);
+      expect(within(row).getByText(`${Math.round(product.rateKgHa)} kg/ha`)).toBeTruthy();
+      expect(row.textContent).toContain(`${roundKgUpToDisplayTonnes(product.totalKg)} t`);
     }
 
     const organic = screen.getByRole("region", { name: "Organic application" });
-    expect(organic.textContent).toContain("100m³");
+    expect(organic.textContent).toContain("100 m³ planned");
     expect(organic.textContent).toContain("Splash plate");
     expect(organic.textContent).toContain("Not available yet");
     fireEvent.click(screen.getByRole("button", { name: /evidence report/i }));

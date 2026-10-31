@@ -318,29 +318,30 @@ function PositionRow({ row }: { row: NutrientRow }) {
 
 function OrganicBand({ organic }: { organic: Extract<FieldNutrientPlanView, { status: "available" }>["organic"] }) {
   return (
-    <section aria-label="Organic application" className="flex flex-wrap items-end justify-between gap-4 border-l-[3px] border-fr-v2-teal bg-fr-v2-teal-tint px-4 py-3">
-      <div>
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-fr-v2-teal">Organic application</p>
-        {organic.state === "planned" ? (
-          <>
-            <p className="font-display text-3xl tabular-nums text-fr-v2-teal">
-              {formatNumber(organic.totalM3, 0)}
-              <span className="ml-1 font-sans text-sm">m³</span>
-            </p>
-            <p className="text-xs text-fr-v2-muted">
-              {formatNumber(organic.rateM3ha, 0)} m³/ha
-              {organic.method ? ` · ${organic.method}${organic.methodAssumed ? " (assumed method)" : ""}` : ""}
-              {organic.creditAssessed && organic.timingAssumed ? " · spring timing assumed" : ""}
-              {organic.creditAssessed ? "" : " · slurry credit not assessed"}
-            </p>
-          </>
-        ) : (
-          <p className="mt-1 text-sm text-fr-v2-muted">No slurry planned for this field.</p>
-        )}
-      </div>
-      <div className="text-right">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-fr-v2-cobalt">Application window</p>
-        <p className="text-xs text-fr-v2-muted">Not available yet</p>
+    <section aria-label="Organic application" className="border-y border-fr-v2-cream-rule py-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+        <div className="min-w-0">
+          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-teal">Organic application</p>
+          {organic.state === "planned" ? (
+            <div className="mt-1">
+              <p className="text-base font-semibold text-fr-v2-graphite">
+                {formatNumber(organic.totalM3, 0)} m³ planned
+              </p>
+              <p className="mt-0.5 text-xs leading-relaxed text-fr-v2-muted">
+                {formatNumber(organic.rateM3ha, 0)} m³/ha
+                {organic.method ? ` · ${organic.method}${organic.methodAssumed ? " (assumed method)" : ""}` : ""}
+                {organic.creditAssessed && organic.timingAssumed ? " · spring timing assumed" : ""}
+                {organic.creditAssessed ? "" : " · slurry credit not assessed"}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-fr-v2-muted">No slurry planned for this field.</p>
+          )}
+        </div>
+        <div className="shrink-0 sm:text-right">
+          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-muted">Application window</p>
+          <p className="mt-1 text-sm text-fr-v2-muted">Not available yet</p>
+        </div>
       </div>
     </section>
   );
@@ -348,37 +349,45 @@ function OrganicBand({ organic }: { organic: Extract<FieldNutrientPlanView, { st
 
 function SolutionBand({ solution }: { solution: Extract<FieldNutrientPlanView, { status: "available" }>["solution"] }) {
   return (
-    <section aria-label="Fertiliser solution" className="border-l-[3px] border-fr-v2-harvest bg-fr-v2-harvest-tint px-4 py-3">
-      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-fr-v2-harvest-ink">Fertiliser solution</p>
+    <section aria-label="Fertiliser solution" className="border-y border-fr-v2-cream-rule py-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Fertiliser solution</p>
+          <p className="mt-1 text-xs text-fr-v2-muted">Chemical requirement after recorded organic nutrient credit.</p>
+        </div>
+        {solution.kind === "products" ? (
+          <span className="text-xs text-fr-v2-muted">{solution.products.length} product{solution.products.length === 1 ? "" : "s"}</span>
+        ) : null}
+      </div>
+
       {solution.kind === "products" ? (
-        <ul className="mt-2 flex flex-col gap-3">
+        <ul className="mt-3 divide-y divide-fr-v2-cream-rule/80">
           {solution.products.map((product) => (
-            <li key={product.name} data-product={product.name} className="flex items-end justify-between gap-4">
-              <div>
-                <p className="font-display text-xl">{product.name}</p>
-                <p className="text-xs text-fr-v2-muted">
-                  {product.npkAnalysis} · {formatNumber(product.rateKgHa, 0)} kg/ha
-                </p>
+            <li key={product.name} data-product={product.name} className="grid gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_140px_110px] sm:items-center sm:gap-5">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-fr-v2-graphite">{product.name}</p>
+                <p className="mt-0.5 text-xs text-fr-v2-muted">{product.npkAnalysis}</p>
               </div>
-              <div className="text-right">
-                <p className="font-display text-2xl tabular-nums">
-                  {formatNumber(product.displayTonnes, 2)}
-                  <span className="ml-1 font-sans text-sm">t</span>
-                </p>
-                <p className="text-xs text-fr-v2-muted">field total</p>
+              <div className="sm:text-right">
+                <p className="text-sm font-semibold tabular-nums text-fr-v2-graphite">{formatNumber(product.rateKgHa, 0)} kg/ha</p>
+                <p className="text-[11px] text-fr-v2-muted">application rate</p>
+              </div>
+              <div className="sm:text-right">
+                <p className="text-sm font-semibold tabular-nums text-fr-v2-graphite">{formatNumber(product.displayTonnes, 2)} t</p>
+                <p className="text-[11px] text-fr-v2-muted">field total</p>
               </div>
             </li>
           ))}
         </ul>
       ) : solution.kind === "nothing_to_buy" ? (
-        <p className="mt-1 text-sm">{solution.message}</p>
+        <p className="mt-3 text-sm text-fr-v2-graphite">{solution.message}</p>
       ) : (
-        <p className="mt-1 text-sm">
+        <p className="mt-3 text-sm text-fr-v2-graphite">
           <span className="font-semibold">{solution.label}.</span> {solution.message}
         </p>
       )}
       {solution.kind === "products" && solution.provisional ? (
-        <p className="mt-2 text-xs text-fr-v2-muted">Sized without the slurry credit — provisional until it can be assessed.</p>
+        <p className="mt-3 border-l-[3px] border-fr-v2-gold pl-3 text-xs text-fr-v2-muted">Sized without the slurry credit — provisional until it can be assessed.</p>
       ) : null}
     </section>
   );

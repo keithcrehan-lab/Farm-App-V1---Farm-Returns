@@ -17,8 +17,10 @@
  */
 import { revalidatePath } from "next/cache";
 import type { Field, FieldUse, Housing, LivestockCategory, LivestockGoal, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import { assessPublicLegalSpatialEvidence, type PublicLegalSpatialEvidence } from "@/server/legal-spatial-evidence";
 import { getFarmForCurrentUser, updateFarmProfileForCurrentUser } from "@/lib/farm-data/farms";
 import {
+  applyDerivedLegalSpatialEvidence,
   archiveField as archiveFieldRow,
   createField,
   listFieldsForFarm,
@@ -186,6 +188,29 @@ export async function updateFinancialAssumptionAction(
   const assumption = await upsertFinancialAssumption(farmId, key, value, unit, "farmer_adjusted", farmerName);
   revalidatePath("/finance");
   return assumption;
+}
+
+export async function autoAssessFieldLegalSpatialEvidenceAction(fieldId: string): Promise<{ assessment: PublicLegalSpatialEvidence; field: Field }> {
+  const farm = await getFarmForCurrentUser();
+  if (!farm) throw new Error("Farm not found");
+  const fields = await listFieldsForFarm(farm.id);
+  const field = fields.find((candidate) => candidate.id === fieldId);
+  if (!field) throw new Error("Field not found");
+  if (!field.polygon) throw new Error("A mapped field boundary is required for automatic legal checks.");
+
+  const assessment = await assessPublicLegalSpatialEvidence(field.polygon);
+  const updated = await applyDerivedLegalSpatialEvidence(field.id, {
+    assessedAt: assessment.assessedAt,
+    ...(assessment.commonage.state === "resolved" && assessment.commonage.value
+      ? { commonage: { value: assessment.commonage.value, source: assessment.commonage.source, sourceDate: assessment.commonage.sourceDate } }
+      : {}),
+    ...(assessment.water.state === "resolved" && assessment.water.featureType && assessment.water.nearestFeature && assessment.water.distanceM !== undefined
+      ? { water: { featureType: assessment.water.featureType, nearestFeature: assessment.water.nearestFeature, distanceM: assessment.water.distanceM, source: assessment.water.source, sourceDate: assessment.water.sourceDate } }
+      : {}),
+  });
+  revalidatePath("/fields");
+  revalidatePath("/fertiliser-plan");
+  return { assessment, field: updated };
 }
 
 export async function updateFieldCommonageStatusAction(

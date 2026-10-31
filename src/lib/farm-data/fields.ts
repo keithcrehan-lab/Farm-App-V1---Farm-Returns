@@ -141,6 +141,56 @@ export async function updateFieldIndex(
   return rowToField(data as FieldRow);
 }
 
+
+export async function applyDerivedLegalSpatialEvidence(
+  fieldId: string,
+  evidence: {
+    assessedAt: string;
+    commonage?: { value: "commonage" | "not_commonage"; source: string; sourceDate?: string };
+    water?: { featureType: "surface_water"; nearestFeature: string; distanceM: number; source: string; sourceDate?: string };
+  },
+): Promise<Field> {
+  const { supabase, field } = await fetchField(fieldId);
+  const update: Record<string, unknown> = {};
+  const canAutoReplaceCommonage = !field.commonageStatus || ["estimated", "mapped", "unavailable"].includes(field.commonageStatus.status);
+  if (evidence.commonage && canAutoReplaceCommonage) {
+    update.commonage_status = tracked(evidence.commonage.value, "mapped", evidence.commonage.source, {
+      sourceDate: evidence.commonage.sourceDate,
+      retrievedAt: evidence.assessedAt,
+      level: "high",
+      regulatory: "compliance_value",
+      ...(field.commonageStatus ? { previous: field.commonageStatus } : {}),
+    });
+  }
+
+  const canAutoReplaceWater = !field.waterBufferContext || ["estimated", "mapped", "unavailable"].includes(field.waterBufferContext.status);
+  if (evidence.water && canAutoReplaceWater) {
+    update.water_buffer_context = tracked(
+      {
+        featureType: evidence.water.featureType,
+        nearestFeature: evidence.water.nearestFeature,
+        distanceM: evidence.water.distanceM,
+        localOverrideStatus: field.waterBufferContext?.value.localOverrideStatus ?? "unknown",
+        ...(field.waterBufferContext?.value.localOverrideDistanceM !== undefined ? { localOverrideDistanceM: field.waterBufferContext.value.localOverrideDistanceM } : {}),
+      },
+      "mapped",
+      evidence.water.source,
+      {
+        sourceDate: evidence.water.sourceDate,
+        retrievedAt: evidence.assessedAt,
+        level: "high",
+        regulatory: "compliance_value",
+        ...(field.waterBufferContext ? { previous: field.waterBufferContext } : {}),
+      },
+    );
+  }
+
+  if (Object.keys(update).length === 0) return field;
+  const { data, error } = await supabase.from("fields").update(update).eq("id", fieldId).select("*").single();
+  if (error) throw error;
+  return rowToField(data as FieldRow);
+}
+
 /** Mirrors `farm-store.tsx`'s mock-mode `updateFieldCommonageStatus` action. */
 export async function updateFieldCommonageStatus(
   fieldId: string,

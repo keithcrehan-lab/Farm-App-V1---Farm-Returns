@@ -22,6 +22,7 @@ vi.mock("@/app/actions/farm", async (importOriginal) => {
     ...actual,
     updateSlurryApplicationMethodAction: vi.fn().mockResolvedValue(undefined),
     updateSlurryApplicationDateAction: vi.fn().mockResolvedValue(undefined),
+    autoAssessFieldLegalSpatialEvidenceAction: vi.fn().mockRejectedValue(new Error("not configured in test")),
   };
 });
 
@@ -95,6 +96,29 @@ describe("FieldDrawer — farmer-readable spreading status", () => {
     expect(screen.queryByText(/Zone B/)).toBeNull();
     expect(screen.queryByText(/09-15/)).toBeNull();
     expect(screen.queryByText(/status needs review/i)).toBeNull();
+  });
+});
+
+describe("FieldDrawer — automatic legal spatial evidence", () => {
+  it("shows mapped DAFM/EPA evidence first and keeps manual correction behind a disclosure", () => {
+    const field: Field = {
+      ...mockFields[0],
+      commonageStatus: { value: "not_commonage", status: "mapped", source: "DAFM Anonymous LPIS 2025 · Commonage Indicator", sourceDate: "2025-12-31", level: "high" },
+      waterBufferContext: {
+        value: { featureType: "surface_water", nearestFeature: "Mapped Stream", distanceM: 18.4, localOverrideStatus: "unknown" },
+        status: "mapped", source: "EPA Water Flow Network / River Network Routes WFS", sourceDate: "2026-10-31", level: "high",
+      },
+    };
+    renderDrawer(field);
+    fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
+    fireEvent.click(screen.getByRole("button", { name: /legal & spreading checks/i }));
+
+    expect(screen.getByText("Automatic field checks")).toBeTruthy();
+    expect(screen.getByText("Not identified as commonage")).toBeTruthy();
+    expect(screen.getByText(/Mapped Stream · 18\.4 m/i)).toBeTruthy();
+    expect(screen.getByText(/one check Farm Return cannot currently resolve/i)).toBeTruthy();
+    const correction = screen.getByText(/review or correct automatic evidence/i).closest("details");
+    expect(correction?.hasAttribute("open")).toBe(false);
   });
 });
 
@@ -334,7 +358,7 @@ describe("FieldDrawer — field workspace chapters (Farm + Fields redesign)", ()
     vi.mocked(getFieldWorkspaceContextAction)
       .mockResolvedValueOnce({ cycle: grazingCycle, activities: [], activitiesTruncated: false })
       .mockResolvedValueOnce({ cycle: silageCycle, activities: [], activitiesTruncated: false });
-    vi.mocked(saveFieldProductionCycleAction).mockResolvedValue({ cycle: silageCycle, gate: { status: "MISSING_INPUTS", missingInputs: ["productionTargetTDMHa"] } } as any);
+    vi.mocked(saveFieldProductionCycleAction).mockResolvedValue({ cycle: silageCycle, gate: { status: "MISSING_INPUTS", missingInputs: ["productionTargetTDMHa"] } } as unknown as Awaited<ReturnType<typeof saveFieldProductionCycleAction>>);
 
     renderDrawer(mockFields[0]);
     await waitFor(() => expect(screen.getByRole("button", { name: "Grass — grazing" })).toBeTruthy());

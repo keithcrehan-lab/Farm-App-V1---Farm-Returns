@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { phStatusLabel } from "@/lib/status";
 import { mockSilagePlans } from "@/data/mock-farm";
@@ -19,6 +19,7 @@ import { FieldSoilTestEditor } from "@/components/farm/FieldSoilTestEditor";
 import { CROP_SYSTEM_LABELS, type CropSystem } from "@/domain/fertiliser-field-evidence";
 import { getFieldWorkspaceContextAction, type FieldWorkspaceContext, type FieldActivityEvent } from "@/app/actions/field-workspace";
 import { saveFieldProductionCycleAction } from "@/app/actions/fertiliser-field-evidence";
+import { autoAssessFieldLegalSpatialEvidenceAction } from "@/app/actions/farm";
 import { FieldNutrientPlanBody } from "@/app/(app)/today/field/[fieldId]/FieldNutrientPlanPageClient";
 import { useFarmActions, useFarm, useHousingList, useIsRealMode, useSlurryAllocations } from "@/store/farm-store";
 import type { BufferFeature } from "@/domain/buffer-gate";
@@ -751,7 +752,12 @@ function SoilEvidence({ field }: { field: Field }) {
  * buffer-gate.ts, less-method-gate.ts) formerly under "Constraints".
  */
 function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDetailsRequest?: MissingSlurryPlanningDetail[] }) {
-  const { updateFieldCommonageStatus, updateFieldWaterBufferContext, updateSlurryApplicationMethod, updateSlurryApplicationDate } = useFarmActions();
+  const { replaceFieldFromServer, updateFieldCommonageStatus, updateFieldWaterBufferContext, updateSlurryApplicationMethod, updateSlurryApplicationDate } = useFarmActions();
+  type AutoAssessment = Awaited<ReturnType<typeof autoAssessFieldLegalSpatialEvidenceAction>>["assessment"];
+  const [autoAssessment, setAutoAssessment] = useState<AutoAssessment | null>(null);
+  const [autoChecking, setAutoChecking] = useState(false);
+  const [autoError, setAutoError] = useState<string | null>(null);
+  const attemptedFieldIds = useRef(new Set<string>());
   const farm = useFarm();
   const slurryAllocations = useSlurryAllocations();
   // Codex audit HIGH (round 31): every one of this field's own real
@@ -771,6 +777,40 @@ function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDeta
       })
     : fieldSlurryAllocations;
   const slurryDetailsComplete = shownSlurryAllocations.every((a) => a.applicationMethod && a.applicationDate);
+
+  const shouldAutoCheck = Boolean(field.polygon) && (
+    !field.commonageStatus ||
+    field.commonageStatus.value === "unknown" ||
+    field.waterBufferContext?.value.featureType === undefined ||
+    field.waterBufferContext.value.distanceM === undefined
+  );
+
+  useEffect(() => {
+    if (!shouldAutoCheck || attemptedFieldIds.current.has(field.id)) return;
+    attemptedFieldIds.current.add(field.id);
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      if (cancelled) return;
+      setAutoChecking(true);
+      setAutoError(null);
+      void autoAssessFieldLegalSpatialEvidenceAction(field.id)
+        .then((result) => {
+          if (cancelled) return;
+          setAutoAssessment(result.assessment);
+          replaceFieldFromServer(result.field);
+        })
+        .catch(() => {
+          if (!cancelled) setAutoError("Automatic public-data check is temporarily unavailable.");
+        })
+        .finally(() => {
+          if (!cancelled) setAutoChecking(false);
+        });
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [field.id, replaceFieldFromServer, shouldAutoCheck]);
 
   return (
     <div className="flex flex-col gap-4" data-legal-inputs>
@@ -832,101 +872,151 @@ function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDeta
           </div>
         ))}
 
-        <label className={LABEL}>
-          Commonage status (S.I. 588/2025 chemical-fertiliser prohibition)
-          <select
-            className={INPUT}
-            value={field.commonageStatus?.value ?? "unknown"}
-            onChange={(e) => updateFieldCommonageStatus(field.id, e.target.value as "commonage" | "not_commonage" | "unknown", farm.ownerName)}
-          >
-            <option value="unknown">Unknown — not yet confirmed</option>
-            <option value="not_commonage">Not commonage</option>
-            <option value="commonage">Commonage</option>
-          </select>
-        </label>
+        <div className="border-y border-fr-v2-cream-rule py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-fr-v2-graphite">Automatic field checks</p>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-fr-v2-muted">
+                Farm Return uses the mapped field boundary with public DAFM and EPA spatial data. Only resolved source evidence is written into the legal calculation.
+              </p>
+            </div>
+            {autoChecking ? (
+              <span className="flex items-center gap-2 text-xs font-semibold text-fr-v2-muted"><Loader2 className="size-3.5 animate-spin" /> Checking public data…</span>
+            ) : null}
+          </div>
 
-        <label className={LABEL}>
-          Nearest regulated water feature
-          <select
-            className={INPUT}
-            value={field.waterBufferContext?.value.featureType ?? ""}
-            onChange={(e) =>
-              updateFieldWaterBufferContext(
-                field.id,
-                {
-                  ...field.waterBufferContext?.value,
-                  featureType: (e.target.value || undefined) as BufferFeature | undefined,
-                  localOverrideStatus: field.waterBufferContext?.value.localOverrideStatus ?? "unknown",
-                },
-                farm.ownerName,
-              )
-            }
-          >
-            <option value="">Not assessed yet</option>
-            {BUFFER_FEATURE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <div className="mt-4 divide-y divide-fr-v2-cream-rule/70">
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+              <div>
+                <p className="text-sm font-medium text-fr-v2-graphite">Commonage</p>
+                <p className="mt-0.5 text-xs text-fr-v2-muted">DAFM LPIS Commonage Indicator</p>
+              </div>
+              {field.commonageStatus && field.commonageStatus.value !== "unknown" ? (
+                <div className="sm:text-right">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold text-fr-v2-graphite sm:justify-end"><CheckCircle2 className="size-4 text-fr-v2-forest" />{field.commonageStatus.value === "commonage" ? "Commonage" : "Not identified as commonage"}</p>
+                  <p className="mt-0.5 max-w-md text-xs text-fr-v2-muted">{field.commonageStatus.source}</p>
+                </div>
+              ) : (
+                <div className="sm:text-right">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold text-fr-v2-muted sm:justify-end"><TriangleAlert className="size-4" />Needs confirmation</p>
+                  <p className="mt-0.5 max-w-md text-xs text-fr-v2-muted">{autoAssessment?.commonage.detail ?? (autoError ?? "Farm Return has not resolved this from public data yet.")}</p>
+                </div>
+              )}
+            </div>
 
-        {field.waterBufferContext?.value.featureType ? (
-          <>
-            <label className={LABEL}>
-              Distance to that feature (metres)
-              <input
-                type="number"
-                min={0}
-                step={0.1}
-                className={INPUT}
-                value={field.waterBufferContext?.value.distanceM ?? ""}
-                onChange={(e) =>
-                  updateFieldWaterBufferContext(field.id, { ...field.waterBufferContext!.value, distanceM: e.target.value === "" ? undefined : Number(e.target.value) }, farm.ownerName)
-                }
-              />
-            </label>
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+              <div>
+                <p className="text-sm font-medium text-fr-v2-graphite">Nearest mapped watercourse</p>
+                <p className="mt-0.5 text-xs text-fr-v2-muted">EPA river / stream network</p>
+              </div>
+              {field.waterBufferContext?.value.featureType === "surface_water" && field.waterBufferContext.value.distanceM !== undefined ? (
+                <div className="sm:text-right">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold text-fr-v2-graphite sm:justify-end"><CheckCircle2 className="size-4 text-fr-v2-forest" />{field.waterBufferContext.value.nearestFeature ?? "Mapped watercourse"} · {formatNumber(field.waterBufferContext.value.distanceM, 1)} m</p>
+                  <p className="mt-0.5 max-w-md text-xs text-fr-v2-muted">{field.waterBufferContext.source} · measured from the field boundary</p>
+                </div>
+              ) : (
+                <div className="sm:text-right">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold text-fr-v2-muted sm:justify-end"><TriangleAlert className="size-4" />Needs confirmation</p>
+                  <p className="mt-0.5 max-w-md text-xs text-fr-v2-muted">{autoAssessment?.water.detail ?? (autoError ?? "Farm Return has not resolved a mapped watercourse yet.")}</p>
+                </div>
+              )}
+            </div>
+          </div>
 
-            <label className={LABEL}>
-              Local authority buffer override
-              <select
-                className={INPUT}
-                value={field.waterBufferContext?.value.localOverrideStatus ?? "unknown"}
-                onChange={(e) =>
-                  updateFieldWaterBufferContext(
-                    field.id,
-                    { ...field.waterBufferContext!.value, localOverrideStatus: e.target.value as "authoritative_rule" | "verified_none" | "unknown" },
-                    farm.ownerName,
-                  )
-                }
-              >
-                <option value="unknown">Unknown — not yet confirmed</option>
-                <option value="verified_none">Verified — no local override applies</option>
-                <option value="authoritative_rule">Local authority sets an alternative buffer</option>
-              </select>
-            </label>
-
-            {field.waterBufferContext?.value.localOverrideStatus === "authoritative_rule" ? (
+          <details className="mt-2 border-t border-fr-v2-cream-rule pt-3">
+            <summary className="cursor-pointer text-xs font-semibold text-fr-v2-forest">Review or correct automatic evidence</summary>
+            <div className="mt-4 flex flex-col gap-4">
               <label className={LABEL}>
-                Local authority&apos;s own buffer distance (metres)
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
+                Commonage status
+                <select
                   className={INPUT}
-                  value={field.waterBufferContext?.value.localOverrideDistanceM ?? ""}
+                  value={field.commonageStatus?.value ?? "unknown"}
+                  onChange={(e) => updateFieldCommonageStatus(field.id, e.target.value as "commonage" | "not_commonage" | "unknown", farm.ownerName)}
+                >
+                  <option value="unknown">Unknown — not yet confirmed</option>
+                  <option value="not_commonage">Not commonage</option>
+                  <option value="commonage">Commonage</option>
+                </select>
+              </label>
+
+              <label className={LABEL}>
+                Nearest regulated water feature
+                <select
+                  className={INPUT}
+                  value={field.waterBufferContext?.value.featureType ?? ""}
                   onChange={(e) =>
                     updateFieldWaterBufferContext(
                       field.id,
-                      { ...field.waterBufferContext!.value, localOverrideDistanceM: e.target.value === "" ? undefined : Number(e.target.value) },
+                      {
+                        ...field.waterBufferContext?.value,
+                        featureType: (e.target.value || undefined) as BufferFeature | undefined,
+                        localOverrideStatus: field.waterBufferContext?.value.localOverrideStatus ?? "unknown",
+                      },
                       farm.ownerName,
                     )
                   }
-                />
+                >
+                  <option value="">Not assessed yet</option>
+                  {BUFFER_FEATURE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
               </label>
-            ) : null}
-          </>
-        ) : null}
+
+              {field.waterBufferContext?.value.featureType ? (
+                <label className={LABEL}>
+                  Distance to that feature (metres)
+                  <input
+                    type="number" min={0} step={0.1} className={INPUT}
+                    value={field.waterBufferContext?.value.distanceM ?? ""}
+                    onChange={(e) => updateFieldWaterBufferContext(field.id, { ...field.waterBufferContext!.value, distanceM: e.target.value === "" ? undefined : Number(e.target.value) }, farm.ownerName)}
+                  />
+                </label>
+              ) : null}
+            </div>
+          </details>
+        </div>
+
+        <div className="border-l-[3px] border-fr-v2-gold pl-3">
+          <p className="text-sm font-semibold text-fr-v2-graphite">Any field-specific local authority buffer?</p>
+          <p className="mt-1 text-xs leading-relaxed text-fr-v2-muted">This is the one check Farm Return cannot currently resolve from a complete national public dataset.</p>
+          <label className={`${LABEL} mt-3`}>
+            Local authority restriction
+            <select
+              className={INPUT}
+              value={field.waterBufferContext?.value.localOverrideStatus ?? "unknown"}
+              onChange={(e) =>
+                updateFieldWaterBufferContext(
+                  field.id,
+                  {
+                    ...(field.waterBufferContext?.value ?? {}),
+                    localOverrideStatus: e.target.value as "authoritative_rule" | "verified_none" | "unknown",
+                  },
+                  farm.ownerName,
+                )
+              }
+            >
+              <option value="unknown">Not sure</option>
+              <option value="verified_none">No additional local restriction known</option>
+              <option value="authoritative_rule">Yes — a local authority buffer applies</option>
+            </select>
+          </label>
+
+          {field.waterBufferContext?.value.localOverrideStatus === "authoritative_rule" ? (
+            <label className={`${LABEL} mt-3`}>
+              Local authority buffer distance (metres)
+              <input
+                type="number" min={0} step={0.1} className={INPUT}
+                value={field.waterBufferContext?.value.localOverrideDistanceM ?? ""}
+                onChange={(e) =>
+                  updateFieldWaterBufferContext(
+                    field.id,
+                    { ...field.waterBufferContext!.value, localOverrideDistanceM: e.target.value === "" ? undefined : Number(e.target.value) },
+                    farm.ownerName,
+                  )
+                }
+              />
+            </label>
+          ) : null}
+        </div>
 
         {/* Campaign B — the field's spreadable area, beside its other
             spreading constraints; never its gross size. */}

@@ -362,6 +362,8 @@ interface FarmActions {
   /** Real Farm V1 Phase 7 — soft delete; see `Field.archivedAt`'s comment. */
   archiveField: (fieldId: string) => void;
   restoreField: (fieldId: string) => void;
+  /** Applies a server-returned canonical field row (e.g. automatic public spatial evidence) without rewriting provenance on the client. */
+  replaceFieldFromServer: (field: Field) => void;
   updateFieldIndex: (
     fieldId: string,
     key: "pIndex" | "kIndex",
@@ -813,6 +815,10 @@ export function FarmProvider({
           fields: s.fields.map((f) => (f.id === fieldId ? { ...f, archivedAt } : f)),
         }));
         persistRemote("archiveField", () => archiveFieldAction(fieldId));
+      },
+
+      replaceFieldFromServer(field) {
+        setState((s) => ({ ...s, fields: s.fields.map((candidate) => (candidate.id === field.id ? field : candidate)) }));
       },
 
       restoreField(fieldId) {
@@ -1506,6 +1512,7 @@ export function useFarmActions(): FarmActions {
     updateFieldDetails,
     archiveField,
     restoreField,
+    replaceFieldFromServer,
     updateFieldIndex,
     addLivestockGroup,
     deleteLivestockGroup,
@@ -1543,6 +1550,7 @@ export function useFarmActions(): FarmActions {
     updateFieldDetails,
     archiveField,
     restoreField,
+    replaceFieldFromServer,
     updateFieldIndex,
     addLivestockGroup,
     deleteLivestockGroup,

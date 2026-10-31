@@ -234,7 +234,7 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
     let cancelled = false;
 
     async function loadImage() {
-      if (!open || !selected || mode !== "vegetation") {
+      if (!open || !selected) {
         setLoadingImage(false);
         setRenderedImage(null);
         setImageMessage(null);
@@ -245,7 +245,11 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
       setRenderedImage(null);
       setImageMessage(null);
 
-      const result = await getFieldSatelliteImageAction(field.id, selected.acquisitionTimestamp, "ndvi");
+      const result = await getFieldSatelliteImageAction(
+        field.id,
+        selected.acquisitionTimestamp,
+        mode === "vegetation" ? "ndvi" : "natural",
+      );
       if (cancelled) return;
 
       if (result.ok) setRenderedImage({ dataUrl: result.dataUrl, bounds: result.bounds });
@@ -435,7 +439,7 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
               <div>
                 <p className="font-display text-lg text-fr-v2-graphite">View the field</p>
                 <p className="mt-1 text-xs text-fr-v2-muted">
-                  High-resolution aerial context, with the dated Sentinel vegetation signal available as an overlay.
+                  Browse the dated Sentinel observation for each pass. Vegetation mode overlays the NDVI signal on reference context.
                 </p>
               </div>
               <div className="flex border border-fr-v2-cream-rule">
@@ -485,12 +489,12 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-fr-v2-cream-rule px-3 py-2.5">
                 <div>
                   <p className="text-sm font-semibold text-fr-v2-graphite">
-                    {mode === "vegetation" && selected
-                      ? `Vegetation observation · ${shortDate(selected.acquisitionTimestamp)}`
+                    {selected
+                      ? `${mode === "vegetation" ? "Vegetation" : "Satellite"} observation · ${shortDate(selected.acquisitionTimestamp)}`
                       : "Reference aerial imagery"}
                   </p>
                   <p className="text-xs text-fr-v2-muted">
-                    {mode === "vegetation" && selected
+                    {selected
                       ? `${selected.platform.replace("sentinel-", "Sentinel-").toUpperCase()} · scene cloud ${Math.round(selected.cloudCoverPercent)}%`
                       : "Mapbox satellite context · imagery capture date is not supplied here"}
                   </p>
@@ -508,15 +512,29 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
               </div>
 
               <div className="relative flex min-h-[320px] items-center justify-center bg-fr-v2-forest-deep/5" style={{ aspectRatio: "64 / 45" }}>
-                {baseSatelliteUrl ? (
+                {baseSatelliteUrl || renderedImage ? (
                   <>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={baseSatelliteUrl}
-                      alt={`High-resolution satellite context for ${field.name}`}
-                      className="absolute inset-0 size-full object-fill"
-                    />
-                    {mode === "vegetation" && loadingImage ? (
+                    {mode === "satellite" && renderedImage ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          key={`natural-${selected?.id ?? "none"}`}
+                          src={renderedImage.dataUrl}
+                          alt={`Sentinel satellite observation for ${field.name} on ${shortDate(selected?.acquisitionTimestamp ?? "")}`}
+                          className="absolute inset-0 size-full object-fill"
+                        />
+                      </>
+                    ) : baseSatelliteUrl ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={baseSatelliteUrl}
+                          alt={`High-resolution satellite context for ${field.name}`}
+                          className="absolute inset-0 size-full object-fill"
+                        />
+                      </>
+                    ) : null}
+                    {loadingImage ? (
                       <div className="absolute inset-0 z-10 flex items-center justify-center bg-fr-v2-cream/20">
                         <Loader2 className="size-5 animate-spin text-white drop-shadow" />
                       </div>
@@ -525,6 +543,7 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
                       <>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
+                          key={`ndvi-${selected?.id ?? "none"}`}
                           src={renderedImage.dataUrl}
                           alt={`Sentinel vegetation overlay for ${field.name} on ${shortDate(selected?.acquisitionTimestamp ?? "")}`}
                           className="absolute inset-0 size-full object-fill"
@@ -532,7 +551,7 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
                         />
                       </>
                     ) : null}
-                    <FieldBoundaryOverlay polygon={field.polygon} bounds={history.contextBounds} />
+                    <FieldBoundaryOverlay polygon={field.polygon} bounds={renderedImage?.bounds ?? history.contextBounds} />
                   </>
                 ) : (
                   <div className="max-w-md px-6 py-10 text-center">
@@ -545,16 +564,16 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
                 )}
               </div>
 
-              {mode === "vegetation" && imageMessage ? (
+              {imageMessage ? (
                 <p className="border-t border-fr-v2-cream-rule px-3 py-2 text-xs leading-relaxed text-fr-v2-muted">
-                  Vegetation overlay unavailable: {imageMessage}
+                  {mode === "vegetation" ? "Vegetation overlay" : "Selected satellite observation"} unavailable: {imageMessage}
                 </p>
               ) : null}
             </div>
 
             {mode === "vegetation" ? (
               <p className="mt-2 text-[11px] leading-relaxed text-fr-v2-muted">
-                The sharp aerial image is reference context. The coloured layer is the selected Sentinel observation and is intentionally not sharpened or upscaled to imply detail that the source does not contain.
+                The coloured layer is the selected Sentinel observation. Reference aerial context is only used underneath it and is not presented as the dated observation.
               </p>
             ) : null}
           </section>

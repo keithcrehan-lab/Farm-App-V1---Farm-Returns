@@ -89,11 +89,11 @@ describe("FieldSatelliteHistory", () => {
         },
       ],
     });
-    mockImage.mockResolvedValue({
+    mockImage.mockImplementation(async (_fieldId, timestamp, mode) => ({
       ok: true,
-      dataUrl: "data:image/png;base64,abc",
+      dataUrl: `data:image/png;base64,${timestamp.includes("10-23") ? "new" : "old"}-${mode}`,
       bounds: [-8.5022, 52.9978, -8.4878, 53.0122],
-    });
+    }));
 
     render(<FieldSatelliteHistory field={field} />);
 
@@ -105,21 +105,28 @@ describe("FieldSatelliteHistory", () => {
     await waitFor(() => expect(mockHistory).toHaveBeenCalledWith(field.id, "1Y", undefined, undefined));
     await waitFor(() => expect(screen.getByText(/1 shown · 2 passes found/i)).toBeTruthy());
 
-    await waitFor(() => expect(screen.getByRole("img", { name: /high-resolution satellite context for top field/i })).toBeTruthy());
+    await waitFor(() => {
+      expect(mockImage).toHaveBeenLastCalledWith(field.id, "2026-10-18T11:30:00Z", "natural");
+      expect(screen.getByRole("img", { name: /sentinel satellite observation for top field on 18 oct 2026/i })).toBeTruthy();
+    });
     expect(screen.queryByRole("slider", { name: /vegetation overlay opacity/i })).toBeNull();
-    expect(mockImage).not.toHaveBeenCalled();
     expect(screen.getByText(/Not enough clear observations to draw a trend yet/i)).toBeTruthy();
     expect(screen.getByText(/This is a vegetation signal, not a diagnosis/i)).toBeTruthy();
     expect(screen.getByText(/Satellite field signal/i)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "All passes" }));
     expect(screen.getByText(/2 shown · 2 passes found/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /23 oct 2026/i }));
+    await waitFor(() => {
+      expect(mockImage).toHaveBeenLastCalledWith(field.id, "2026-10-23T11:30:00Z", "natural");
+      expect(screen.getByRole("img", { name: /sentinel satellite observation for top field on 23 oct 2026/i })).toBeTruthy();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Vegetation" }));
     expect(screen.getByRole("slider", { name: /vegetation overlay opacity/i })).toBeTruthy();
     expect(screen.getByLabelText(/vegetation signal legend/i)).toBeTruthy();
     await waitFor(() => {
-      expect(mockImage).toHaveBeenLastCalledWith(field.id, "2026-10-18T11:30:00Z", "ndvi");
+      expect(mockImage).toHaveBeenLastCalledWith(field.id, "2026-10-23T11:30:00Z", "ndvi");
       expect(screen.getByRole("img", { name: /sentinel vegetation overlay for top field/i })).toBeTruthy();
     });
   });

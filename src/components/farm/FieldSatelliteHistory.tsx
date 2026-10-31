@@ -33,6 +33,12 @@ function shortDate(value: string): string {
   return new Date(value).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" });
 }
 
+function chartDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-IE", { day: "numeric", month: "short", timeZone: "UTC" }).format(date);
+}
+
 function dayKey(value: string): string {
   return value.slice(0, 10);
 }
@@ -96,11 +102,11 @@ function NdviChart({ points }: { points: FieldNdviPoint[] }) {
   }
 
   const width = 640;
-  const height = 180;
+  const height = 225;
   const left = 42;
   const right = 12;
   const top = 12;
-  const bottom = 28;
+  const bottom = 70;
   const plotW = width - left - right;
   const plotH = height - top - bottom;
   const minY = -0.2;
@@ -123,18 +129,33 @@ function NdviChart({ points }: { points: FieldNdviPoint[] }) {
       ))}
       <path d={path} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" />
       {points.map((point, index) => (
-        <circle key={`${point.intervalFrom}-${index}`} cx={x(index)} cy={y(point.meanNdvi)} r="2.5" fill="currentColor">
-          <title>
-            {`${shortDate(point.intervalFrom)} · vegetation index ${ndviLabel(point.meanNdvi)}${point.fieldCloudPercent === null ? "" : ` · field cloud ${Math.round(point.fieldCloudPercent)}%`}`}
-          </title>
-        </circle>
+        <g key={`${point.intervalFrom}-${index}`}>
+          <circle cx={x(index)} cy={y(point.meanNdvi)} r="2.5" fill="currentColor">
+            <title>
+              {`${shortDate(point.intervalFrom)} · vegetation index ${ndviLabel(point.meanNdvi)}${point.fieldCloudPercent === null ? "" : ` · field cloud ${Math.round(point.fieldCloudPercent)}%`}`}
+            </title>
+          </circle>
+          <line
+            x1={x(index)}
+            x2={x(index)}
+            y1={height - bottom + 4}
+            y2={height - bottom + 9}
+            stroke="currentColor"
+            opacity="0.22"
+          />
+          <text
+            x={x(index)}
+            y={height - bottom + 18}
+            transform={`rotate(-42 ${x(index)} ${height - bottom + 18})`}
+            textAnchor="end"
+            fontSize="8.5"
+            fill="currentColor"
+            opacity="0.7"
+          >
+            {chartDate(point.intervalFrom)}
+          </text>
+        </g>
       ))}
-      <text x={left} y={height - 8} fontSize="10" fill="currentColor" opacity="0.62">
-        {shortDate(points[0].intervalFrom)}
-      </text>
-      <text x={width - right} y={height - 8} textAnchor="end" fontSize="10" fill="currentColor" opacity="0.62">
-        {shortDate(points[points.length - 1].intervalFrom)}
-      </text>
     </svg>
   );
 }

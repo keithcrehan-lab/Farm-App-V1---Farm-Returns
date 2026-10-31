@@ -1,0 +1,9 @@
+livestock_type,m3_per_week,effective_from,effective_through,notes,source_id
+dairy_cow,0.33,2025-12-12,2028-09-30,"Table 2; changes to 0.40 m3/week from 1 October 2028",LAW_IE_SI_588_2025
+dairy_cow,0.40,2028-10-01,,"Table 2 footnote 2",LAW_IE_SI_588_2025
+suckler_cow,0.29,2025-12-12,,,LAW_IE_SI_588_2025
+cattle_over_2_years,0.26,2025-12-12,,,LAW_IE_SI_588_2025
+cattle_18_24_months,0.26,2025-12-12,,,LAW_IE_SI_588_2025
+cattle_12_18_months,0.15,2025-12-12,,,LAW_IE_SI_588_2025
+cattle_6_12_months,0.15,2025-12-12,,,LAW_IE_SI_588_2025
+cattle_0_6_months,0.08,2025-12-12,,,LAW_IE_SI_588_2025

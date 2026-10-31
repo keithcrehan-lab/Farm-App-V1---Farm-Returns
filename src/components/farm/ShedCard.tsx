@@ -19,7 +19,9 @@ function formatDateRange(period: Housing["housingPeriod"]): string {
 /** Codex remediation Priority 3 — a newly-created real housing shed's
  * `slurryEstimate` is a deliberately-tagged placeholder (`housing.ts`'s
  * `placeholderSlurryEstimate()`: `{ value: 0, source: "slurry_engine_v1.0.0
- * (mock)" }`) — no real S.I. 588/2025 excretion-rate engine exists yet.
+ * (mock)" }`). The real S.I. 588/2025 Table 2 future-volume engine now lives
+ * in `slurry-storage-forecast.ts`; this legacy field remains intentionally
+ * separate from both current physical storage and that forecast.
  * Previously shown as a bare "0 m³" with no disclosure, indistinguishable
  * from a real calculated zero. The check lives in
  * `slurry-evidence-context.ts` (`isPlaceholderSlurryEstimate`), shared with

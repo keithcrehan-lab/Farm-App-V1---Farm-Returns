@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
+  getSlurryStorageForecastAction,
   previewSlurryFirstFertiliserPlanAction,
   type SlurryFirstFertiliserPlanResult,
 } from "@/app/actions/fertiliser-plan";
@@ -54,6 +55,9 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
   const [open, setOpen] = useState(false);
   const [planningDate, setPlanningDate] = useState(nextJanuaryDate);
   const [expectedAvailableM3, setExpectedAvailableM3] = useState("");
+  const [calculatedForecastM3, setCalculatedForecastM3] = useState<number | null>(null);
+  const [forecastMessage, setForecastMessage] = useState("Calculating from livestock and tank records…");
+  const [forecastSource, setForecastSource] = useState<"SYSTEM_FORECAST" | "FARMER_FORECAST">("SYSTEM_FORECAST");
   const [carryForwardCurrent, setCarryForwardCurrent] = useState(true);
   const [candidates, setCandidates] = useState<CandidateDraft[]>([]);
   const [result, setResult] = useState<SlurryFirstFertiliserPlanResult | null>(null);
@@ -63,6 +67,35 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
     () => candidates.reduce((sum, candidate) => sum + (Number(candidate.volumeM3) > 0 ? Number(candidate.volumeM3) : 0), 0),
     [candidates],
   );
+  useEffect(() => {
+    let cancelled = false;
+    void getSlurryStorageForecastAction(planningDate)
+      .then((response) => {
+        if (cancelled) return;
+        if (response.status === "ready") {
+          const volume = response.forecast.projectedAvailableForNewPlanM3;
+          setCalculatedForecastM3(volume);
+          setExpectedAvailableM3(String(Math.round(volume * 100) / 100));
+          const fullDates = response.forecast.stores
+            .filter((store) => store.status === "READY" && store.projectedCapacityDate)
+            .map((store) => store.status === "READY" ? `${store.shedName}: ${store.projectedCapacityDate}` : "")
+            .filter(Boolean);
+          setForecastMessage(fullDates.length > 0
+            ? `${volume.toFixed(0)} m³ forecast available for a new plan. Recorded capacity projected: ${fullDates.join(" · ")}.`
+            : `${volume.toFixed(0)} m³ forecast available for a new plan on ${planningDate}.`);
+        } else {
+          setExpectedAvailableM3("");
+          setForecastMessage(response.message);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setExpectedAvailableM3("");
+        setForecastMessage("Future slurry volume could not be calculated from the current records.");
+      });
+    return () => { cancelled = true; };
+  }, [planningDate]);
+
 
   const addCandidate = () => {
     setCandidates((current) => [
@@ -85,7 +118,7 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
       const response = await previewSlurryFirstFertiliserPlanAction({
         planningDate,
         expectedAvailableM3: expected,
-        source: "FARMER_FORECAST",
+        source: forecastSource,
         productionBasis: carryForwardCurrent ? "CARRY_FORWARD_CURRENT_SETTINGS" : "TARGET_SEASON_SAVED",
         candidates: candidates.map((candidate) => ({
           fieldId: candidate.fieldId,
@@ -126,22 +159,31 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
               <input
                 type="date"
                 value={planningDate}
-                onChange={(event) => setPlanningDate(event.target.value)}
+                onChange={(event) => {
+                  setPlanningDate(event.target.value);
+                  setForecastMessage("Calculating from livestock and tank records…");
+                  setCalculatedForecastM3(null);
+                  setExpectedAvailableM3("");
+                  setForecastSource("SYSTEM_FORECAST");
+                }}
                 className="mt-1 min-h-11 w-full rounded-[6px] border border-fr-v2-rule bg-white px-3 text-sm font-normal text-fr-v2-graphite"
               />
             </label>
             <label className="text-xs font-semibold text-fr-v2-muted">
-              Expected slurry available (m³)
+              Forecast slurry available (m³)
               <input
                 inputMode="decimal"
                 value={expectedAvailableM3}
-                onChange={(event) => setExpectedAvailableM3(event.target.value)}
-                placeholder="e.g. 300"
+                onChange={(event) => { setExpectedAvailableM3(event.target.value); setForecastSource("FARMER_FORECAST"); }}
+                placeholder="Calculated from farm records"
                 className="mt-1 min-h-11 w-full rounded-[6px] border border-fr-v2-rule bg-white px-3 text-sm font-normal text-fr-v2-graphite"
               />
+              <span className="mt-1.5 block font-normal leading-relaxed text-fr-v2-muted">{forecastMessage}</span>
               <span className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 font-normal">
-                <button type="button" onClick={() => setExpectedAvailableM3(String(Math.round(currentUnallocatedM3 * 100) / 100))} className="text-fr-v2-forest underline underline-offset-2">Use current unallocated ({currentUnallocatedM3.toFixed(0)} m³)</button>
-                <button type="button" onClick={() => setExpectedAvailableM3(String(Math.round(stores.reduce((sum, store) => sum + store.capacityM3, 0) * 100) / 100))} className="text-fr-v2-forest underline underline-offset-2">Assume recorded tanks full</button>
+                {calculatedForecastM3 !== null && forecastSource === "FARMER_FORECAST" ? (
+                  <button type="button" onClick={() => { setExpectedAvailableM3(String(Math.round(calculatedForecastM3 * 100) / 100)); setForecastSource("SYSTEM_FORECAST"); }} className="text-fr-v2-forest underline underline-offset-2">Use calculated forecast ({calculatedForecastM3.toFixed(0)} m³)</button>
+                ) : null}
+                <button type="button" onClick={() => { setExpectedAvailableM3(String(Math.round(currentUnallocatedM3 * 100) / 100)); setForecastSource("FARMER_FORECAST"); }} className="text-fr-v2-forest underline underline-offset-2">Override with current unallocated ({currentUnallocatedM3.toFixed(0)} m³)</button>
               </span>
             </label>
           </div>
@@ -252,7 +294,7 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
               <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
                 <span><strong>{ready.scenario.allocatedM3.toFixed(0)} m³</strong> allocated</span>
                 <span><strong>{ready.scenario.unallocatedM3.toFixed(0)} m³</strong> unallocated</span>
-                <span className="text-fr-v2-muted">Farmer forecast for {ready.scenario.planningDate}</span>
+                <span className="text-fr-v2-muted">{ready.scenario.source === "SYSTEM_FORECAST" ? "Livestock/store forecast" : "Farmer forecast"} for {ready.scenario.planningDate}</span>
                 {ready.scenario.carriedForwardFromSeason ? <span className="text-fr-v2-muted">Production settings carried forward from {ready.scenario.carriedForwardFromSeason}</span> : null}
               </div>
 

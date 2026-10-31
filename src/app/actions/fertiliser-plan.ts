@@ -64,6 +64,7 @@ import { checkNationalBufferDistance, checkLocalBufferOverride } from "@/domain/
 import { requireCommonageStatus, resolveLocalWaterBufferOverrideStatus } from "@/domain/input-gates";
 import { activeFields, tracked, type Farm, type Field, type FertiliserProduct, type LivestockGroup, type SlurryAllocation } from "@/domain/types";
 import { buildSlurryPlanningScenario, type SlurryPlanningScenarioInput } from "@/domain/slurry-planning-scenario";
+import { buildFarmSlurryForecast, type FarmSlurryForecast } from "@/domain/slurry-storage-forecast";
 
 /** `Decision.calculationKind` for a real planned fertiliser application —
  * identical string to the Prompt kind it was decided from
@@ -1006,6 +1007,35 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
   };
 }
 
+export type SlurryStorageForecastActionResult =
+  | { status: "ready"; forecast: FarmSlurryForecast }
+  | { status: "blocked"; forecast: FarmSlurryForecast; message: string };
+
+/** Future physical slurry resource on a chosen planning date. This is a
+ * projection from the farm's recorded store observations and livestock/housing
+ * state; it never mutates today's tank level or creates slurry allocations. */
+export async function getSlurryStorageForecastAction(targetDate: string): Promise<SlurryStorageForecastActionResult> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate) || Number.isNaN(new Date(`${targetDate}T00:00:00.000Z`).getTime())) {
+    throw new Error("getSlurryStorageForecastAction: invalid target date");
+  }
+  const farm = await getFarmForCurrentUser();
+  if (!farm) throw new Error("getSlurryStorageForecastAction: no real farm for the current session");
+  const [livestockGroups, housing, allocations] = await Promise.all([
+    listLivestockGroupsForFarm(farm.id),
+    listHousingForFarm(farm.id),
+    listSlurryAllocationsForFarm(farm.id),
+  ]);
+  const forecast = buildFarmSlurryForecast({
+    housing, livestockGroups, allocations,
+    asOfDate: new Date().toISOString().slice(0, 10),
+    targetDate,
+  });
+  if (forecast.status !== "READY") {
+    return { status: "blocked", forecast, message: `${forecast.blockedStoreCount} slurry store${forecast.blockedStoreCount === 1 ? " is" : "s are"} missing the evidence needed for a complete future-volume forecast.` };
+  }
+  return { status: "ready", forecast };
+}
+
 export type SlurryFirstProductionBasis = "TARGET_SEASON_SAVED" | "CARRY_FORWARD_CURRENT_SETTINGS";
 
 export interface SlurryFirstPreviewInput extends SlurryPlanningScenarioInput {
@@ -1022,7 +1052,7 @@ export type SlurryFirstFertiliserPlanResult =
         expectedAvailableM3: number;
         allocatedM3: number;
         unallocatedM3: number;
-        source: "FARMER_FORECAST";
+        source: "FARMER_FORECAST" | "SYSTEM_FORECAST";
         productionBasis: SlurryFirstProductionBasis;
         carriedForwardFromSeason?: string;
       };

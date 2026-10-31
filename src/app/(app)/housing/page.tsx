@@ -14,6 +14,7 @@ import { ProgressiveDisclosure } from "@/components/ui/ProgressiveDisclosure";
 import { NeatSlurryEvidenceCard } from "@/components/farm/NeatSlurryEvidenceCard";
 import { useFarmActions, useHousingList, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
+import { buildSlurryStoreForecast } from "@/domain/slurry-storage-forecast";
 
 /**
  * Real Farm V1 Phase 11 — a real new farm can genuinely have zero housing
@@ -68,6 +69,13 @@ export default function HousingPage() {
     : 0;
   const linkedHeadcount = linkedGroups.reduce((sum, group) => sum + group.count.value, 0);
   const housingAllocations = housing ? slurryAllocations.filter((allocation) => allocation.housingId === housing.id) : [];
+  const housingForecast = housing
+    ? buildSlurryStoreForecast({
+        housing, livestockGroups, allocations: slurryAllocations,
+        asOfDate: new Date().toISOString().slice(0, 10),
+        targetDate: housing.housingPeriod.end,
+      })
+    : undefined;
 
   function startEdit(h: NonNullable<typeof housing>) {
     setEditingId(h.id);
@@ -283,6 +291,27 @@ export default function HousingPage() {
             >
               <div className="flex flex-col gap-3">
                 <p className="text-sm leading-relaxed text-fr-ink-600">The summary above is the canonical physical record for this shed and its store. Edit it only when the housing period, capacity or observed fill changes.</p>
+                {housingForecast?.status === "READY" ? (
+                  <div className="grid gap-2 border-y border-fr-border py-3 sm:grid-cols-3">
+                    <div>
+                      <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-ink-400">Projected at housing end</p>
+                      <p className="mt-1 text-base font-bold text-fr-ink-900">{housingForecast.projectedFillPct.toFixed(0)}% · {housingForecast.projectedVolumeM3.toFixed(0)} m³</p>
+                      <p className="text-xs text-fr-ink-500">{housing.housingPeriod.end}</p>
+                    </div>
+                    <div>
+                      <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-ink-400">Livestock production</p>
+                      <p className="mt-1 text-base font-bold text-fr-ink-900">+{housingForecast.producedM3.toFixed(0)} m³</p>
+                      <p className="text-xs text-fr-ink-500">S.I. 588/2025 Table 2</p>
+                    </div>
+                    <div>
+                      <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-ink-400">Recorded capacity</p>
+                      <p className="mt-1 text-base font-bold text-fr-ink-900">{housingForecast.projectedCapacityDate ?? "Not projected"}</p>
+                      <p className="text-xs text-fr-ink-500">Based on current herd and housing plan</p>
+                    </div>
+                  </div>
+                ) : housingForecast ? (
+                  <p className="border-l-[3px] border-fr-attention pl-3 text-sm text-fr-ink-600">Future tank level needs more livestock or store evidence before Farm Return can project it safely.</p>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => { startEdit(housing); setAddOpen(true); }}

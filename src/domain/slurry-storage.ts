@@ -10,9 +10,10 @@
  * `SlurryAllocation.volumeM3` (`src/lib/farm-data/slurry.ts`, Phase 6/11)
  * for allocated/unallocated. Deliberately never
  * `Housing.slurryEstimate.volumeM3` — that figure is a still-placeholder
- * PROJECTED-PRODUCTION estimate (no real S.I. 588/2025 excretion-rate
- * coefficient exists yet, `housing.ts`'s own `placeholderSlurryEstimate`
- * doc comment) — mixing it with a real captured fill level would conflate
+ * legacy placeholder PROJECTED-PRODUCTION estimate. The real S.I. 588/2025
+ * Table 2 volume forecast now lives separately in `slurry-storage-forecast.ts`;
+ * `Housing.slurryEstimate` itself remains a placeholder and is still never
+ * treated as current physical storage — mixing it with a real captured fill level would conflate
  * "slurry physically in the tank now" with "slurry this housing period is
  * projected to produce", exactly what the brief's DATA INTEGRITY section
  * forbids ("Do not confuse physical slurry now with projected future

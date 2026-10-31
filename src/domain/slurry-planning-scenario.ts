@@ -21,7 +21,7 @@ export interface ValidSlurryPlanningCandidate extends Omit<SlurryPlanningCandida
 export interface SlurryPlanningScenarioInput {
   planningDate: string;
   expectedAvailableM3: number;
-  source: "FARMER_FORECAST";
+  source: "FARMER_FORECAST" | "SYSTEM_FORECAST";
   candidates: SlurryPlanningCandidateInput[];
 }
 
@@ -33,7 +33,7 @@ export type SlurryPlanningScenarioResult =
       expectedAvailableM3: number;
       allocatedM3: number;
       unallocatedM3: number;
-      source: "FARMER_FORECAST";
+      source: "FARMER_FORECAST" | "SYSTEM_FORECAST";
       candidates: ValidSlurryPlanningCandidate[];
       version: string;
     };

@@ -926,6 +926,27 @@ describe("getFarmFertiliserDemandAction", () => {
     expect(result.purchaseRequirementTonnes.every((line) => line.remainingTotalKg > 0)).toBe(true);
   });
 
+  it("returns a partial P3 farm demand when another active field has no production cycle instead of crashing the overview", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([
+      p3Field({ id: "field-1", name: "P Collins" }),
+      p3Field({ id: "field-2", name: "Unclassified field" }),
+    ]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockListFieldProductionCyclesForSeason.mockResolvedValue([p3FirstCutCycle({ fieldId: "field-1" })]);
+
+    const result = await getFarmFertiliserDemandAction();
+
+    expect(mockGetFarmFertiliserDemand).not.toHaveBeenCalled();
+    expect(result.fieldsWithBlockedEvidence).toBe(1);
+    expect(result.aggregation.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fieldId: "field-1" }),
+      expect.objectContaining({ fieldId: "field-2", purchaseStatus: expect.objectContaining({ status: "UNKNOWN", reasonCode: "P3_MISSING_PRODUCTION_CYCLE" }) }),
+    ]));
+    expect(result.demand.length).toBeGreaterThan(0);
+  });
+
   it("rejects when there is no real signed-in farm", async () => {
     mockGetFarm.mockResolvedValue(null);
     await expect(getFarmFertiliserDemandAction()).rejects.toThrow(/no real farm/i);

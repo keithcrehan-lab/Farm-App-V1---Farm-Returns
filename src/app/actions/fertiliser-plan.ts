@@ -756,21 +756,33 @@ async function buildP3FarmFertiliserDemandResult(input: {
 }): Promise<FarmFertiliserDemandActionResult> {
   const { farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, grazingSessions, now, p3Cycles } = input;
   const cycleByFieldId = new Map(p3Cycles.map((cycle) => [cycle.fieldId, cycle]));
-  const missingCycles = fields.filter((field) => !cycleByFieldId.has(field.id));
-  if (missingCycles.length > 0) {
-    throw new Error("getFarmFertiliserDemandAction: P3 farm demand requires a current production cycle for every active field");
-  }
 
   const grasslandAreaHa = fields.reduce((sum, field) => {
-    const cycle = cycleByFieldId.get(field.id)!;
-    return cropFamilyFor(cycle.cropSystem) === "grassland" ? sum + field.areaHa : sum;
+    const cycle = cycleByFieldId.get(field.id);
+    return cycle && cropFamilyFor(cycle.cropSystem) === "grassland" ? sum + field.areaHa : sum;
   }, 0);
   const stocking = calculateStatutoryGrasslandStockingRateKgHa(livestockGroups, grasslandAreaHa);
   const compositionByHousing = currentSlurryCompositionByHousing(slurryCompositionRecords);
   let fieldsWithBlockedEvidence = 0;
 
   const aggregationInputs = fields.map((field) => {
-    const cycle = cycleByFieldId.get(field.id)!;
+    const cycle = cycleByFieldId.get(field.id);
+    if (!cycle) {
+      fieldsWithBlockedEvidence++;
+      return {
+        fieldId: field.id,
+        fieldName: field.name,
+        plan: {
+          calculationVersion: "grass_fertiliser_engine_v2.0.0",
+          purchaseStatus: {
+            status: "UNKNOWN" as const,
+            reasonCode: "P3_MISSING_PRODUCTION_CYCLE",
+            missingInputs: ["productionCycle"],
+          },
+          purchasedProducts: [],
+        },
+      };
+    }
     let organicCreditsKgHa = { n: 0, p: 0, k: 0 };
     const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
     if (slurryAllocation) {

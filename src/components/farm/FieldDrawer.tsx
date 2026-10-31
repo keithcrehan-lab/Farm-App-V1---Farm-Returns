@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -16,8 +16,9 @@ import { FieldSatelliteHistory } from "@/components/farm/FieldSatelliteHistory";
 import { SpreadableAreaEvidencePanel } from "@/components/farm/SpreadableAreaEvidencePanel";
 import { FieldProductionCycleCard } from "@/components/farm/FieldProductionCycleCard";
 import { FieldSoilTestEditor } from "@/components/farm/FieldSoilTestEditor";
-import { CROP_SYSTEM_LABELS } from "@/domain/fertiliser-field-evidence";
+import { CROP_SYSTEM_LABELS, type CropSystem } from "@/domain/fertiliser-field-evidence";
 import { getFieldWorkspaceContextAction, type FieldWorkspaceContext, type FieldActivityEvent } from "@/app/actions/field-workspace";
+import { saveFieldProductionCycleAction } from "@/app/actions/fertiliser-field-evidence";
 import { FieldNutrientPlanBody } from "@/app/(app)/today/field/[fieldId]/FieldNutrientPlanPageClient";
 import { useFarmActions, useFarm, useHousingList, useIsRealMode, useSlurryAllocations } from "@/store/farm-store";
 import type { BufferFeature } from "@/domain/buffer-gate";
@@ -154,7 +155,7 @@ export function FieldDrawer({
 
       <div className="pt-7">
         {chapter === "overview" ? (
-          <OverviewChapter field={field} workspaceContext={workspaceContext} workspaceUnavailable={workspaceUnavailable} leadingPrompt={leadingPrompt} onViewPrompt={onViewPrompt} onOpenHistory={() => setChapter("history")} />
+          <OverviewChapter field={field} workspaceContext={workspaceContext} workspaceUnavailable={workspaceUnavailable} leadingPrompt={leadingPrompt} onViewPrompt={onViewPrompt} onOpenHistory={() => setChapter("history")} onProductionCycleSaved={refreshWorkspace} />
         ) : chapter === "nutrients" ? (
           <NutrientsChapter field={field} slurryDetailsRequest={slurryDetailsRequest} onProductionCycleSaved={refreshWorkspace} />
         ) : (
@@ -226,6 +227,7 @@ function OverviewChapter({
   leadingPrompt,
   onViewPrompt,
   onOpenHistory,
+  onProductionCycleSaved,
 }: {
   field: Field;
   workspaceContext: FieldWorkspaceContext | null;
@@ -233,8 +235,10 @@ function OverviewChapter({
   leadingPrompt?: Prompt;
   onViewPrompt?: () => void;
   onOpenHistory: () => void;
+  onProductionCycleSaved: () => void;
 }) {
   const isRealMode = useIsRealMode();
+  const farm = useFarm();
   const slurryAllocations = useSlurryAllocations();
   const housing = useHousingList();
   const planResult = useFieldNutrientPlan(field);
@@ -255,6 +259,15 @@ function OverviewChapter({
     .sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0))
     .slice(0, 3);
   const currentCycle = workspaceContext?.cycle;
+  const season = currentCycle?.season ?? String(new Date().getFullYear());
+  const [editingUse, setEditingUse] = useState(false);
+  const [useDraft, setUseDraft] = useState<CropSystem>(currentCycle?.cropSystem ?? "GRASS_GRAZING");
+  const [useMessage, setUseMessage] = useState<string | null>(null);
+  const [savingUse, startUseTransition] = useTransition();
+
+  useEffect(() => {
+    if (currentCycle?.cropSystem) setUseDraft(currentCycle.cropSystem);
+  }, [currentCycle?.cropSystem]);
 
   const primary = planAvailable
     ? { label: "Open nutrient plan", href: fieldNutrientPlanHref(field.id) }
@@ -284,17 +297,75 @@ function OverviewChapter({
 
         <Section kicker="Use">
           <dl className="divide-y divide-fr-v2-cream-rule/70">
-            {currentCycle ? (
-              <Row
-                label="Current crop / use"
-                value={CROP_SYSTEM_LABELS[currentCycle.cropSystem]}
-                detail={`${currentCycle.season} production cycle · ${currentCycle.status}${currentCycle.evidence.cropSystem?.source ? ` · ${currentCycle.evidence.cropSystem.source}` : ""}`}
-              />
-            ) : workspaceUnavailable ? (
-              <Row label="Current crop / use" value="Temporarily unavailable" detail="Production-cycle evidence could not be loaded" quiet />
-            ) : (
-              <Row label="Current crop / use" value="Not recorded" detail="Set the production cycle in Nutrients" quiet />
-            )}
+            <div className="py-2">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+                <dt className="shrink-0 text-sm text-fr-v2-muted">Current crop / use</dt>
+                <dd className="min-w-0 sm:text-right">
+                  {workspaceUnavailable ? (
+                    <>
+                      <span className="text-sm italic text-fr-v2-muted">Temporarily unavailable</span>
+                      <span className="block font-mono text-[11px] text-fr-v2-muted">Production-cycle evidence could not be loaded</span>
+                    </>
+                  ) : editingUse ? (
+                    <div className="flex min-w-[280px] flex-col gap-2 sm:items-end">
+                      <select
+                        aria-label="Current crop / use"
+                        value={useDraft}
+                        onChange={(event) => setUseDraft(event.target.value as CropSystem)}
+                        className="min-h-10 w-full max-w-sm border border-fr-v2-cream-rule bg-white px-3 text-sm text-fr-v2-graphite outline-none focus:border-fr-v2-forest"
+                      >
+                        {(Object.entries(CROP_SYSTEM_LABELS) as Array<[CropSystem, string]>).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </select>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button type="button" onClick={() => { setEditingUse(false); setUseMessage(null); setUseDraft(currentCycle?.cropSystem ?? "GRASS_GRAZING"); }} className="min-h-9 px-3 text-xs font-semibold text-fr-v2-muted">Cancel</button>
+                        <button
+                          type="button"
+                          disabled={savingUse}
+                          onClick={() => {
+                            setUseMessage(null);
+                            startUseTransition(async () => {
+                              try {
+                                const saved = await saveFieldProductionCycleAction({
+                                  fieldId: field.id,
+                                  season,
+                                  cropSystem: useDraft,
+                                  status: "active",
+                                  farmerName: farm.ownerName,
+                                });
+                                setEditingUse(false);
+                                setUseMessage(saved.gate?.status === "READY_FOR_CALCULATION" ? "Field use updated." : "Field use updated. More production evidence may be needed for the recommendation.");
+                                onProductionCycleSaved();
+                              } catch {
+                                setUseMessage("Could not update field use. Please try again.");
+                              }
+                            });
+                          }}
+                          className="min-h-9 bg-fr-v2-forest-deep px-3 text-xs font-semibold text-white disabled:opacity-50"
+                        >
+                          {savingUse ? "Saving…" : "Save use"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setEditingUse(true)}
+                        className="text-sm font-semibold text-fr-v2-graphite underline decoration-fr-v2-forest/30 underline-offset-[3px] hover:decoration-fr-v2-gold"
+                      >
+                        {currentCycle ? CROP_SYSTEM_LABELS[currentCycle.cropSystem] : "Not recorded"}
+                      </button>
+                      <span className="block font-mono text-[11px] text-fr-v2-muted">
+                        {currentCycle ? `${currentCycle.season} production cycle · ${currentCycle.status}${currentCycle.evidence.cropSystem?.source ? ` · ${currentCycle.evidence.cropSystem.source}` : ""}` : "Click to set this season's field use"}
+                      </span>
+                    </>
+                  )}
+                  {useMessage ? <span className="mt-1 block text-xs text-fr-v2-muted">{useMessage}</span> : null}
+                </dd>
+              </div>
+            </div>
             <Row label="Livestock" value="Not recorded for fields yet" detail="Groups carry no field location" quiet />
           </dl>
         </Section>

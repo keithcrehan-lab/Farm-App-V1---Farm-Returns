@@ -10,6 +10,10 @@ vi.mock("@/app/actions/field-awareness", () => ({ getFieldAwarenessAction: vi.fn
 vi.mock("@/app/actions/field-workspace", () => ({
   getFieldWorkspaceContextAction: vi.fn().mockResolvedValue({ cycle: null, activities: [], activitiesTruncated: false }),
 }));
+vi.mock("@/app/actions/fertiliser-field-evidence", () => ({
+  loadFieldProductionCycleAction: vi.fn().mockResolvedValue({ cycle: null, gate: null }),
+  saveFieldProductionCycleAction: vi.fn(),
+}));
 // Real-mode store writes go through these canonical Server Actions — mocked
 // only at that I/O boundary so the drawer + store logic run for real.
 vi.mock("@/app/actions/farm", async (importOriginal) => {
@@ -27,6 +31,7 @@ import { mockFields, mockSlurryAllocations } from "@/data/mock-farm";
 import type { Field, SlurryAllocation } from "@/domain/types";
 import { updateSlurryApplicationDateAction, updateSlurryApplicationMethodAction } from "@/app/actions/farm";
 import { getFieldWorkspaceContextAction } from "@/app/actions/field-workspace";
+import { saveFieldProductionCycleAction } from "@/app/actions/fertiliser-field-evidence";
 
 afterEach(() => {
   cleanup();
@@ -282,6 +287,35 @@ describe("FieldDrawer — field workspace chapters (Farm + Fields redesign)", ()
     expect(use.textContent).toContain("Current crop / useNot recorded");
     expect(use.textContent).not.toMatch(/Planned use/);
     expect(use.textContent).toMatch(/Livestock.*Not recorded for fields yet/);
+  });
+
+  it("lets the farmer change current field use inline using the canonical production cycle", async () => {
+    const grazingCycle = {
+      id: "cycle-1", fieldId: mockFields[0].id, season: "2026", cropSystem: "GRASS_GRAZING" as const, status: "active" as const,
+      evidence: { cropSystem: { value: "GRASS_GRAZING" as const, method: "FARMER_DECLARED" as const, source: "Farmer", observedAt: "2026-03-10T09:00:00.000Z" } },
+      createdAt: "2026-03-10T09:00:00.000Z", updatedAt: "2026-03-10T09:00:00.000Z",
+    };
+    const silageCycle = {
+      ...grazingCycle, cropSystem: "GRASS_FIRST_CUT_SILAGE" as const,
+      evidence: { cropSystem: { value: "GRASS_FIRST_CUT_SILAGE" as const, method: "FARMER_DECLARED" as const, source: "Farmer", observedAt: "2026-10-31T09:00:00.000Z", previous: grazingCycle.evidence.cropSystem } },
+      updatedAt: "2026-10-31T09:00:00.000Z",
+    };
+    vi.mocked(getFieldWorkspaceContextAction)
+      .mockResolvedValueOnce({ cycle: grazingCycle, activities: [], activitiesTruncated: false })
+      .mockResolvedValueOnce({ cycle: silageCycle, activities: [], activitiesTruncated: false });
+    vi.mocked(saveFieldProductionCycleAction).mockResolvedValue({ cycle: silageCycle, gate: { status: "MISSING_INPUTS", missingInputs: ["productionTargetTDMHa"] } } as any);
+
+    renderDrawer(mockFields[0]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Grass — grazing" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Grass — grazing" }));
+    fireEvent.change(screen.getByLabelText("Current crop / use"), { target: { value: "GRASS_FIRST_CUT_SILAGE" } });
+    fireEvent.click(screen.getByRole("button", { name: /save use/i }));
+
+    await waitFor(() => expect(saveFieldProductionCycleAction).toHaveBeenCalledWith(expect.objectContaining({
+      fieldId: mockFields[0].id, season: "2026", cropSystem: "GRASS_FIRST_CUT_SILAGE", status: "active",
+    })));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Grass — first-cut silage" })).toBeTruthy());
+    expect(screen.getByText(/more production evidence may be needed/i)).toBeTruthy();
   });
 
   it("Overview uses the active production cycle as the sole displayed crop/use", async () => {

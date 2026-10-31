@@ -1035,8 +1035,7 @@ export type AutomaticSlurryPlanActionResult =
       allocatedM3: number;
       unallocatedM3: number;
       recommendations: AutomaticSlurryFieldRecommendation[];
-      baseline: FarmFertiliserDemandActionResult;
-      withRecommendedSlurry: FarmFertiliserDemandActionResult;
+      excludedFields: { fieldId: string; fieldName: string; reasonCode: string; message: string }[];
       limitations: string[];
     };
 
@@ -1095,13 +1094,17 @@ export async function getAutomaticSlurryPlanAction(requestedPlanningDate?: strin
   const fields = activeFields(allFields);
   const season = planningDate.slice(0, 4);
   let p3Cycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), season);
-  if (p3Cycles.length !== fields.length) {
-    const currentSeason = String(new Date().getUTCFullYear());
+  const currentSeason = String(new Date().getUTCFullYear());
+  if (p3Cycles.length !== fields.length && currentSeason !== season) {
     const currentCycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), currentSeason);
-    if (currentCycles.length !== fields.length) {
-      return { status: "blocked", reasonCode: "MISSING_PRODUCTION_CYCLES", message: `A production cycle is required for every active field before Farm Return can allocate slurry automatically for ${season}.` };
-    }
-    p3Cycles = currentCycles.map((cycle) => carryForwardProductionCycle(cycle, season, planningDate));
+    const existing = new Set(p3Cycles.map((cycle) => cycle.fieldId));
+    p3Cycles = [
+      ...p3Cycles,
+      ...currentCycles.filter((cycle) => !existing.has(cycle.fieldId)).map((cycle) => carryForwardProductionCycle(cycle, season, planningDate)),
+    ];
+  }
+  if (p3Cycles.length === 0) {
+    return { status: "blocked", reasonCode: "MISSING_PRODUCTION_CYCLES", message: `No field has enough production-cycle evidence for an automatic slurry recommendation in ${season}.` };
   }
 
   const forecast = buildFarmSlurryForecast({ housing, livestockGroups, allocations: existingAllocations, asOfDate: today, targetDate: planningDate });
@@ -1112,10 +1115,12 @@ export async function getAutomaticSlurryPlanAction(requestedPlanningDate?: strin
     return { status: "blocked", reasonCode: "NO_PROJECTED_SLURRY_AVAILABLE", message: `No unallocated slurry is projected to be available on ${planningDate}.` };
   }
 
-  const baseline = await buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations: [], slurryCompositionRecords, grazingSessions, now: `${planningDate}T12:00:00.000Z`, p3Cycles });
   const cycleByField = new Map(p3Cycles.map((c) => [c.fieldId, c]));
   const compositionByHousing = currentSlurryCompositionByHousing(slurryCompositionRecords);
-  const grasslandAreaHa = fields.reduce((sum, field) => cropFamilyFor(cycleByField.get(field.id)!.cropSystem) === "grassland" ? sum + field.areaHa : sum, 0);
+  const grasslandAreaHa = fields.reduce((sum, field) => {
+    const cycle = cycleByField.get(field.id);
+    return cycle && cropFamilyFor(cycle.cropSystem) === "grassland" ? sum + field.areaHa : sum;
+  }, 0);
   const statutoryGsr = calculateStatutoryGrasslandStockingRateKgHa(livestockGroups, grasslandAreaHa);
   if (statutoryGsr.status !== "OK") {
     return { status: "blocked", reasonCode: "MISSING_GSR_FOR_LESS_GATE", message: "Farm Return cannot recommend a slurry application method until the statutory grassland stocking rate can be resolved from the livestock records." };
@@ -1125,14 +1130,33 @@ export async function getAutomaticSlurryPlanAction(requestedPlanningDate?: strin
   const applicationMethod: "LESS" | "splashplate" = methodGate.status === "LEGAL_PROHIBITION" ? "LESS" : "splashplate";
 
   const storeRemaining = new Map<string, number>();
-  for (const sf of forecast.stores) if (sf.status === "READY") storeRemaining.set(sf.housingId, sf.projectedAvailableForNewPlanM3);
+  const storeProvenHomeProducedRemaining = new Map<string, number>();
+  for (const sf of forecast.stores) {
+    if (sf.status !== "READY") continue;
+    storeRemaining.set(sf.housingId, sf.projectedAvailableForNewPlanM3);
+    // Only slurry actually forecast from this farm's own recorded livestock is
+    // intrinsically proven home-produced here. The current observed tank
+    // volume can include an unknown origin and is not silently reclassified.
+    storeProvenHomeProducedRemaining.set(sf.housingId, Math.max(0, sf.producedM3 - sf.reservedM3));
+  }
+  const excludedFields: { fieldId: string; fieldName: string; reasonCode: string; message: string }[] = [];
 
   type Candidate = AutomaticSlurryFieldRecommendation & { desiredVolumeM3: number };
   const candidates: Candidate[] = [];
   for (const field of fields) {
-    const cycle = cycleByField.get(field.id)!;
-    if (cropFamilyFor(cycle.cropSystem) !== "grassland") continue;
-    if (!field.fertility.pIndex?.value || !field.fertility.kIndex?.value) continue;
+    const cycle = cycleByField.get(field.id);
+    if (!cycle) {
+      excludedFields.push({ fieldId: field.id, fieldName: field.name, reasonCode: "MISSING_PRODUCTION_CYCLE", message: "No current production cycle is recorded for this field, so it was not ranked." });
+      continue;
+    }
+    if (cropFamilyFor(cycle.cropSystem) !== "grassland") {
+      excludedFields.push({ fieldId: field.id, fieldName: field.name, reasonCode: "NON_GRASSLAND", message: "The automatic slurry allocator currently supports grassland fields only." });
+      continue;
+    }
+    if (!field.fertility.pIndex?.value || !field.fertility.kIndex?.value) {
+      excludedFields.push({ fieldId: field.id, fieldName: field.name, reasonCode: "MISSING_SOIL_INDEX", message: "A verified P and K Index is required before Farm Return can recommend a slurry rate." });
+      continue;
+    }
 
     const grazingStockingInput = cycle.cropSystem === "GRASS_GRAZING"
       ? grazingStockingInputForField({ field, livestockGroups, sessions: grazingSessions, season, asOf: `${planningDate}T12:00:00.000Z`, ...(gsrKgNHa !== undefined ? { holdingFallbackKgHa: gsrKgNHa } : {}) })
@@ -1158,13 +1182,28 @@ export async function getAutomaticSlurryPlanAction(requestedPlanningDate?: strin
       };
       const oneM3 = resolveAvailableSlurryNutrients({ allocation: synthetic, applicationRateM3ha: 1, dmPct: composition.dmPct, dmPctStatus: composition.status, pIndex: field.fertility.pIndex.value, kIndex: field.fertility.kIndex.value });
       if (oneM3.status !== "OK") continue;
+      const pIndex4 = field.fertility.pIndex.value === 4;
+      const provenHomeProducedM3 = storeProvenHomeProducedRemaining.get(store.id) ?? 0;
       const limits: number[] = [];
       for (const [key, perM3] of [["n", oneM3.value.n], ["p", oneM3.value.p], ["k", oneM3.value.k]] as const) {
         const req = gross.grossRequirementKgHa[key];
-        if (perM3 > 0) limits.push(req / perM3);
+        if (perM3 <= 0) continue;
+        if (key === "p" && pIndex4 && provenHomeProducedM3 > 0) continue;
+        limits.push(req / perM3);
       }
       if (limits.length === 0) continue;
-      const usefulRate = roundDown1(Math.max(0, Math.min(...limits)));
+      let usefulRate = roundDown1(Math.max(0, Math.min(...limits)));
+      if (pIndex4) {
+        // Article 17(8)/Tables 15a/15b footnote 3 pathway: only the portion
+        // positively evidenced as produced by this holding's livestock may
+        // bypass the zero P-demand cap on an Index 4 field. Current physical
+        // tank volume of unknown origin is never treated as home-produced.
+        if (provenHomeProducedM3 <= 0) {
+          excludedFields.push({ fieldId: field.id, fieldName: field.name, reasonCode: "P4_HOME_PRODUCED_SURPLUS_NOT_PROVEN", message: "P Index 4 has no routine P requirement. Farm Return can only recommend surplus home-produced grazing-livestock manure here once that slurry is positively evidenced as produced on this holding." });
+          continue;
+        }
+        usefulRate = Math.min(usefulRate, roundDown1(provenHomeProducedM3 / field.areaHa));
+      }
       if (usefulRate <= 0) continue;
       const desiredVolumeM3 = usefulRate * field.areaHa;
       const candidateRate = usefulRate;
@@ -1212,23 +1251,23 @@ export async function getAutomaticSlurryPlanAction(requestedPlanningDate?: strin
     selected.push({ ...candidate, rateM3ha: rate, volumeM3: actualVolume, availableNpkKgHa: credit.value });
     selectedFields.add(candidate.fieldId);
     storeRemaining.set(candidate.housingId, Math.max(0, available - actualVolume));
+    const selectedField = fields.find((f) => f.id === candidate.fieldId)!;
+    if (selectedField.fertility.pIndex?.value === 4) {
+      storeProvenHomeProducedRemaining.set(candidate.housingId, Math.max(0, (storeProvenHomeProducedRemaining.get(candidate.housingId) ?? 0) - actualVolume));
+    }
   }
 
-  const recommendedAllocations: SlurryAllocation[] = selected.map((r) => ({
-    fieldId: r.fieldId, housingId: r.housingId, volumeM3: r.volumeM3,
-    applicationMethod: tracked(r.applicationMethod, "estimated", "Farm Return automatic slurry planning", { sourceDate: planningDate }),
-    applicationDate: tracked(r.applicationDate, "estimated", "Farm Return automatic slurry planning", { sourceDate: planningDate }),
-  }));
-  const withRecommendedSlurry = await buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations: [...existingAllocations, ...recommendedAllocations], slurryCompositionRecords, grazingSessions, now: `${planningDate}T12:00:00.000Z`, p3Cycles });
   const allocatedM3 = selected.reduce((sum, r) => sum + r.volumeM3, 0);
   return {
     status: "ready", planningDate, expectedAvailableM3: forecast.projectedAvailableForNewPlanM3,
     allocatedM3, unallocatedM3: Math.max(0, forecast.projectedAvailableForNewPlanM3 - allocatedM3),
-    recommendations: selected, baseline, withRecommendedSlurry,
+    recommendations: selected, excludedFields,
     limitations: [
       "This is a planning recommendation, not a persisted farmer allocation.",
       "Rates are capped so the model does not intentionally supply more N, P or K than the P3 gross field requirement from slurry alone.",
       "Finite slurry is prioritised by estimated P3 chemical-fertiliser cost reduction per m³ using the app's current CSO-backed product prices; it is not the legacy Economic Opportunity Engine.",
+      "Fields without a current production cycle are excluded rather than blocking otherwise-valid field recommendations; the result is therefore not claimed to be a complete whole-farm optimum until every active field is classified.",
+      "Index 4 phosphorus is only bypassed for the portion of slurry positively evidenced by this forecast as home-produced from this holding's livestock; current physical tank volume of unknown origin remains fail-closed.",
       "Rainfall, soiled water and other unmodelled store inflows are excluded from forecast slurry supply.",
     ],
   };

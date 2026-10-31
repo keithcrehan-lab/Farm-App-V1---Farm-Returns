@@ -37,12 +37,19 @@ export function FieldNutrientPlanPageClient({ fieldId }: { fieldId: string }) {
   const result = useFieldNutrientPlan(field);
   const view = useMemo(() => (result && field ? fieldNutrientPlanView(result, field) : undefined), [result, field]);
   const [slurryRecommendation, setSlurryRecommendation] = useState<AutomaticSlurryFieldRecommendation | null>(null);
+  const [slurryRecommendationReason, setSlurryRecommendationReason] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     void getAutomaticSlurryPlanAction().then((plan) => {
       if (cancelled) return;
-      setSlurryRecommendation(plan.status === "ready" ? plan.recommendations.find((r) => r.fieldId === fieldId) ?? null : null);
-    }).catch(() => { if (!cancelled) setSlurryRecommendation(null); });
+      if (plan.status === "ready") {
+        setSlurryRecommendation(plan.recommendations.find((r) => r.fieldId === fieldId) ?? null);
+        setSlurryRecommendationReason(plan.excludedFields.find((r) => r.fieldId === fieldId)?.message ?? null);
+      } else {
+        setSlurryRecommendation(null);
+        setSlurryRecommendationReason(plan.message);
+      }
+    }).catch(() => { if (!cancelled) { setSlurryRecommendation(null); setSlurryRecommendationReason("Farm Return could not calculate a slurry recommendation from the current records."); } });
     return () => { cancelled = true; };
   }, [fieldId]);
 
@@ -72,7 +79,7 @@ export function FieldNutrientPlanPageClient({ fieldId }: { fieldId: string }) {
         <MachineNote view={view} plan={result.plan} soilTestDate={field.fertility.verifiedTest?.sampleDate} />
       </header>
 
-      <FieldNutrientPlanBody view={view} result={result} fieldId={field.id} slurryRecommendation={slurryRecommendation} />
+      <FieldNutrientPlanBody view={view} result={result} fieldId={field.id} slurryRecommendation={slurryRecommendation} slurryRecommendationReason={slurryRecommendationReason} />
 
       <nav aria-label="Field nutrient plan actions" className="flex flex-wrap items-center gap-3 border-t border-fr-v2-rule pt-4">
         <Link href={backHref} className="rounded-[6px] border border-fr-v2-rule px-4 py-2.5 text-sm font-semibold">
@@ -94,7 +101,7 @@ export function FieldNutrientPlanPageClient({ fieldId }: { fieldId: string }) {
  * the field workspace's Nutrients chapter so both render the one canonical
  * view. Derives nothing.
  */
-export function FieldNutrientPlanBody({ view, result, fieldId, hideSupportingDisclosures = false, slurryRecommendation }: { view: FieldNutrientPlanView; result: FieldNutrientPlanResult; fieldId: string; hideSupportingDisclosures?: boolean; slurryRecommendation?: AutomaticSlurryFieldRecommendation | null }) {
+export function FieldNutrientPlanBody({ view, result, fieldId, hideSupportingDisclosures = false, slurryRecommendation, slurryRecommendationReason }: { view: FieldNutrientPlanView; result: FieldNutrientPlanResult; fieldId: string; hideSupportingDisclosures?: boolean; slurryRecommendation?: AutomaticSlurryFieldRecommendation | null; slurryRecommendationReason?: string | null }) {
   if (view.status === "unavailable") {
     return <p className="border-l-[3px] border-fr-v2-harvest bg-fr-v2-harvest-tint px-4 py-3 text-sm">{view.message}</p>;
   }
@@ -106,7 +113,7 @@ export function FieldNutrientPlanBody({ view, result, fieldId, hideSupportingDis
     <div className="flex flex-col gap-4">
       <NutrientPosition view={view} />
 
-      <OrganicBand organic={view.organic} recommendation={slurryRecommendation} />
+      <OrganicBand organic={view.organic} recommendation={slurryRecommendation} recommendationReason={slurryRecommendationReason} />
 
       <SolutionBand solution={view.solution} />
 
@@ -326,7 +333,7 @@ function PositionRow({ row }: { row: NutrientRow }) {
   );
 }
 
-function OrganicBand({ organic, recommendation }: { organic: Extract<FieldNutrientPlanView, { status: "available" }>["organic"]; recommendation?: AutomaticSlurryFieldRecommendation | null }) {
+function OrganicBand({ organic, recommendation, recommendationReason }: { organic: Extract<FieldNutrientPlanView, { status: "available" }>["organic"]; recommendation?: AutomaticSlurryFieldRecommendation | null; recommendationReason?: string | null }) {
   return (
     <section aria-label="Organic application" className="border-y border-fr-v2-cream-rule py-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
@@ -353,7 +360,10 @@ function OrganicBand({ organic, recommendation }: { organic: Extract<FieldNutrie
               <p className="mt-1 text-xs text-fr-v2-teal">Planning recommendation · estimated chemical saving €{formatNumber(recommendation.estimatedChemicalSavingEur, 0)}</p>
             </div>
           ) : (
-            <p className="mt-1 text-sm text-fr-v2-muted">No slurry planned or recommended for this field.</p>
+            <div className="mt-1">
+              <p className="text-sm text-fr-v2-muted">No slurry recommendation for this field.</p>
+              {recommendationReason ? <p className="mt-1 max-w-xl text-xs leading-relaxed text-fr-v2-muted">{recommendationReason}</p> : null}
+            </div>
           )}
         </div>
         <div className="shrink-0 sm:text-right">

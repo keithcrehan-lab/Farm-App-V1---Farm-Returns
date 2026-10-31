@@ -66,7 +66,6 @@ describe("FieldProductionCycleCard — streamlined chemical-fertiliser evidence"
     vi.mocked(saveFieldProductionCycleAction).mockResolvedValue(readySaveResult());
     renderCard();
     openCard();
-    fireEvent.change(screen.getByLabelText(/Grazing production system/i), { target: { value: "SUCKLER_CALF_TO_BEEF" } });
     fireEvent.click(screen.getByRole("radio", { name: "No" }));
     fireEvent.click(screen.getByRole("button", { name: /save production evidence/i }));
 
@@ -82,7 +81,6 @@ describe("FieldProductionCycleCard — streamlined chemical-fertiliser evidence"
     vi.mocked(saveFieldProductionCycleAction).mockResolvedValue(readySaveResult());
     renderCard();
     openCard();
-    fireEvent.change(screen.getByLabelText(/Grazing production system/i), { target: { value: "SUCKLER_CALF_TO_BEEF" } });
     fireEvent.click(screen.getByRole("radio", { name: "Not sure" }));
     fireEvent.click(screen.getByRole("button", { name: /save production evidence/i }));
 

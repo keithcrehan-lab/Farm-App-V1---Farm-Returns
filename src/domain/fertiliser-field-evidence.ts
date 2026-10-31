@@ -1,4 +1,4 @@
-import type { Field } from "./types";
+import type { Field, LivestockGroup } from "./types";
 
 /**
  * Fertiliser P2 — crop-extensible field evidence contract.
@@ -100,7 +100,7 @@ export interface EvidenceValue<T> {
 export interface FieldProductionCycleEvidence {
   /** Canonical farmer-declared crop-system provenance for this cycle. */
   cropSystem?: EvidenceValue<CropSystem>;
-  /** Required by grazing rule packs; never inferred from enterprise name. */
+  /** Required by grazing rule packs. May be derived from recorded livestock; farmer confirmation/override remains authoritative. */
   grazingProductionSystem?: EvidenceValue<GrazingProductionSystem>;
   /**
    * Farmer's intended dry-matter production for the cycle. Required for
@@ -242,6 +242,86 @@ export function evaluateFertiliserInputGate(
     missingInputs,
     assumptions: [],
   };
+}
+
+export interface GrazingProductionSystemInference {
+  value: GrazingProductionSystem | null;
+  confidence: "high" | "none";
+  reason: string;
+  evidenceLabels: string[];
+}
+
+function positiveGroup(group: LivestockGroup): boolean {
+  return Number.isFinite(group.count?.value) && group.count.value > 0;
+}
+
+/**
+ * Conservative, auditable inference from livestock already recorded on the farm.
+ * It deliberately returns unknown when the herd shape does not distinguish a
+ * Teagasc grazing system reliably enough; unknown must be confirmed by farmer.
+ */
+export function inferGrazingProductionSystem(
+  groups: readonly LivestockGroup[],
+): GrazingProductionSystemInference {
+  const active = groups.filter(positiveGroup);
+  const labels = active.map((group) => `${group.label} (${group.count.value})`);
+  if (active.length === 0) {
+    return { value: null, confidence: "none", reason: "No livestock are recorded for this farm.", evidenceLabels: [] };
+  }
+
+  const hasSucklerCows = active.some((group) => group.category === "suckler_cow");
+  const retainedBeef = active.some((group) =>
+    group.category === "store" ||
+    group.category === "steer" ||
+    (group.category === "bull" && group.goal !== "breed") ||
+    (group.category === "heifer" && (group.goal === "grow" || group.goal === "finish_slaughter")) ||
+    (group.category === "weanling" && group.goal === "finish_slaughter")
+  );
+  const soldAtWeaning = active.some((group) =>
+    (group.category === "calf" || group.category === "weanling") && group.goal === "sell_store"
+  );
+
+  if (hasSucklerCows && retainedBeef) {
+    return {
+      value: "SUCKLER_CALF_TO_BEEF",
+      confidence: "high",
+      reason: "Suckler cows and retained post-weaning cattle are recorded, indicating progeny are kept beyond weaning.",
+      evidenceLabels: labels,
+    };
+  }
+  if (hasSucklerCows && soldAtWeaning) {
+    return {
+      value: "SUCKLER_CALF_TO_WEANING",
+      confidence: "high",
+      reason: "Suckler cows are recorded and calves/weanlings are marked for sale as stores, with no retained finishing group recorded.",
+      evidenceLabels: labels,
+    };
+  }
+  if (!hasSucklerCows && active.some((group) => ["calf", "weanling", "store", "steer", "heifer", "bull"].includes(group.category))) {
+    return {
+      value: "OTHER_DRYSTOCK",
+      confidence: "high",
+      reason: "Drystock cattle are recorded without a suckler-cow enterprise.",
+      evidenceLabels: labels,
+    };
+  }
+
+  return {
+    value: null,
+    confidence: "none",
+    reason: "The recorded herd does not distinguish the grazing production system reliably enough.",
+    evidenceLabels: labels,
+  };
+}
+
+export function createDerivedEvidence<T>(
+  value: T,
+  source: string,
+  note: string,
+  observedAt = new Date().toISOString(),
+  previous?: EvidenceValue<T>,
+): EvidenceValue<T> {
+  return { value, method: "DERIVED", source, note, observedAt, ...(previous ? { previous } : {}) };
 }
 
 export function createFarmerEvidence<T>(

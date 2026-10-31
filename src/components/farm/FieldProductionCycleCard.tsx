@@ -5,6 +5,7 @@ import type { Field } from "@/domain/types";
 import {
   CROP_SYSTEM_LABELS,
   P2_SUPPORTED_CROP_SYSTEMS,
+  inferGrazingProductionSystem,
   type CropSystem,
   type FertiliserInputGateResult,
   type GrazingProductionSystem,
@@ -14,12 +15,19 @@ import {
   loadFieldProductionCycleAction,
   saveFieldProductionCycleAction,
 } from "@/app/actions/fertiliser-field-evidence";
-import { useFarm } from "@/store/farm-store";
+import { useFarm, useLivestockGroups } from "@/store/farm-store";
 
 const INPUT = "min-h-10 w-full border border-fr-v2-cream-rule bg-white px-3 text-sm text-fr-v2-graphite outline-none focus:border-fr-v2-forest";
 const LABEL = "flex flex-col gap-1.5 text-xs font-semibold text-fr-v2-graphite";
 
 const cropOptions = Object.entries(CROP_SYSTEM_LABELS) as Array<[CropSystem, string]>;
+
+const GRAZING_SYSTEM_LABELS: Readonly<Record<GrazingProductionSystem, string>> = Object.freeze({
+  SUCKLER_CALF_TO_BEEF: "Suckler calf-to-beef",
+  SUCKLER_CALF_TO_WEANING: "Suckler calf-to-weaning",
+  OTHER_DRYSTOCK: "Other drystock",
+});
+
 
 function numericValue(value: string): number | undefined {
   if (value.trim() === "") return undefined;
@@ -66,6 +74,8 @@ function gateCopy(gate: FertiliserInputGateResult | null): { title: string; deta
 
 export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onSaved?: () => void }) {
   const farm = useFarm();
+  const livestockGroups = useLivestockGroups();
+  const grazingInference = useMemo(() => inferGrazingProductionSystem(livestockGroups), [livestockGroups]);
   const season = String(new Date().getFullYear());
   const [cycle, setCycle] = useState<FieldProductionCycle | null>(null);
   const [gate, setGate] = useState<FertiliserInputGateResult | null>(null);
@@ -77,6 +87,8 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
   const [chemicalApplied, setChemicalApplied] = useState<ChemicalAppliedState>("unknown");
   const [cloverPct, setCloverPct] = useState("");
   const [grazingSystem, setGrazingSystem] = useState<GrazingProductionSystem | "">("");
+  const [grazingMode, setGrazingMode] = useState<"auto" | "farmer">("auto");
+  const [editingGrazingSystem, setEditingGrazingSystem] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -101,7 +113,17 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
           setKApplied(loadedK);
           setChemicalApplied(chemicalAppliedState(loadedN, loadedP, loadedK));
           setCloverPct(state.cycle.evidence.whiteCloverPct?.value?.toString() ?? "");
-        setGrazingSystem(state.cycle.evidence.grazingProductionSystem?.value ?? "");
+          const grazingEvidence = state.cycle.evidence.grazingProductionSystem;
+          if (grazingEvidence?.method === "FARMER_DECLARED") {
+            setGrazingSystem(grazingEvidence.value);
+            setGrazingMode("farmer");
+          } else {
+            setGrazingSystem(grazingInference.value ?? "");
+            setGrazingMode("auto");
+          }
+        } else {
+          setGrazingSystem(grazingInference.value ?? "");
+          setGrazingMode("auto");
         }
       })
       .catch(() => {
@@ -110,7 +132,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
     return () => {
       cancelled = true;
     };
-  }, [field.id, season]);
+  }, [field.id, season, grazingInference.value]);
 
   const supported = P2_SUPPORTED_CROP_SYSTEMS.includes(cropSystem);
   const needsTarget = cropSystem === "GRASS_FIRST_CUT_SILAGE" || cropSystem === "GRASS_SECOND_CUT_SILAGE" || cropSystem === "GRASS_THIRD_CUT_SILAGE" || cropSystem === "GRASS_HAY" || cropSystem === "GRASS_MIXED" || cropSystem === "GRASS_WHITE_CLOVER_SILAGE";
@@ -156,16 +178,73 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
       </label>
 
       {cropSystem === "GRASS_GRAZING" ? (
-        <label className={LABEL}>
-          Grazing production system
-          <select className={INPUT} value={grazingSystem} onChange={(event) => setGrazingSystem(event.target.value as GrazingProductionSystem | "")}>
-            <option value="">Not recorded</option>
-            <option value="SUCKLER_CALF_TO_BEEF">Suckler calf-to-beef</option>
-            <option value="SUCKLER_CALF_TO_WEANING">Suckler calf-to-weaning</option>
-            <option value="OTHER_DRYSTOCK">Other drystock</option>
-          </select>
-          <span className="font-normal text-fr-v2-muted">Farm Return does not infer this from the farm enterprise because different Teagasc N tables apply.</span>
-        </label>
+        <div className="border border-fr-v2-cream-rule bg-fr-v2-cream-soft px-4 py-3" aria-label="Grazing production system">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-fr-v2-graphite">Grazing production system</p>
+              {grazingSystem ? (
+                <p className="mt-1 text-sm font-semibold text-fr-v2-forest-deep">{GRAZING_SYSTEM_LABELS[grazingSystem]}</p>
+              ) : (
+                <p className="mt-1 text-sm font-semibold text-fr-v2-graphite">Needs confirmation</p>
+              )}
+              <p className="mt-1 text-xs leading-relaxed text-fr-v2-muted">
+                {grazingMode === "farmer"
+                  ? "Confirmed by you. This takes priority over Farm Return's inference."
+                  : grazingInference.value
+                    ? `${grazingInference.reason} Farm Return uses this only to select the correct grazing nitrogen guidance.`
+                    : `${grazingInference.reason} Confirm the system so the nitrogen recommendation can use the correct rule.`}
+              </p>
+              {grazingMode === "auto" && grazingInference.evidenceLabels.length > 0 ? (
+                <p className="mt-1 font-mono text-[10px] leading-relaxed text-fr-v2-muted">Based on: {grazingInference.evidenceLabels.join(" · ")}</p>
+              ) : null}
+            </div>
+            <span className="shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-v2-gold">
+              {grazingMode === "farmer" ? "Farmer confirmed" : grazingInference.value ? "Inferred" : "Required"}
+            </span>
+          </div>
+
+          {editingGrazingSystem || !grazingSystem ? (
+            <div className="mt-3 flex flex-col gap-2">
+              <label className={LABEL}>
+                Confirm or change system
+                <select
+                  className={INPUT}
+                  value={grazingSystem}
+                  onChange={(event) => {
+                    setGrazingSystem(event.target.value as GrazingProductionSystem | "");
+                    setGrazingMode("farmer");
+                  }}
+                >
+                  <option value="">Select system</option>
+                  <option value="SUCKLER_CALF_TO_BEEF">Suckler calf-to-beef</option>
+                  <option value="SUCKLER_CALF_TO_WEANING">Suckler calf-to-weaning</option>
+                  <option value="OTHER_DRYSTOCK">Other drystock</option>
+                </select>
+              </label>
+              {grazingInference.value ? (
+                <button
+                  type="button"
+                  className="self-start text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-gold underline-offset-4"
+                  onClick={() => {
+                    setGrazingMode("auto");
+                    setGrazingSystem(grazingInference.value ?? "");
+                    setEditingGrazingSystem(false);
+                  }}
+                >
+                  Use Farm Return inference
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="mt-3 text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-gold underline-offset-4"
+              onClick={() => setEditingGrazingSystem(true)}
+            >
+              Change
+            </button>
+          )}
+        </div>
       ) : null}
 
       {!supported ? (
@@ -258,7 +337,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
                 ...(numericValue(pApplied) !== undefined ? { chemicalPAppliedKgHa: numericValue(pApplied) } : {}),
                 ...(numericValue(kApplied) !== undefined ? { chemicalKAppliedKgHa: numericValue(kApplied) } : {}),
                 ...(numericValue(cloverPct) !== undefined ? { whiteCloverPct: numericValue(cloverPct) } : {}),
-                ...(grazingSystem ? { grazingProductionSystem: grazingSystem } : {}),
+                ...(grazingMode === "farmer" && grazingSystem ? { grazingProductionSystem: grazingSystem } : {}),
                 farmerName: farm.ownerName,
               });
               setCycle(state.cycle);

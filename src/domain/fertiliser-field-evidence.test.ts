@@ -3,6 +3,7 @@ import { tracked, type Field } from "./types";
 import {
   createFarmerEvidence,
   evaluateFertiliserInputGate,
+  inferGrazingProductionSystem,
   type FieldProductionCycle,
 } from "./fertiliser-field-evidence";
 
@@ -117,4 +118,44 @@ describe("Fertiliser P2 field evidence gate", () => {
       });
     },
   );
+});
+
+
+describe("grazing production-system inference", () => {
+  const group = (overrides: Record<string, unknown>) => ({
+    id: "g",
+    farmId: "farm-1",
+    category: "weanling" as const,
+    label: "Group",
+    count: tracked(10, "verified", "Farmer"),
+    system: "grazing" as const,
+    value: tracked(0, "estimated", "Farm Return"),
+    ...overrides,
+  });
+
+  it("infers calf-to-beef only when recorded stock shows progeny retained beyond weaning", () => {
+    const result = inferGrazingProductionSystem([
+      group({ id: "cows", category: "suckler_cow", label: "Suckler cows", goal: "breed" }),
+      group({ id: "stores", category: "steer", label: "Stores", goal: "grow" }),
+    ]);
+    expect(result.value).toBe("SUCKLER_CALF_TO_BEEF");
+    expect(result.confidence).toBe("high");
+  });
+
+  it("infers calf-to-weaning when suckler progeny are marked for sale and no finishing group is present", () => {
+    const result = inferGrazingProductionSystem([
+      group({ id: "cows", category: "suckler_cow", label: "Suckler cows", goal: "breed" }),
+      group({ id: "weanlings", category: "weanling", label: "Weanlings", goal: "sell_store" }),
+    ]);
+    expect(result.value).toBe("SUCKLER_CALF_TO_WEANING");
+  });
+
+  it("fails closed when the herd shape is ambiguous", () => {
+    const result = inferGrazingProductionSystem([
+      group({ id: "cows", category: "suckler_cow", label: "Suckler cows", goal: "breed" }),
+      group({ id: "calves", category: "calf", label: "Calves" }),
+    ]);
+    expect(result.value).toBeNull();
+    expect(result.confidence).toBe("none");
+  });
 });

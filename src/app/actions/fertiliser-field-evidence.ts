@@ -3,8 +3,10 @@
 import { revalidatePath } from "next/cache";
 import type { Field } from "@/domain/types";
 import {
+  createDerivedEvidence,
   createFarmerEvidence,
   evaluateFertiliserInputGate,
+  inferGrazingProductionSystem,
   type CropSystem,
   type FieldProductionCycle,
   type FieldProductionCycleEvidence,
@@ -14,6 +16,7 @@ import {
 } from "@/domain/fertiliser-field-evidence";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
+import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import {
   getFieldProductionCycle,
   upsertFieldProductionCycle,
@@ -74,13 +77,23 @@ export async function saveFieldProductionCycleAction(
 
   const source = input.farmerName.trim() || "Farmer";
   const existing = await getFieldProductionCycle(input.fieldId, input.season);
+  const livestockGroups = input.cropSystem === "GRASS_GRAZING" ? await listLivestockGroupsForFarm(field.farmId) : [];
+  const grazingInference = inferGrazingProductionSystem(livestockGroups);
   const previousEvidence = existing?.evidence ?? {};
   const evidence: FieldProductionCycleEvidence = {
     ...previousEvidence,
     cropSystem: createFarmerEvidence(input.cropSystem, source, undefined, previousEvidence.cropSystem),
     ...(input.grazingProductionSystem
       ? { grazingProductionSystem: createFarmerEvidence(input.grazingProductionSystem, source, undefined, previousEvidence.grazingProductionSystem) }
-      : {}),
+      : input.cropSystem === "GRASS_GRAZING" && grazingInference.value
+        ? { grazingProductionSystem: createDerivedEvidence(
+            grazingInference.value,
+            "Farm Return — recorded livestock",
+            grazingInference.reason,
+            undefined,
+            previousEvidence.grazingProductionSystem,
+          ) }
+        : {}),
     ...(finiteNonNegative(input.productionTargetTDMHa)
       ? { productionTargetTDMHa: createFarmerEvidence(input.productionTargetTDMHa, source, undefined, previousEvidence.productionTargetTDMHa) }
       : {}),
@@ -97,6 +110,15 @@ export async function saveFieldProductionCycleAction(
       ? { whiteCloverPct: createFarmerEvidence(input.whiteCloverPct, source, undefined, previousEvidence.whiteCloverPct) }
       : {}),
   };
+
+  if (
+    input.cropSystem === "GRASS_GRAZING" &&
+    !input.grazingProductionSystem &&
+    !grazingInference.value &&
+    evidence.grazingProductionSystem?.method !== "FARMER_DECLARED"
+  ) {
+    delete evidence.grazingProductionSystem;
+  }
 
   const cycle = await upsertFieldProductionCycle({
     fieldId: input.fieldId,

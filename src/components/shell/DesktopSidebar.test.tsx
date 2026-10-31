@@ -54,6 +54,12 @@ describe("DesktopSidebar (Farm Spatial V2 Phase 02B)", () => {
     expect(screen.getByRole("button", { name: /^more$/i })).toBeTruthy();
   });
 
+  it("offers an explicit switch into the supplier portal", () => {
+    render(<DesktopSidebar />);
+    const link = screen.getByRole("link", { name: /supplier portal/i });
+    expect(link.getAttribute("href")).toBe("/supplier");
+  });
+
   it("reaches What Matters through More, not the primary list", () => {
     render(<DesktopSidebar />);
     const nav = screen.getByRole("navigation", { name: "Primary" });

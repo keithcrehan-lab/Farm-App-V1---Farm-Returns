@@ -28,7 +28,14 @@ export function SupplierShell({ supplierName, role, children }: { supplierName: 
               {supplierName} <span className="text-xs font-normal text-fr-ink-600">· {role === "admin" ? "Admin" : "Member"}</span>
             </p>
           </div>
-          <nav aria-label="Supplier portal" className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/today"
+              className="rounded-full border border-fr-border px-3 py-1.5 text-sm font-medium text-fr-ink-600 hover:bg-fr-surface-alt"
+            >
+              ← Back to Farm Return
+            </Link>
+            <nav aria-label="Supplier portal" className="flex flex-wrap gap-1">
             {NAV.map((item) => {
               const active = item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (
@@ -45,7 +52,8 @@ export function SupplierShell({ supplierName, role, children }: { supplierName: 
                 </Link>
               );
             })}
-          </nav>
+            </nav>
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-5xl p-4">{children}</main>

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, Sprout } from "lucide-react";
+import { ChevronDown, Sprout, Store } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { isNavItemActive, primaryNavItems, moreNavItems, moreNavIcon as MoreIcon } from "./nav-items";
 import { useFarm } from "@/store/farm-store";
@@ -108,6 +108,17 @@ export function DesktopSidebar() {
           ) : null}
         </div>
       </nav>
+
+      <div className="mt-3 px-2.5 pt-3">
+        <Link
+          href="/supplier"
+          className="flex w-full items-center gap-2.5 rounded-fr-v2-row border border-white/10 bg-white/[0.04] px-2.5 py-2 text-[13px] font-medium text-white/70 transition-colors duration-[160ms] hover:bg-white/[0.08] hover:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white/70"
+        >
+          <Store className="size-4 opacity-80" />
+          <span className="min-w-0 flex-1">Supplier Portal</span>
+          <span className="text-[10px] uppercase tracking-wide text-white/35">Switch</span>
+        </Link>
+      </div>
 
       <div className="mt-3 flex items-center gap-2.5 px-2.5 pt-3">
         <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white/85">

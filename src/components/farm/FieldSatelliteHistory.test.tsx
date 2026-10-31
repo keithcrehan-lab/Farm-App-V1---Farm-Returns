@@ -104,6 +104,8 @@ describe("FieldSatelliteHistory", () => {
 
     await waitFor(() => expect(mockHistory).toHaveBeenCalledWith(field.id, "1Y", undefined, undefined));
     await waitFor(() => expect(screen.getByText(/1 shown · 2 passes found/i)).toBeTruthy());
+    expect(screen.getByText(/Beta · work in progress/i)).toBeTruthy();
+    expect(screen.getByText(/supporting context only, not as a definitive agronomic diagnosis or recommendation/i)).toBeTruthy();
 
     await waitFor(() => {
       expect(mockImage).toHaveBeenLastCalledWith(field.id, "2026-10-18T11:30:00Z", "natural");

@@ -327,6 +327,12 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
           <p className="mt-1 max-w-xl text-sm leading-relaxed text-fr-v2-muted">
             Track vegetation change across this field using clear Sentinel-2 observations.
           </p>
+          <div className="mt-3 max-w-2xl border-l-[3px] border-fr-v2-gold pl-3">
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-v2-gold">Beta · work in progress</p>
+            <p className="mt-1 text-xs leading-relaxed text-fr-v2-muted">
+              This satellite section is still being refined. Treat the imagery and vegetation signals as supporting context only, not as a definitive agronomic diagnosis or recommendation.
+            </p>
+          </div>
         </div>
         <div className="flex border border-fr-v2-cream-rule" aria-label="Satellite history period">
           {(["3M", "1Y", "3Y", "CUSTOM"] as SatelliteHistoryPreset[]).map((value) => (

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { FarmProvider } from "@/store/farm-store";
 import { HerdManagementClient } from "./HerdManagementClient";
@@ -23,7 +23,8 @@ const GROUP: LivestockGroup = {
   value: tracked(12000, "estimated", "Farm Return estimate"),
 };
 
-afterEach(cleanup);
+beforeEach(() => window.localStorage.clear());
+afterEach(() => { cleanup(); window.localStorage.clear(); });
 
 function renderGroups() {
   return render(
@@ -53,6 +54,23 @@ describe("Manage herd groups redesign", () => {
     expect(details[0].hasAttribute("open")).toBe(true);
     expect(details[1].hasAttribute("open")).toBe(false);
     expect(details[2].hasAttribute("open")).toBe(false);
+  });
+
+  it("requires explicit confirmation before permanently deleting a group", () => {
+    renderGroups();
+    fireEvent.click(screen.getByRole("button", { name: /edit details/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^delete group$/i }));
+
+    expect(screen.getByText(/delete weanlings\?/i)).toBeTruthy();
+    expect(screen.getByText(/individual animals linked to this group are not deleted/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /keep group/i }));
+    expect(screen.getByText("Weanlings")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^delete group$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /delete group permanently/i }));
+    expect(screen.queryByText("Weanlings")).toBeNull();
+    expect(screen.getByText(/no livestock groups yet/i)).toBeTruthy();
   });
 
   it("keeps the existing canonical update path when a group is edited", () => {

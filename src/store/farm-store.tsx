@@ -102,6 +102,7 @@ import {
   addFieldAction,
   addHousingAction,
   addLivestockGroupAction,
+  deleteLivestockGroupAction,
   addSlurryCompositionRecordAction,
   addSoilTestAction,
   archiveFieldAction,
@@ -371,6 +372,7 @@ interface FarmActions {
   addLivestockGroup: (input: AddLivestockGroupInput) => Promise<LivestockGroup>;
   /** Real Mode Completion Phase 26 — editability; a farmer correcting a
    * group's count/weight/label/system/goal/housing after creation. */
+  deleteLivestockGroup: (groupId: string) => void;
   updateLivestockGroup: (
     groupId: string,
     patch: {
@@ -1029,6 +1031,15 @@ export function FarmProvider({
         return group;
       },
 
+      deleteLivestockGroup(groupId) {
+        setState((s) => ({
+          ...s,
+          livestockGroups: s.livestockGroups.filter((group) => group.id !== groupId),
+          housing: s.housing.map((housing) => ({ ...housing, linkedGroupIds: housing.linkedGroupIds.filter((id) => id !== groupId) })),
+        }));
+        persistRemote("deleteLivestockGroup", () => deleteLivestockGroupAction(groupId));
+      },
+
       updateLivestockGroup(groupId, patch, farmerName) {
         setState((s) => ({
           ...s,
@@ -1497,6 +1508,7 @@ export function useFarmActions(): FarmActions {
     restoreField,
     updateFieldIndex,
     addLivestockGroup,
+    deleteLivestockGroup,
     updateLivestockGroup,
     addHousing,
     updateHousing,
@@ -1533,6 +1545,7 @@ export function useFarmActions(): FarmActions {
     restoreField,
     updateFieldIndex,
     addLivestockGroup,
+    deleteLivestockGroup,
     updateLivestockGroup,
     addHousing,
     updateHousing,

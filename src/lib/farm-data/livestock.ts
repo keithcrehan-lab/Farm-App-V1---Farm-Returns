@@ -89,6 +89,12 @@ export interface UpdateLivestockGroupInput {
   farmerName: string;
 }
 
+export async function deleteLivestockGroup(groupId: string): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("livestock_groups").delete().eq("id", groupId);
+  if (error) throw error;
+}
+
 export async function updateLivestockGroup(groupId: string, input: UpdateLivestockGroupInput): Promise<LivestockGroup> {
   const supabase = await createClient();
   const update: Record<string, unknown> = {};

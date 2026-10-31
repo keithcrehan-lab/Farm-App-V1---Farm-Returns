@@ -9,7 +9,7 @@
  */
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { Pencil, Plus, X } from "lucide-react";
+import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { ProgressiveDisclosure } from "@/components/ui/ProgressiveDisclosure";
@@ -271,8 +271,9 @@ function GroupsTab({
   housingList: ReturnType<typeof useHousingList>;
   farmerName: string;
 }) {
-  const { updateLivestockGroup } = useFarmActions();
+  const { deleteLivestockGroup, updateLivestockGroup } = useFarmActions();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const [count, setCount] = useState("");
   const [avgWeightKg, setAvgWeightKg] = useState("");
@@ -427,9 +428,40 @@ function GroupsTab({
                     </div>
                   </ProgressiveDisclosure>
 
-                  <div className="flex flex-wrap justify-end gap-2 border-t border-fr-border pt-4">
-                    <button type="button" onClick={() => setEditingId(null)} className="min-h-10 rounded-fr-control px-4 text-sm font-medium text-fr-ink-600">Cancel</button>
+                  {deleteConfirmId === group.id ? (
+                    <div className="mt-4 border-t border-fr-risk/30 bg-fr-risk/5 p-4">
+                      <p className="text-sm font-semibold text-fr-risk">Delete {group.label}?</p>
+                      <p className="mt-1 max-w-2xl text-xs leading-relaxed text-fr-ink-600">
+                        This removes the group from herd totals and calculations. Any individual animals linked to this group are not deleted; they remain in Cattle but become ungrouped. This action cannot be undone.
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button type="button" onClick={() => setDeleteConfirmId(null)} className="min-h-10 rounded-fr-control border border-fr-border px-4 text-sm font-semibold text-fr-ink-600">Keep group</button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            deleteLivestockGroup(group.id);
+                            setDeleteConfirmId(null);
+                            setEditingId(null);
+                          }}
+                          className="flex min-h-10 items-center gap-2 rounded-fr-control bg-fr-risk px-4 text-sm font-semibold text-white"
+                        >
+                          <Trash2 className="size-4" /> Delete group permanently
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-fr-border pt-4">
                     <button
+                      type="button"
+                      onClick={() => setDeleteConfirmId(group.id)}
+                      className="flex min-h-10 items-center gap-2 rounded-fr-control px-2 text-sm font-semibold text-fr-risk"
+                    >
+                      <Trash2 className="size-4" /> Delete group
+                    </button>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button type="button" onClick={() => setEditingId(null)} className="min-h-10 rounded-fr-control px-4 text-sm font-medium text-fr-ink-600">Cancel</button>
+                      <button
                       type="button"
                       disabled={!label.trim() || !(Number(count) > 0)}
                       className="min-h-10 rounded-fr-control bg-fr-green-700 px-4 text-sm font-semibold text-white disabled:opacity-40"
@@ -451,7 +483,8 @@ function GroupsTab({
                       }}
                     >
                       Save changes
-                    </button>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : null}

@@ -30,7 +30,7 @@ import {
   updateFieldWaterBufferContext as updateFieldWaterBufferContextRow,
 } from "@/lib/farm-data/fields";
 import { addSoilTestToField, type NewSoilTestInput } from "@/lib/farm-data/soil";
-import { createLivestockGroup, listLivestockGroupsForFarm, updateLivestockGroup, type UpdateLivestockGroupInput } from "@/lib/farm-data/livestock";
+import { createLivestockGroup, deleteLivestockGroup, listLivestockGroupsForFarm, updateLivestockGroup, type UpdateLivestockGroupInput } from "@/lib/farm-data/livestock";
 import { createHousing, listHousingForFarm, updateHousing, type UpdateHousingInput } from "@/lib/farm-data/housing";
 import { upsertFinancialAssumption } from "@/lib/farm-data/financial-assumptions";
 import { addWeightObservation, createIndividualAnimal, getIndividualAnimalForFarm, type NewIndividualAnimalInput } from "@/lib/farm-data/individual-animals";
@@ -297,6 +297,16 @@ export async function addSlurryCompositionRecordAction(farmId: string, input: Ne
   revalidatePath("/today");
   revalidatePath("/plan");
   return record;
+}
+
+export async function deleteLivestockGroupAction(groupId: string): Promise<void> {
+  const farm = await currentFarmForLivestock();
+  await requireFarmGroup(farm.id, groupId);
+  await deleteLivestockGroup(groupId);
+  revalidateCattle();
+  revalidatePath("/housing");
+  revalidatePath("/finance");
+  revalidatePath("/fertiliser-plan");
 }
 
 export async function updateLivestockGroupAction(groupId: string, input: UpdateLivestockGroupInput): Promise<LivestockGroup> {

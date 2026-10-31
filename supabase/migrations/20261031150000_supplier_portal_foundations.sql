@@ -4,10 +4,10 @@
 -- supplier, and supplier-authored quotes with priced line items and an
 -- append-only history.
 --
--- STATUS: NOT APPLIED to any database. Written 2026-10-31 without a
--- local Postgres; never executed. Apply to Farm Return V1 Dev only after
--- review, then run supabase/validation/supplier_portal_rls_validation.sql
--- against that same project. Never apply to production from this repo.
+-- STATUS: APPLIED to Farm Return V1 Dev on 2026-10-31 after review.
+-- The live isolation/security validation passed 18/18 checks on that same
+-- project. Never apply to production from this repo without a separate
+-- production release decision.
 --
 -- NAMING: every object is prefixed `supplier_portal_`. Dev already holds
 -- the unmerged managed-quote-pilot branch's own `quote_suppliers` /

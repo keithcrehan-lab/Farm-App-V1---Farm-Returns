@@ -1,9 +1,9 @@
 -- Supplier Portal -- live cross-supplier isolation validation for
 -- 20261031150000_supplier_portal_foundations.sql.
 --
--- STATUS: NOT RUN. Written 2026-10-31 alongside the migration; no
--- database was available. Run only against Farm Return V1 Dev, after
--- the migration has been applied there.
+-- STATUS: RUN against Farm Return V1 Dev on 2026-10-31 after the
+-- migration was applied. Result: 18/18 checks PASS. This script remains
+-- rollback-only and safe to rerun against Dev when the portal changes.
 --
 -- HOW TO RUN: a service-role/postgres connection (`supabase db query -f
 -- <this file> --linked`, or the Dashboard SQL editor), the whole file
@@ -140,8 +140,14 @@ begin
   insert into _sp_results (test, outcome) values ('RLS hides B''s quote lines from A', case when v_count = 0 then 'PASS' else 'FAIL: ' || v_count end);
   select count(*) into v_count from public.supplier_portal_organisations where id = (select v from _sp_ctx where k = 'supplier_b');
   insert into _sp_results (test, outcome) values ('RLS hides B''s organisation from A', case when v_count = 0 then 'PASS' else 'FAIL: ' || v_count end);
-  select count(*) into v_count from public.quote_request_delivery_snapshots;
-  insert into _sp_results (test, outcome) values ('A reads no delivery snapshots beyond its own farm's', case when v_count = (select count(*) from public.quote_request_delivery_snapshots s join public.farms f on f.id = s.farm_id where f.user_id = auth.uid()) then 'PASS' else 'FAIL: ' || v_count end);
+  begin
+    select count(*) into v_count from public.quote_request_delivery_snapshots;
+    insert into _sp_results (test, outcome) values ('Supplier cannot directly read farmer delivery snapshots', 'FAIL: direct SELECT unexpectedly succeeded with ' || v_count || ' row(s)');
+  exception when insufficient_privilege then
+    insert into _sp_results (test, outcome) values ('Supplier cannot directly read farmer delivery snapshots', 'PASS');
+  when others then
+    insert into _sp_results (test, outcome) values ('Supplier cannot directly read farmer delivery snapshots', case when sqlerrm like 'permission denied%' then 'PASS' else 'FAIL: ' || sqlerrm end);
+  end;
 
   begin
     insert into public.supplier_portal_quotes (route_id, supplier_id, quoted_revision_id, quoted_revision_number, status)

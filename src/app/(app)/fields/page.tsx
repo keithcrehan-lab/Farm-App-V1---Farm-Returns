@@ -478,6 +478,7 @@ function FieldWorkspaceView({
           neighbourNameLabels
           center={field.centroid}
           plain
+          showBackToSelectionControl
           className="h-[48dvh] min-h-[340px] lg:h-[54dvh] lg:min-h-[440px]"
         >
           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between">

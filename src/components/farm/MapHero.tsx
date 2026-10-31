@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { LocateFixed } from "lucide-react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { MAPBOX_SATELLITE_STYLE, MAPBOX_PLAIN_SATELLITE_STYLE, MAPBOX_TOKEN, mapboxConfigured } from "@/lib/mapbox";
@@ -66,6 +67,7 @@ export function MapHero({
   dimUnhighlighted = false,
   fitHighlightedFields = false,
   userPosition = null,
+  showBackToSelectionControl = false,
   className,
   children,
 }: {
@@ -196,6 +198,8 @@ export function MapHero({
    * whenever permission is denied/unavailable — never a guessed or
    * centred-on-the-farm placeholder position. */
   userPosition?: { lat: number; lng: number } | null;
+  /** One-tap camera recovery to the selected field's persisted polygon. */
+  showBackToSelectionControl?: boolean;
   className?: string;
   /** Overlay content (gradient legibility scrim + cards) rendered above
    * the map surface — the "light legible cards over real imagery"
@@ -706,16 +710,9 @@ export function MapHero({
         .join(";")
     : "";
 
-  // Codex audit round 1 (Phase V2, Farm/Field exploration): real
-  // tap-to-select needs a real camera response, not just a list/drawer
-  // update elsewhere on the page — flies to the selected field's own
-  // real polygon bounds. Opt-in (`flyToSelection`) so Today's own
-  // visual-emphasis-only use of `selectedFieldId` never triggers
-  // unwanted camera movement.
-  useEffect(() => {
-    if (!flyToSelection) return;
+  function fitSelectedField(duration = flyToDuration) {
     const map = mapRef.current;
-    const field = mappedFields.find((f) => f.id === selectedFieldId);
+    const field = mappedFields.find((candidate) => candidate.id === selectedFieldId);
     if (!map || !field) return;
     const ring = field.polygon.coordinates[0] ?? [];
     if (ring.length === 0) return;
@@ -730,12 +727,20 @@ export function MapHero({
       if (lat > maxLat) maxLat = lat;
     }
     map.fitBounds(
-      [
-        [minLng, minLat],
-        [maxLng, maxLat],
-      ],
-      { padding: flyToPadding ?? 80, maxZoom: flyToMaxZoom, duration: flyToDuration },
+      [[minLng, minLat], [maxLng, maxLat]],
+      { padding: flyToPadding ?? 80, maxZoom: flyToMaxZoom, duration },
     );
+  }
+
+  // Codex audit round 1 (Phase V2, Farm/Field exploration): real
+  // tap-to-select needs a real camera response, not just a list/drawer
+  // update elsewhere on the page — flies to the selected field's own
+  // real polygon bounds. Opt-in (`flyToSelection`) so Today's own
+  // visual-emphasis-only use of `selectedFieldId` never triggers
+  // unwanted camera movement.
+  useEffect(() => {
+    if (!flyToSelection) return;
+    fitSelectedField();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; keying on selectedFieldId + selectedFieldBoundsSignature (and the map/flyToSelection refs) is what actually determines whether this should re-fly, not a new array identity for the same real field set.
   }, [selectedFieldId, selectedFieldBoundsSignature, flyToSelection, flyToMaxZoom]);
 
@@ -824,6 +829,17 @@ export function MapHero({
           <p className="text-xs text-fr-ink-600">This deployment is missing a Mapbox access token.</p>
         </div>
       )}
+      {showBackToSelectionControl && selectedFieldId && mappedFields.some((field) => field.id === selectedFieldId) ? (
+        <button
+          type="button"
+          onClick={() => fitSelectedField(flyToDuration)}
+          className="absolute bottom-4 left-4 z-30 inline-flex min-h-10 items-center gap-2 rounded-full border border-white/25 bg-fr-v2-forest-deep/92 px-4 text-sm font-semibold text-white shadow-lg backdrop-blur-sm transition hover:bg-fr-v2-forest-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fr-v2-straw lg:bottom-6 lg:left-12"
+          aria-label="Back to field"
+        >
+          <LocateFixed className="size-4" />
+          Back to field
+        </button>
+      ) : null}
       {children}
     </div>
   );

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
+  getAutomaticSlurryPlanAction,
   getSlurryStorageForecastAction,
   previewSlurryFirstFertiliserPlanAction,
   type SlurryFirstFertiliserPlanResult,
@@ -61,6 +62,7 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
   const [carryForwardCurrent, setCarryForwardCurrent] = useState(true);
   const [candidates, setCandidates] = useState<CandidateDraft[]>([]);
   const [result, setResult] = useState<SlurryFirstFertiliserPlanResult | null>(null);
+  const [autoPlanMessage, setAutoPlanMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const allocatedDraftM3 = useMemo(
@@ -109,6 +111,24 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
         applicationDate: "",
       },
     ]);
+  };
+
+  const useRecommendedAllocation = () => {
+    setAutoPlanMessage("Calculating recommended field allocation…");
+    startTransition(async () => {
+      const plan = await getAutomaticSlurryPlanAction(planningDate);
+      if (plan.status !== "ready") {
+        setAutoPlanMessage(plan.message);
+        return;
+      }
+      setExpectedAvailableM3(String(Math.round(plan.expectedAvailableM3 * 100) / 100));
+      setForecastSource("SYSTEM_FORECAST");
+      setCandidates(plan.recommendations.map((r, index) => ({
+        key: index + 1, fieldId: r.fieldId, housingId: r.housingId, volumeM3: String(Math.round(r.volumeM3 * 100) / 100),
+        applicationMethod: r.applicationMethod, applicationDate: r.applicationDate,
+      })));
+      setAutoPlanMessage(`${plan.recommendations.length} field recommendation${plan.recommendations.length === 1 ? "" : "s"} · ${plan.allocatedM3.toFixed(0)} m³ allocated · estimated from P3 chemical-purchase reduction.`);
+    });
   };
 
   const runPreview = () => {
@@ -201,10 +221,13 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
               <p className="text-sm font-semibold text-fr-v2-graphite">Field slurry proposals</p>
               <p className="text-xs text-fr-v2-muted">Planning assumptions only — these do not change today&apos;s tank volume or create live spreading jobs.</p>
             </div>
-            <button type="button" onClick={addCandidate} className="shrink-0 text-sm font-semibold text-fr-v2-forest">
-              Add field
-            </button>
+            <div className="flex shrink-0 items-center gap-3">
+              <button type="button" onClick={useRecommendedAllocation} className="text-sm font-semibold text-fr-v2-forest">Use Farm Return recommendation</button>
+              <button type="button" onClick={addCandidate} className="text-sm font-semibold text-fr-v2-forest">Add field</button>
+            </div>
           </div>
+
+          {autoPlanMessage ? <p className="border-l-[3px] border-fr-v2-gold pl-3 text-xs leading-relaxed text-fr-v2-muted">{autoPlanMessage}</p> : null}
 
           {candidates.length === 0 ? (
             <p className="border-l-[3px] border-fr-v2-gold pl-3 text-sm text-fr-v2-muted">Add the fields you are considering for slurry. Farm Return will recalculate chemical fertiliser from those planned credits.</p>

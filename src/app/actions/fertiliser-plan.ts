@@ -52,6 +52,7 @@ import {
   type FarmLimeRequirement,
 } from "@/domain/fertiliser-plan";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "@/domain/closed-period-calendar";
+import { checkLessMethodGate } from "@/domain/less-method-gate";
 import { cropFamilyFor, type EvidenceValue, type FieldProductionCycle, type FieldProductionCycleEvidence } from "@/domain/fertiliser-field-evidence";
 import { calculateGrassFertiliserV2, type GrassRuleTrace } from "@/domain/grass-fertiliser-engine-v2";
 import { calculateFieldGrazingPressure, type GrazingFieldSession } from "@/domain/grazing-field-pressure";
@@ -1004,6 +1005,232 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
     fieldsWithBlockedEvidence,
     aggregation,
     basket: buildFarmFertiliserQuoteBasket(aggregation, { farmId: farm.id, createdAt: now }),
+  };
+}
+
+
+export interface AutomaticSlurryFieldRecommendation {
+  fieldId: string;
+  fieldName: string;
+  housingId: string;
+  storeName: string;
+  applicationDate: string;
+  applicationMethod: "LESS" | "splashplate";
+  rateM3ha: number;
+  volumeM3: number;
+  availableNpkKgHa: { n: number; p: number; k: number };
+  baselineChemicalCostEur: number;
+  withSlurryChemicalCostEur: number;
+  estimatedChemicalSavingEur: number;
+  estimatedSavingEurPerM3: number;
+  basis: "P3_PURCHASE_REDUCTION";
+}
+
+export type AutomaticSlurryPlanActionResult =
+  | { status: "blocked"; reasonCode: string; message: string }
+  | {
+      status: "ready";
+      planningDate: string;
+      expectedAvailableM3: number;
+      allocatedM3: number;
+      unallocatedM3: number;
+      recommendations: AutomaticSlurryFieldRecommendation[];
+      baseline: FarmFertiliserDemandActionResult;
+      withRecommendedSlurry: FarmFertiliserDemandActionResult;
+      limitations: string[];
+    };
+
+function isoAddDays(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function nextSupportedSpringSlurryDate(county: string, fromDate: string): string | undefined {
+  const normalisedCounty = normaliseCountyForZoneLookup(county);
+  const startYear = Number(fromDate.slice(0, 4));
+  for (let yearOffset = 0; yearOffset <= 2; yearOffset++) {
+    const year = startYear + yearOffset;
+    const start = `${year}-01-01`;
+    for (let i = 0; i < 120; i++) {
+      const date = isoAddDays(start, i);
+      if (date.slice(0, 4) !== String(year) || Number(date.slice(5, 7)) > 4) break;
+      if (date < fromDate) continue;
+      const gate = checkClosedPeriodCalendar({ county: normalisedCounty, date, material: "organic_fertiliser_other_than_FYM" });
+      if (gate.status === "OK") return date;
+    }
+  }
+  return undefined;
+}
+
+function roundDown1(value: number): number {
+  return Math.floor((value + 1e-9) * 10) / 10;
+}
+
+/**
+ * P3-native automatic slurry plan. This deliberately does not persist an
+ * allocation: it is a planning recommendation that uses the same P3 gross
+ * requirement and product-cost calculation as the chemical quote basket.
+ */
+export async function getAutomaticSlurryPlanAction(requestedPlanningDate?: string): Promise<AutomaticSlurryPlanActionResult> {
+  const farm = await getFarmForCurrentUser();
+  if (!farm) throw new Error("getAutomaticSlurryPlanAction: no real farm for the current session");
+  const today = new Date().toISOString().slice(0, 10);
+  const planningDate = requestedPlanningDate ?? nextSupportedSpringSlurryDate(farm.location.county, today);
+  if (!planningDate) return { status: "blocked", reasonCode: "NO_SUPPORTED_SPRING_WINDOW", message: "Farm Return could not resolve a supported spring slurry date from the current county calendar." };
+  const planningMonth = Number(planningDate.slice(5, 7));
+  const calendarGate = checkClosedPeriodCalendar({ county: normaliseCountyForZoneLookup(farm.location.county), date: planningDate, material: "organic_fertiliser_other_than_FYM" });
+  if (planningMonth < 1 || planningMonth > 4 || calendarGate.status !== "OK") {
+    return { status: "blocked", reasonCode: "UNSUPPORTED_SLURRY_PLANNING_DATE", message: "Automatic slurry allocation currently uses a supported, baseline-open spring application date (January-April)." };
+  }
+
+  const [allFields, livestockGroups, housing, slurryCompositionRecords, existingAllocations, grazingSessions] = await Promise.all([
+    listFieldsForFarm(farm.id),
+    listLivestockGroupsForFarm(farm.id),
+    listHousingForFarm(farm.id),
+    listSlurryCompositionRecordsForFarm(farm.id),
+    listSlurryAllocationsForFarm(farm.id),
+    listGrazingFieldSessionsForFarm(farm.id),
+  ]);
+  const fields = activeFields(allFields);
+  const season = planningDate.slice(0, 4);
+  let p3Cycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), season);
+  if (p3Cycles.length !== fields.length) {
+    const currentSeason = String(new Date().getUTCFullYear());
+    const currentCycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), currentSeason);
+    if (currentCycles.length !== fields.length) {
+      return { status: "blocked", reasonCode: "MISSING_PRODUCTION_CYCLES", message: `A production cycle is required for every active field before Farm Return can allocate slurry automatically for ${season}.` };
+    }
+    p3Cycles = currentCycles.map((cycle) => carryForwardProductionCycle(cycle, season, planningDate));
+  }
+
+  const forecast = buildFarmSlurryForecast({ housing, livestockGroups, allocations: existingAllocations, asOfDate: today, targetDate: planningDate });
+  if (forecast.status !== "READY") {
+    return { status: "blocked", reasonCode: "INCOMPLETE_SLURRY_FORECAST", message: `${forecast.blockedStoreCount} store${forecast.blockedStoreCount === 1 ? " is" : "s are"} missing evidence needed for an automatic slurry plan.` };
+  }
+  if (forecast.projectedAvailableForNewPlanM3 <= 0) {
+    return { status: "blocked", reasonCode: "NO_PROJECTED_SLURRY_AVAILABLE", message: `No unallocated slurry is projected to be available on ${planningDate}.` };
+  }
+
+  const baseline = await buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations: [], slurryCompositionRecords, grazingSessions, now: `${planningDate}T12:00:00.000Z`, p3Cycles });
+  const cycleByField = new Map(p3Cycles.map((c) => [c.fieldId, c]));
+  const compositionByHousing = currentSlurryCompositionByHousing(slurryCompositionRecords);
+  const grasslandAreaHa = fields.reduce((sum, field) => cropFamilyFor(cycleByField.get(field.id)!.cropSystem) === "grassland" ? sum + field.areaHa : sum, 0);
+  const statutoryGsr = calculateStatutoryGrasslandStockingRateKgHa(livestockGroups, grasslandAreaHa);
+  if (statutoryGsr.status !== "OK") {
+    return { status: "blocked", reasonCode: "MISSING_GSR_FOR_LESS_GATE", message: "Farm Return cannot recommend a slurry application method until the statutory grassland stocking rate can be resolved from the livestock records." };
+  }
+  const gsrKgNHa = statutoryGsr.value.gsrKgNHa;
+  const methodGate = checkLessMethodGate({ gsrKgNHa, material: "cattle_slurry", landUse: "grass", method: "splashplate" });
+  const applicationMethod: "LESS" | "splashplate" = methodGate.status === "LEGAL_PROHIBITION" ? "LESS" : "splashplate";
+
+  const storeRemaining = new Map<string, number>();
+  for (const sf of forecast.stores) if (sf.status === "READY") storeRemaining.set(sf.housingId, sf.projectedAvailableForNewPlanM3);
+
+  type Candidate = AutomaticSlurryFieldRecommendation & { desiredVolumeM3: number };
+  const candidates: Candidate[] = [];
+  for (const field of fields) {
+    const cycle = cycleByField.get(field.id)!;
+    if (cropFamilyFor(cycle.cropSystem) !== "grassland") continue;
+    if (!field.fertility.pIndex?.value || !field.fertility.kIndex?.value) continue;
+
+    const grazingStockingInput = cycle.cropSystem === "GRASS_GRAZING"
+      ? grazingStockingInputForField({ field, livestockGroups, sessions: grazingSessions, season, asOf: `${planningDate}T12:00:00.000Z`, ...(gsrKgNHa !== undefined ? { holdingFallbackKgHa: gsrKgNHa } : {}) })
+      : {};
+    const gross = calculateGrassFertiliserV2({
+      field, cycle, ...grazingStockingInput,
+      ...(cycle.evidence.grazingProductionSystem?.value ? { grazingProductionSystem: cycle.evidence.grazingProductionSystem.value } : {}),
+      organicCreditsKgHa: { n: 0, p: 0, k: 0 },
+    });
+    if (gross.status !== "READY" || !gross.grossRequirementKgHa) continue;
+    const baselineProducts = allocatePurchasedProducts(gross.grossRequirementKgHa.n, gross.grossRequirementKgHa.p, gross.grossRequirementKgHa.k, field.areaHa);
+
+    for (const store of housing) {
+      const availableStore = storeRemaining.get(store.id) ?? 0;
+      if (availableStore <= 0 || store.shedType !== "slatted") continue;
+      const composition = resolveEffectiveSlurryComposition(compositionByHousing.get(store.id));
+      const synthetic: SlurryAllocation = {
+        fieldId: field.id,
+        housingId: store.id,
+        volumeM3: field.areaHa,
+        applicationMethod: tracked(applicationMethod, "estimated", "Farm Return automatic slurry planning"),
+        applicationDate: tracked(planningDate, "estimated", "Farm Return automatic slurry planning"),
+      };
+      const oneM3 = resolveAvailableSlurryNutrients({ allocation: synthetic, applicationRateM3ha: 1, dmPct: composition.dmPct, dmPctStatus: composition.status, pIndex: field.fertility.pIndex.value, kIndex: field.fertility.kIndex.value });
+      if (oneM3.status !== "OK") continue;
+      const limits: number[] = [];
+      for (const [key, perM3] of [["n", oneM3.value.n], ["p", oneM3.value.p], ["k", oneM3.value.k]] as const) {
+        const req = gross.grossRequirementKgHa[key];
+        if (perM3 > 0) limits.push(req / perM3);
+      }
+      if (limits.length === 0) continue;
+      const usefulRate = roundDown1(Math.max(0, Math.min(...limits)));
+      if (usefulRate <= 0) continue;
+      const desiredVolumeM3 = usefulRate * field.areaHa;
+      const candidateRate = usefulRate;
+      const credit = resolveAvailableSlurryNutrients({ allocation: synthetic, applicationRateM3ha: candidateRate, dmPct: composition.dmPct, dmPctStatus: composition.status, pIndex: field.fertility.pIndex.value, kIndex: field.fertility.kIndex.value });
+      if (credit.status !== "OK") continue;
+      const after = calculateGrassFertiliserV2({
+        field, cycle, ...grazingStockingInput,
+        ...(cycle.evidence.grazingProductionSystem?.value ? { grazingProductionSystem: cycle.evidence.grazingProductionSystem.value } : {}),
+        organicCreditsKgHa: credit.value,
+      });
+      if (after.status !== "READY" || !after.remainingRequirementKgHa) continue;
+      const afterProducts = allocatePurchasedProducts(after.remainingRequirementKgHa.n, after.remainingRequirementKgHa.p, after.remainingRequirementKgHa.k, field.areaHa);
+      const saving = Math.max(0, baselineProducts.totalCostEur - afterProducts.totalCostEur);
+      candidates.push({
+        fieldId: field.id, fieldName: field.name, housingId: store.id, storeName: store.shedName,
+        applicationDate: planningDate, applicationMethod, rateM3ha: candidateRate, volumeM3: desiredVolumeM3,
+        desiredVolumeM3, availableNpkKgHa: credit.value,
+        baselineChemicalCostEur: baselineProducts.totalCostEur, withSlurryChemicalCostEur: afterProducts.totalCostEur,
+        estimatedChemicalSavingEur: saving, estimatedSavingEurPerM3: desiredVolumeM3 > 0 ? saving / desiredVolumeM3 : 0,
+        basis: "P3_PURCHASE_REDUCTION",
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.estimatedSavingEurPerM3 - a.estimatedSavingEurPerM3 || a.fieldId.localeCompare(b.fieldId) || a.housingId.localeCompare(b.housingId));
+  const selected: AutomaticSlurryFieldRecommendation[] = [];
+  const selectedFields = new Set<string>();
+  for (const candidate of candidates) {
+    if (selectedFields.has(candidate.fieldId)) continue;
+    const available = storeRemaining.get(candidate.housingId) ?? 0;
+    if (available <= 0) continue;
+    const volume = Math.min(candidate.desiredVolumeM3, available);
+    const rate = roundDown1(volume / fields.find((f) => f.id === candidate.fieldId)!.areaHa);
+    if (rate <= 0) continue;
+    const actualVolume = rate * fields.find((f) => f.id === candidate.fieldId)!.areaHa;
+    const composition = resolveEffectiveSlurryComposition(compositionByHousing.get(candidate.housingId));
+    const allocation: SlurryAllocation = {
+      fieldId: candidate.fieldId, housingId: candidate.housingId, volumeM3: actualVolume,
+      applicationMethod: tracked(applicationMethod, "estimated", "Farm Return automatic slurry planning"),
+      applicationDate: tracked(planningDate, "estimated", "Farm Return automatic slurry planning"),
+    };
+    const field = fields.find((f) => f.id === candidate.fieldId)!;
+    const credit = resolveAvailableSlurryNutrients({ allocation, applicationRateM3ha: rate, dmPct: composition.dmPct, dmPctStatus: composition.status, pIndex: field.fertility.pIndex!.value, kIndex: field.fertility.kIndex!.value });
+    if (credit.status !== "OK") continue;
+    selected.push({ ...candidate, rateM3ha: rate, volumeM3: actualVolume, availableNpkKgHa: credit.value });
+    selectedFields.add(candidate.fieldId);
+    storeRemaining.set(candidate.housingId, Math.max(0, available - actualVolume));
+  }
+
+  const recommendedAllocations: SlurryAllocation[] = selected.map((r) => ({
+    fieldId: r.fieldId, housingId: r.housingId, volumeM3: r.volumeM3,
+    applicationMethod: tracked(r.applicationMethod, "estimated", "Farm Return automatic slurry planning", { sourceDate: planningDate }),
+    applicationDate: tracked(r.applicationDate, "estimated", "Farm Return automatic slurry planning", { sourceDate: planningDate }),
+  }));
+  const withRecommendedSlurry = await buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations: [...existingAllocations, ...recommendedAllocations], slurryCompositionRecords, grazingSessions, now: `${planningDate}T12:00:00.000Z`, p3Cycles });
+  const allocatedM3 = selected.reduce((sum, r) => sum + r.volumeM3, 0);
+  return {
+    status: "ready", planningDate, expectedAvailableM3: forecast.projectedAvailableForNewPlanM3,
+    allocatedM3, unallocatedM3: Math.max(0, forecast.projectedAvailableForNewPlanM3 - allocatedM3),
+    recommendations: selected, baseline, withRecommendedSlurry,
+    limitations: [
+      "This is a planning recommendation, not a persisted farmer allocation.",
+      "Rates are capped so the model does not intentionally supply more N, P or K than the P3 gross field requirement from slurry alone.",
+      "Finite slurry is prioritised by estimated P3 chemical-fertiliser cost reduction per m³ using the app's current CSO-backed product prices; it is not the legacy Economic Opportunity Engine.",
+      "Rainfall, soiled water and other unmodelled store inflows are excluded from forecast slurry supply.",
+    ],
   };
 }
 

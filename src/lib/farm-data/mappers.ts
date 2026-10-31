@@ -798,6 +798,9 @@ export function rowToSpreadableAreaRecord(row: FieldSpreadableAreaRow): Spreadab
     effectiveDate: row.effective_date,
     source: row.source,
     ...(row.note !== null ? { note: row.note } : {}),
+    ...(Array.isArray(row.exclusion_geometry)
+      ? { exclusionGeometry: row.exclusion_geometry.filter((value: unknown): value is GeoJSON.Polygon => Boolean(value) && typeof value === "object" && (value as GeoJSON.Polygon).type === "Polygon") }
+      : {}),
     recordedAt: row.created_at,
     ...(row.created_by ? { recordedBy: row.created_by } : {}),
   };
@@ -837,6 +840,7 @@ export function spreadableAreaInsertRow(
     effective_date: input.effectiveDate,
     source: input.source.trim(),
     note: input.note?.trim() ? input.note.trim() : null,
+    exclusion_geometry: input.exclusionGeometry ?? null,
     created_by: createdBy,
   };
 }

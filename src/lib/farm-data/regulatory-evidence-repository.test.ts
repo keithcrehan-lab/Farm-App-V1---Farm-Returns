@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 
 import { createClient } from "@/lib/supabase/server";
+import { calculateSpreadableAreaFromExclusions } from "@/domain/spreadable-area-geometry";
 import {
   EvidenceRecordRejectedError,
   RegulatoryEvidenceNotAvailableError,
@@ -121,6 +122,27 @@ describe("createSpreadableAreaRecord", () => {
     ]);
     expect(insert.mock.calls[0][0]).not.toHaveProperty("gross_area_ha_at_record");
     expect(record).toMatchObject({ spreadableAreaHa: 3.5, grossAreaHaAtRecord: 4, recordedBy: "user-1", recordedAt: `${TODAY}T10:00:00Z` });
+  });
+
+  it("mapped exclusions are canonical: the server recomputes hectares from field + geometry instead of trusting the client number", async () => {
+    const polygon: GeoJSON.Polygon = {
+      type: "Polygon",
+      coordinates: [[[-8, 53], [-7.9977, 53], [-7.9977, 53.0023], [-8, 53.0023], [-8, 53]]],
+    };
+    const exclusion: GeoJSON.Polygon = {
+      type: "Polygon",
+      coordinates: [[[-7.9998, 53.0002], [-7.9993, 53.0002], [-7.9993, 53.0007], [-7.9998, 53.0007], [-7.9998, 53.0002]]],
+    };
+    const expected = calculateSpreadableAreaFromExclusions(polygon, [exclusion]);
+    const { insert } = client({ data: { area_ha: 4, polygon }, error: null }, { data: { ...AREA_ROW, spreadable_area_ha: String(expected.spreadableAreaHa), exclusion_geometry: [exclusion] }, error: null });
+
+    await createSpreadableAreaRecord("farm-1", { ...AREA_INPUT, spreadableAreaHa: 4, exclusionGeometry: [exclusion] });
+
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({
+      spreadable_area_ha: expected.spreadableAreaHa,
+      exclusion_geometry: [exclusion],
+    }));
+    expect(insert.mock.calls[0][0].spreadable_area_ha).not.toBe(4);
   });
 
   it("N: an explicit zero is sent as zero", async () => {

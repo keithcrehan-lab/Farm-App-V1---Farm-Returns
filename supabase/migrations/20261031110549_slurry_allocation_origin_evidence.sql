@@ -29,7 +29,7 @@
 -- new table is first revoked from anon AND authenticated, then granted
 -- select/insert only.
 --
--- Status: NOT YET APPLIED to `Farm Return V1 Dev`.
+-- Applied to `Farm Return V1 Dev` on 2026-10-31.
 
 -- ---------------------------------------------------------------------------
 -- Plan revision
@@ -154,7 +154,7 @@ create trigger slurry_allocation_origin_evidence_stamp_allocation
 
 -- Capture provenance (created_by / created_at) is database-owned — the same
 -- function as the other Campaign B evidence tables
--- (20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql).
+-- (20261031110509_regulatory_neat_slurry_and_spreadable_area_evidence.sql).
 create trigger slurry_allocation_origin_evidence_records_stamp_capture
   before insert on public.slurry_allocation_origin_evidence_records
   for each row execute function public.regulatory_evidence_records_stamp_capture();

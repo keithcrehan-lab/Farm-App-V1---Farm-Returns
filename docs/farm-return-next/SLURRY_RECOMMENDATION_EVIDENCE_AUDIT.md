@@ -1059,8 +1059,8 @@ rate, optimiser or What Matters change was made.
 
 | Migration | Purpose | Code depends on it | When absent |
 |---|---|---|---|
-| `20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql` | neat-slurry and spreadable-area evidence tables, actor/capture stamping, `EXCEEDS_GROSS_AREA` trigger | loader, both forms | loader maps `42P01`/`PGRST205` to no records (`evidenceTablesApplied: false`) → facts NOT_ESTABLISHED; forms say "nothing was saved"; other errors thrown |
-| `20260928000000_slurry_allocation_origin_evidence.sql` | `slurry_allocations.plan_revision` + origin evidence table | loader, origin capture | origin records empty → NAP blocked `PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED`; `plan_revision` read as optional by the allocation mapper; capture refused as not available |
+| `20261031110509_regulatory_neat_slurry_and_spreadable_area_evidence.sql` | neat-slurry and spreadable-area evidence tables, actor/capture stamping, `EXCEEDS_GROSS_AREA` trigger | loader, both forms | loader maps `42P01`/`PGRST205` to no records (`evidenceTablesApplied: false`) → facts NOT_ESTABLISHED; forms say "nothing was saved"; other errors thrown |
+| `20261031110549_slurry_allocation_origin_evidence.sql` | `slurry_allocations.plan_revision` + origin evidence table | loader, origin capture | origin records empty → NAP blocked `PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED`; `plan_revision` read as optional by the allocation mapper; capture refused as not available |
 
 Neither is applied to Farm Return V1 Dev (not applied or re-checked in this
 audit). Applying them, followed by a Dev validation of RLS/triggers (only

@@ -7,6 +7,22 @@ vi.mock("@/app/actions/regulatory-evidence", () => ({
   recordSpreadableAreaDeclarationAction: vi.fn(),
 }));
 
+vi.mock("./SpreadableAreaExclusionMapModal", () => ({
+  SpreadableAreaExclusionMapModal: ({ onSave }: { onSave: (result: { grossAreaHa: number; excludedAreaHa: number; spreadableAreaHa: number; exclusions: GeoJSON.Polygon[] }) => void }) => (
+    <div role="dialog" aria-label="Mock exclusion map">
+      <button
+        type="button"
+        onClick={() => onSave({
+          grossAreaHa: 4,
+          excludedAreaHa: 0.75,
+          spreadableAreaHa: 3.25,
+          exclusions: [{ type: "Polygon", coordinates: [[[-8, 53], [-7.999, 53], [-7.999, 53.001], [-8, 53.001], [-8, 53]]] }],
+        })}
+      >Save mock exclusions</button>
+    </div>
+  ),
+}));
+
 import { loadRegulatoryEvidenceStateAction, recordSpreadableAreaDeclarationAction } from "@/app/actions/regulatory-evidence";
 import { FarmProvider, useFields } from "@/store/farm-store";
 import { mockFarm } from "@/data/mock-farm";
@@ -36,6 +52,14 @@ const FIELD = {
   },
   history: [],
 } as unknown as Field;
+
+const MAPPED_FIELD = {
+  ...FIELD,
+  polygon: {
+    type: "Polygon",
+    coordinates: [[[-8, 53], [-7.99, 53], [-7.99, 53.01], [-8, 53.01], [-8, 53]]],
+  },
+} as Field;
 
 const area = (patch: Partial<SpreadableAreaRecord> = {}): SpreadableAreaRecord => ({
   id: "a1",
@@ -97,6 +121,43 @@ beforeEach(() => vi.resetAllMocks());
 afterEach(() => cleanup());
 
 describe("SpreadableAreaEvidencePanel", () => {
+  it("mapped field: Yes confirms the whole mapped area without typing hectares", async () => {
+    recordArea.mockResolvedValue({
+      status: "saved",
+      record: area({ spreadableAreaHa: 4, effectiveDate: TODAY, exclusionGeometry: [] }),
+    });
+    renderPanel([], MAPPED_FIELD);
+    fireEvent.click(within(panel()).getByRole("button", { name: "Confirm spreadable area" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Can you spread slurry on the whole mapped field/i)).toBeTruthy();
+    expect(within(dialog).queryByLabelText("Spreadable area (ha)")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: /Yes — whole field/i }));
+    await waitFor(() => expect(recordArea).toHaveBeenCalledWith(expect.objectContaining({
+      fieldId: "f1",
+      spreadableAreaHa: 4,
+      effectiveDate: TODAY,
+      exclusionGeometry: [],
+    })));
+  });
+
+  it("mapped field: No opens the exclusion map and persists the calculated area with geometry", async () => {
+    const exclusion: GeoJSON.Polygon = { type: "Polygon", coordinates: [[[-8, 53], [-7.999, 53], [-7.999, 53.001], [-8, 53.001], [-8, 53]]] };
+    recordArea.mockResolvedValue({
+      status: "saved",
+      record: area({ spreadableAreaHa: 3.25, effectiveDate: TODAY, exclusionGeometry: [exclusion] }),
+    });
+    renderPanel([], MAPPED_FIELD);
+    fireEvent.click(within(panel()).getByRole("button", { name: "Confirm spreadable area" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: /No — exclude areas/i }));
+    const map = await screen.findByRole("dialog", { name: "Mock exclusion map" });
+    fireEvent.click(within(map).getByRole("button", { name: "Save mock exclusions" }));
+    await waitFor(() => expect(recordArea).toHaveBeenCalledWith(expect.objectContaining({
+      fieldId: "f1",
+      spreadableAreaHa: 3.25,
+      exclusionGeometry: [exclusion],
+    })));
+  });
   it("K/M: no evidence is not confirmed; the gross size is shown as a separate figure and never prefills the form", async () => {
     renderPanel();
     expect(within(panel()).getAllByText("Not confirmed").length).toBeGreaterThan(0);
@@ -119,7 +180,7 @@ describe("SpreadableAreaEvidencePanel", () => {
     await waitFor(() => expect(recordArea).toHaveBeenCalledWith({ fieldId: "f1", spreadableAreaHa: 3.25, effectiveDate: TODAY }));
     expect(await within(panel()).findByText("3.25 ha")).toBeTruthy();
     expect(within(panel()).getByText("In use for slurry planning.")).toBeTruthy();
-    expect(within(panel()).getByText("Saved. Earlier areas stay on record.")).toBeTruthy();
+    expect(within(panel()).getByText("Saved. Earlier spreadable-area evidence stays on record.")).toBeTruthy();
     expect(screen.getByTestId("gross").textContent).toBe("4");
   });
 

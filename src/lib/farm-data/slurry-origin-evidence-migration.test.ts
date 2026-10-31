@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Static regression coverage for
- * `20260928000000_slurry_allocation_origin_evidence.sql`.
+ * `20261031110549_slurry_allocation_origin_evidence.sql`.
  *
  * These tests read the migration SQL — they do NOT execute it. No
  * PostgreSQL server, Docker or local Supabase stack is available to this
@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
  * `Farm Return V1 Dev`.
  */
 
-const FILE = "20260928000000_slurry_allocation_origin_evidence.sql";
+const FILE = "20261031110549_slurry_allocation_origin_evidence.sql";
 const raw = readFileSync(path.resolve(__dirname, "../../../supabase/migrations", FILE), "utf8");
 const sql = raw.replace(/--[^\n]*/g, "");
 const T = "slurry_allocation_origin_evidence_records";
@@ -33,7 +33,7 @@ describe("Slurry-origin evidence migration (static — SQL not executed)", () =>
     // The only change to an existing table is the one new, defaulted column.
     expect(sql.match(/alter table public\.slurry_allocations\b/gi)?.length).toBe(1);
     expect(sql).toMatch(/alter table public\.slurry_allocations\s+add column plan_revision bigint not null default 1 check \(plan_revision >= 1\);/i);
-    expect(raw).toMatch(/NOT YET APPLIED to `Farm Return V1 Dev`/);
+    expect(raw).toMatch(/Applied to `Farm Return V1 Dev` on 2026-10-31/);
   });
 
   it("origin has no default and only the four declared values; status is only farmer_adjusted/verified", () => {

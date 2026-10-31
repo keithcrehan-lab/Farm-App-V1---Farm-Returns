@@ -1283,6 +1283,7 @@ export function FarmProvider({
           effectiveDate: input.effectiveDate,
           source: SPREADABLE_AREA_DECLARATION_SOURCE,
           ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+          ...(input.exclusionGeometry ? { exclusionGeometry: input.exclusionGeometry } : {}),
         };
         const errors = validateNewSpreadableAreaInput(newInput, field, dublinDate(new Date()));
         if (errors.length > 0) return { status: "rejected", errors };

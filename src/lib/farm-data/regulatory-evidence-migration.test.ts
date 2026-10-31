@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Static regression coverage for
- * `20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql`.
+ * `20261031110509_regulatory_neat_slurry_and_spreadable_area_evidence.sql`.
  *
  * These tests read the migration SQL — they do NOT execute it. No
  * PostgreSQL server, Docker or local Supabase stack is available to this
@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
  * NOT been applied to `Farm Return V1 Dev`.
  */
 
-const FILE = "20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql";
+const FILE = "20261031110509_regulatory_neat_slurry_and_spreadable_area_evidence.sql";
 const raw = readFileSync(path.resolve(__dirname, "../../../supabase/migrations", FILE), "utf8");
 const sql = raw.replace(/--[^\n]*/g, "");
 
@@ -34,7 +34,7 @@ describe("Campaign B evidence migration (static — SQL not executed)", () => {
     expect(sql).not.toMatch(/\bupdate\s+public\./i);
     expect(sql).not.toMatch(/\bdelete\s+from\b/i);
     expect(sql).not.toMatch(/\binsert\s+into\b/i);
-    expect(raw).toMatch(/NOT YET APPLIED to `Farm Return V1 Dev`/);
+    expect(raw).toMatch(/Applied to `Farm Return V1 Dev` on 2026-10-31/);
   });
 
   it("does not touch or read the physical volume or gross-area columns as evidence values", () => {

@@ -29,7 +29,7 @@
 -- every new table is first revoked from anon AND authenticated, then
 -- granted select/insert only.
 --
--- Status: NOT YET APPLIED to `Farm Return V1 Dev`.
+-- Applied to `Farm Return V1 Dev` on 2026-10-31.
 
 -- ---------------------------------------------------------------------------
 -- Regulatory neat-slurry evidence

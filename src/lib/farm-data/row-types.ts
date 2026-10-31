@@ -161,7 +161,7 @@ export interface SlurryAllocationRow {
   cancelled_by: string | null;
   created_at: string;
   updated_at: string;
-  /** `20260928000000_slurry_allocation_origin_evidence.sql` — absent until
+  /** `20261031110549_slurry_allocation_origin_evidence.sql` — absent until
    * that migration is applied. */
   plan_revision?: number | null;
 }
@@ -420,7 +420,7 @@ export interface JobActualRow {
  * server-side from a real Prompt, not captured offline on a phone.
  */
 /**
- * `20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql`
+ * `20261031110509_regulatory_neat_slurry_and_spreadable_area_evidence.sql`
  * — append-only regulatory neat-slurry evidence. `numeric` columns may
  * arrive as a JSON number or a numeric string.
  */
@@ -450,12 +450,13 @@ export interface FieldSpreadableAreaRow {
   effective_date: string;
   source: string;
   note: string | null;
+  exclusion_geometry?: unknown | null;
   /** Database-stamped capturing user, as on `SlurryStoreNeatEvidenceRow`. */
   created_by?: string | null;
   created_at: string;
 }
 
-/** `20260928000000_slurry_allocation_origin_evidence.sql` — append-only
+/** `20261031110549_slurry_allocation_origin_evidence.sql` — append-only
  * slurry-origin declarations per planned allocation. */
 export interface SlurryAllocationOriginEvidenceRow {
   id: string;

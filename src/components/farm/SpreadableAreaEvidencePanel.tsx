@@ -14,7 +14,10 @@
  * until it persisted.
  */
 import { useId, useState } from "react";
+import { Check, Map, TriangleAlert } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
+import { SpreadableAreaExclusionMapModal } from "./SpreadableAreaExclusionMapModal";
+import type { SpreadableAreaGeometryResult } from "@/domain/spreadable-area-geometry";
 import { Pill } from "@/components/ui/StatusBadge";
 import { formatNonNegative } from "@/lib/format";
 import { dublinDate } from "@/domain/slurry-allocation-lifecycle";
@@ -68,6 +71,14 @@ export function SpreadableAreaEvidencePanel({ field }: { field: Field }) {
           {view.record ? (
             <dd className="text-xs text-fr-ink-600">
               True as of {formatEvidenceDate(view.record.effectiveDate)} · saved {formatEvidenceDate(view.record.recordedAt)}
+              {view.record.exclusionGeometry !== undefined ? (
+                <>
+                  <br />
+                  {view.record.exclusionGeometry.length === 0
+                    ? "Whole mapped field confirmed"
+                    : `${view.record.exclusionGeometry.length} mapped exclusion${view.record.exclusionGeometry.length === 1 ? "" : "s"}`}
+                </>
+              ) : null}
             </dd>
           ) : null}
         </div>
@@ -94,18 +105,128 @@ export function SpreadableAreaEvidencePanel({ field }: { field: Field }) {
       </button>
       <Sheet open={open} onClose={() => setOpen(false)} title={`Spreadable area of ${field.name}`}>
         {open ? (
-          <SpreadableAreaDeclarationForm
+          <SpreadableAreaWorkflow
             field={field}
             grossAreaHa={gross.state === "known" ? gross.value : undefined}
+            existingExclusions={view.record?.exclusionGeometry}
             onClose={() => setOpen(false)}
             onSaved={() => {
               setOpen(false);
-              setNotice("Saved. Earlier areas stay on record.");
+              setNotice("Saved. Earlier spreadable-area evidence stays on record.");
             }}
           />
         ) : null}
       </Sheet>
     </section>
+  );
+}
+
+function SpreadableAreaWorkflow({
+  field,
+  grossAreaHa,
+  existingExclusions,
+  onClose,
+  onSaved,
+}: {
+  field: Field;
+  grossAreaHa: number | undefined;
+  existingExclusions?: GeoJSON.Polygon[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { recordSpreadableAreaDeclaration } = useFarmActions();
+  const [mapping, setMapping] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const effectiveDate = dublinDate(new Date());
+
+  async function saveEvidence(spreadableAreaHa: number, exclusions: GeoJSON.Polygon[], note: string) {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await recordSpreadableAreaDeclaration({
+        fieldId: field.id,
+        spreadableAreaHa,
+        effectiveDate,
+        note,
+        exclusionGeometry: exclusions,
+      });
+      const failure = declarationFailureCopy(result);
+      if (failure === null) return onSaved();
+      setError(failure);
+    } catch (e: unknown) {
+      console.error("[SpreadableAreaEvidencePanel] save failed:", e);
+      setError(EVIDENCE_UNEXPECTED_ERROR_COPY);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!field.polygon || grossAreaHa === undefined) {
+    return <SpreadableAreaDeclarationForm field={field} grossAreaHa={grossAreaHa} onClose={onClose} onSaved={onSaved} />;
+  }
+
+  return (
+    <>
+      <div className="flex flex-col gap-4">
+        <div>
+          <p className="text-base font-semibold text-fr-ink-900">Can you spread slurry on the whole mapped field?</p>
+          <p className="mt-1 text-sm leading-relaxed text-fr-ink-600">The mapped field is {ha(grossAreaHa)}. If any part is a yard, scrub, a buffer strip or another no-spread area, choose No and draw it on the map.</p>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-3">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void saveEvidence(grossAreaHa, [], "Farmer confirmed the whole mapped field is spreadable.")}
+            className="flex min-h-24 flex-col items-start justify-between rounded-fr-card border border-fr-border bg-fr-surface p-4 text-left hover:border-fr-green-700 disabled:opacity-50"
+          >
+            <Check className="size-5 text-fr-green-700" />
+            <span><span className="block text-sm font-semibold text-fr-ink-900">Yes — whole field</span><span className="mt-1 block text-xs text-fr-ink-600">Use {ha(grossAreaHa)}</span></span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMapping(true)}
+            className="flex min-h-24 flex-col items-start justify-between rounded-fr-card border border-fr-border bg-fr-surface p-4 text-left hover:border-fr-green-700"
+          >
+            <Map className="size-5 text-fr-green-700" />
+            <span><span className="block text-sm font-semibold text-fr-ink-900">No — exclude areas</span><span className="mt-1 block text-xs text-fr-ink-600">Draw no-spread areas on the field</span></span>
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex min-h-24 flex-col items-start justify-between rounded-fr-card border border-fr-border bg-fr-surface p-4 text-left hover:border-fr-ink-400"
+          >
+            <TriangleAlert className="size-5 text-fr-ink-500" />
+            <span><span className="block text-sm font-semibold text-fr-ink-900">Not sure</span><span className="mt-1 block text-xs text-fr-ink-600">Leave it unresolved for now</span></span>
+          </button>
+        </div>
+
+        {existingExclusions?.length ? (
+          <p className="text-xs text-fr-ink-600">There {existingExclusions.length === 1 ? "is" : "are"} currently {existingExclusions.length} mapped exclusion{existingExclusions.length === 1 ? "" : "s"}. Choose No to review or change them.</p>
+        ) : null}
+        {error ? <p role="alert" className="text-sm text-fr-risk">{error}</p> : null}
+        {saving ? <p className="text-xs text-fr-ink-600">Saving…</p> : null}
+      </div>
+
+      {mapping ? (
+        <SpreadableAreaExclusionMapModal
+          fieldName={field.name}
+          fieldPolygon={field.polygon}
+          initialExclusions={existingExclusions}
+          onClose={() => setMapping(false)}
+          onSave={(result: SpreadableAreaGeometryResult) => {
+            setMapping(false);
+            void saveEvidence(
+              result.spreadableAreaHa,
+              result.exclusions,
+              `Farmer mapped ${result.exclusions.length} no-spread exclusion${result.exclusions.length === 1 ? "" : "s"} (${ha(result.excludedAreaHa)} excluded).`,
+            );
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

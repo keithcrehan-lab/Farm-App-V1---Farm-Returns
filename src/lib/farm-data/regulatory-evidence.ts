@@ -3,15 +3,16 @@ import "server-only";
 /**
  * Campaign B schema and persistence — `slurry_store_neat_evidence_records`,
  * `field_spreadable_area_records`
- * (`supabase/migrations/20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql`)
+ * (`supabase/migrations/20261031110509_regulatory_neat_slurry_and_spreadable_area_evidence.sql`)
  * and `slurry_allocation_origin_evidence_records`
- * (`20260928000000_slurry_allocation_origin_evidence.sql`) queries/mutations.
+ * (`20261031110549_slurry_allocation_origin_evidence.sql`) queries/mutations.
  * Insert/select only, matching the migration's grants: a correction is a
  * new record (`src/domain/regulatory-evidence-records.ts`). Both writes
  * validate before reaching the database; the migration's checks, RLS and
  * gross-area trigger are the backstop.
  */
 import { createClient } from "@/lib/supabase/server";
+import { calculateSpreadableAreaFromExclusions } from "@/domain/spreadable-area-geometry";
 import {
   validateNewNeatSlurryEvidenceInput,
   validateNewSpreadableAreaInput,
@@ -217,20 +218,35 @@ export async function createSpreadableAreaRecord(farmId: string, input: NewSprea
   // the caller.
   const { data: field, error: fieldError } = await supabase
     .from("fields")
-    .select("area_ha")
+    .select("area_ha, polygon")
     .eq("id", input.fieldId)
     .eq("farm_id", farmId)
     .maybeSingle();
   if (fieldError) throw fieldError;
   if (!field) throw new EvidenceRecordRejectedError([{ field: "fieldId", message: "Field not found on this farm" }]);
-  const errors = validateNewSpreadableAreaInput(input, { areaHa: (field as { area_ha: number }).area_ha }, todayIsoDate());
+
+  let canonicalInput = input;
+  if (input.exclusionGeometry !== undefined) {
+    const polygon = (field as { polygon?: unknown }).polygon;
+    if (!polygon || typeof polygon !== "object" || (polygon as GeoJSON.Polygon).type !== "Polygon") {
+      throw new EvidenceRecordRejectedError([{ field: "spreadableAreaHa", message: "A mapped field boundary is required to calculate spreadable area from exclusions" }]);
+    }
+    try {
+      const geometry = calculateSpreadableAreaFromExclusions(polygon as GeoJSON.Polygon, input.exclusionGeometry);
+      canonicalInput = { ...input, spreadableAreaHa: geometry.spreadableAreaHa, exclusionGeometry: geometry.exclusions };
+    } catch {
+      throw new EvidenceRecordRejectedError([{ field: "spreadableAreaHa", message: "The mapped exclusion geometry could not be calculated" }]);
+    }
+  }
+
+  const errors = validateNewSpreadableAreaInput(canonicalInput, { areaHa: (field as { area_ha: number }).area_ha }, todayIsoDate());
   if (errors.length > 0) throw new EvidenceRecordRejectedError(errors);
   const {
     data: { user },
   } = await supabase.auth.getUser();
   const { data, error } = await supabase
     .from("field_spreadable_area_records")
-    .insert(spreadableAreaInsertRow(farmId, input, user?.id ?? null))
+    .insert(spreadableAreaInsertRow(farmId, canonicalInput, user?.id ?? null))
     .select("*")
     .single();
   if (error) throwEvidenceInsertError(error, "fieldId");

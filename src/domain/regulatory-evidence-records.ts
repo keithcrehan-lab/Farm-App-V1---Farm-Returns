@@ -6,7 +6,7 @@
  *   (`slurry_store_neat_evidence_records`); and
  * - a field's defensible SPREADABLE area (`field_spreadable_area_records`),
  *
- * see `supabase/migrations/20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql`.
+ * see `supabase/migrations/20261031110509_regulatory_neat_slurry_and_spreadable_area_evidence.sql`.
  *
  * Storage discipline is `slurry-composition.ts`'s: append-only, a
  * correction is a new record, the current record is derived on read and
@@ -225,6 +225,8 @@ export interface SpreadableAreaRecord {
   effectiveDate: string;
   source: string;
   note?: string;
+  /** Farmer-drawn no-spread polygons. [] means the farmer explicitly confirmed the whole mapped field is spreadable; undefined is a legacy/manual-area record. */
+  exclusionGeometry?: GeoJSON.Polygon[];
   recordedAt: string;
   /** The signed-in user who captured it (database-stamped `created_by`). */
   recordedBy?: string;
@@ -237,6 +239,7 @@ export interface NewSpreadableAreaInput {
   effectiveDate: string;
   source: string;
   note?: string;
+  exclusionGeometry?: GeoJSON.Polygon[];
 }
 
 /** A field's gross area, when known — the same rule as
@@ -267,7 +270,12 @@ export function validateNewSpreadableAreaInput(
 
 /** Status, area and source are material (see `equivalentNeatEvidence`). */
 function equivalentSpreadableArea(a: SpreadableAreaRecord, b: SpreadableAreaRecord): boolean {
-  return a.status === b.status && a.spreadableAreaHa === b.spreadableAreaHa && a.source === b.source;
+  return (
+    a.status === b.status &&
+    a.spreadableAreaHa === b.spreadableAreaHa &&
+    a.source === b.source &&
+    JSON.stringify(a.exclusionGeometry ?? null) === JSON.stringify(b.exclusionGeometry ?? null)
+  );
 }
 
 export function currentSpreadableAreaByField(records: readonly SpreadableAreaRecord[]): Map<string, CurrentEvidenceRecord<SpreadableAreaRecord>> {

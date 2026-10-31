@@ -46,6 +46,7 @@ export interface SpreadableAreaDeclarationInput {
   spreadableAreaHa: number;
   effectiveDate: string;
   note?: string;
+  exclusionGeometry?: GeoJSON.Polygon[];
 }
 
 async function saveEvidence<R>(write: (farmId: string) => Promise<R>): Promise<RegulatoryEvidenceActionResult<R>> {
@@ -84,6 +85,7 @@ export async function recordSpreadableAreaDeclarationAction(input: SpreadableAre
       effectiveDate: input.effectiveDate,
       source: SPREADABLE_AREA_DECLARATION_SOURCE,
       ...(input.note ? { note: input.note } : {}),
+      ...(input.exclusionGeometry ? { exclusionGeometry: input.exclusionGeometry } : {}),
     }),
   );
 }

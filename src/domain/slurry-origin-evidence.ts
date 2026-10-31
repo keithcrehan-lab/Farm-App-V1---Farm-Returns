@@ -3,7 +3,7 @@
  * spreading (a `slurry_allocations` row) came from, as the farmer (or
  * another authoritative source) explicitly declared it
  * (`slurry_allocation_origin_evidence_records`,
- * `supabase/migrations/20260928000000_slurry_allocation_origin_evidence.sql`).
+ * `supabase/migrations/20261031110549_slurry_allocation_origin_evidence.sql`).
  *
  * Subject: the planned allocation at one plan revision — never the store.
  * A store can hold home-produced and imported slurry at once, and imported

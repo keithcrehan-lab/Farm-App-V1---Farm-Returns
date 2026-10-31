@@ -24,6 +24,7 @@ import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listHousingForFarm } from "@/lib/farm-data/housing";
 import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import { listGrazingFieldSessionsForFarm } from "@/lib/farm-data/grazing-field-sessions";
 import { getFieldProductionCycle, listFieldProductionCyclesForSeason } from "@/lib/farm-data/field-production-cycles";
 import type { SlurryComposition } from "@/domain/slurry-composition";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
@@ -34,7 +35,7 @@ import {
   sanitiseRecommendedProduct,
   type FertiliserRecommendationSummary,
 } from "@/orchestration/prompt/fertiliser-recommendation";
-import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand, sanitiseDecisionRecordForClient, selectedProductName } from "@/orchestration/fertiliser-plan";
+import { getFarmFertiliserDemand, sanitiseDecisionRecordForClient, selectedProductName } from "@/orchestration/fertiliser-plan";
 import {
   toFarmInputDemand,
   toFarmFertiliserPurchaseRequirementTonnes,
@@ -53,6 +54,7 @@ import {
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "@/domain/closed-period-calendar";
 import { cropFamilyFor, type EvidenceValue, type FieldProductionCycle, type FieldProductionCycleEvidence } from "@/domain/fertiliser-field-evidence";
 import { calculateGrassFertiliserV2, type GrassRuleTrace } from "@/domain/grass-fertiliser-engine-v2";
+import { calculateFieldGrazingPressure, type GrazingFieldSession } from "@/domain/grazing-field-pressure";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "@/domain/statutory-excretion";
 import { allocatePurchasedProducts, resolveAvailableSlurryNutrients, resolveEffectiveSlurryComposition, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
@@ -68,6 +70,50 @@ import { buildSlurryPlanningScenario, type SlurryPlanningScenarioInput } from "@
  * (`decideAsFarmer` copies `Prompt.kind` verbatim into
  * `calculationKind`). */
 const FERTILISER_PLAN_CALCULATION_KIND: string = FERTILISER_RECOMMENDATION_PROMPT_KIND;
+
+function grazingStockingInputForField(args: {
+  field: Pick<Field, "id" | "areaHa">;
+  livestockGroups: LivestockGroup[];
+  sessions: GrazingFieldSession[];
+  season: string;
+  asOf: string;
+  holdingFallbackKgHa?: number;
+}): {
+  annualOrganicNStockingRateKgHa?: number;
+  grazingStockingEvidence?: {
+    basis: "FIELD_GRAZING_SESSIONS" | "HOLDING_FALLBACK";
+    trackingStart?: string;
+    trackingDays?: number;
+    sourceSessionCount?: number;
+  };
+} {
+  const pressure = calculateFieldGrazingPressure({
+    fieldId: args.field.id,
+    fieldAreaHa: args.field.areaHa,
+    livestockGroups: args.livestockGroups,
+    sessions: args.sessions,
+    seasonStart: `${args.season}-01-01T00:00:00.000Z`,
+    asOf: args.asOf,
+  });
+  if (pressure.status === "READY" && pressure.annualOrganicNStockingRateKgHa !== undefined) {
+    return {
+      annualOrganicNStockingRateKgHa: pressure.annualOrganicNStockingRateKgHa,
+      grazingStockingEvidence: {
+        basis: "FIELD_GRAZING_SESSIONS",
+        ...(pressure.trackingStart ? { trackingStart: pressure.trackingStart } : {}),
+        ...(pressure.trackingDays !== undefined ? { trackingDays: pressure.trackingDays } : {}),
+        sourceSessionCount: pressure.sourceSessionIds.length,
+      },
+    };
+  }
+  if (args.holdingFallbackKgHa !== undefined) {
+    return {
+      annualOrganicNStockingRateKgHa: args.holdingFallbackKgHa,
+      grazingStockingEvidence: { basis: "HOLDING_FALLBACK" },
+    };
+  }
+  return {};
+}
 
 /**
  * Codex audit HIGH (round 4) — a plan is only safe to treat as one
@@ -516,12 +562,13 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
 
   const now = new Date().toISOString();
   const season = now.slice(0, 4);
-  const [cycle, cycles, livestockGroups, slurryAllocations, slurryCompositionRecords] = await Promise.all([
+  const [cycle, cycles, livestockGroups, slurryAllocations, slurryCompositionRecords, grazingSessions] = await Promise.all([
     getFieldProductionCycle(field.id, season),
     listFieldProductionCyclesForSeason(fields.map((candidate) => candidate.id), season),
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
     listSlurryCompositionRecordsForFarm(farm.id),
+    listGrazingFieldSessionsForFarm(farm.id, now),
   ]);
 
   if (!cycle) return { status: "blocked", reasonCode: "MISSING_FIELD_PRODUCTION_CYCLE" };
@@ -537,11 +584,18 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
     return candidateCycle && cropFamilyFor(candidateCycle.cropSystem) === "grassland" ? sum + candidate.areaHa : sum;
   }, 0);
 
-  let annualOrganicNStockingRateKgHa: number | undefined;
+  let grazingStockingInput: ReturnType<typeof grazingStockingInputForField> = {};
   if (cycle.cropSystem === "GRASS_GRAZING") {
     const stocking = calculateStatutoryGrasslandStockingRateKgHa(livestockGroups, grasslandAreaHa);
     if (stocking.status !== "OK") return { status: "blocked", reasonCode: stocking.reasonCode };
-    annualOrganicNStockingRateKgHa = stocking.value.gsrKgNHa;
+    grazingStockingInput = grazingStockingInputForField({
+      field,
+      livestockGroups,
+      sessions: grazingSessions,
+      season,
+      asOf: now,
+      holdingFallbackKgHa: stocking.value.gsrKgNHa,
+    });
   }
 
   const allocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
@@ -574,7 +628,7 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
   const result = calculateGrassFertiliserV2({
     field,
     cycle,
-    ...(annualOrganicNStockingRateKgHa !== undefined ? { annualOrganicNStockingRateKgHa } : {}),
+    ...grazingStockingInput,
     ...(cycle.evidence.grazingProductionSystem?.value
       ? { grazingProductionSystem: cycle.evidence.grazingProductionSystem.value }
       : {}),
@@ -694,10 +748,11 @@ async function buildP3FarmFertiliserDemandResult(input: {
   livestockGroups: LivestockGroup[];
   slurryAllocations: SlurryAllocation[];
   slurryCompositionRecords: SlurryComposition[];
+  grazingSessions: GrazingFieldSession[];
   now: string;
   p3Cycles: Awaited<ReturnType<typeof listFieldProductionCyclesForSeason>>;
 }): Promise<FarmFertiliserDemandActionResult> {
-  const { farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, now, p3Cycles } = input;
+  const { farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, grazingSessions, now, p3Cycles } = input;
   const cycleByFieldId = new Map(p3Cycles.map((cycle) => [cycle.fieldId, cycle]));
   const missingCycles = fields.filter((field) => !cycleByFieldId.has(field.id));
   if (missingCycles.length > 0) {
@@ -760,12 +815,20 @@ async function buildP3FarmFertiliserDemandResult(input: {
       organicCreditsKgHa = { n: available.value.n, p: available.value.p, k: available.value.k };
     }
 
-    const annualOrganicNStockingRateKgHa =
-      cycle.cropSystem === "GRASS_GRAZING" && stocking.status === "OK" ? stocking.value.gsrKgNHa : undefined;
+    const grazingStockingInput = cycle.cropSystem === "GRASS_GRAZING"
+      ? grazingStockingInputForField({
+          field,
+          livestockGroups,
+          sessions: grazingSessions,
+          season: now.slice(0, 4),
+          asOf: now,
+          ...(stocking.status === "OK" ? { holdingFallbackKgHa: stocking.value.gsrKgNHa } : {}),
+        })
+      : {};
     const result = calculateGrassFertiliserV2({
       field,
       cycle,
-      ...(annualOrganicNStockingRateKgHa !== undefined ? { annualOrganicNStockingRateKgHa } : {}),
+      ...grazingStockingInput,
       ...(cycle.evidence.grazingProductionSystem?.value
         ? { grazingProductionSystem: cycle.evidence.grazingProductionSystem.value }
         : {}),
@@ -907,19 +970,20 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("getFarmFertiliserDemandAction: no real farm for the current session");
 
-  const [allFields, livestockGroups, slurryAllocations, slurryCompositionRecords] = await Promise.all([
+  const now = new Date().toISOString();
+  const [allFields, livestockGroups, slurryAllocations, slurryCompositionRecords, grazingSessions] = await Promise.all([
     listFieldsForFarm(farm.id),
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
     listSlurryCompositionRecordsForFarm(farm.id),
+    listGrazingFieldSessionsForFarm(farm.id, now),
   ]);
   const fields = activeFields(allFields);
-  const now = new Date().toISOString();
   const season = now.slice(0, 4);
   const p3Cycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), season);
 
   if (p3Cycles.length > 0) {
-    return buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, now, p3Cycles });
+    return buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, grazingSessions, now, p3Cycles });
   }
 
   const { demand, truncated, applicationsWithUnknownComposition, fieldsWithBlockedEvidence, aggregation } = await getFarmFertiliserDemand({
@@ -1086,8 +1150,8 @@ export async function previewSlurryFirstFertiliserPlanAction(input: SlurryFirstP
   const asOf = `${scenario.planningDate}T12:00:00.000Z`;
 
   const [baseline, withPlannedSlurry] = await Promise.all([
-    buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations: [], slurryCompositionRecords, now: asOf, p3Cycles }),
-    buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations: scenarioAllocations, slurryCompositionRecords, now: asOf, p3Cycles }),
+    buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations: [], slurryCompositionRecords, grazingSessions: [], now: asOf, p3Cycles }),
+    buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations: scenarioAllocations, slurryCompositionRecords, grazingSessions: [], now: asOf, p3Cycles }),
   ]);
 
   return {

@@ -45,6 +45,12 @@ export interface GrassFertiliserEngineInput {
   annualOrganicNStockingRateKgHa?: number;
   grazingProductionSystem?: GrazingProductionSystem;
   organicCreditsKgHa?: NutrientQuantity;
+  grazingStockingEvidence?: {
+    basis: "FIELD_GRAZING_SESSIONS" | "HOLDING_FALLBACK";
+    trackingStart?: string;
+    trackingDays?: number;
+    sourceSessionCount?: number;
+  };
 }
 
 const ZERO: NutrientQuantity = { n: 0, p: 0, k: 0 };
@@ -145,6 +151,7 @@ export function calculateGrassFertiliserV2(input: GrassFertiliserEngineInput): G
       p: pBuildUp(pIndex!) + pMaintenanceDrystock(orgN),
       k: kGrazingDrystock(kIndex!, orgN),
     };
+    const stockingEvidence = input.grazingStockingEvidence;
     return {
       engineVersion: GRASS_ENGINE_V2_VERSION,
       status: "READY",
@@ -155,13 +162,29 @@ export function calculateGrassFertiliserV2(input: GrassFertiliserEngineInput): G
       priorChemicalCreditsKgHa: prior!,
       remainingRequirementKgHa: subtract(gross, organic, prior!),
       missingInputs: [],
-      limitations: ["Grazing N uses transparent linear interpolation between published Table 12-3 organic-N rows; this modelling policy is disclosed in the trace."],
+      limitations: [
+        "Grazing N uses transparent linear interpolation between published Table 12-3 organic-N rows; this modelling policy is disclosed in the trace.",
+        ...(stockingEvidence?.basis === "FIELD_GRAZING_SESSIONS"
+          ? ["The organic-N stocking input is field-specific and annualised from the continuously recorded grazing-movement window; it is an agronomic demand input, not the statutory NAP GSR."]
+          : stockingEvidence?.basis === "HOLDING_FALLBACK"
+            ? ["Complete field movement history was not available, so the holding-level grazing stocking rate was used for this field."]
+            : []),
+      ],
       traces: {
         n: {
           ruleId: "TEAGASC_GREEN_BOOK_2020_TABLE_12_3_SUCKLER_CALF_TO_BEEF",
           source: "Teagasc Major & Micro Nutrient Advice for Productive Agricultural Crops",
           sourceVersion: "5th Edition 2020",
-          inputs: { annualOrganicNStockingRateKgHa: orgN, lowerOrganicN: nInterp.lower.organicN, upperOrganicN: nInterp.upper.organicN, interpolationFraction: nInterp.fraction },
+          inputs: {
+            annualOrganicNStockingRateKgHa: orgN,
+            lowerOrganicN: nInterp.lower.organicN,
+            upperOrganicN: nInterp.upper.organicN,
+            interpolationFraction: nInterp.fraction,
+            stockingEvidenceBasis: stockingEvidence?.basis ?? null,
+            trackingStart: stockingEvidence?.trackingStart ?? null,
+            trackingDays: stockingEvidence?.trackingDays ?? null,
+            sourceSessionCount: stockingEvidence?.sourceSessionCount ?? null,
+          },
           resultKgHa: gross.n,
           method: "linear interpolation between published organic-N stocking-rate rows; clamped at published endpoints",
         },
@@ -169,7 +192,7 @@ export function calculateGrassFertiliserV2(input: GrassFertiliserEngineInput): G
           ruleId: "TEAGASC_GREEN_BOOK_2020_TABLE_13_2_13_3_DRYSTOCK",
           source: "Teagasc Green Book",
           sourceVersion: "5th Edition 2020",
-          inputs: { pIndex: pIndex!, annualOrganicNStockingRateKgHa: orgN, buildUpKgHa: pBuildUp(pIndex!), maintenanceKgHa: pMaintenanceDrystock(orgN) },
+          inputs: { pIndex: pIndex!, annualOrganicNStockingRateKgHa: orgN, buildUpKgHa: pBuildUp(pIndex!), maintenanceKgHa: pMaintenanceDrystock(orgN), stockingEvidenceBasis: stockingEvidence?.basis ?? null },
           resultKgHa: gross.p,
           method: "soil-index build-up plus drystock grazing maintenance band",
         },
@@ -177,7 +200,7 @@ export function calculateGrassFertiliserV2(input: GrassFertiliserEngineInput): G
           ruleId: "TEAGASC_GREEN_BOOK_2020_TABLE_14_1_DRYSTOCK",
           source: "Teagasc Green Book",
           sourceVersion: "5th Edition 2020",
-          inputs: { kIndex: kIndex!, annualOrganicNStockingRateKgHa: orgN, baselineOrganicN: 170 },
+          inputs: { kIndex: kIndex!, annualOrganicNStockingRateKgHa: orgN, baselineOrganicN: 170, stockingEvidenceBasis: stockingEvidence?.basis ?? null },
           resultKgHa: gross.k,
           method: "published drystock K baseline at 170 kg organic N/ha, adjusted 5 kg K/ha per 40 kg organic N/ha",
         },

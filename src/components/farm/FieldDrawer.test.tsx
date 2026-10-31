@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
 // This suite exercises FieldDrawer's own store-driven behaviour, not the
 // separate, already-tested FieldAwarenessCard
 // (FieldAwarenessCard.test.tsx) it renders inside its "Now" tab — mocked
@@ -341,7 +343,8 @@ describe("FieldDrawer — field workspace chapters (Farm + Fields redesign)", ()
     const use = screen.getByRole("region", { name: "Use" });
     expect(use.textContent).toContain("Current crop / useNot recorded");
     expect(use.textContent).not.toMatch(/Planned use/);
-    expect(use.textContent).toMatch(/Livestock.*Not recorded for fields yet/);
+    expect(use.textContent).not.toContain("Not recorded for fields yet");
+    expect(use.textContent).toMatch(/Field grazing movements/i);
   });
 
   it("lets the farmer change current field use inline using the canonical production cycle", async () => {

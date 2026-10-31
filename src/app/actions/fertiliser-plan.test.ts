@@ -15,6 +15,7 @@ vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn(
 vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/housing", () => ({ listHousingForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry-composition", () => ({ listSlurryCompositionRecordsForFarm: vi.fn(async () => []) }));
+vi.mock("@/lib/farm-data/grazing-field-sessions", () => ({ listGrazingFieldSessionsForFarm: vi.fn(async () => []) }));
 vi.mock("@/orchestration/job-session", () => ({ startJobSessionFromPlan: vi.fn() }));
 // `sanitiseDecisionRecordForClient` is a real, pure, no-I/O function
 // (Codex audit CRITICAL, round 8) — imported from the real module
@@ -35,6 +36,7 @@ import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listHousingForFarm } from "@/lib/farm-data/housing";
 import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import { listGrazingFieldSessionsForFarm } from "@/lib/farm-data/grazing-field-sessions";
 import { getFieldProductionCycle, listFieldProductionCyclesForSeason } from "@/lib/farm-data/field-production-cycles";
 import { startJobSessionFromPlan } from "@/orchestration/job-session";
 import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand } from "@/orchestration/fertiliser-plan";
@@ -48,6 +50,7 @@ import {
   getFarmLimeRequirementAction,
 } from "./fertiliser-plan";
 import type { Farm, Field } from "@/domain/types";
+import type { FieldProductionCycle } from "@/domain/fertiliser-field-evidence";
 import type { DecisionRecord, JobSessionRecord } from "@/lib/farm-data/mappers";
 import { aggregateFarmFertiliserPurchasing } from "@/domain/fertiliser-plan";
 
@@ -62,6 +65,7 @@ const mockListLivestockGroups = vi.mocked(listLivestockGroupsForFarm);
 const mockListSlurryAllocations = vi.mocked(listSlurryAllocationsForFarm);
 const mockListHousing = vi.mocked(listHousingForFarm);
 const mockListSlurryCompositionRecords = vi.mocked(listSlurryCompositionRecordsForFarm);
+const mockListGrazingFieldSessions = vi.mocked(listGrazingFieldSessionsForFarm);
 const mockGetFieldProductionCycle = vi.mocked(getFieldProductionCycle);
 const mockListFieldProductionCyclesForSeason = vi.mocked(listFieldProductionCyclesForSeason);
 const mockGetFieldRemainingFertiliserRequirement = vi.mocked(getFieldRemainingFertiliserRequirement);
@@ -71,6 +75,7 @@ afterEach(() => {
   vi.clearAllMocks();
   mockGetFieldProductionCycle.mockResolvedValue(null);
   mockListFieldProductionCyclesForSeason.mockResolvedValue([]);
+  mockListGrazingFieldSessions.mockResolvedValue([]);
 });
 
 const farm: Farm = {
@@ -116,7 +121,26 @@ function p3Field(overrides: Partial<Field> = {}): Field {
   });
 }
 
-function p3FirstCutCycle(overrides: Record<string, unknown> = {}) {
+function p3GrazingCycle(fieldId = "field-1"): FieldProductionCycle {
+  return {
+    id: `cycle-${fieldId}`,
+    fieldId,
+    season: "2026",
+    cropSystem: "GRASS_GRAZING",
+    status: "active",
+    evidence: {
+      cropSystem: { value: "GRASS_GRAZING", method: "FARMER_DECLARED", source: "Keith" },
+      grazingProductionSystem: { value: "SUCKLER_CALF_TO_BEEF", method: "FARMER_DECLARED", source: "Keith" },
+      chemicalNAppliedKgHa: { value: 0, method: "FARMER_DECLARED", source: "Keith" },
+      chemicalPAppliedKgHa: { value: 0, method: "FARMER_DECLARED", source: "Keith" },
+      chemicalKAppliedKgHa: { value: 0, method: "FARMER_DECLARED", source: "Keith" },
+    },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function p3FirstCutCycle(overrides: Partial<FieldProductionCycle> = {}): FieldProductionCycle {
   return {
     id: "cycle-1",
     fieldId: "field-1",
@@ -133,7 +157,7 @@ function p3FirstCutCycle(overrides: Record<string, unknown> = {}) {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
-  } as any;
+  };
 }
 
 const REAL_LIVESTOCK_GROUPS = [
@@ -832,6 +856,41 @@ describe("getFieldFertiliserStatusAction", () => {
     expect(result.requirementKgHa).toEqual({ n: 100, p: 40, k: 175 });
     expect(result.confirmedAppliedKgHa).toEqual({ n: 10, p: 0, k: 0 });
     expect(result.remainingKgHa).toEqual({ n: 90, p: 40, k: 175 });
+  });
+
+  it("uses continuous cattle movement history as the grazing field's stocking input instead of the holding fallback", async () => {
+    const target = p3Field({ id: "field-1", areaHa: 4.2 });
+    const other = p3Field({ id: "field-2", name: "Other Field", areaHa: 10 });
+    const targetCycle = p3GrazingCycle("field-1");
+    const otherCycle = p3GrazingCycle("field-2");
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([target, other]);
+    mockGetFieldProductionCycle.mockResolvedValue(targetCycle);
+    mockListFieldProductionCyclesForSeason.mockResolvedValue([targetCycle, otherCycle]);
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockListGrazingFieldSessions.mockResolvedValue([
+      {
+        id: "session-a", farmId: "farm-1", livestockGroupId: "g1", fieldId: "field-1",
+        startedAt: "2026-10-01T00:00:00.000Z", endedAt: "2026-10-11T00:00:00.000Z",
+        headCountSnapshot: 20, livestockCategorySnapshot: "suckler_cow", livestockUnitsPerHeadSnapshot: 0.9,
+        source: "Keith", createdAt: "2026-10-01T00:00:00.000Z",
+      },
+      {
+        id: "session-b", farmId: "farm-1", livestockGroupId: "g1", fieldId: "field-2",
+        startedAt: "2026-10-11T00:00:00.000Z",
+        headCountSnapshot: 20, livestockCategorySnapshot: "suckler_cow", livestockUnitsPerHeadSnapshot: 0.9,
+        source: "Keith", createdAt: "2026-10-11T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await getFieldFertiliserStatusAction("field-1");
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.ruleTraces.n?.inputs.stockingEvidenceBasis).toBe("FIELD_GRAZING_SESSIONS");
+    expect(result.ruleTraces.n?.inputs.sourceSessionCount).toBe(1);
+    expect(Number(result.ruleTraces.n?.inputs.annualOrganicNStockingRateKgHa)).toBeGreaterThan(80);
+    expect(result.limitations.join(" ")).toMatch(/field-specific.*movement/i);
   });
 
   it("does not call the legacy confirmed-application remaining calculator for a P3 cycle", async () => {

@@ -15,6 +15,7 @@ import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
 import { FieldSatelliteHistory } from "@/components/farm/FieldSatelliteHistory";
 import { SpreadableAreaEvidencePanel } from "@/components/farm/SpreadableAreaEvidencePanel";
 import { FieldProductionCycleCard } from "@/components/farm/FieldProductionCycleCard";
+import { FieldGrazingMovementCard } from "@/components/farm/FieldGrazingMovementCard";
 import { FieldSoilTestEditor } from "@/components/farm/FieldSoilTestEditor";
 import { CROP_SYSTEM_LABELS, type CropSystem } from "@/domain/fertiliser-field-evidence";
 import { getFieldWorkspaceContextAction, type FieldWorkspaceContext, type FieldActivityEvent } from "@/app/actions/field-workspace";
@@ -402,8 +403,10 @@ function OverviewChapter({
                 </dd>
               </div>
             </div>
-            <Row label="Livestock" value="Not recorded for fields yet" detail="Groups carry no field location" quiet />
           </dl>
+          <div className="border-t border-fr-v2-cream-rule/70">
+            <FieldGrazingMovementCard key={field.id} fieldId={field.id} />
+          </div>
         </Section>
 
         <Section kicker="Planned work">

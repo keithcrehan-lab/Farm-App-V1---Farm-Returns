@@ -15,10 +15,12 @@ function ha(value: number) {
   return `${formatNonNegative(value, 2)} ha`;
 }
 
+const EMPTY_EXCLUSIONS: GeoJSON.Polygon[] = [];
+
 export function SpreadableAreaExclusionMapModal({
   fieldName,
   fieldPolygon,
-  initialExclusions = [],
+  initialExclusions,
   onSave,
   onClose,
 }: {
@@ -28,14 +30,22 @@ export function SpreadableAreaExclusionMapModal({
   onSave: (result: SpreadableAreaGeometryResult) => void;
   onClose: () => void;
 }) {
+  const exclusions = initialExclusions ?? EMPTY_EXCLUSIONS;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const drawRef = useRef<MapboxDraw | null>(null);
-  const [result, setResult] = useState(() => calculateSpreadableAreaFromExclusions(fieldPolygon, initialExclusions));
+  const [result, setResult] = useState(() => calculateSpreadableAreaFromExclusions(fieldPolygon, exclusions));
 
   useEffect(() => {
     if (!mapboxConfigured || !containerRef.current) return;
     mapboxgl.accessToken = MAPBOX_TOKEN;
-    const map = new mapboxgl.Map({ container: containerRef.current, style: MAPBOX_SATELLITE_STYLE });
+    const b = bbox({ type: "Feature", properties: {}, geometry: fieldPolygon });
+    const fieldBounds: [[number, number], [number, number]] = [[b[0], b[1]], [b[2], b[3]]];
+    const map = new mapboxgl.Map({
+      container: containerRef.current,
+      style: MAPBOX_SATELLITE_STYLE,
+      bounds: fieldBounds,
+      fitBoundsOptions: { padding: 70, duration: 0 },
+    });
     map.addControl(new mapboxgl.NavigationControl(), "top-right");
     const ro = new ResizeObserver(() => map.resize());
     ro.observe(containerRef.current);
@@ -43,7 +53,7 @@ export function SpreadableAreaExclusionMapModal({
     const draw = new MapboxDraw({
       displayControlsDefault: false,
       controls: { polygon: true, trash: true },
-      defaultMode: initialExclusions.length ? "simple_select" : "draw_polygon",
+      defaultMode: exclusions.length ? "simple_select" : "draw_polygon",
     });
     drawRef.current = draw;
     map.addControl(draw, "top-left");
@@ -59,9 +69,15 @@ export function SpreadableAreaExclusionMapModal({
       map.addSource("spreadable-field", { type: "geojson", data: { type: "Feature", properties: {}, geometry: fieldPolygon } });
       map.addLayer({ id: "spreadable-field-fill", type: "fill", source: "spreadable-field", paint: { "fill-color": "#ffffff", "fill-opacity": 0.06 } });
       map.addLayer({ id: "spreadable-field-line", type: "line", source: "spreadable-field", paint: { "line-color": "#ffffff", "line-width": 2 } });
-      const b = bbox({ type: "Feature", properties: {}, geometry: fieldPolygon });
-      map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 70, duration: 0 });
-      initialExclusions.forEach((polygon) => draw.add(polygon));
+      // The field bounds are also supplied to the constructor above so the
+      // map never opens at the Mapbox style's default camera while waiting
+      // for this event. Re-fit once after the modal has its final layout,
+      // because Mapbox computes camera padding from the container size.
+      requestAnimationFrame(() => {
+        map.resize();
+        map.fitBounds(fieldBounds, { padding: 70, duration: 0 });
+      });
+      exclusions.forEach((polygon) => draw.add(polygon));
       sync();
     });
     map.on("draw.create", sync);
@@ -73,7 +89,7 @@ export function SpreadableAreaExclusionMapModal({
       map.remove();
       drawRef.current = null;
     };
-  }, [fieldPolygon, initialExclusions]);
+  }, [fieldPolygon, exclusions]);
 
   return (
     <div className="fixed inset-0 z-[80] flex flex-col bg-black/55" role="dialog" aria-modal="true" aria-label={`Map no-spread areas for ${fieldName}`}>

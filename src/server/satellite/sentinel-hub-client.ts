@@ -192,8 +192,8 @@ export async function renderSentinel2FieldImage(
         ],
       },
       output: {
-        width: request.width ?? 720,
-        height: request.height ?? 520,
+        width: request.width ?? 1280,
+        height: request.height ?? 900,
         responses: [{ identifier: "default", format: { type: "image/png" } }],
       },
       evalscript: request.mode === "ndvi" ? NDVI_IMAGE_EVALSCRIPT : NATURAL_COLOR_EVALSCRIPT,

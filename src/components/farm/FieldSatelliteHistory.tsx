@@ -183,6 +183,7 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
   const [selected, setSelected] = useState<SatelliteHistoryScene | null>(null);
   const [mode, setMode] = useState<ImageMode>("satellite");
   const [overlayOpacity, setOverlayOpacity] = useState(60);
+  const [satelliteOpacity, setSatelliteOpacity] = useState(45);
   const [quality, setQuality] = useState<QualityFilter>("clear");
   const [renderedImage, setRenderedImage] = useState<RenderedImage | null>(null);
   const [imageMessage, setImageMessage] = useState<string | null>(null);
@@ -283,13 +284,17 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
 
   useEffect(() => {
     if (!open) return;
-    if (visibleScenes.length === 0) {
-      setSelected(null);
-      return;
-    }
-    if (!selected || !visibleScenes.some((scene) => scene.id === selected.id)) {
-      setSelected(visibleScenes[0]);
-    }
+    const nextSelected =
+      visibleScenes.length === 0
+        ? null
+        : selected && visibleScenes.some((scene) => scene.id === selected.id)
+          ? selected
+          : visibleScenes[0];
+
+    if (nextSelected?.id === selected?.id || (!nextSelected && !selected)) return;
+
+    const timeout = window.setTimeout(() => setSelected(nextSelected), 0);
+    return () => window.clearTimeout(timeout);
   }, [open, selected, visibleScenes]);
 
   const baseSatelliteUrl = history ? mapboxSatelliteUrl(history.contextBounds) : null;
@@ -460,30 +465,38 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
               </div>
             </div>
 
-            {mode === "vegetation" ? (
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-y border-fr-v2-cream-rule py-2.5">
-                <div>
-                  <p className="text-xs font-semibold text-fr-v2-graphite">Vegetation overlay</p>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-fr-v2-muted">
-                    Sentinel-derived broad field signal. Native detail is approximately 10 m per pixel.
-                  </p>
-                </div>
-                <label className="flex min-w-[210px] items-center gap-3 text-xs font-semibold text-fr-v2-muted">
-                  Opacity
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="5"
-                    value={overlayOpacity}
-                    onChange={(event) => setOverlayOpacity(Number(event.target.value))}
-                    aria-label="Vegetation overlay opacity"
-                    className="w-32 accent-fr-v2-forest-deep"
-                  />
-                  <span className="w-9 text-right font-mono text-[11px]">{overlayOpacity}%</span>
-                </label>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-y border-fr-v2-cream-rule py-2.5">
+              <div>
+                <p className="text-xs font-semibold text-fr-v2-graphite">
+                  {mode === "vegetation" ? "Vegetation overlay" : "Dated Sentinel layer"}
+                </p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-fr-v2-muted">
+                  {mode === "vegetation"
+                    ? "Sentinel-derived broad field signal. Native detail is approximately 10 m per pixel."
+                    : "The selected Sentinel pass is blended over sharp reference imagery. Sentinel itself is approximately 10 m per pixel."}
+                </p>
               </div>
-            ) : null}
+              <label className="flex min-w-[210px] items-center gap-3 text-xs font-semibold text-fr-v2-muted">
+                Dated layer
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={mode === "vegetation" ? overlayOpacity : satelliteOpacity}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    if (mode === "vegetation") setOverlayOpacity(value);
+                    else setSatelliteOpacity(value);
+                  }}
+                  aria-label={mode === "vegetation" ? "Vegetation overlay opacity" : "Dated satellite layer opacity"}
+                  className="w-32 accent-fr-v2-forest-deep"
+                />
+                <span className="w-9 text-right font-mono text-[11px]">
+                  {mode === "vegetation" ? overlayOpacity : satelliteOpacity}%
+                </span>
+              </label>
+            </div>
 
             <div className="mt-3 overflow-hidden border border-fr-v2-cream-rule bg-fr-v2-cream">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-fr-v2-cream-rule px-3 py-2.5">
@@ -514,6 +527,16 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
               <div className="relative flex min-h-[320px] items-center justify-center bg-fr-v2-forest-deep/5" style={{ aspectRatio: "64 / 45" }}>
                 {baseSatelliteUrl || renderedImage ? (
                   <>
+                    {baseSatelliteUrl ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={baseSatelliteUrl}
+                          alt={`High-resolution satellite context for ${field.name}`}
+                          className="absolute inset-0 size-full object-fill"
+                        />
+                      </>
+                    ) : null}
                     {mode === "satellite" && renderedImage ? (
                       <>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -522,15 +545,7 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
                           src={renderedImage.dataUrl}
                           alt={`Sentinel satellite observation for ${field.name} on ${shortDate(selected?.acquisitionTimestamp ?? "")}`}
                           className="absolute inset-0 size-full object-fill"
-                        />
-                      </>
-                    ) : baseSatelliteUrl ? (
-                      <>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={baseSatelliteUrl}
-                          alt={`High-resolution satellite context for ${field.name}`}
-                          className="absolute inset-0 size-full object-fill"
+                          style={{ opacity: baseSatelliteUrl ? satelliteOpacity / 100 : 1 }}
                         />
                       </>
                     ) : null}
@@ -571,11 +586,11 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
               ) : null}
             </div>
 
-            {mode === "vegetation" ? (
-              <p className="mt-2 text-[11px] leading-relaxed text-fr-v2-muted">
-                The coloured layer is the selected Sentinel observation. Reference aerial context is only used underneath it and is not presented as the dated observation.
-              </p>
-            ) : null}
+            <p className="mt-2 text-[11px] leading-relaxed text-fr-v2-muted">
+              {mode === "vegetation"
+                ? "The coloured layer is the selected Sentinel observation. Reference aerial context is only used underneath it and is not presented as the dated observation."
+                : "The dated colour layer is the selected Sentinel observation. The sharper detail underneath is undated reference imagery; use the slider to isolate either layer."}
+            </p>
           </section>
 
           <section className="border-t border-fr-v2-cream-rule pt-5">

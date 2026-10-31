@@ -109,7 +109,8 @@ describe("FieldSatelliteHistory", () => {
       expect(mockImage).toHaveBeenLastCalledWith(field.id, "2026-10-18T11:30:00Z", "natural");
       expect(screen.getByRole("img", { name: /sentinel satellite observation for top field on 18 oct 2026/i })).toBeTruthy();
     });
-    expect(screen.queryByRole("slider", { name: /vegetation overlay opacity/i })).toBeNull();
+    expect(screen.getByRole("slider", { name: /dated satellite layer opacity/i })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /high-resolution satellite context for top field/i })).toBeTruthy();
     expect(screen.getByText(/Not enough clear observations to draw a trend yet/i)).toBeTruthy();
     expect(screen.getByText(/This is a vegetation signal, not a diagnosis/i)).toBeTruthy();
     expect(screen.getByText(/Satellite field signal/i)).toBeTruthy();

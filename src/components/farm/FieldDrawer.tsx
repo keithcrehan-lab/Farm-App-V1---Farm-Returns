@@ -978,6 +978,9 @@ function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDeta
         <div className="border-l-[3px] border-fr-v2-gold pl-3">
           <p className="text-sm font-semibold text-fr-v2-graphite">Any field-specific local authority buffer?</p>
           <p className="mt-1 text-xs leading-relaxed text-fr-v2-muted">This is the one check Farm Return cannot currently resolve from a complete national public dataset.</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-fr-v2-muted">
+            <span className="font-semibold text-fr-v2-graphite">Example:</span> your local authority has formally told you to keep a wider no-spread buffer around a particular water source or sensitive area on this field.
+          </p>
           <label className={`${LABEL} mt-3`}>
             Local authority restriction
             <select

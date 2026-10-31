@@ -2264,3 +2264,16 @@ model revision):
 | Projected weight used for planning (horizon) | C5's straight-line PREDICTION (recent daily gain continued unchanged) is used for the projected sale weight — and so sale value, cost per kg at sale, projected direct profit and return from holding — only when it is positive, finite and the date is **at most 90 days** ahead of the viewpoint (`PLAN_PROJECTION_HORIZON_DAYS`, `admitProjectedWeight`); beyond 90 days those figures are UNKNOWN (`PROJECTION_BEYOND_HORIZON`) and the farmer's planned date is kept. **A C10 decision-use safeguard (human product decision, 2026-10-23), not science and not a C5 limit** — C5 still calculates any date. Display: a positive projection below half a kilogram reads "<1 kg", never "0 kg" (display precision only) | C10 v4 (2026-10-23) |
 
 Excluded by definition: labour, land / rent, finance, depreciation, general overhead and unallocated shared costs. No price, cost or growth constant is encoded; demonstration figures are fixtures labelled as such, and mart fixtures are never C8 observations.
+
+## Supplier Portal — quote totals (2026-10-31)
+
+**Status: arithmetic definition, not scientific, statutory or market evidence.** Implementation: `src/domain/supplier-quote.ts` (`computeSupplierQuoteTotals`, method `supplier_quote_totals_v1`).
+
+| Definition | Formula | Version |
+|---|---|---|
+| Line ex VAT | round_half_up(quantity × unit price ex VAT) to the cent, exact integer arithmetic | v1 |
+| Line VAT | round_half_up(line ex VAT × supplier-declared VAT rate %) to the cent; UNKNOWN when no rate is declared | v1 |
+| Delivery | supplier-declared charge ex VAT with its own declared rate, same rounding | v1 |
+| Totals | sums of the rounded lines and delivery; total inc VAT UNKNOWN while any rate or the delivery charge is undeclared | v1 |
+
+No VAT rate, price or delivery charge is encoded: every rate is declared by the supplier on its own quote. Totals are not stored; they are recomputed from immutable submitted inputs under the recorded method, and an unknown method fails closed.

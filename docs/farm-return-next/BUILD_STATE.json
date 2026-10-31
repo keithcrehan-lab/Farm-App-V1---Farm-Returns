@@ -504,5 +504,10 @@
       "closed_by": "scripts/agent-campaign-run --adopt (manual adoption; the phase was not built by the runner)",
       "next_phase": "none (campaign complete)"
     }
+  },
+  "supplier_portal_v1": {
+    "status": "BUILT 2026-10-31 on fertiliser-engine-v2; migration 20261031150000_supplier_portal_foundations.sql NOT APPLIED; isolation validation NOT RUN; independent Codex audit NOT RUN",
+    "doc": "docs/farm-return-next/SUPPLIER_PORTAL.md",
+    "not_built": ["farmer-facing supplier quote view and acceptance", "farmer contact release", "supplier notifications"]
   }
 }

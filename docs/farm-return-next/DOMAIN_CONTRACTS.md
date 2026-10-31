@@ -5084,3 +5084,16 @@ Authority: `.agent/campaigns/cattle-engine-v1/C10_BRIEF.md` (human C10 overnight
 ### Exclusions
 
 No change to C0–C9, the Plan kernel, `src/lib/farm-data/`, `supabase/`, configs or dependencies; no AI, network, scraping or live market data; no feed-response, price-forecast or health model; legacy `/livestock` unchanged.
+
+## Supplier Portal v1 (2026-10-31)
+
+Design, trust model and limitations: `docs/farm-return-next/SUPPLIER_PORTAL.md`.
+
+| Module | Contract |
+|---|---|
+| `domain/supplier-quote.ts` | Pure: `validateSupplierQuoteDraft` (structural, drops unknown keys), `supplierQuoteSubmissionIssues(draft, today)`, `computeSupplierQuoteTotals` / `computeStoredSupplierQuoteTotals` (exact cents, `supplier_quote_totals_v1`, fails closed on an unknown method), `nextSupplierQuoteStatus` (draft→submitted/discarded, submitted→withdrawn), `deriveSupplierRfqStatus` (documented precedence), `supplierRfqPermissions`, `summariseSupplierPortal`. Reuses `quote-request.ts` units and `iso-datetime.ts`. |
+| `lib/farm-data/supplier-portal.ts` | Server-only RPC wrappers for `20261031150000_supplier_portal_foundations.sql`; strict zod payload schemas; `SupplierPortalError` codes. No supplier-side function takes a supplier id. |
+| `orchestration/supplier-portal/` | `views.ts` pure view assembly; `index.ts` server fetch + `supplierPortalToday` (reuses `dublinDate`). |
+| `app/actions/supplier-portal.ts`, `app/actions/supplier-portal-operator.ts` | Membership / operator check first; references plus validated content only. |
+
+Reuse: `quote_requests` / revisions / delivery snapshots and `is_quote_operator_for_current_user()` unchanged; `getOperatorDemandInboxAction` supplies operator routing choices. No change to existing quote, farmer or operator modules. Migration not applied anywhere.

@@ -813,3 +813,14 @@ the phase verify and the full quality gate passing. The additive Plan contract �
 `COMPOSITE`, tier `ROUTINE_MANAGEMENT` (last) and hard-deadline authority `VERSIONED_SOURCE` — is
 now part of the frozen Plan contract; `BUILD_STATE.json.contracts_frozen` is set back to `true`.
 Docs only.
+
+## Supplier Portal v1 (2026-10-31)
+
+Built the fertiliser supplier portal (`/supplier`: overview KPIs, RFQ inbox, RFQ detail with quote
+drafting/submission/withdrawal/discard/decline and history, quotes history, settings) and the
+operator routing screen (`/operator/suppliers`) over real `quote_requests`. New forward-only
+migration `20261031150000_supplier_portal_foundations.sql` (supplier organisations, membership,
+RFQ routes, quotes, lines, append-only events; RLS + security-definer RPCs) — NOT APPLIED to any
+database. Isolation validation script written, NOT RUN. Independent Codex audit not run.
+Farmer-facing quote view, acceptance, contact release and supplier notifications are not built.
+See `SUPPLIER_PORTAL.md`.

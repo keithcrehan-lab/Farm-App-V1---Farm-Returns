@@ -29,6 +29,7 @@ import { FarmProvider, useFields } from "@/store/farm-store";
 import { FieldDrawer } from "./FieldDrawer";
 import { mockFields, mockSlurryAllocations } from "@/data/mock-farm";
 import type { Field, SlurryAllocation } from "@/domain/types";
+import type { Prompt } from "@/orchestration/prompt";
 import { updateSlurryApplicationDateAction, updateSlurryApplicationMethodAction } from "@/app/actions/farm";
 import { getFieldWorkspaceContextAction } from "@/app/actions/field-workspace";
 import { saveFieldProductionCycleAction } from "@/app/actions/fertiliser-field-evidence";
@@ -66,6 +67,36 @@ function renderLiveDrawer(fieldId: string) {
     </FarmProvider>,
   );
 }
+
+describe("FieldDrawer — farmer-readable spreading status", () => {
+  it("reduces a known statutory closed period to a simple action message and keeps legal detail behind evidence", () => {
+    const prompt: Prompt = {
+      id: "closed-1",
+      farmId: mockFields[0].farmId,
+      fieldId: mockFields[0].id,
+      kind: "spreading_window",
+      title: `Spreading window status needs review — ${mockFields[0].name}`,
+      description: "Not permitted: 2026-10-31 falls within the statutory closed period for chemical_fertiliser in Zone B (09-15 - 01-29).",
+      basis: { status: "LEGAL_PROHIBITION", reasonCode: "CLOSED_PERIOD_CALENDAR", consequence: "2026-10-31 falls within the statutory closed period for chemical_fertiliser in Zone B (09-15 - 01-29)." },
+      inputsSnapshot: { zone: "B", material: "chemical_fertiliser", asOfDate: "2026-10-31" },
+      createdAt: "2026-10-31T09:00:00.000Z",
+      regulatory: "compliance_value",
+    };
+
+    render(
+      <FarmProvider>
+        <FieldDrawer field={mockFields[0]} leadingPrompt={prompt} onViewPrompt={() => undefined} />
+      </FarmProvider>,
+    );
+
+    expect(screen.getByText("Chemical fertiliser spreading is closed")).toBeTruthy();
+    expect(screen.getByText(new RegExp(`You can’t spread chemical fertiliser on ${mockFields[0].name} right now\. Reopens 30 January\.`))).toBeTruthy();
+    expect(screen.getByRole("button", { name: /view rules & evidence/i })).toBeTruthy();
+    expect(screen.queryByText(/Zone B/)).toBeNull();
+    expect(screen.queryByText(/09-15/)).toBeNull();
+    expect(screen.queryByText(/status needs review/i)).toBeNull();
+  });
+});
 
 describe("FieldDrawer — real field mapping entry point", () => {
   it("offers 'Map this field' (not the old disabled 'Edit Field') when no boundary exists yet", () => {

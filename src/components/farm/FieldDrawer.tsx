@@ -8,6 +8,7 @@ import { phStatusLabel } from "@/lib/status";
 import { mockSilagePlans } from "@/data/mock-farm";
 import type { Field } from "@/domain/types";
 import type { Prompt } from "@/orchestration/prompt";
+import { CLOSED_PERIOD_BY_ZONE_MATERIAL, type SpreadingMaterial, type SpreadingZone } from "@/domain/closed-period-calendar";
 import { formatHa, formatNumber } from "@/lib/format";
 import { nearestStationsForField } from "@/domain/weather-stations";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
@@ -28,6 +29,38 @@ import { useFieldNutrientPlan } from "@/lib/use-field-nutrient-plan";
 import { fieldNutrientPlanView } from "@/lib/field-nutrient-plan-presentation";
 import { fieldNutrientPlanHref, type FieldWorkspaceChapter } from "@/lib/farm-spatial-field-lens";
 import { fieldHistoryEvents, formatFieldDate, type FieldHistoryEvent } from "@/lib/field-workspace-presentation";
+
+const FARMER_MATERIAL_LABEL: Record<SpreadingMaterial, string> = {
+  chemical_fertiliser: "Chemical fertiliser",
+  organic_fertiliser_other_than_FYM: "Slurry and organic fertiliser",
+  farmyard_manure: "Farmyard manure",
+};
+
+function formatReopenDate(mmDd: string): string {
+  const [month, day] = mmDd.split("-").map(Number);
+  if (!month || !day) return "";
+  const date = new Date(Date.UTC(2026, month - 1, day + 1));
+  return new Intl.DateTimeFormat("en-IE", { day: "numeric", month: "long", timeZone: "UTC" }).format(date);
+}
+
+function farmerPromptSummary(prompt: Prompt, fieldName: string): { title: string; message?: string; detailLabel: string } {
+  if (prompt.kind === "spreading_window" && prompt.basis.status === "LEGAL_PROHIBITION" && prompt.basis.reasonCode === "CLOSED_PERIOD_CALENDAR") {
+    const zone = prompt.inputsSnapshot?.zone as SpreadingZone | undefined;
+    const material = prompt.inputsSnapshot?.material as SpreadingMaterial | undefined;
+    const period = zone && material ? CLOSED_PERIOD_BY_ZONE_MATERIAL[zone]?.[material] : undefined;
+    const reopen = period ? formatReopenDate(period.closedThroughMmDd) : "";
+    const materialLabel = material ? FARMER_MATERIAL_LABEL[material] : "Spreading";
+    return {
+      title: `${materialLabel} spreading is closed`,
+      message: reopen
+        ? `You can’t spread ${materialLabel.toLowerCase()} on ${fieldName} right now. Reopens ${reopen}.`
+        : `You can’t spread ${materialLabel.toLowerCase()} on ${fieldName} right now.`,
+      detailLabel: "View rules & evidence",
+    };
+  }
+
+  return { title: prompt.title, message: prompt.description, detailLabel: "Why? See the evidence" };
+}
 
 const BUFFER_FEATURE_OPTIONS: { value: BufferFeature; label: string }[] = [
   { value: "surface_water", label: "Surface water (stream/river/canal)" },
@@ -106,10 +139,12 @@ export function FieldDrawer({
 
   useEffect(() => {
     let cancelled = false;
-    setWorkspaceUnavailable(false);
     void getFieldWorkspaceContextAction(field.id)
       .then((context) => {
-        if (!cancelled) setWorkspaceContext(context);
+        if (!cancelled) {
+          setWorkspaceUnavailable(false);
+          setWorkspaceContext(context);
+        }
       })
       .catch(() => {
         if (!cancelled) {
@@ -265,9 +300,7 @@ function OverviewChapter({
   const [useMessage, setUseMessage] = useState<string | null>(null);
   const [savingUse, startUseTransition] = useTransition();
 
-  useEffect(() => {
-    if (currentCycle?.cropSystem) setUseDraft(currentCycle.cropSystem);
-  }, [currentCycle?.cropSystem]);
+  const promptSummary = leadingPrompt ? farmerPromptSummary(leadingPrompt, field.name) : null;
 
   const primary = planAvailable
     ? { label: "Open nutrient plan", href: fieldNutrientPlanHref(field.id) }
@@ -280,13 +313,13 @@ function OverviewChapter({
       <div className="flex min-w-0 flex-col gap-8">
         <section aria-label="Now" data-field-now>
           <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Now</p>
-          {leadingPrompt ? (
+          {leadingPrompt && promptSummary ? (
             <>
-              <p className="mt-2 max-w-[34ch] font-display text-[26px] leading-[1.12] tracking-[-0.01em] text-fr-v2-graphite">{leadingPrompt.title}</p>
-              <p className="mt-2 max-w-[60ch] text-sm leading-relaxed text-fr-v2-muted">{leadingPrompt.description}</p>
+              <p className="mt-2 max-w-[34ch] text-[22px] font-semibold leading-[1.18] tracking-[-0.01em] text-fr-v2-graphite">{promptSummary.title}</p>
+              {promptSummary.message ? <p className="mt-2 max-w-[60ch] text-sm leading-relaxed text-fr-v2-muted">{promptSummary.message}</p> : null}
               {onViewPrompt ? (
                 <button type="button" onClick={onViewPrompt} className={cn(TEXT_LINK, "mt-3")}>
-                  Why? See the evidence
+                  {promptSummary.detailLabel} →
                 </button>
               ) : null}
             </>
@@ -352,7 +385,10 @@ function OverviewChapter({
                     <>
                       <button
                         type="button"
-                        onClick={() => setEditingUse(true)}
+                        onClick={() => {
+                          setUseDraft(currentCycle?.cropSystem ?? "GRASS_GRAZING");
+                          setEditingUse(true);
+                        }}
                         className="text-sm font-semibold text-fr-v2-graphite underline decoration-fr-v2-forest/30 underline-offset-[3px] hover:decoration-fr-v2-gold"
                       >
                         {currentCycle ? CROP_SYSTEM_LABELS[currentCycle.cropSystem] : "Not recorded"}

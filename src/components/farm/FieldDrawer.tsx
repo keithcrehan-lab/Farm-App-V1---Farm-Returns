@@ -12,7 +12,6 @@ import { CLOSED_PERIOD_BY_ZONE_MATERIAL, type SpreadingMaterial, type SpreadingZ
 import { formatHa, formatNumber } from "@/lib/format";
 import { nearestStationsForField } from "@/domain/weather-stations";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
-import { FieldAwarenessCard } from "@/components/farm/FieldAwarenessCard";
 import { FieldSatelliteHistory } from "@/components/farm/FieldSatelliteHistory";
 import { SpreadableAreaEvidencePanel } from "@/components/farm/SpreadableAreaEvidencePanel";
 import { FieldProductionCycleCard } from "@/components/farm/FieldProductionCycleCard";
@@ -462,12 +461,6 @@ function OverviewChapter({
           <button type="button" onClick={onOpenHistory} className={cn(TEXT_LINK, "mt-3")}>
             Full history →
           </button>
-        </Section>
-
-        {/* Farm Awareness / Satellite Field Intelligence — what Farm Return
-            currently knows about this field (src/domain/field-awareness.ts). */}
-        <Section kicker="What Farm Return knows">
-          <FieldAwarenessCard field={field} />
         </Section>
 
         <Section kicker="Satellite history">

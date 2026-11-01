@@ -54,6 +54,29 @@ import {
 import { createSlurryCompositionRecord } from "@/lib/farm-data/slurry-composition";
 import { validateNewSlurryCompositionInput, type NewSlurryCompositionInput, type SlurryComposition } from "@/domain/slurry-composition";
 
+
+async function persistAutomaticSpatialEvidence(field: Field): Promise<Field> {
+  if (!field.polygon) return field;
+  try {
+    const assessment = await assessBestAvailableLegalSpatialEvidence(field.polygon);
+    return await applyDerivedLegalSpatialEvidence(field.id, {
+      assessedAt: assessment.assessedAt,
+      ...(assessment.commonage.state === "resolved" && assessment.commonage.value
+        ? { commonage: { value: assessment.commonage.value, source: assessment.commonage.source, sourceDate: assessment.commonage.sourceDate } }
+        : {}),
+      ...(assessment.water.state === "resolved" && assessment.water.featureType && assessment.water.nearestFeature && assessment.water.distanceM !== undefined
+        ? { water: { featureType: assessment.water.featureType, nearestFeature: assessment.water.nearestFeature, distanceM: assessment.water.distanceM, source: assessment.water.source, sourceDate: assessment.water.sourceDate } }
+        : {}),
+    });
+  } catch (error) {
+    // Mapping a field must never fail merely because a public/reference source
+    // is temporarily unavailable. The field is saved and the bulk/field-level
+    // resolver can retry later.
+    console.warn("[farm] automatic spatial evidence resolution failed", { fieldId: field.id, error });
+    return field;
+  }
+}
+
 export async function updateFarmProfileAction(
   farmId: string,
   patch: { name?: string; ownerName?: string; county?: string },
@@ -80,8 +103,10 @@ export async function addFieldAction(
     polygon: input.polygon,
     fertility: {},
   });
+  const resolved = await persistAutomaticSpatialEvidence(field);
   revalidatePath("/fields");
-  return field;
+  revalidatePath("/fertiliser-plan");
+  return resolved;
 }
 
 export async function setFieldBoundaryAction(
@@ -91,8 +116,10 @@ export async function setFieldBoundaryAction(
   centroid: [number, number],
 ): Promise<Field> {
   const field = await setFieldBoundaryRow(fieldId, polygon, areaHa, centroid);
+  const resolved = await persistAutomaticSpatialEvidence(field);
   revalidatePath("/fields");
-  return field;
+  revalidatePath("/fertiliser-plan");
+  return resolved;
 }
 
 export async function updateFieldDetailsAction(

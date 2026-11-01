@@ -95,6 +95,17 @@ describe("buildFertiliserQuoteReadiness", () => {
     expect(result.items.some((item) => item.id.endsWith(":prior-fertiliser"))).toBe(false);
   });
 
+  it("deep-links a missing grazing production system to the exact field control", () => {
+    const missingGrazingCycle: FieldProductionCycle = {
+      ...cycle,
+      evidence: { ...cycle.evidence, grazingProductionSystem: undefined },
+    };
+    const aggregation = aggregateFarmFertiliserPurchasing([{ fieldId: "f1", fieldName: "P Collins", plan: { purchaseStatus: { status: "UNKNOWN", reasonCode: "INCOMPLETE_EVIDENCE", missingInputs: ["grazingProductionSystem"] }, purchasedProducts: [], calculationVersion: "p3" } }]);
+    const result = buildFertiliserQuoteReadiness({ fields: [field()], cycles: [missingGrazingCycle], slurryAllocations: [], aggregation });
+    const item = result.items.find((row) => row.id === "f1:grazing-system");
+    expect(item?.href).toBe("/fields?field=f1&chapter=nutrients#grazing-production-system");
+  });
+
   it("routes stocking evidence to cattle management", () => {
     const aggregation = aggregateFarmFertiliserPurchasing([{ fieldId: "f1", fieldName: "P Collins", plan: { purchaseStatus: { status: "UNKNOWN", reasonCode: "INCOMPLETE_EVIDENCE", missingInputs: ["annualOrganicNStockingRateKgHa"] }, purchasedProducts: [], calculationVersion: "p3" } }]);
     const result = buildFertiliserQuoteReadiness({ fields: [field()], cycles: [cycle], slurryAllocations: [], aggregation });

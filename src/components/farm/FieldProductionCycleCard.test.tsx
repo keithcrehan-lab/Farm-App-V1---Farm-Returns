@@ -44,12 +44,26 @@ function readySaveResult() {
 }
 
 afterEach(() => {
+  window.history.replaceState(null, "", window.location.pathname);
   cleanup();
   vi.clearAllMocks();
   vi.mocked(loadFieldProductionCycleAction).mockResolvedValue({ cycle: null, gate: null } as any);
 });
 
 describe("FieldProductionCycleCard — streamlined chemical-fertiliser evidence", () => {
+  it("opens, scrolls to and focuses grazing production system when deep-linked from quote readiness", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    window.history.replaceState(null, "", `${window.location.pathname}#grazing-production-system`);
+
+    renderCard();
+
+    const select = await screen.findByLabelText("Confirm or change system");
+    await waitFor(() => expect(screen.getByRole("button", { name: /crop & production/i }).getAttribute("aria-expanded")).toBe("true"));
+    await waitFor(() => expect(document.activeElement).toBe(select));
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
   it("asks one farmer-facing question first and only shows N/P/K boxes after Yes", async () => {
     renderCard();
     openCard();

@@ -91,7 +91,30 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
   const [editingGrazingSystem, setEditingGrazingSystem] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [deepLinkToGrazingSystem, setDeepLinkToGrazingSystem] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (typeof window === "undefined" || window.location.hash !== "#grazing-production-system") return;
+    const frame = window.requestAnimationFrame(() => {
+      setOpen(true);
+      setEditingGrazingSystem(true);
+      setDeepLinkToGrazingSystem(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [field.id]);
+
+  useEffect(() => {
+    if (!open || !deepLinkToGrazingSystem) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById("grazing-production-system");
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const select = document.getElementById("grazing-production-system-select") as HTMLSelectElement | null;
+      select?.focus({ preventScroll: true });
+      setDeepLinkToGrazingSystem(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, deepLinkToGrazingSystem]);
 
   useEffect(() => {
     let cancelled = false;
@@ -178,7 +201,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
       </label>
 
       {cropSystem === "GRASS_GRAZING" ? (
-        <div className="border border-fr-v2-cream-rule bg-fr-v2-cream-soft px-4 py-3" aria-label="Grazing production system">
+        <div id="grazing-production-system" className="scroll-mt-24 border border-fr-v2-cream-rule bg-fr-v2-cream-soft px-4 py-3" aria-label="Grazing production system">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-semibold text-fr-v2-graphite">Grazing production system</p>
@@ -208,6 +231,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
               <label className={LABEL}>
                 Confirm or change system
                 <select
+                  id="grazing-production-system-select"
                   className={INPUT}
                   value={grazingSystem}
                   onChange={(event) => {

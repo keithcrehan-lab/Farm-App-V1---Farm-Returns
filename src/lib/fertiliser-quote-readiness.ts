@@ -21,8 +21,8 @@ export interface FertiliserQuoteReadiness {
   items: FertiliserQuoteReadinessItem[];
 }
 
-function fieldHref(fieldId: string): string {
-  return `/fields?field=${encodeURIComponent(fieldId)}&chapter=nutrients`;
+function fieldHref(fieldId: string, anchor?: string): string {
+  return `/fields?field=${encodeURIComponent(fieldId)}&chapter=nutrients${anchor ? `#${anchor}` : ""}`;
 }
 
 function hasEvidence<T>(value: T | undefined | null): boolean {
@@ -107,7 +107,7 @@ export function buildFertiliserQuoteReadiness(input: {
         "grazing-system",
         "Grazing production system",
         cycle.evidence.grazingProductionSystem?.value === "SUCKLER_CALF_TO_BEEF",
-        undefined,
+        fieldHref(field.id, "grazing-production-system"),
         cycle.evidence.grazingProductionSystem?.value && cycle.evidence.grazingProductionSystem.value !== "SUCKLER_CALF_TO_BEEF"
           ? "The recorded system is not yet supported by the current P3 grazing rule pack."
           : undefined,

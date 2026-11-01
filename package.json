@@ -12,7 +12,8 @@
     "test:visual": "playwright test",
     "test:visual:update": "playwright test --update-snapshots",
     "screenshot": "node scripts/screenshot.mjs",
-    "check-overflow": "node scripts/check-overflow.mjs"
+    "check-overflow": "node scripts/check-overflow.mjs",
+    "spatial:import-lpis": "node --import tsx scripts/import-lpis-gpkg.mts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
@@ -37,6 +38,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@ngageoint/geopackage": "^4.2.9",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.1",

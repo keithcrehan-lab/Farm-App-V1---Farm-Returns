@@ -756,8 +756,10 @@ function SoilEvidence({ field }: { field: Field }) {
  */
 function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDetailsRequest?: MissingSlurryPlanningDetail[] }) {
   const { replaceFieldFromServer, updateFieldCommonageStatus, updateFieldWaterBufferContext, updateSlurryApplicationMethod, updateSlurryApplicationDate } = useFarmActions();
-  type AutoAssessment = Awaited<ReturnType<typeof autoAssessFieldLegalSpatialEvidenceAction>>["assessment"];
+  type AutoAssessmentResult = Awaited<ReturnType<typeof autoAssessFieldLegalSpatialEvidenceAction>>;
+  type AutoAssessment = AutoAssessmentResult["assessment"];
   const [autoAssessment, setAutoAssessment] = useState<AutoAssessment | null>(null);
+  const [groundwaterFeatures, setGroundwaterFeatures] = useState<AutoAssessmentResult["groundwaterFeatures"]>([]);
   const [autoChecking, setAutoChecking] = useState(false);
   const [autoError, setAutoError] = useState<string | null>(null);
   const attemptedFieldIds = useRef(new Set<string>());
@@ -785,7 +787,8 @@ function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDeta
     !field.commonageStatus ||
     field.commonageStatus.value === "unknown" ||
     field.waterBufferContext?.value.featureType === undefined ||
-    field.waterBufferContext.value.distanceM === undefined
+    field.waterBufferContext.value.distanceM === undefined ||
+    groundwaterFeatures.length === 0
   );
 
   useEffect(() => {
@@ -800,6 +803,7 @@ function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDeta
         .then((result) => {
           if (cancelled) return;
           setAutoAssessment(result.assessment);
+          setGroundwaterFeatures(result.groundwaterFeatures);
           replaceFieldFromServer(result.field);
         })
         .catch(() => {
@@ -923,6 +927,23 @@ function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDeta
                   <p className="mt-0.5 max-w-md text-xs text-fr-v2-muted">{autoAssessment?.water.detail ?? (autoError ?? "Farm Return has not resolved a mapped watercourse yet.")}</p>
                 </div>
               )}
+            </div>
+
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+              <div>
+                <p className="text-sm font-medium text-fr-v2-graphite">Drinking-water / groundwater context</p>
+                <p className="mt-0.5 text-xs text-fr-v2-muted">GSI source-protection areas and recorded wells/springs</p>
+              </div>
+              <div className="sm:text-right">
+                {groundwaterFeatures.length > 0 ? (
+                  <>
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-fr-v2-graphite sm:justify-end"><CheckCircle2 className="size-4 text-fr-v2-forest" />{groundwaterFeatures[0].featureName ?? groundwaterFeatures[0].featureType.replaceAll("_", " ")} · {formatNumber(groundwaterFeatures[0].distanceM, 0)} m</p>
+                    <p className="mt-0.5 max-w-md text-xs text-fr-v2-muted">{groundwaterFeatures[0].sourceKey} · {groundwaterFeatures.length} cached feature{groundwaterFeatures.length === 1 ? "" : "s"} within 2 km. GSI wells/springs is not exhaustive, so no-match is never treated as proof of absence.</p>
+                  </>
+                ) : (
+                  <p className="max-w-md text-xs text-fr-v2-muted">No cached GSI drinking-water feature is currently matched within 2 km. This is informational only; Farm Return does not infer that no private well exists.</p>
+                )}
+              </div>
             </div>
           </div>
 

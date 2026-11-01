@@ -18,6 +18,7 @@
 import { revalidatePath } from "next/cache";
 import type { Field, FieldUse, Housing, LivestockCategory, LivestockGoal, LivestockGroup, SlurryAllocation } from "@/domain/types";
 import { assessPublicLegalSpatialEvidence, type PublicLegalSpatialEvidence } from "@/server/legal-spatial-evidence";
+import { assessInternalSpatialEvidence } from "@/server/spatial-reference-evidence";
 import { getFarmForCurrentUser, updateFarmProfileForCurrentUser } from "@/lib/farm-data/farms";
 import {
   applyDerivedLegalSpatialEvidence,
@@ -190,6 +191,26 @@ export async function updateFinancialAssumptionAction(
   return assumption;
 }
 
+async function assessBestAvailableLegalSpatialEvidence(polygon: GeoJSON.Polygon): Promise<PublicLegalSpatialEvidence> {
+  try {
+    const internal = await assessInternalSpatialEvidence(polygon);
+    if (internal.legal.commonage.state === "resolved" && internal.legal.water.state === "resolved") return internal.legal;
+
+    // Cache coverage may be partial during rollout or source refresh. Fall back
+    // only for the unresolved half; never replace a resolved pinned-cache
+    // result with a live response.
+    const live = await assessPublicLegalSpatialEvidence(polygon);
+    return {
+      assessedAt: new Date().toISOString(),
+      commonage: internal.legal.commonage.state === "resolved" ? internal.legal.commonage : live.commonage,
+      water: internal.legal.water.state === "resolved" ? internal.legal.water : live.water,
+      localOverride: internal.legal.localOverride,
+    };
+  } catch {
+    return assessPublicLegalSpatialEvidence(polygon);
+  }
+}
+
 export interface FarmLegalSpatialAutoAssessmentResult {
   assessed: number;
   updated: number;
@@ -214,7 +235,7 @@ export async function autoAssessFarmLegalSpatialEvidenceAction(): Promise<FarmLe
   );
 
   const results = await Promise.all(unresolved.map(async (field) => {
-    const assessment = await assessPublicLegalSpatialEvidence(field.polygon!);
+    const assessment = await assessBestAvailableLegalSpatialEvidence(field.polygon!);
     const beforeCommonage = field.commonageStatus?.value;
     const beforeWater = field.waterBufferContext?.value.distanceM;
     const next = await applyDerivedLegalSpatialEvidence(field.id, {
@@ -258,7 +279,7 @@ export async function confirmUnresolvedFarmCommonageStatusAction(
   return { updated: unresolved.length };
 }
 
-export async function autoAssessFieldLegalSpatialEvidenceAction(fieldId: string): Promise<{ assessment: PublicLegalSpatialEvidence; field: Field }> {
+export async function autoAssessFieldLegalSpatialEvidenceAction(fieldId: string): Promise<{ assessment: PublicLegalSpatialEvidence; field: Field; groundwaterFeatures: Awaited<ReturnType<typeof assessInternalSpatialEvidence>>["groundwaterFeatures"] }> {
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("Farm not found");
   const fields = await listFieldsForFarm(farm.id);
@@ -266,7 +287,9 @@ export async function autoAssessFieldLegalSpatialEvidenceAction(fieldId: string)
   if (!field) throw new Error("Field not found");
   if (!field.polygon) throw new Error("A mapped field boundary is required for automatic legal checks.");
 
-  const assessment = await assessPublicLegalSpatialEvidence(field.polygon);
+  let groundwaterFeatures: Awaited<ReturnType<typeof assessInternalSpatialEvidence>>["groundwaterFeatures"] = [];
+  try { groundwaterFeatures = (await assessInternalSpatialEvidence(field.polygon)).groundwaterFeatures; } catch { /* cache may not be hydrated yet */ }
+  const assessment = await assessBestAvailableLegalSpatialEvidence(field.polygon);
   const updated = await applyDerivedLegalSpatialEvidence(field.id, {
     assessedAt: assessment.assessedAt,
     ...(assessment.commonage.state === "resolved" && assessment.commonage.value
@@ -278,7 +301,7 @@ export async function autoAssessFieldLegalSpatialEvidenceAction(fieldId: string)
   });
   revalidatePath("/fields");
   revalidatePath("/fertiliser-plan");
-  return { assessment, field: updated };
+  return { assessment, field: updated, groundwaterFeatures };
 }
 
 export async function updateFieldCommonageStatusAction(

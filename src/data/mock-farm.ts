@@ -90,6 +90,7 @@ export const mockFarm: Farm = {
   primaryEnterprises: ["suckler_beef"],
   units: "metric",
   ownerName: "Keith",
+  grazingProductionSystem: tracked("SUCKLER_CALF_TO_BEEF", "farmer_adjusted", "Farmer"),
 };
 
 /**

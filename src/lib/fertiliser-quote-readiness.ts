@@ -1,4 +1,4 @@
-import type { Field, SlurryAllocation } from "@/domain/types";
+import type { Field, FarmGrazingProductionSystem, SlurryAllocation } from "@/domain/types";
 import type { FieldProductionCycle } from "@/domain/fertiliser-field-evidence";
 import type { FarmFertiliserAggregation } from "@/domain/fertiliser-plan";
 
@@ -55,6 +55,7 @@ export function buildFertiliserQuoteReadiness(input: {
   aggregation: FarmFertiliserAggregation;
   planningSeason?: string;
   currentSeason?: string;
+  farmGrazingProductionSystem?: FarmGrazingProductionSystem;
 }): FertiliserQuoteReadiness {
   const { fields, cycles, slurryAllocations, aggregation } = input;
   const futureSeason = Boolean(input.planningSeason && input.currentSeason && input.planningSeason > input.currentSeason);
@@ -104,17 +105,6 @@ export function buildFertiliserQuoteReadiness(input: {
       add(
         items,
         field,
-        "grazing-system",
-        "Grazing production system",
-        cycle.evidence.grazingProductionSystem?.value === "SUCKLER_CALF_TO_BEEF",
-        fieldHref(field.id, "grazing-production-system"),
-        cycle.evidence.grazingProductionSystem?.value && cycle.evidence.grazingProductionSystem.value !== "SUCKLER_CALF_TO_BEEF"
-          ? "The recorded system is not yet supported by the current P3 grazing rule pack."
-          : undefined,
-      );
-      add(
-        items,
-        field,
         "stocking-evidence",
         "Livestock / grazing stocking evidence",
         !missingInputs.includes("annualOrganicNStockingRateKgHa"),
@@ -143,6 +133,21 @@ export function buildFertiliserQuoteReadiness(input: {
       const allocationEvidenceComplete = allocations.every((allocation) => Boolean(allocation.applicationMethod?.value && allocation.applicationDate?.value)) && !missingInputs.includes("slurry");
       add(items, field, "slurry", "Planned slurry application evidence", allocationEvidenceComplete, undefined, "Required only because slurry is currently planned for this field.");
     }
+  }
+
+  const hasGrazingField = fields.some((field) => cycleByField.get(field.id)?.cropSystem === "GRASS_GRAZING");
+  if (hasGrazingField) {
+    items.unshift({
+      id: "farm:grazing-system",
+      fieldId: "__farm__",
+      fieldName: "Farm setup",
+      label: "Farm grazing system",
+      complete: Boolean(input.farmGrazingProductionSystem),
+      href: "/settings#grazing-production-system",
+      detail: input.farmGrazingProductionSystem
+        ? "Used as the farm baseline. Recorded cattle movements override it when they provide stronger field-specific evidence."
+        : "Choose this once for the farm. You will not need to enter it separately for every field.",
+    });
   }
 
   const completeCount = items.filter((item) => item.complete).length;

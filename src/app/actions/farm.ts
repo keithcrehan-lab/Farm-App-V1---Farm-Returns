@@ -16,7 +16,7 @@
  * itself is what makes the *current* page reflect it immediately.
  */
 import { revalidatePath } from "next/cache";
-import type { Field, FieldUse, Housing, LivestockCategory, LivestockGoal, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import type { FarmGrazingProductionSystem, Field, FieldUse, Housing, LivestockCategory, LivestockGoal, LivestockGroup, SlurryAllocation } from "@/domain/types";
 import { assessPublicLegalSpatialEvidence, type PublicLegalSpatialEvidence } from "@/server/legal-spatial-evidence";
 import { assessInternalSpatialEvidence } from "@/server/spatial-reference-evidence";
 import { getFarmForCurrentUser, updateFarmProfileForCurrentUser } from "@/lib/farm-data/farms";
@@ -79,7 +79,7 @@ async function persistAutomaticSpatialEvidence(field: Field): Promise<Field> {
 
 export async function updateFarmProfileAction(
   farmId: string,
-  patch: { name?: string; ownerName?: string; county?: string },
+  patch: { name?: string; ownerName?: string; county?: string; grazingProductionSystem?: FarmGrazingProductionSystem | null },
 ) {
   const farm = await updateFarmProfileForCurrentUser(farmId, patch);
   revalidatePath("/settings");

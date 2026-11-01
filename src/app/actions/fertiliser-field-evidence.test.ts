@@ -5,7 +5,6 @@ import type { FieldProductionCycle } from "@/domain/fertiliser-field-evidence";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
 vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
-vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/field-production-cycles", () => ({
   getFieldProductionCycle: vi.fn(),
   upsertFieldProductionCycle: vi.fn(),
@@ -13,7 +12,6 @@ vi.mock("@/lib/farm-data/field-production-cycles", () => ({
 
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
-import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { getFieldProductionCycle, upsertFieldProductionCycle } from "@/lib/farm-data/field-production-cycles";
 import { loadFieldProductionCycleAction, saveFieldProductionCycleAction } from "./fertiliser-field-evidence";
 
@@ -49,7 +47,6 @@ describe("fertiliser field evidence actions", () => {
     vi.clearAllMocks();
     vi.mocked(getFarmForCurrentUser).mockResolvedValue(farm);
     vi.mocked(listFieldsForFarm).mockResolvedValue([field]);
-    vi.mocked(listLivestockGroupsForFarm).mockResolvedValue([]);
     vi.mocked(getFieldProductionCycle).mockResolvedValue(null);
   });
 
@@ -87,7 +84,7 @@ describe("fertiliser field evidence actions", () => {
       season: "2026",
       cropSystem: "GRASS_GRAZING",
       evidence: expect.objectContaining({
-        grazingProductionSystem: expect.objectContaining({ value: "SUCKLER_CALF_TO_BEEF", method: "FARMER_DECLARED", source: "Keith" }),
+        grazingProductionSystem: expect.objectContaining({ value: "SUCKLER_CALF_TO_BEEF", method: "FARMER_DECLARED", source: "Field exception · Keith" }),
         chemicalNAppliedKgHa: expect.objectContaining({ value: 0, method: "FARMER_DECLARED", source: "Keith" }),
         chemicalPAppliedKgHa: expect.objectContaining({ value: 0, method: "FARMER_DECLARED", source: "Keith" }),
         chemicalKAppliedKgHa: expect.objectContaining({ value: 0, method: "FARMER_DECLARED", source: "Keith" }),
@@ -97,32 +94,16 @@ describe("fertiliser field evidence actions", () => {
   });
 
 
-  it("derives the grazing system server-side from recorded livestock when the farmer has not overridden it", async () => {
-    vi.mocked(listLivestockGroupsForFarm).mockResolvedValue([
-      { id: "cows", farmId: "farm-1", category: "suckler_cow", label: "Suckler cows", count: tracked(30, "verified", "Keith"), system: "grazing", goal: "breed", value: tracked(0, "estimated", "x") },
-      { id: "stores", farmId: "farm-1", category: "steer", label: "Stores", count: tracked(18, "verified", "Keith"), system: "grazing", goal: "grow", value: tracked(0, "estimated", "x") },
-    ]);
+  it("does not copy whole-farm livestock inference into each field when there is no explicit field exception", async () => {
     vi.mocked(upsertFieldProductionCycle).mockImplementation(async (input) => savedCycle({ cropSystem: input.cropSystem, evidence: input.evidence }));
 
     await saveFieldProductionCycleAction({
-      fieldId: "field-1",
-      season: "2026",
-      cropSystem: "GRASS_GRAZING",
-      chemicalNAppliedKgHa: 0,
-      chemicalPAppliedKgHa: 0,
-      chemicalKAppliedKgHa: 0,
-      farmerName: "Keith",
+      fieldId: "field-1", season: "2026", cropSystem: "GRASS_GRAZING",
+      chemicalNAppliedKgHa: 0, chemicalPAppliedKgHa: 0, chemicalKAppliedKgHa: 0, farmerName: "Keith",
     });
 
-    expect(upsertFieldProductionCycle).toHaveBeenCalledWith(expect.objectContaining({
-      evidence: expect.objectContaining({
-        grazingProductionSystem: expect.objectContaining({
-          value: "SUCKLER_CALF_TO_BEEF",
-          method: "DERIVED",
-          source: "Farm Return — recorded livestock",
-        }),
-      }),
-    }));
+    const saved = vi.mocked(upsertFieldProductionCycle).mock.calls[0][0];
+    expect(saved.evidence.grazingProductionSystem).toBeUndefined();
   });
 
   it("chains prior evidence instead of overwriting provenance on edit", async () => {

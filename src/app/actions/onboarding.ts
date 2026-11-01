@@ -20,7 +20,7 @@ import { createField } from "@/lib/farm-data/fields";
 import { HOME_ROUTE } from "@/lib/home-route";
 import { enterprisesForFarmTypes, isCounty, isIrishPoint, ownerNameFromEmail } from "@/lib/onboarding";
 import { normaliseEircode } from "@/lib/onboarding-geocoding";
-import type { Farm, Field } from "@/domain/types";
+import { tracked, type Farm, type Field, type FarmGrazingProductionSystem } from "@/domain/types";
 
 export type OnboardingResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -31,6 +31,7 @@ export interface EstablishFarmInput {
   farmTypes: string[];
   county: string;
   centroid: [number, number];
+  grazingProductionSystem?: FarmGrazingProductionSystem;
 }
 
 export interface ExactEircodeResult {
@@ -124,6 +125,11 @@ export async function establishFarmStep(input: EstablishFarmInput): Promise<Onbo
   if (name.length > 80) return fail("Keep the farm name under 80 characters.");
   const enterprises = enterprisesForFarmTypes(input?.farmTypes);
   if (enterprises === null) return fail("Choose one or more farm types.");
+  const needsGrazingBaseline = input.farmTypes.includes("suckler");
+  const grazingProductionSystem = input.grazingProductionSystem;
+  if (needsGrazingBaseline && !["SUCKLER_CALF_TO_BEEF", "SUCKLER_CALF_TO_WEANING", "OTHER_DRYSTOCK"].includes(grazingProductionSystem ?? "")) {
+    return fail("Choose your normal grazing production system.");
+  }
   if (!isCounty(input?.county)) return fail("Choose your county.");
   const [lng, lat] = Array.isArray(input?.centroid) ? input.centroid : [];
   if (!isIrishPoint(lng, lat)) return fail("Find your farm on the map first.");
@@ -136,7 +142,15 @@ export async function establishFarmStep(input: EstablishFarmInput): Promise<Onbo
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return fail("Your session has ended. Sign in again to carry on.");
-    const farm = await createFarmForCurrentUser({ name, ownerName: ownerNameFromEmail(user.email), county: input.county, centroid: [lng as number, lat as number], primaryEnterprises: enterprises });
+    const ownerName = ownerNameFromEmail(user.email);
+    const farm = await createFarmForCurrentUser({
+      name,
+      ownerName,
+      county: input.county,
+      centroid: [lng as number, lat as number],
+      primaryEnterprises: enterprises,
+      ...(grazingProductionSystem ? { grazingProductionSystem: tracked(grazingProductionSystem, "farmer_adjusted", ownerName) } : {}),
+    });
     revalidatePath("/onboarding");
     return { ok: true, value: farm };
   } catch (error) {

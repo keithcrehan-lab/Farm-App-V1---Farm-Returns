@@ -57,6 +57,7 @@ export function SettingsPageClient({
   const [nameInput, setNameInput] = useState(farm.name);
   const [ownerInput, setOwnerInput] = useState(farm.ownerName);
   const [countyInput, setCountyInput] = useState(farm.location.county);
+  const [grazingSystemInput, setGrazingSystemInput] = useState(farm.grazingProductionSystem?.value ?? "");
   const [saved, setSaved] = useState(false);
 
   // Keep the form in sync if the store changes underneath it — e.g. the
@@ -70,12 +71,13 @@ export function SettingsPageClient({
     setNameInput(farm.name);
     setOwnerInput(farm.ownerName);
     setCountyInput(farm.location.county);
+    setGrazingSystemInput(farm.grazingProductionSystem?.value ?? "");
   }
 
-  const dirty = nameInput !== farm.name || ownerInput !== farm.ownerName || countyInput !== farm.location.county;
+  const dirty = nameInput !== farm.name || ownerInput !== farm.ownerName || countyInput !== farm.location.county || grazingSystemInput !== (farm.grazingProductionSystem?.value ?? "");
 
   function handleSave() {
-    updateFarmProfile({ name: nameInput, ownerName: ownerInput, county: countyInput });
+    updateFarmProfile({ name: nameInput, ownerName: ownerInput, county: countyInput, grazingProductionSystem: grazingSystemInput ? grazingSystemInput as "SUCKLER_CALF_TO_BEEF" | "SUCKLER_CALF_TO_WEANING" | "OTHER_DRYSTOCK" : null });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -158,6 +160,20 @@ export function SettingsPageClient({
                 onChange={(e) => setCountyInput(e.target.value)}
                 className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
               />
+            </label>
+            <label id="grazing-production-system" className="block scroll-mt-24">
+              <span className="mb-1 block text-xs text-fr-ink-600">Farm grazing system</span>
+              <select
+                value={grazingSystemInput}
+                onChange={(e) => setGrazingSystemInput(e.target.value)}
+                className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+              >
+                <option value="">Choose grazing system</option>
+                <option value="SUCKLER_CALF_TO_BEEF">Suckler calf-to-beef</option>
+                <option value="SUCKLER_CALF_TO_WEANING">Suckler calf-to-weaning</option>
+                <option value="OTHER_DRYSTOCK">Other drystock</option>
+              </select>
+              <span className="mt-1 block text-xs text-fr-ink-500">Default for grazing fields. Recorded cattle movements override this when they provide stronger field-specific evidence.</span>
             </label>
             <label className="block">
               <span className="mb-1 block text-xs text-fr-ink-600">Primary enterprise</span>

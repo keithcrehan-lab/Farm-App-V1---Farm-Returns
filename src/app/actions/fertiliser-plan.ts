@@ -56,6 +56,7 @@ import { checkLessMethodGate } from "@/domain/less-method-gate";
 import { cropFamilyFor, type EvidenceValue, type FieldProductionCycle, type FieldProductionCycleEvidence } from "@/domain/fertiliser-field-evidence";
 import { calculateGrassFertiliserV2, type GrassRuleTrace } from "@/domain/grass-fertiliser-engine-v2";
 import { calculateFieldGrazingPressure, type GrazingFieldSession } from "@/domain/grazing-field-pressure";
+import { resolveGrazingProductionSystem } from "@/domain/grazing-production-system-resolution";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "@/domain/statutory-excretion";
 import { allocatePurchasedProducts, resolveAvailableSlurryNutrients, resolveEffectiveSlurryComposition, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
@@ -645,13 +646,14 @@ export async function getFieldFertiliserStatusAction(fieldId: string, planningSe
     organicCreditsKgHa = { n: available.value.n, p: available.value.p, k: available.value.k };
   }
 
+  const grazingSystem = cycle.cropSystem === "GRASS_GRAZING"
+    ? resolveGrazingProductionSystem({ farm, fieldId: field.id, cycle, sessions: grazingSessions })
+    : null;
   const result = calculateGrassFertiliserV2({
     field,
     cycle,
     ...grazingStockingInput,
-    ...(cycle.evidence.grazingProductionSystem?.value
-      ? { grazingProductionSystem: cycle.evidence.grazingProductionSystem.value }
-      : {}),
+    ...(grazingSystem?.value ? { grazingProductionSystem: grazingSystem.value } : {}),
     organicCreditsKgHa,
   });
 
@@ -852,13 +854,14 @@ async function buildP3FarmFertiliserDemandResult(input: {
           ...(stocking.status === "OK" ? { holdingFallbackKgHa: stocking.value.gsrKgNHa } : {}),
         })
       : {};
+    const grazingSystem = cycle.cropSystem === "GRASS_GRAZING"
+      ? resolveGrazingProductionSystem({ farm, fieldId: field.id, cycle, sessions: grazingSessions })
+      : null;
     const result = calculateGrassFertiliserV2({
       field,
       cycle,
       ...grazingStockingInput,
-      ...(cycle.evidence.grazingProductionSystem?.value
-        ? { grazingProductionSystem: cycle.evidence.grazingProductionSystem.value }
-        : {}),
+      ...(grazingSystem?.value ? { grazingProductionSystem: grazingSystem.value } : {}),
       organicCreditsKgHa,
     });
 
@@ -1197,9 +1200,12 @@ export async function getAutomaticSlurryPlanAction(requestedPlanningDate?: strin
     const grazingStockingInput = cycle.cropSystem === "GRASS_GRAZING"
       ? grazingStockingInputForField({ field, livestockGroups, sessions: grazingSessions, season, asOf: `${planningDate}T12:00:00.000Z`, ...(gsrKgNHa !== undefined ? { holdingFallbackKgHa: gsrKgNHa } : {}) })
       : {};
+    const grazingSystem = cycle.cropSystem === "GRASS_GRAZING"
+      ? resolveGrazingProductionSystem({ farm, fieldId: field.id, cycle, sessions: grazingSessions })
+      : null;
     const gross = calculateGrassFertiliserV2({
       field, cycle, ...grazingStockingInput,
-      ...(cycle.evidence.grazingProductionSystem?.value ? { grazingProductionSystem: cycle.evidence.grazingProductionSystem.value } : {}),
+      ...(grazingSystem?.value ? { grazingProductionSystem: grazingSystem.value } : {}),
       organicCreditsKgHa: { n: 0, p: 0, k: 0 },
     });
     if (gross.status !== "READY" || !gross.grossRequirementKgHa) continue;
@@ -1247,7 +1253,7 @@ export async function getAutomaticSlurryPlanAction(requestedPlanningDate?: strin
       if (credit.status !== "OK") continue;
       const after = calculateGrassFertiliserV2({
         field, cycle, ...grazingStockingInput,
-        ...(cycle.evidence.grazingProductionSystem?.value ? { grazingProductionSystem: cycle.evidence.grazingProductionSystem.value } : {}),
+        ...(grazingSystem?.value ? { grazingProductionSystem: grazingSystem.value } : {}),
         organicCreditsKgHa: credit.value,
       });
       if (after.status !== "READY" || !after.remainingRequirementKgHa) continue;

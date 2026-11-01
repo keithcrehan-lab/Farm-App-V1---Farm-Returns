@@ -40,6 +40,7 @@ const FARM_ROW: FarmRow = {
   primary_enterprises: ["suckler_beef"],
   units: "metric",
   owner_name: "Keith Crehan",
+  grazing_production_system: null,
   p_build_up_compliance: null,
   onboarding_completed_at: null,
   created_at: "2026-01-01T00:00:00Z",

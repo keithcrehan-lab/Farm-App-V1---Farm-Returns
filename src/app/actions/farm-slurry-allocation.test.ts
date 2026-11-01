@@ -50,6 +50,7 @@ function farmRow(id: string, userId: string): FarmRow {
     primary_enterprises: ["suckler_beef"],
     units: "metric",
     owner_name: "Test Farmer",
+    grazing_production_system: null,
     p_build_up_compliance: null,
     onboarding_completed_at: TS,
     created_at: TS,

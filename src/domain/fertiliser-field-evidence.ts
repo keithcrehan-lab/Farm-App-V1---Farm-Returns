@@ -203,10 +203,6 @@ export function evaluateFertiliserInputGate(
   const missingInputs: FertiliserEvidenceInputKey[] = [];
 
   if (cycle.evidence.cropSystem?.value !== cycle.cropSystem) missingInputs.push("cropSystem");
-  if (cycle.cropSystem === "GRASS_GRAZING" && !cycle.evidence.grazingProductionSystem) {
-    missingInputs.push("grazingProductionSystem");
-  }
-
   if (!field.fertility.pIndex) missingInputs.push("fertility.pIndex");
   if (!field.fertility.kIndex) missingInputs.push("fertility.kIndex");
   if (!field.fertility.verifiedTest?.sampleDate) {

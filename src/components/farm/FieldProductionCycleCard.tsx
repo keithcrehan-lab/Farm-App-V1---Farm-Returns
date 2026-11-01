@@ -5,7 +5,6 @@ import type { Field } from "@/domain/types";
 import {
   CROP_SYSTEM_LABELS,
   P2_SUPPORTED_CROP_SYSTEMS,
-  inferGrazingProductionSystem,
   type CropSystem,
   type FertiliserInputGateResult,
   type GrazingProductionSystem,
@@ -15,7 +14,7 @@ import {
   loadFieldProductionCycleAction,
   saveFieldProductionCycleAction,
 } from "@/app/actions/fertiliser-field-evidence";
-import { useFarm, useLivestockGroups } from "@/store/farm-store";
+import { useFarm } from "@/store/farm-store";
 
 const INPUT = "min-h-10 w-full border border-fr-v2-cream-rule bg-white px-3 text-sm text-fr-v2-graphite outline-none focus:border-fr-v2-forest";
 const LABEL = "flex flex-col gap-1.5 text-xs font-semibold text-fr-v2-graphite";
@@ -74,8 +73,6 @@ function gateCopy(gate: FertiliserInputGateResult | null): { title: string; deta
 
 export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onSaved?: () => void }) {
   const farm = useFarm();
-  const livestockGroups = useLivestockGroups();
-  const grazingInference = useMemo(() => inferGrazingProductionSystem(livestockGroups), [livestockGroups]);
   const season = String(new Date().getFullYear());
   const [cycle, setCycle] = useState<FieldProductionCycle | null>(null);
   const [gate, setGate] = useState<FertiliserInputGateResult | null>(null);
@@ -87,34 +84,11 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
   const [chemicalApplied, setChemicalApplied] = useState<ChemicalAppliedState>("unknown");
   const [cloverPct, setCloverPct] = useState("");
   const [grazingSystem, setGrazingSystem] = useState<GrazingProductionSystem | "">("");
-  const [grazingMode, setGrazingMode] = useState<"auto" | "farmer">("auto");
+  const [grazingMode, setGrazingMode] = useState<"baseline" | "farmer">("baseline");
   const [editingGrazingSystem, setEditingGrazingSystem] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [deepLinkToGrazingSystem, setDeepLinkToGrazingSystem] = useState(false);
   const [isPending, startTransition] = useTransition();
-
-  useEffect(() => {
-    if (typeof window === "undefined" || window.location.hash !== "#grazing-production-system") return;
-    const frame = window.requestAnimationFrame(() => {
-      setOpen(true);
-      setEditingGrazingSystem(true);
-      setDeepLinkToGrazingSystem(true);
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [field.id]);
-
-  useEffect(() => {
-    if (!open || !deepLinkToGrazingSystem) return;
-    const frame = window.requestAnimationFrame(() => {
-      const target = document.getElementById("grazing-production-system");
-      target?.scrollIntoView({ behavior: "smooth", block: "center" });
-      const select = document.getElementById("grazing-production-system-select") as HTMLSelectElement | null;
-      select?.focus({ preventScroll: true });
-      setDeepLinkToGrazingSystem(false);
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [open, deepLinkToGrazingSystem]);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,16 +111,16 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
           setChemicalApplied(chemicalAppliedState(loadedN, loadedP, loadedK));
           setCloverPct(state.cycle.evidence.whiteCloverPct?.value?.toString() ?? "");
           const grazingEvidence = state.cycle.evidence.grazingProductionSystem;
-          if (grazingEvidence?.method === "FARMER_DECLARED") {
+          if (grazingEvidence?.method === "FARMER_DECLARED" && grazingEvidence.source.startsWith("Field exception · ")) {
             setGrazingSystem(grazingEvidence.value);
             setGrazingMode("farmer");
           } else {
-            setGrazingSystem(grazingInference.value ?? "");
-            setGrazingMode("auto");
+            setGrazingSystem(farm.grazingProductionSystem?.value ?? "");
+            setGrazingMode("baseline");
           }
         } else {
-          setGrazingSystem(grazingInference.value ?? "");
-          setGrazingMode("auto");
+          setGrazingSystem(farm.grazingProductionSystem?.value ?? "");
+          setGrazingMode("baseline");
         }
       })
       .catch(() => {
@@ -155,7 +129,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
     return () => {
       cancelled = true;
     };
-  }, [field.id, season, grazingInference.value]);
+  }, [field.id, season, farm.grazingProductionSystem?.value]);
 
   const supported = P2_SUPPORTED_CROP_SYSTEMS.includes(cropSystem);
   const needsTarget = cropSystem === "GRASS_FIRST_CUT_SILAGE" || cropSystem === "GRASS_SECOND_CUT_SILAGE" || cropSystem === "GRASS_THIRD_CUT_SILAGE" || cropSystem === "GRASS_HAY" || cropSystem === "GRASS_MIXED" || cropSystem === "GRASS_WHITE_CLOVER_SILAGE";
@@ -201,72 +175,52 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
       </label>
 
       {cropSystem === "GRASS_GRAZING" ? (
-        <div id="grazing-production-system" className="scroll-mt-24 border border-fr-v2-cream-rule bg-fr-v2-cream-soft px-4 py-3" aria-label="Grazing production system">
+        <div className="border border-fr-v2-cream-rule bg-fr-v2-cream-soft px-4 py-3" aria-label="Grazing production system">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-semibold text-fr-v2-graphite">Grazing production system</p>
               {grazingSystem ? (
                 <p className="mt-1 text-sm font-semibold text-fr-v2-forest-deep">{GRAZING_SYSTEM_LABELS[grazingSystem]}</p>
               ) : (
-                <p className="mt-1 text-sm font-semibold text-fr-v2-graphite">Needs confirmation</p>
+                <p className="mt-1 text-sm font-semibold text-fr-v2-graphite">Farm baseline not set</p>
               )}
               <p className="mt-1 text-xs leading-relaxed text-fr-v2-muted">
                 {grazingMode === "farmer"
-                  ? "Confirmed by you. This takes priority over Farm Return's inference."
-                  : grazingInference.value
-                    ? `${grazingInference.reason} Farm Return uses this only to select the correct grazing nitrogen guidance.`
-                    : `${grazingInference.reason} Confirm the system so the nitrogen recommendation can use the correct rule.`}
+                  ? "Field exception. Recorded cattle movements still take priority when they provide stronger field-specific evidence."
+                  : grazingSystem
+                    ? "Using the farm baseline. Recorded cattle movements automatically override it when they clearly identify a different field system."
+                    : "Set this once for the farm in Settings. You do not need to enter it separately for every field."}
               </p>
-              {grazingMode === "auto" && grazingInference.evidenceLabels.length > 0 ? (
-                <p className="mt-1 font-mono text-[10px] leading-relaxed text-fr-v2-muted">Based on: {grazingInference.evidenceLabels.join(" · ")}</p>
-              ) : null}
             </div>
             <span className="shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-v2-gold">
-              {grazingMode === "farmer" ? "Farmer confirmed" : grazingInference.value ? "Inferred" : "Required"}
+              {grazingMode === "farmer" ? "Field exception" : grazingSystem ? "Farm baseline" : "Set once"}
             </span>
           </div>
 
-          {editingGrazingSystem || !grazingSystem ? (
+          {editingGrazingSystem ? (
             <div className="mt-3 flex flex-col gap-2">
               <label className={LABEL}>
-                Confirm or change system
+                Field exception
                 <select
-                  id="grazing-production-system-select"
                   className={INPUT}
-                  value={grazingSystem}
+                  value={grazingMode === "farmer" ? grazingSystem : ""}
                   onChange={(event) => {
                     setGrazingSystem(event.target.value as GrazingProductionSystem | "");
-                    setGrazingMode("farmer");
+                    setGrazingMode(event.target.value ? "farmer" : "baseline");
                   }}
                 >
-                  <option value="">Select system</option>
+                  <option value="">Use farm baseline</option>
                   <option value="SUCKLER_CALF_TO_BEEF">Suckler calf-to-beef</option>
                   <option value="SUCKLER_CALF_TO_WEANING">Suckler calf-to-weaning</option>
                   <option value="OTHER_DRYSTOCK">Other drystock</option>
                 </select>
               </label>
-              {grazingInference.value ? (
-                <button
-                  type="button"
-                  className="self-start text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-gold underline-offset-4"
-                  onClick={() => {
-                    setGrazingMode("auto");
-                    setGrazingSystem(grazingInference.value ?? "");
-                    setEditingGrazingSystem(false);
-                  }}
-                >
-                  Use Farm Return inference
-                </button>
-              ) : null}
+              <button type="button" className="self-start text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-gold underline-offset-4" onClick={() => { setGrazingMode("baseline"); setGrazingSystem(farm.grazingProductionSystem?.value ?? ""); setEditingGrazingSystem(false); }}>Use farm baseline</button>
             </div>
+          ) : grazingSystem ? (
+            <button type="button" className="mt-3 text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-gold underline-offset-4" onClick={() => setEditingGrazingSystem(true)}>Set field exception</button>
           ) : (
-            <button
-              type="button"
-              className="mt-3 text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-gold underline-offset-4"
-              onClick={() => setEditingGrazingSystem(true)}
-            >
-              Change
-            </button>
+            <a href="/settings#grazing-production-system" className="mt-3 inline-block text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-gold underline-offset-4">Set farm grazing system</a>
           )}
         </div>
       ) : null}

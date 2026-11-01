@@ -48,6 +48,7 @@ import {
 import { tracked } from "@/domain/types";
 import type {
   Farm,
+  FarmGrazingProductionSystem,
   Field,
   FieldUse,
   Housing,
@@ -335,7 +336,7 @@ export interface AddHousingInput {
 export type AddSlurryCompositionInput = NewSlurryCompositionInput;
 
 interface FarmActions {
-  updateFarmProfile: (patch: { name?: string; ownerName?: string; county?: string }) => void;
+  updateFarmProfile: (patch: { name?: string; ownerName?: string; county?: string; grazingProductionSystem?: FarmGrazingProductionSystem | null }) => void;
   /** Returns a Promise — in real mode (`FarmProvider remote`) the field's
    * id comes from Postgres, not a client-generated placeholder, so callers
    * that need the new field's real id (e.g. selecting it immediately
@@ -714,6 +715,11 @@ export function FarmProvider({
             ...(patch.ownerName !== undefined ? { ownerName: patch.ownerName } : {}),
             ...(patch.county !== undefined
               ? { location: { ...s.farm.location, county: patch.county } }
+              : {}),
+            ...(patch.grazingProductionSystem !== undefined
+              ? patch.grazingProductionSystem === null
+                ? { grazingProductionSystem: undefined }
+                : { grazingProductionSystem: tracked(patch.grazingProductionSystem, "farmer_adjusted", s.farm.ownerName) }
               : {}),
           },
         }));

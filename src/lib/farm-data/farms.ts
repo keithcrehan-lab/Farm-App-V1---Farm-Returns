@@ -12,7 +12,7 @@ import "server-only";
  * below is a deliberate, documented scope limit, not an oversight.
  */
 import { createClient } from "@/lib/supabase/server";
-import type { Farm } from "@/domain/types";
+import { tracked, type Farm, type FarmGrazingProductionSystem } from "@/domain/types";
 import { farmToInsertRow, rowToFarm, type NewFarmInput } from "./mappers";
 import type { FarmRow } from "./row-types";
 
@@ -102,7 +102,7 @@ export async function createFarmForCurrentUser(input: NewFarmInput): Promise<Far
 
 export async function updateFarmProfileForCurrentUser(
   farmId: string,
-  patch: { name?: string; ownerName?: string; county?: string },
+  patch: { name?: string; ownerName?: string; county?: string; grazingProductionSystem?: FarmGrazingProductionSystem | null },
 ): Promise<Farm> {
   const supabase = await createClient();
   const {
@@ -110,10 +110,15 @@ export async function updateFarmProfileForCurrentUser(
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Not signed in.");
 
-  const row: Record<string, string> = {};
+  const row: Record<string, unknown> = {};
   if (patch.name !== undefined) row.name = patch.name;
   if (patch.ownerName !== undefined) row.owner_name = patch.ownerName;
   if (patch.county !== undefined) row.county = patch.county;
+  if (patch.grazingProductionSystem !== undefined) {
+    row.grazing_production_system = patch.grazingProductionSystem === null
+      ? null
+      : tracked(patch.grazingProductionSystem, "farmer_adjusted", "Farmer");
+  }
 
   // RLS also enforces this, but scoping the update to user_id here too
   // means a wrong/stale farmId fails as "no row updated", not a

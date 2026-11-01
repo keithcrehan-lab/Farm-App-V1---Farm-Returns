@@ -32,7 +32,7 @@ const cycle: FieldProductionCycle = {
 describe("buildFertiliserQuoteReadiness", () => {
   it("is complete when every applicable P3/legal input is available", () => {
     const aggregation = aggregateFarmFertiliserPurchasing([{ fieldId: "f1", fieldName: "P Collins", plan: { purchaseStatus: { status: "NONE_NEEDED", basis: "REMAINING_ZERO" }, purchasedProducts: [], calculationVersion: "p3" } }]);
-    const result = buildFertiliserQuoteReadiness({ fields: [field()], cycles: [cycle], slurryAllocations: [], aggregation });
+    const result = buildFertiliserQuoteReadiness({ fields: [field()], cycles: [cycle], slurryAllocations: [], aggregation, farmGrazingProductionSystem: "SUCKLER_CALF_TO_BEEF" });
     expect(result.ready).toBe(true);
     expect(result.percentage).toBe(100);
     expect(result.remainingCount).toBe(0);
@@ -95,15 +95,12 @@ describe("buildFertiliserQuoteReadiness", () => {
     expect(result.items.some((item) => item.id.endsWith(":prior-fertiliser"))).toBe(false);
   });
 
-  it("deep-links a missing grazing production system to the exact field control", () => {
-    const missingGrazingCycle: FieldProductionCycle = {
-      ...cycle,
-      evidence: { ...cycle.evidence, grazingProductionSystem: undefined },
-    };
+  it("uses one farm-level grazing-system readiness item instead of repeating it for every grazing field", () => {
     const aggregation = aggregateFarmFertiliserPurchasing([{ fieldId: "f1", fieldName: "P Collins", plan: { purchaseStatus: { status: "UNKNOWN", reasonCode: "INCOMPLETE_EVIDENCE", missingInputs: ["grazingProductionSystem"] }, purchasedProducts: [], calculationVersion: "p3" } }]);
-    const result = buildFertiliserQuoteReadiness({ fields: [field()], cycles: [missingGrazingCycle], slurryAllocations: [], aggregation });
-    const item = result.items.find((row) => row.id === "f1:grazing-system");
-    expect(item?.href).toBe("/fields?field=f1&chapter=nutrients#grazing-production-system");
+    const result = buildFertiliserQuoteReadiness({ fields: [field()], cycles: [cycle], slurryAllocations: [], aggregation });
+    const item = result.items.find((row) => row.id === "farm:grazing-system");
+    expect(item).toMatchObject({ label: "Farm grazing system", complete: false, href: "/settings#grazing-production-system" });
+    expect(result.items.some((row) => row.id === "f1:grazing-system")).toBe(false);
   });
 
   it("routes stocking evidence to cattle management", () => {

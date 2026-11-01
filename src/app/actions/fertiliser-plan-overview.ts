@@ -228,6 +228,7 @@ export async function getFertiliserPlanOverviewAction(planningSeason?: string): 
     aggregation: demandResult.aggregation,
     planningSeason: targetSeason,
     currentSeason,
+    ...(farm.grazingProductionSystem?.value ? { farmGrazingProductionSystem: farm.grazingProductionSystem.value } : {}),
   });
 
   return {

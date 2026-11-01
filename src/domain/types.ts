@@ -83,6 +83,11 @@ export type EnterpriseType =
   | "tillage"
   | "mixed";
 
+export type FarmGrazingProductionSystem =
+  | "SUCKLER_CALF_TO_BEEF"
+  | "SUCKLER_CALF_TO_WEANING"
+  | "OTHER_DRYSTOCK";
+
 export interface Farm {
   id: string;
   name: string;
@@ -90,6 +95,10 @@ export interface Farm {
   primaryEnterprises: EnterpriseType[];
   units: "metric";
   ownerName: string;
+  /** Farm-level baseline. Actual recorded cattle movements and explicit field
+   * exceptions take precedence when resolving a field's effective grazing
+   * system for fertiliser planning. */
+  grazingProductionSystem?: TrackedValue<FarmGrazingProductionSystem>;
   /** V3 closure pass, Priority 3/5 —
    * `rules_statutory/p_build_up_eligibility_2026.csv`'s occupier-level
    * Article 17(6) conditions (`PBUILD_B_ADVISER`/`PBUILD_C_NMP`/

@@ -16,6 +16,7 @@ import type {
   DataStatus,
   FieldSeasonRecord,
   FieldUse,
+  FarmGrazingProductionSystem,
   MappedSoil,
   Provenance,
   RegulatoryStatus,
@@ -44,6 +45,7 @@ export interface FarmRow {
   primary_enterprises: string[];
   units: "metric";
   owner_name: string;
+  grazing_production_system: TrackedValueRow<FarmGrazingProductionSystem> | null;
   p_build_up_compliance: TrackedValueRow<{
     adviserEngaged: boolean;
     nmpSubmitted: boolean;

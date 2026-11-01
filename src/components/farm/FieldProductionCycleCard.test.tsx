@@ -51,17 +51,15 @@ afterEach(() => {
 });
 
 describe("FieldProductionCycleCard — streamlined chemical-fertiliser evidence", () => {
-  it("opens, scrolls to and focuses grazing production system when deep-linked from quote readiness", async () => {
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
-    window.history.replaceState(null, "", `${window.location.pathname}#grazing-production-system`);
-
+  it("shows the farm grazing baseline by default and keeps a field-specific system as an optional exception", async () => {
     renderCard();
-
-    const select = await screen.findByLabelText("Confirm or change system");
-    await waitFor(() => expect(screen.getByRole("button", { name: /crop & production/i }).getAttribute("aria-expanded")).toBe("true"));
-    await waitFor(() => expect(document.activeElement).toBe(select));
-    expect(scrollIntoView).toHaveBeenCalled();
+    openCard();
+    await waitFor(() => expect(loadFieldProductionCycleAction).toHaveBeenCalled());
+    expect(screen.getByText("Farm baseline")).toBeTruthy();
+    expect(screen.getByText("Suckler calf-to-beef")).toBeTruthy();
+    expect(screen.queryByLabelText("Field exception")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /set field exception/i }));
+    expect(screen.getByLabelText("Field exception")).toBeTruthy();
   });
 
   it("asks one farmer-facing question first and only shows N/P/K boxes after Yes", async () => {

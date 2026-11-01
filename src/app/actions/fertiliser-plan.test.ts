@@ -85,6 +85,7 @@ const farm: Farm = {
   primaryEnterprises: [],
   units: "metric",
   ownerName: "Keith",
+  grazingProductionSystem: { value: "SUCKLER_CALF_TO_BEEF", status: "farmer_adjusted", source: "Keith" },
 };
 
 function field(overrides: Partial<Field> = {}): Field {
@@ -911,6 +912,38 @@ describe("getFieldFertiliserStatusAction", () => {
     expect(result.ruleTraces.n?.inputs.sourceSessionCount).toBe(1);
     expect(Number(result.ruleTraces.n?.inputs.annualOrganicNStockingRateKgHa)).toBeGreaterThan(80);
     expect(result.limitations.join(" ")).toMatch(/field-specific.*movement/i);
+  });
+
+  it("lets clear field movement evidence override the farm grazing-system baseline in the P3 pathway", async () => {
+    const target = p3Field({ id: "field-1", areaHa: 4.2 });
+    const targetCycle = p3GrazingCycle("field-1");
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([target]);
+    mockGetFieldProductionCycle.mockResolvedValue(targetCycle);
+    mockListFieldProductionCyclesForSeason.mockResolvedValue([targetCycle]);
+    // Keep the separate statutory holding-GSR input valid. The grazing
+    // session snapshots the animal category at the time of the field move,
+    // so field-specific evidence can legitimately differ from the group's
+    // current category later without rewriting history.
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockListGrazingFieldSessions.mockResolvedValue([
+      {
+        id: "store-session", farmId: "farm-1", livestockGroupId: "g1", fieldId: "field-1",
+        startedAt: "2026-10-01T00:00:00.000Z",
+        headCountSnapshot: 10, livestockCategorySnapshot: "store", livestockUnitsPerHeadSnapshot: 0.7,
+        source: "Farmer", createdAt: "2026-10-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await getFieldFertiliserStatusAction("field-1");
+
+    // The farm baseline is suckler calf-to-beef, but the field's actual
+    // recorded occupancy is drystock-only. P3 must therefore switch to the
+    // OTHER_DRYSTOCK pathway rather than silently keep the farm default.
+    // That pathway is not validated in the current P3 pack, so it fails
+    // closed as not applicable rather than borrowing the suckler table.
+    expect(result.status).toBe("not_applicable");
   });
 
   it("does not call the legacy confirmed-application remaining calculator for a P3 cycle", async () => {

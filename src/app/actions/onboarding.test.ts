@@ -160,13 +160,13 @@ describe("lookupExactEircodeStep", () => {
 
 describe("establishFarmStep", () => {
   it("creates the farm at the confirmed point, with the chosen type and county — and only the account's email name as owner", async () => {
-    const r = await establishFarmStep({ name: "  Back Avenue Farm ", farmTypes: ["suckler"], county: "Galway", centroid: HERE });
+    const r = await establishFarmStep({ name: "  Back Avenue Farm ", farmTypes: ["suckler"], county: "Galway", centroid: HERE, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF" });
     expect(r.ok).toBe(true);
-    expect(state.creates).toEqual([{ name: "Back Avenue Farm", ownerName: "mary.walsh", county: "Galway", centroid: HERE, primaryEnterprises: ["suckler_beef"] }]);
+    expect(state.creates).toEqual([{ name: "Back Avenue Farm", ownerName: "mary.walsh", county: "Galway", centroid: HERE, primaryEnterprises: ["suckler_beef"], grazingProductionSystem: { value: "SUCKLER_CALF_TO_BEEF", status: "farmer_adjusted", source: "mary.walsh" } }]);
   });
 
   it("records every concrete farm type the farmer selects", async () => {
-    await establishFarmStep({ name: "Mixed Enterprise Farm", farmTypes: ["suckler", "sheep", "tillage"], county: "Galway", centroid: HERE });
+    await establishFarmStep({ name: "Mixed Enterprise Farm", farmTypes: ["suckler", "sheep", "tillage"], county: "Galway", centroid: HERE, grazingProductionSystem: "SUCKLER_CALF_TO_WEANING" });
     expect((state.creates[0] as { primaryEnterprises: unknown }).primaryEnterprises).toEqual(["suckler_beef", "sheep", "tillage"]);
   });
 
@@ -191,6 +191,7 @@ describe("establishFarmStep", () => {
   it("rejects a missing name, type, county or a point outside Ireland — with plain wording, nothing written", async () => {
     expect(await establishFarmStep({ name: " ", farmTypes: ["dairy"], county: "Cork", centroid: HERE })).toEqual({ ok: false, error: "Give your farm a name." });
     expect(await establishFarmStep({ name: "F", farmTypes: [], county: "Cork", centroid: HERE })).toEqual({ ok: false, error: "Choose one or more farm types." });
+    expect(await establishFarmStep({ name: "F", farmTypes: ["suckler"], county: "Cork", centroid: HERE })).toEqual({ ok: false, error: "Choose your normal grazing production system." });
     expect(await establishFarmStep({ name: "F", farmTypes: ["mixed", "dairy"], county: "Cork", centroid: HERE })).toEqual({ ok: false, error: "Choose one or more farm types." });
     expect(await establishFarmStep({ name: "F", farmTypes: ["dairy"], county: "Antrim", centroid: HERE })).toEqual({ ok: false, error: "Choose your county." });
     expect(await establishFarmStep({ name: "F", farmTypes: ["dairy"], county: "Cork", centroid: [0, 0] })).toEqual({ ok: false, error: "Find your farm on the map first." });

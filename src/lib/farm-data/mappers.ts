@@ -80,11 +80,13 @@ export function rowToFarm(row: FarmRow): Farm {
     primaryEnterprises: row.primary_enterprises as Farm["primaryEnterprises"],
     units: row.units,
     ownerName: row.owner_name,
+    ...(row.grazing_production_system ? { grazingProductionSystem: row.grazing_production_system } : {}),
     ...(row.p_build_up_compliance ? { pBuildUpCompliance: row.p_build_up_compliance } : {}),
   };
 }
 
 export type NewFarmInput = Pick<Farm, "name" | "ownerName"> & {
+  grazingProductionSystem?: Farm["grazingProductionSystem"];
   county: string;
   centroid: [number, number];
   primaryEnterprises: Farm["primaryEnterprises"];
@@ -100,6 +102,7 @@ export function farmToInsertRow(userId: string, input: NewFarmInput): Omit<FarmR
     primary_enterprises: input.primaryEnterprises,
     units: "metric",
     owner_name: input.ownerName,
+    grazing_production_system: input.grazingProductionSystem ?? null,
     p_build_up_compliance: null,
     onboarding_completed_at: null,
   };

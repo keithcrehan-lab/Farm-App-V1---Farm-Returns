@@ -49,6 +49,8 @@ describe("public legal spatial evidence", () => {
     }));
 
     const result = await assessPublicLegalSpatialEvidence(FIELD);
+    const calls = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+    expect(calls.some((url) => url.includes("typeNames=EPA%3AWATER_RIVNETROUTES"))).toBe(true);
     expect(result.commonage).toMatchObject({ state: "resolved", value: "not_commonage" });
     expect(result.water.state).toBe("resolved");
     expect(result.water.featureType).toBe("surface_water");

@@ -24,7 +24,7 @@
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Calculator, Check, ClipboardList, FlaskConical, MapPinned, ShoppingCart, X, XCircle } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -35,6 +35,7 @@ import { FertiliserStockColumn } from "@/components/farm/FertiliserStockColumnVi
 import { AddFertiliserStockRecordSheet } from "@/components/farm/AddFertiliserStockRecordSheet";
 import { SlurryFirstPlanningPanel } from "@/components/farm/SlurryFirstPlanningPanel";
 import { getFertiliserPlanOverviewAction, type FertiliserPlanOverview } from "@/app/actions/fertiliser-plan-overview";
+import { autoAssessFarmLegalSpatialEvidenceAction, confirmUnresolvedFarmCommonageStatusAction } from "@/app/actions/farm";
 import { useIsRealMode } from "@/store/farm-store";
 import { formatHa, formatNonNegative } from "@/lib/format";
 import {
@@ -57,6 +58,8 @@ export function FertiliserPlanOverviewClient() {
   const [stockSheetOpen, setStockSheetOpen] = useState(false);
   const [calculationAuditOpen, setCalculationAuditOpen] = useState(false);
   const [readinessOpen, setReadinessOpen] = useState(false);
+  const [spatialAutoStatus, setSpatialAutoStatus] = useState<string | null>(null);
+  const spatialAutoAttempted = useRef(false);
 
   // Bumped by `refresh()` to force a genuine refetch (e.g. after saving a
   // stock record) — same pattern `NutrientsPageClient`'s own
@@ -83,6 +86,27 @@ export function FertiliserPlanOverviewClient() {
       cancelled = true;
     };
   }, [isRealMode, refreshToken]);
+
+  useEffect(() => {
+    if (load.status !== "ready" || spatialAutoAttempted.current) return;
+    const needsSpatial = load.overview.quoteReadiness.items.some((item) => !item.complete && (item.label === "Commonage status" || item.label === "Nearest watercourse / buffer distance"));
+    if (!needsSpatial) return;
+    spatialAutoAttempted.current = true;
+    void autoAssessFarmLegalSpatialEvidenceAction()
+      .then((result) => {
+        if (result.updated > 0) {
+          setSpatialAutoStatus(`Farm Return filled ${result.updated} mapped field evidence record${result.updated === 1 ? "" : "s"} automatically.`);
+          refresh();
+          return;
+        }
+        if (result.unavailableCommonage > 0) {
+          setSpatialAutoStatus("Watercourse checks completed, but the DAFM commonage service is currently unavailable. You can confirm remaining commonage status once for the farm below.");
+        } else {
+          setSpatialAutoStatus("Automatic public-data checks completed. Any remaining items genuinely need confirmation.");
+        }
+      })
+      .catch(() => setSpatialAutoStatus("Automatic public-data checks could not complete right now."));
+  }, [load, refresh]);
 
   return (
     <>
@@ -122,7 +146,7 @@ export function FertiliserPlanOverviewClient() {
 
       <RequestQuoteSheet open={quoteSheetOpen} onClose={() => setQuoteSheetOpen(false)} onSubmitted={() => setQuoteSheetOpen(false)} />
 
-      {load.status === "ready" ? <QuoteReadinessSheet open={readinessOpen} onClose={() => setReadinessOpen(false)} readiness={load.overview.quoteReadiness} /> : null}
+      {load.status === "ready" ? <QuoteReadinessSheet open={readinessOpen} onClose={() => setReadinessOpen(false)} readiness={load.overview.quoteReadiness} farmerName={load.overview.ownerName} spatialAutoStatus={spatialAutoStatus} onConfirmedCommonage={() => { spatialAutoAttempted.current = true; refresh(); }} /> : null}
 
       {load.status === "ready" ? (
         <CalculationAuditChooser
@@ -378,14 +402,34 @@ function CalculationAuditChooser({
   );
 }
 
-function QuoteReadinessSheet({ open, onClose, readiness }: { open: boolean; onClose: () => void; readiness: FertiliserPlanOverview["quoteReadiness"] }) {
+function QuoteReadinessSheet({ open, onClose, readiness, farmerName, spatialAutoStatus, onConfirmedCommonage }: { open: boolean; onClose: () => void; readiness: FertiliserPlanOverview["quoteReadiness"]; farmerName: string; spatialAutoStatus: string | null; onConfirmedCommonage: () => void }) {
   const groups = readiness.items.reduce<Record<string, typeof readiness.items>>((acc, item) => {
     (acc[item.fieldId] ??= []).push(item);
     return acc;
   }, {});
+  const missingCommonage = readiness.items.filter((item) => !item.complete && item.label === "Commonage status");
+  const [confirmingFarmCommonage, setConfirmingFarmCommonage] = useState(false);
+  const confirmNoCommonage = async () => {
+    setConfirmingFarmCommonage(true);
+    try {
+      await confirmUnresolvedFarmCommonageStatusAction("not_commonage", farmerName);
+      onConfirmedCommonage();
+      onClose();
+    } finally {
+      setConfirmingFarmCommonage(false);
+    }
+  };
   return (
     <Sheet open={open} onClose={onClose} title="Quote readiness">
       <div className="space-y-5">
+        {spatialAutoStatus ? <p className="rounded-md bg-fr-surface-alt px-3 py-2 text-xs leading-relaxed text-fr-ink-600">{spatialAutoStatus}</p> : null}
+        {missingCommonage.length > 0 ? (
+          <div className="rounded-md border border-fr-border p-3">
+            <p className="text-sm font-semibold text-fr-ink-900">Commonage public-data fallback</p>
+            <p className="mt-1 text-xs leading-relaxed text-fr-ink-600">DAFM commonage is normally checked automatically from LPIS. If the live DAFM service is unavailable and you know none of the remaining mapped fields are commonage, confirm that once here instead of editing every field.</p>
+            <button type="button" disabled={confirmingFarmCommonage} onClick={confirmNoCommonage} className="mt-2 rounded-full border border-fr-border px-3 py-1.5 text-xs font-semibold text-fr-ink-900 disabled:opacity-50">{confirmingFarmCommonage ? "Saving…" : `Confirm ${missingCommonage.length} remaining field${missingCommonage.length === 1 ? "" : "s"} are not commonage`}</button>
+          </div>
+        ) : null}
         <div className="flex items-center gap-4 border-b border-fr-border pb-4">
           <div className="relative grid size-16 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(var(--color-fr-green-700) ${readiness.percentage * 3.6}deg, var(--color-fr-border) 0deg)` }}>
             <div className="grid size-12 place-items-center rounded-full bg-fr-surface text-sm font-bold tabular-nums">{readiness.percentage}%</div>

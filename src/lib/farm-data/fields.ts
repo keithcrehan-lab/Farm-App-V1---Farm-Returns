@@ -14,6 +14,19 @@ import { fieldToInsertRow, rowToField, type NewFieldInput } from "./mappers";
 import type { FieldRow } from "./row-types";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 
+export function canApplyDerivedWaterEvidence(
+  existing: Field["waterBufferContext"],
+  incomingFeatureType: "surface_water" | undefined,
+): boolean {
+  if (!existing) return true;
+  if (["estimated", "mapped", "unavailable"].includes(existing.status)) return true;
+  return Boolean(
+    existing.status === "farmer_adjusted" &&
+    existing.value.distanceM === undefined &&
+    (existing.value.featureType === undefined || existing.value.featureType === incomingFeatureType)
+  );
+}
+
 async function fetchField(fieldId: string): Promise<{ supabase: Awaited<ReturnType<typeof createClient>>; field: Field }> {
   const supabase = await createClient();
   const { data, error } = await supabase.from("fields").select("*").eq("id", fieldId).single();
@@ -163,7 +176,8 @@ export async function applyDerivedLegalSpatialEvidence(
     });
   }
 
-  const canAutoReplaceWater = !field.waterBufferContext || ["estimated", "mapped", "unavailable"].includes(field.waterBufferContext.status);
+  const existingWater = field.waterBufferContext;
+  const canAutoReplaceWater = canApplyDerivedWaterEvidence(existingWater, evidence.water?.featureType);
   if (evidence.water && canAutoReplaceWater) {
     update.water_buffer_context = tracked(
       {

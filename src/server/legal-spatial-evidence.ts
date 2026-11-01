@@ -34,7 +34,7 @@ export interface PublicLegalSpatialEvidence {
 }
 
 const EPA_WFS = "https://gis.epa.ie/geoserver/wfs";
-const EPA_STREAM_LAYER = "EPA:WATER_RIVNETROUTES_Streams";
+const EPA_STREAM_LAYER = "EPA:WATER_RIVNETROUTES";
 const DAFM_COLLECTIONS = "https://geoapi.opendata.agriculture.gov.ie/shps/collections?f=json";
 
 function expandBbox(bounds: number[], metres: number): [number, number, number, number] {
@@ -60,6 +60,23 @@ function normalisePropertyName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+let dafm2025CollectionPromise: Promise<string | undefined> | undefined;
+
+async function resolveDafm2025CollectionId(): Promise<string | undefined> {
+  if (!dafm2025CollectionPromise) {
+    dafm2025CollectionPromise = fetchJson(DAFM_COLLECTIONS)
+      .then((value) => {
+        const collections = value as { collections?: Array<{ id?: string; title?: string }> };
+        return collections.collections?.find((item) => /2025.*lpis|lpis.*2025/i.test(`${item.id ?? ""} ${item.title ?? ""}`))?.id;
+      })
+      .catch((error) => {
+        dafm2025CollectionPromise = undefined;
+        throw error;
+      });
+  }
+  return dafm2025CollectionPromise;
+}
+
 function commonageFromProperties(properties: Record<string, unknown>): boolean | null {
   const entry = Object.entries(properties).find(([key]) => normalisePropertyName(key).includes("commonageindicator"));
   if (!entry) return null;
@@ -72,14 +89,13 @@ function commonageFromProperties(properties: Record<string, unknown>): boolean |
 async function resolveCommonage(polygon: GeoJSON.Polygon): Promise<CommonageSpatialEvidence> {
   const source = "DAFM Anonymous LPIS 2025 · Commonage Indicator";
   try {
-    const collections = (await fetchJson(DAFM_COLLECTIONS)) as { collections?: Array<{ id?: string; title?: string }> };
-    const collection = collections.collections?.find((item) => /2025.*lpis|lpis.*2025/i.test(`${item.id ?? ""} ${item.title ?? ""}`));
-    if (!collection?.id) {
+    const collectionId = await resolveDafm2025CollectionId();
+    if (!collectionId) {
       return { state: "unavailable", source, detail: "DAFM 2025 LPIS is published, but no queryable 2025 parcel collection is currently exposed by the live geospatial API." };
     }
 
     const b = turfBbox(turfPolygon(polygon.coordinates));
-    const url = `https://geoapi.opendata.agriculture.gov.ie/shps/collections/${encodeURIComponent(collection.id)}/items?f=json&limit=100&bbox=${b.join(",")}`;
+    const url = `https://geoapi.opendata.agriculture.gov.ie/shps/collections/${encodeURIComponent(collectionId)}/items?f=json&limit=100&bbox=${b.join(",")}`;
     const data = (await fetchJson(url)) as GeoJSON.FeatureCollection;
     const fieldFeature = turfPolygon(polygon.coordinates);
     const matches = (data.features ?? []).filter((candidate) => {

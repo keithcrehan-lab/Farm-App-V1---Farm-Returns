@@ -190,6 +190,74 @@ export async function updateFinancialAssumptionAction(
   return assumption;
 }
 
+export interface FarmLegalSpatialAutoAssessmentResult {
+  assessed: number;
+  updated: number;
+  unresolvedCommonage: number;
+  unresolvedWater: number;
+  unavailableCommonage: number;
+  unavailableWater: number;
+}
+
+/** Assess every unresolved mapped field in one farm-level pass. Existing
+ * farmer-adjusted/verified evidence is never overwritten by
+ * `applyDerivedLegalSpatialEvidence`. This is the path used by the
+ * fertiliser workflow so farmers do not need to open every field drawer. */
+export async function autoAssessFarmLegalSpatialEvidenceAction(): Promise<FarmLegalSpatialAutoAssessmentResult> {
+  const farm = await getFarmForCurrentUser();
+  if (!farm) throw new Error("Farm not found");
+  const fields = (await listFieldsForFarm(farm.id)).filter((field) => field.polygon);
+  const unresolved = fields.filter((field) =>
+    !field.commonageStatus || field.commonageStatus.value === "unknown" ||
+    field.waterBufferContext?.value.featureType === undefined ||
+    field.waterBufferContext.value.distanceM === undefined
+  );
+
+  const results = await Promise.all(unresolved.map(async (field) => {
+    const assessment = await assessPublicLegalSpatialEvidence(field.polygon!);
+    const beforeCommonage = field.commonageStatus?.value;
+    const beforeWater = field.waterBufferContext?.value.distanceM;
+    const next = await applyDerivedLegalSpatialEvidence(field.id, {
+      assessedAt: assessment.assessedAt,
+      ...(assessment.commonage.state === "resolved" && assessment.commonage.value
+        ? { commonage: { value: assessment.commonage.value, source: assessment.commonage.source, sourceDate: assessment.commonage.sourceDate } }
+        : {}),
+      ...(assessment.water.state === "resolved" && assessment.water.featureType && assessment.water.nearestFeature && assessment.water.distanceM !== undefined
+        ? { water: { featureType: assessment.water.featureType, nearestFeature: assessment.water.nearestFeature, distanceM: assessment.water.distanceM, source: assessment.water.source, sourceDate: assessment.water.sourceDate } }
+        : {}),
+    });
+    return {
+      assessment,
+      updated: next.commonageStatus?.value !== beforeCommonage || next.waterBufferContext?.value.distanceM !== beforeWater,
+    };
+  }));
+
+  revalidatePath("/fields");
+  revalidatePath("/fertiliser-plan");
+  return {
+    assessed: results.length,
+    updated: results.filter((result) => result.updated).length,
+    unresolvedCommonage: results.filter((result) => result.assessment.commonage.state !== "resolved").length,
+    unresolvedWater: results.filter((result) => result.assessment.water.state !== "resolved").length,
+    unavailableCommonage: results.filter((result) => result.assessment.commonage.state === "unavailable").length,
+    unavailableWater: results.filter((result) => result.assessment.water.state === "unavailable").length,
+  };
+}
+
+export async function confirmUnresolvedFarmCommonageStatusAction(
+  status: "commonage" | "not_commonage",
+  farmerName: string,
+): Promise<{ updated: number }> {
+  const farm = await getFarmForCurrentUser();
+  if (!farm) throw new Error("Farm not found");
+  const fields = await listFieldsForFarm(farm.id);
+  const unresolved = fields.filter((field) => !field.archivedAt && (!field.commonageStatus || field.commonageStatus.value === "unknown"));
+  await Promise.all(unresolved.map((field) => updateFieldCommonageStatusRow(field.id, status, farmerName)));
+  revalidatePath("/fields");
+  revalidatePath("/fertiliser-plan");
+  return { updated: unresolved.length };
+}
+
 export async function autoAssessFieldLegalSpatialEvidenceAction(fieldId: string): Promise<{ assessment: PublicLegalSpatialEvidence; field: Field }> {
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("Farm not found");

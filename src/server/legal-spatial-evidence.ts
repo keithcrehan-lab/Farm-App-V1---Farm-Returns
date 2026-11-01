@@ -78,7 +78,7 @@ async function resolveDafm2025CollectionId(): Promise<string | undefined> {
 }
 
 function commonageFromProperties(properties: Record<string, unknown>): boolean | null {
-  const entry = Object.entries(properties).find(([key]) => normalisePropertyName(key).includes("commonageindicator"));
+  const entry = Object.entries(properties).find(([key]) => /commonage(?:indicator|ind)/.test(normalisePropertyName(key)));
   if (!entry) return null;
   const raw = String(entry[1] ?? "").trim().toLowerCase();
   if (["y", "yes", "true", "1", "commonage"].includes(raw)) return true;

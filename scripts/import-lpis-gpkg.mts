@@ -10,7 +10,7 @@
  * something a farmer-facing request downloads. A bounded import creates a
  * complete cache coverage polygon for exactly that bbox.
  */
-import { GeoPackageAPI, BoundingBox, GeoPackage } from "@ngageoint/geopackage";
+import { GeoPackageAPI, BoundingBox } from "@ngageoint/geopackage";
 import { createClient } from "@supabase/supabase-js";
 
 const SOURCE_KEY = "dafm_lpis_2025";
@@ -31,7 +31,7 @@ function property(props: Record<string, unknown>, pattern: RegExp): unknown {
   return found?.[1];
 }
 function commonageIndicator(props: Record<string, unknown>): boolean | null {
-  const raw = String(property(props, /commonageindicator/) ?? "").trim().toLowerCase();
+  const raw = String(property(props, /commonage(?:indicator|ind)/) ?? "").trim().toLowerCase();
   if (["y","yes","true","1","commonage"].includes(raw)) return true;
   if (["n","no","false","0","notcommonage","noncommonage"].includes(raw.replace(/[ -]/g,""))) return false;
   return null;

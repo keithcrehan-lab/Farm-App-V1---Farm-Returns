@@ -80,9 +80,20 @@ export function buildFertiliserQuoteReadiness(input: {
     add(items, field, "p-index", "Soil P Index", hasEvidence(field.fertility.pIndex?.value));
     add(items, field, "k-index", "Soil K Index", hasEvidence(field.fertility.kIndex?.value));
     add(items, field, "soil-test-date", "Soil test date", Boolean(field.fertility.verifiedTest?.sampleDate));
-    add(items, field, "prior-n", "Chemical N already applied this cycle", hasEvidence(cycle.evidence.chemicalNAppliedKgHa?.value), undefined, "Enter 0 if none has been applied.");
-    add(items, field, "prior-p", "Chemical P already applied this cycle", hasEvidence(cycle.evidence.chemicalPAppliedKgHa?.value), undefined, "Enter 0 if none has been applied.");
-    add(items, field, "prior-k", "Chemical K already applied this cycle", hasEvidence(cycle.evidence.chemicalKAppliedKgHa?.value), undefined, "Enter 0 if none has been applied.");
+    const chemicalAppliedKnown = hasEvidence(cycle.evidence.chemicalNAppliedKgHa?.value)
+      && hasEvidence(cycle.evidence.chemicalPAppliedKgHa?.value)
+      && hasEvidence(cycle.evidence.chemicalKAppliedKgHa?.value);
+    add(
+      items,
+      field,
+      "prior-fertiliser",
+      "Fertiliser already spread this season",
+      chemicalAppliedKnown,
+      undefined,
+      chemicalAppliedKnown
+        ? "Recorded as one field-level answer. Nutrient amounts are only needed when the answer is Yes."
+        : "Answer No once to record N, P and K as zero, or Yes to enter the amounts already applied.",
+    );
 
     if (cycle.cropSystem === "GRASS_GRAZING") {
       add(
@@ -111,22 +122,15 @@ export function buildFertiliserQuoteReadiness(input: {
       add(items, field, "yield-target", "First-cut production target", cycle.evidence.productionTargetTDMHa?.value === 5, undefined, "The current validated P3 rule is the published 5 t DM/ha first-cut table.");
     }
 
-    add(items, field, "commonage", "Commonage status", Boolean(field.commonageStatus && field.commonageStatus.value !== "unknown"));
+    add(items, field, "commonage", "Commonage status", Boolean(field.commonageStatus && field.commonageStatus.value !== "unknown"), undefined, "Farm Return checks this automatically from DAFM LPIS. Review only if public data cannot resolve it.");
     add(
       items,
       field,
       "water-buffer",
       "Nearest watercourse / buffer distance",
       Boolean(field.waterBufferContext?.value.featureType && Number.isFinite(field.waterBufferContext?.value.distanceM)),
-    );
-    add(
-      items,
-      field,
-      "local-buffer",
-      "Local buffer restriction status",
-      Boolean(field.waterBufferContext && field.waterBufferContext.value.localOverrideStatus !== "unknown"),
       undefined,
-      "Confirm whether a stricter local-authority buffer applies to this field.",
+      "Farm Return derives this automatically from the EPA mapped river network.",
     );
 
     const allocations = allocationsByField.get(field.id) ?? [];

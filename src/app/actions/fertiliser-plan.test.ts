@@ -842,6 +842,26 @@ describe("getFieldFertiliserStatusAction", () => {
     await expect(getFieldFertiliserStatusAction("field-1")).resolves.toEqual({ status: "not_applicable" });
   });
 
+  it("does not block a chemical recommendation when the local-authority organic setback status is unknown", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([
+      p3Field({
+        waterBufferContext: {
+          value: { featureType: "surface_water", distanceM: 10, localOverrideStatus: "unknown" },
+          status: "mapped",
+          source: "EPA",
+        },
+      }),
+    ]);
+    mockGetFieldProductionCycle.mockResolvedValue(p3FirstCutCycle());
+    mockListFieldProductionCyclesForSeason.mockResolvedValue([p3FirstCutCycle()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+
+    const result = await getFieldFertiliserStatusAction("field-1");
+    expect(result.status).toBe("ok");
+  });
+
   it("returns the P3 gross and remaining first-cut requirement from explicit in-season chemical evidence", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([p3Field()]);
@@ -924,6 +944,27 @@ describe("getFarmFertiliserDemandAction", () => {
     expect(result.aggregation.status).toBe("READY");
     expect(result.demand.map((row) => row.product).sort()).toEqual(["0-7-30", "Protected Urea"].sort());
     expect(result.purchaseRequirementTonnes.every((line) => line.remainingTotalKg > 0)).toBe(true);
+  });
+
+  it("keeps the farm chemical procurement basket actionable when the local organic setback status is unknown", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([
+      p3Field({
+        waterBufferContext: {
+          value: { featureType: "surface_water", distanceM: 10, localOverrideStatus: "unknown" },
+          status: "mapped",
+          source: "EPA",
+        },
+      }),
+    ]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockListFieldProductionCyclesForSeason.mockResolvedValue([p3FirstCutCycle()]);
+
+    const result = await getFarmFertiliserDemandAction();
+    expect(result.fieldsWithBlockedEvidence).toBe(0);
+    expect(result.aggregation.status).toBe("READY");
+    expect(result.demand.length).toBeGreaterThan(0);
   });
 
   it("returns a partial P3 farm demand when another active field has no production cycle instead of crashing the overview", async () => {

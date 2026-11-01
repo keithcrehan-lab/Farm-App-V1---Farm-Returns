@@ -110,7 +110,12 @@ export interface LocalBufferOverrideInput {
 }
 
 /**
- * `GFT089`/`GFT090`. `"unknown"` maps to the top-level `UNKNOWN` status —
+ * `GFT089`/`GFT090`. This local-authority override layer belongs to
+ * Article 18's organic-fertiliser / soiled-water drinking-water abstraction
+ * rules. It must not be used to block a chemical-fertiliser purchase; chemical
+ * fertiliser uses the separate national surface-water distance above.
+ *
+ * `"unknown"` maps to the top-level `UNKNOWN` status —
  * V3's own `QUALIFIED_NOT_DEFINITIVE` language for exactly this case
  * (AF010: "qualify result; do not state definitive local compliance if
  * override status is unknown"), not a new bespoke status.

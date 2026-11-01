@@ -978,50 +978,54 @@ function LegalInputs({ field, slurryDetailsRequest }: { field: Field; slurryDeta
           </details>
         </div>
 
-        <div className="border-l-[3px] border-fr-v2-gold pl-3">
-          <p className="text-sm font-semibold text-fr-v2-graphite">Any field-specific local authority buffer?</p>
-          <p className="mt-1 text-xs leading-relaxed text-fr-v2-muted">This is the one check Farm Return cannot currently resolve from a complete national public dataset.</p>
-          <p className="mt-1.5 text-xs leading-relaxed text-fr-v2-muted">
-            <span className="font-semibold text-fr-v2-graphite">Example:</span> your local authority has formally told you to keep a wider no-spread buffer around a particular water source or sensitive area on this field.
+        <div className="border-l-[3px] border-fr-v2-teal pl-3">
+          <p className="text-sm font-semibold text-fr-v2-graphite">Local-authority drinking-water setbacks</p>
+          <p className="mt-1 text-xs leading-relaxed text-fr-v2-muted">
+            No manual answer is needed for a chemical fertiliser quote. The national chemical-fertiliser setback is applied automatically.
+            Local-authority alternative setbacks under Article 18 relate to organic fertiliser/soiled water around drinking-water abstractions, so Farm Return checks them when slurry or another organic application is being planned.
           </p>
-          <label className={`${LABEL} mt-3`}>
-            Local authority restriction
-            <select
-              className={INPUT}
-              value={field.waterBufferContext?.value.localOverrideStatus ?? "unknown"}
-              onChange={(e) =>
-                updateFieldWaterBufferContext(
-                  field.id,
-                  {
-                    ...(field.waterBufferContext?.value ?? {}),
-                    localOverrideStatus: e.target.value as "authoritative_rule" | "verified_none" | "unknown",
-                  },
-                  farm.ownerName,
-                )
-              }
-            >
-              <option value="unknown">Not sure</option>
-              <option value="verified_none">No additional local restriction known</option>
-              <option value="authoritative_rule">Yes — a local authority buffer applies</option>
-            </select>
-          </label>
-
           {field.waterBufferContext?.value.localOverrideStatus === "authoritative_rule" ? (
-            <label className={`${LABEL} mt-3`}>
-              Local authority buffer distance (metres)
-              <input
-                type="number" min={0} step={0.1} className={INPUT}
-                value={field.waterBufferContext?.value.localOverrideDistanceM ?? ""}
-                onChange={(e) =>
-                  updateFieldWaterBufferContext(
-                    field.id,
-                    { ...field.waterBufferContext!.value, localOverrideDistanceM: e.target.value === "" ? undefined : Number(e.target.value) },
-                    farm.ownerName,
-                  )
-                }
-              />
-            </label>
+            <p className="mt-2 text-xs font-semibold text-fr-v2-forest">A recorded local-authority organic-spreading setback applies: {field.waterBufferContext.value.localOverrideDistanceM ?? "distance recorded in source"} m.</p>
           ) : null}
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs font-semibold text-fr-v2-forest">I have been formally notified of a field-specific restriction</summary>
+            <div className="mt-3 flex flex-col gap-3">
+              <label className={LABEL}>
+                Local authority restriction
+                <select
+                  className={INPUT}
+                  value={field.waterBufferContext?.value.localOverrideStatus ?? "unknown"}
+                  onChange={(e) =>
+                    updateFieldWaterBufferContext(
+                      field.id,
+                      {
+                        ...(field.waterBufferContext?.value ?? {}),
+                        localOverrideStatus: e.target.value as "authoritative_rule" | "verified_none" | "unknown",
+                      },
+                      farm.ownerName,
+                    )
+                  }
+                >
+                  <option value="unknown">No manual override</option>
+                  <option value="authoritative_rule">Yes — a formal local-authority restriction applies</option>
+                </select>
+              </label>
+              {field.waterBufferContext?.value.localOverrideStatus === "authoritative_rule" ? (
+                <label className={LABEL}>
+                  Notified setback distance (metres)
+                  <input
+                    type="number" min={0} step={0.1} className={INPUT}
+                    value={field.waterBufferContext?.value.localOverrideDistanceM ?? ""}
+                    onChange={(e) => updateFieldWaterBufferContext(
+                      field.id,
+                      { ...field.waterBufferContext!.value, localOverrideDistanceM: e.target.value === "" ? undefined : Number(e.target.value) },
+                      farm.ownerName,
+                    )}
+                  />
+                </label>
+              ) : null}
+            </div>
+          </details>
         </div>
 
         {/* Campaign B — the field's spreadable area, beside its other

@@ -61,8 +61,8 @@ import { allocatePurchasedProducts, resolveAvailableSlurryNutrients, resolveEffe
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
 import { resolveFieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
 import { checkCommonageFertiliserGate } from "@/domain/commonage-gate";
-import { checkNationalBufferDistance, checkLocalBufferOverride } from "@/domain/buffer-gate";
-import { requireCommonageStatus, resolveLocalWaterBufferOverrideStatus } from "@/domain/input-gates";
+import { checkNationalBufferDistance } from "@/domain/buffer-gate";
+import { requireCommonageStatus } from "@/domain/input-gates";
 import { activeFields, tracked, type Farm, type Field, type FertiliserProduct, type LivestockGroup, type SlurryAllocation } from "@/domain/types";
 import { buildSlurryPlanningScenario, type SlurryPlanningScenarioInput } from "@/domain/slurry-planning-scenario";
 import { buildFarmSlurryForecast, type FarmSlurryForecast } from "@/domain/slurry-storage-forecast";
@@ -664,13 +664,6 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
     });
     if (nationalBuffer.status === "LEGAL_PROHIBITION") return { status: "not_applicable" };
 
-    const localBuffer = checkLocalBufferOverride({
-      actualDistanceM: field.waterBufferContext.value.distanceM,
-      localOverrideStatus: resolveLocalWaterBufferOverrideStatus(field),
-      localOverrideDistanceM: field.waterBufferContext.value.localOverrideDistanceM,
-    });
-    if (localBuffer.status === "LEGAL_PROHIBITION") return { status: "not_applicable" };
-    if (localBuffer.status !== "OK") return { status: "blocked", reasonCode: localBuffer.reasonCode };
   }
 
   return {
@@ -926,12 +919,7 @@ async function buildP3FarmFertiliserDemandResult(input: {
       feature: field.waterBufferContext.value.featureType,
       distanceM: field.waterBufferContext.value.distanceM,
     });
-    const local = checkLocalBufferOverride({
-      actualDistanceM: field.waterBufferContext.value.distanceM,
-      localOverrideStatus: resolveLocalWaterBufferOverrideStatus(field),
-      localOverrideDistanceM: field.waterBufferContext.value.localOverrideDistanceM,
-    });
-    if (national.status === "LEGAL_PROHIBITION" || local.status === "LEGAL_PROHIBITION") {
+    if (national.status === "LEGAL_PROHIBITION") {
       return {
         fieldId: field.id,
         fieldName: field.name,
@@ -942,19 +930,6 @@ async function buildP3FarmFertiliserDemandResult(input: {
         },
       };
     }
-    if (local.status !== "OK") {
-      fieldsWithBlockedEvidence++;
-      return {
-        fieldId: field.id,
-        fieldName: field.name,
-        plan: {
-          calculationVersion: result.engineVersion,
-          purchaseStatus: { status: "UNKNOWN" as const, reasonCode: local.reasonCode, missingInputs: ["LOCAL_WATER_BUFFER_OVERRIDE"] },
-          purchasedProducts: [],
-        },
-      };
-    }
-
     return {
       fieldId: field.id,
       fieldName: field.name,

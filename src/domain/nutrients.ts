@@ -2594,7 +2594,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
 
   const chemicalFertiliserProhibitedByBuffer =
     bufferMaterial === "chemical_fertiliser" &&
-    (nationalBufferDistanceStatus.status === "LEGAL_PROHIBITION" || localBufferOverrideStatus.status === "LEGAL_PROHIBITION");
+    nationalBufferDistanceStatus.status === "LEGAL_PROHIBITION";
   const chemicalFertiliserProhibited = chemicalFertiliserProhibitedByCommonage || chemicalFertiliserProhibitedByBuffer;
 
   // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding

@@ -45,6 +45,33 @@ describe("buildFertiliserQuoteReadiness", () => {
     expect(result.items.find((item) => item.label === "Field use / production cycle")?.complete).toBe(false);
   });
 
+  it("collapses prior N/P/K into one farmer-facing fertiliser-history check and does not require a local-authority organic setback for a chemical quote", () => {
+    const incompleteCycle: FieldProductionCycle = {
+      ...cycle,
+      evidence: {
+        ...cycle.evidence,
+        chemicalNAppliedKgHa: undefined,
+        chemicalPAppliedKgHa: undefined,
+        chemicalKAppliedKgHa: undefined,
+      },
+    };
+    const aggregation = aggregateFarmFertiliserPurchasing([{ fieldId: "f1", fieldName: "P Collins", plan: { purchaseStatus: { status: "UNKNOWN", reasonCode: "INCOMPLETE_EVIDENCE", missingInputs: ["chemicalNAppliedKgHa", "chemicalPAppliedKgHa", "chemicalKAppliedKgHa"] }, purchasedProducts: [], calculationVersion: "p3" } }]);
+    const result = buildFertiliserQuoteReadiness({
+      fields: [field({ waterBufferContext: { value: { featureType: "surface_water", distanceM: 12, localOverrideStatus: "unknown" }, status: "mapped", source: "EPA" } })],
+      cycles: [incompleteCycle],
+      slurryAllocations: [],
+      aggregation,
+    });
+
+    const fertiliserHistory = result.items.filter((item) => item.id.endsWith(":prior-fertiliser"));
+    expect(fertiliserHistory).toHaveLength(1);
+    expect(fertiliserHistory[0].complete).toBe(false);
+    expect(result.items.some((item) => item.label === "Chemical N already applied this cycle")).toBe(false);
+    expect(result.items.some((item) => item.label === "Chemical P already applied this cycle")).toBe(false);
+    expect(result.items.some((item) => item.label === "Chemical K already applied this cycle")).toBe(false);
+    expect(result.items.some((item) => item.label === "Local buffer restriction status")).toBe(false);
+  });
+
   it("routes stocking evidence to cattle management", () => {
     const aggregation = aggregateFarmFertiliserPurchasing([{ fieldId: "f1", fieldName: "P Collins", plan: { purchaseStatus: { status: "UNKNOWN", reasonCode: "INCOMPLETE_EVIDENCE", missingInputs: ["annualOrganicNStockingRateKgHa"] }, purchasedProducts: [], calculationVersion: "p3" } }]);
     const result = buildFertiliserQuoteReadiness({ fields: [field()], cycles: [cycle], slurryAllocations: [], aggregation });

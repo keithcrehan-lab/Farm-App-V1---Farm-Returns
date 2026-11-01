@@ -2784,7 +2784,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
     expect(plan.estimatedFieldCostEur).toBe(0);
   });
 
-  it("a chemical-fertiliser local-buffer-override LEGAL_PROHIBITION also suppresses the purchased-product blend", () => {
+  it("a local-authority organic setback is reported but does not suppress a chemical-fertiliser purchase", () => {
     const fieldLocalOverride: Field = {
       ...field,
       id: "field-local-buffer-suppresses-chemical",
@@ -2807,12 +2807,13 @@ describe("calculateNutrientPlan (orchestration)", () => {
       slurryAllocation: undefined,
       silage: { cutNumber: 1, expectedYieldTDMha: 5 },
     });
-    // 30m clears the national 3m chemical baseline but not this field's
-    // local-authority override of 50m — the local override result is what
-    // must drive suppression here, not the (passing) national check alone.
+    // 30m clears the national chemical-fertiliser baseline. The recorded
+    // local-authority setback is still surfaced for the organic/slurry
+    // compliance ledger, but Article 18's alternative local setbacks do not
+    // suppress this separate chemical-fertiliser purchase.
     expect(plan.localBufferOverrideStatus.status).toBe("LEGAL_PROHIBITION");
-    expect(plan.purchasedProducts).toEqual([]);
-    expect(plan.estimatedFieldCostEur).toBe(0);
+    expect(plan.purchasedProducts.length).toBeGreaterThan(0);
+    expect(plan.estimatedFieldCostEur).toBeGreaterThan(0);
   });
 
   it("an organic-material buffer check is detected independently of the chemical-fertiliser ledger it never touches", () => {

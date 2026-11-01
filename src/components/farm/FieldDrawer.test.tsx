@@ -118,7 +118,7 @@ describe("FieldDrawer — automatic legal spatial evidence", () => {
     expect(screen.getByText("Automatic field checks")).toBeTruthy();
     expect(screen.getByText("Not identified as commonage")).toBeTruthy();
     expect(screen.getByText(/Mapped Stream · 18\.4 m/i)).toBeTruthy();
-    expect(screen.getByText(/one check Farm Return cannot currently resolve/i)).toBeTruthy();
+    expect(screen.getByText(/No manual answer is needed for a chemical fertiliser quote/i)).toBeTruthy();
     const correction = screen.getByText(/review or correct automatic evidence/i).closest("details");
     expect(correction?.hasAttribute("open")).toBe(false);
   });

@@ -39,6 +39,7 @@ import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listHousingForFarm } from "@/lib/farm-data/housing";
+import { listFieldProductionCyclesForSeason } from "@/lib/farm-data/field-production-cycles";
 import { listFertiliserStockRecordsForFarm, createFertiliserStockRecord } from "@/lib/farm-data/fertiliser-stock";
 import { getFarmFertiliserDemandAction, getFarmLimeRequirementAction, getFieldFertiliserStatusAction } from "./fertiliser-plan";
 import {
@@ -61,6 +62,7 @@ import {
   type NewFertiliserStockRecordInput,
 } from "@/domain/fertiliser-stock";
 import { activeFields, type FieldUse } from "@/domain/types";
+import { buildFertiliserQuoteReadiness, type FertiliserQuoteReadiness } from "@/lib/fertiliser-quote-readiness";
 
 export interface FertiliserPlanFieldBreakdownRow {
   fieldId: string;
@@ -102,6 +104,7 @@ export interface FertiliserPlanOverview {
    * same single read as `demand` above; never recomputed). */
   aggregation: FarmFertiliserAggregation;
   basket: FarmFertiliserQuoteBasket;
+  quoteReadiness: FertiliserQuoteReadiness;
 }
 
 
@@ -121,6 +124,8 @@ export async function getFertiliserPlanOverviewAction(): Promise<FertiliserPlanO
     getFarmLimeRequirementAction(),
   ]);
   const fields = activeFields(allFields);
+  const season = now.slice(0, 4);
+  const productionCycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), season);
 
   // P4 presentation adapter: the overview reads the exact same P3 field
   // status contract as the field screen. No legacy Prompt/NutrientPlan
@@ -212,6 +217,12 @@ export async function getFertiliserPlanOverviewAction(): Promise<FertiliserPlanO
   });
 
   const slurry = buildFarmSlurryStorageOverview(housingList, slurryAllocations);
+  const quoteReadiness = buildFertiliserQuoteReadiness({
+    fields,
+    cycles: productionCycles,
+    slurryAllocations,
+    aggregation: demandResult.aggregation,
+  });
 
   return {
     seasonLabel: String(new Date(now).getUTCFullYear()),
@@ -235,6 +246,7 @@ export async function getFertiliserPlanOverviewAction(): Promise<FertiliserPlanO
     fieldBreakdown,
     aggregation: demandResult.aggregation,
     basket: demandResult.basket,
+    quoteReadiness,
   };
 }
 

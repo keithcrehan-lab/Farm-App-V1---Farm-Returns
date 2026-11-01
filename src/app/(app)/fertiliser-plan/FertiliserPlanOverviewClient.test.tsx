@@ -70,6 +70,10 @@ function overview(overrides: Partial<FertiliserPlanOverview> = {}): FertiliserPl
     fieldBreakdown: [],
     aggregation: EMPTY_AGGREGATION,
     basket: buildFarmFertiliserQuoteBasket(EMPTY_AGGREGATION, { farmId: "farm-1", createdAt: "2026-10-08T09:00:00.000Z" }),
+    quoteReadiness: { percentage: 50, completeCount: 1, totalCount: 2, remainingCount: 1, ready: false, items: [
+      { id: "f1:cycle", fieldId: "f1", fieldName: "Field 1", label: "Field use / production cycle", complete: true, href: "/fields?field=f1&chapter=nutrients" },
+      { id: "f2:cycle", fieldId: "f2", fieldName: "Field 2", label: "Field use / production cycle", complete: false, href: "/fields?field=f2&chapter=nutrients" },
+    ] },
     ...overrides,
   };
 }

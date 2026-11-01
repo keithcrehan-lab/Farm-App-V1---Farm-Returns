@@ -25,10 +25,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Calculator, ClipboardList, FlaskConical, MapPinned, ShoppingCart, X } from "lucide-react";
+import { Calculator, Check, ClipboardList, FlaskConical, MapPinned, ShoppingCart, X, XCircle } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { RequestQuoteSheet } from "@/components/farm/RequestQuoteSheet";
+import { Sheet } from "@/components/ui/Sheet";
 import { SlurryStorageSection } from "@/components/farm/SlurryTankVisual";
 import { FertiliserStockColumn } from "@/components/farm/FertiliserStockColumnVisual";
 import { AddFertiliserStockRecordSheet } from "@/components/farm/AddFertiliserStockRecordSheet";
@@ -55,6 +56,7 @@ export function FertiliserPlanOverviewClient() {
   const [stockSheetProduct, setStockSheetProduct] = useState<string | undefined>(undefined);
   const [stockSheetOpen, setStockSheetOpen] = useState(false);
   const [calculationAuditOpen, setCalculationAuditOpen] = useState(false);
+  const [readinessOpen, setReadinessOpen] = useState(false);
 
   // Bumped by `refresh()` to force a genuine refetch (e.g. after saving a
   // stock record) — same pattern `NutrientsPageClient`'s own
@@ -109,6 +111,7 @@ export function FertiliserPlanOverviewClient() {
         <OverviewContent
           overview={load.overview}
           onOpenQuoteSheet={() => setQuoteSheetOpen(true)}
+          onOpenReadiness={() => setReadinessOpen(true)}
           onOpenCalculationAudit={() => setCalculationAuditOpen(true)}
           onOpenStockSheet={(product) => {
             setStockSheetProduct(product);
@@ -118,6 +121,8 @@ export function FertiliserPlanOverviewClient() {
       )}
 
       <RequestQuoteSheet open={quoteSheetOpen} onClose={() => setQuoteSheetOpen(false)} onSubmitted={() => setQuoteSheetOpen(false)} />
+
+      {load.status === "ready" ? <QuoteReadinessSheet open={readinessOpen} onClose={() => setReadinessOpen(false)} readiness={load.overview.quoteReadiness} /> : null}
 
       {load.status === "ready" ? (
         <CalculationAuditChooser
@@ -147,11 +152,13 @@ export function FertiliserPlanOverviewClient() {
 function OverviewContent({
   overview,
   onOpenQuoteSheet,
+  onOpenReadiness,
   onOpenCalculationAudit,
   onOpenStockSheet,
 }: {
   overview: FertiliserPlanOverview;
   onOpenQuoteSheet: () => void;
+  onOpenReadiness: () => void;
   onOpenCalculationAudit: () => void;
   onOpenStockSheet: (product?: string) => void;
 }) {
@@ -225,7 +232,13 @@ function OverviewContent({
         <Link href="/reports" className="rounded-full border border-fr-border px-4 py-2 text-sm font-medium text-fr-ink-900">
           View scientific evidence
         </Link>
-        <button type="button" onClick={onOpenQuoteSheet} className="rounded-full border border-fr-border px-4 py-2 text-sm font-medium text-fr-ink-900">
+        <button type="button" onClick={onOpenReadiness} aria-label={`Quote readiness ${overview.quoteReadiness.percentage}%`} className="flex items-center gap-2 rounded-full border border-fr-border px-3 py-1.5 text-sm font-medium text-fr-ink-900">
+          <span className="relative grid size-10 place-items-center rounded-full" style={{ background: `conic-gradient(var(--color-fr-green-700) ${overview.quoteReadiness.percentage * 3.6}deg, var(--color-fr-border) 0deg)` }}>
+            <span className="grid size-8 place-items-center rounded-full bg-fr-surface text-[11px] font-bold tabular-nums">{overview.quoteReadiness.percentage}%</span>
+          </span>
+          <span className="text-left leading-tight"><span className="block">Quote readiness</span><span className="block text-xs font-normal text-fr-ink-500">{overview.quoteReadiness.remainingCount === 0 ? "Complete" : `${overview.quoteReadiness.remainingCount} item${overview.quoteReadiness.remainingCount === 1 ? "" : "s"} left`}</span></span>
+        </button>
+        <button type="button" disabled={!overview.quoteReadiness.ready} onClick={onOpenQuoteSheet} className="rounded-full border border-fr-border px-4 py-2 text-sm font-medium text-fr-ink-900 disabled:cursor-not-allowed disabled:opacity-40" title={overview.quoteReadiness.ready ? undefined : "Complete the required fertiliser inputs before requesting a quote"}>
           Request a quote
         </button>
         <Link href="/quotes" className="rounded-full border border-fr-border px-4 py-2 text-sm font-medium text-fr-ink-900">
@@ -362,5 +375,35 @@ function CalculationAuditChooser({
         </div>
       </div>
     </div>
+  );
+}
+
+function QuoteReadinessSheet({ open, onClose, readiness }: { open: boolean; onClose: () => void; readiness: FertiliserPlanOverview["quoteReadiness"] }) {
+  const groups = readiness.items.reduce<Record<string, typeof readiness.items>>((acc, item) => {
+    (acc[item.fieldId] ??= []).push(item);
+    return acc;
+  }, {});
+  return (
+    <Sheet open={open} onClose={onClose} title="Quote readiness">
+      <div className="space-y-5">
+        <div className="flex items-center gap-4 border-b border-fr-border pb-4">
+          <div className="relative grid size-16 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(var(--color-fr-green-700) ${readiness.percentage * 3.6}deg, var(--color-fr-border) 0deg)` }}>
+            <div className="grid size-12 place-items-center rounded-full bg-fr-surface text-sm font-bold tabular-nums">{readiness.percentage}%</div>
+          </div>
+          <div><p className="font-semibold text-fr-ink-900">{readiness.completeCount} of {readiness.totalCount} required inputs complete</p><p className="mt-1 text-sm text-fr-ink-600">Complete the missing items below to unlock a fertiliser quote request.</p></div>
+        </div>
+        {Object.values(groups).map((items) => (
+          <section key={items[0].fieldId} className="space-y-1">
+            <h3 className="mb-2 text-sm font-semibold text-fr-ink-900">{items[0].fieldName}</h3>
+            {items.map((item) => (
+              <Link key={item.id} href={item.href} onClick={onClose} className="flex min-h-11 items-center gap-3 border-b border-fr-border py-2 text-sm hover:text-fr-green-700">
+                {item.complete ? <Check className="size-4 shrink-0 text-fr-green-700" /> : <XCircle className="size-4 shrink-0 text-fr-v2-harvest-ink" />}
+                <span className="min-w-0 flex-1"><span className="block font-medium">{item.label}</span>{item.detail ? <span className="block text-xs text-fr-ink-500">{item.detail}</span> : null}</span>
+              </Link>
+            ))}
+          </section>
+        ))}
+      </div>
+    </Sheet>
   );
 }

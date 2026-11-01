@@ -4,6 +4,7 @@ vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
 vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/housing", () => ({ listHousingForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/field-production-cycles", () => ({ listFieldProductionCyclesForSeason: vi.fn(async () => []) }));
 vi.mock("@/lib/farm-data/fertiliser-stock", () => ({ listFertiliserStockRecordsForFarm: vi.fn(), createFertiliserStockRecord: vi.fn() }));
 vi.mock("./fertiliser-plan", () => ({ getFarmFertiliserDemandAction: vi.fn(), getFarmLimeRequirementAction: vi.fn(), getFieldFertiliserStatusAction: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));

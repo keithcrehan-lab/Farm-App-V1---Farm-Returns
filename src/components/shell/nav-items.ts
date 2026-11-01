@@ -44,7 +44,9 @@ export function isNavItemActive(item: NavItem, pathname: string): boolean {
  * Farm + Fields redesign (2026-10-27,
  * `docs/design/farm-fields-high-fidelity-reference.md` "Global shell
  * direction"): the primary navigation is
- * Farm · Plan · Cattle · Housing · Finance · Records, plus More.
+ * Farm · Fertiliser · Plan · Cattle · Housing · Finance · Records, plus More.
+ * Fertiliser was promoted to first-level for the initial product launch so
+ * the first commercial workflow is never hidden behind More.
  *
  * - Farm → `/today`, the map-led home.
  * - Housing and Finance are first-level now (Finance leaves
@@ -60,6 +62,7 @@ export function isNavItemActive(item: NavItem, pathname: string): boolean {
  */
 export const primaryNavItems: NavItem[] = [
   { href: "/today", label: "Farm", icon: Map, alsoActiveOn: ["/fields"] },
+  { href: "/fertiliser-plan", label: "Fertiliser", icon: FlaskConical },
   { href: "/plan", label: "Plan", icon: CalendarDays },
   { href: "/cattle", label: "Cattle", icon: Beef },
   { href: "/housing", label: "Housing", icon: Warehouse },
@@ -77,7 +80,6 @@ export const moreNavItems: NavItem[] = [
   { href: "/what-matters", label: "What Matters", icon: Target },
   { href: "/fields", label: "Fields", icon: Map },
   { href: "/soil", label: "Soil", icon: Sprout },
-  { href: "/fertiliser-plan", label: "Fertiliser Plan", icon: FlaskConical },
   { href: "/spreading", label: "Spreading", icon: Tractor },
   { href: "/supports", label: "Supports", icon: HandCoins },
   { href: "/quotes", label: "Market", icon: Store },

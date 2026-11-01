@@ -13,11 +13,12 @@ afterEach(() => {
 });
 
 describe("DesktopSidebar (Farm Spatial V2 Phase 02B)", () => {
-  it("always shows the six primary destinations (Farm + Fields redesign)", () => {
+  it("always shows the primary destinations including launch-first Fertiliser", () => {
     render(<DesktopSidebar />);
     const nav = screen.getByRole("navigation", { name: "Primary" });
     for (const item of primaryNavItems) expect(within(nav).getByText(item.label)).toBeTruthy();
     expect(within(nav).getByRole("link", { name: "Farm" }).getAttribute("aria-current")).toBe("page");
+    expect(within(nav).getByRole("link", { name: "Fertiliser" }).getAttribute("href")).toBe("/fertiliser-plan");
   });
 
   it("keeps legacy destinations behind one collapsed More control, not a permanent list", () => {
@@ -35,7 +36,7 @@ describe("DesktopSidebar (Farm Spatial V2 Phase 02B)", () => {
     for (const item of moreNavItems) {
       expect(within(group).getByRole("link", { name: item.label }).getAttribute("href")).toBe(item.href);
     }
-    for (const href of ["/fields", "/supports", "/soil", "/fertiliser-plan", "/spreading", "/quotes"]) {
+    for (const href of ["/fields", "/supports", "/soil", "/spreading", "/quotes"]) {
       expect(within(group).getAllByRole("link").map((a) => a.getAttribute("href"))).toContain(href);
     }
   });

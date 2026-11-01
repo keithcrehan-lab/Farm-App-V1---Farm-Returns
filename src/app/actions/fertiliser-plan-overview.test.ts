@@ -105,8 +105,8 @@ describe("getFertiliserPlanOverviewAction", () => {
     const overview = await getFertiliserPlanOverviewAction();
 
     expect(mockGetFieldStatus).toHaveBeenCalledTimes(2);
-    expect(mockGetFieldStatus).toHaveBeenCalledWith("a");
-    expect(mockGetFieldStatus).toHaveBeenCalledWith("b");
+    expect(mockGetFieldStatus).toHaveBeenCalledWith("a", "2026");
+    expect(mockGetFieldStatus).toHaveBeenCalledWith("b", "2026");
     expect(overview.fieldBreakdown.find((row) => row.fieldId === "a")?.status).toBe("OK");
     expect(overview.fieldBreakdown.find((row) => row.fieldId === "b")).toMatchObject({
       status: "BLOCKED_INSUFFICIENT_EVIDENCE",
@@ -124,7 +124,7 @@ describe("getFertiliserPlanOverviewAction", () => {
     expect(overview.totalAreaHaTotal).toBe(5);
     expect(overview.fieldBreakdown.map((f) => f.fieldId)).toEqual(["active"]);
     expect(mockGetFieldStatus).toHaveBeenCalledTimes(1);
-    expect(mockGetFieldStatus).toHaveBeenCalledWith("active");
+    expect(mockGetFieldStatus).toHaveBeenCalledWith("active", "2026");
   });
 
   it("sums real N/P/K only across fields whose P3 status genuinely reached ok", async () => {

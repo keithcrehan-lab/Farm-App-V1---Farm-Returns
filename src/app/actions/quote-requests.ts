@@ -33,9 +33,9 @@ async function requireFarmId(): Promise<string> {
   return farm.id;
 }
 
-export async function getQuoteRequestPrefillContextAction(): Promise<QuoteRequestPrefillContext> {
+export async function getQuoteRequestPrefillContextAction(planningSeason?: string): Promise<QuoteRequestPrefillContext> {
   await requireFarmId();
-  return getQuoteRequestPrefillContext();
+  return getQuoteRequestPrefillContext(planningSeason);
 }
 
 export async function getFarmDeliveryDetailsAction(): Promise<FarmDeliveryDetails | null> {

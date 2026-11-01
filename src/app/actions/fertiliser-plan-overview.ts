@@ -105,34 +105,38 @@ export interface FertiliserPlanOverview {
   aggregation: FarmFertiliserAggregation;
   basket: FarmFertiliserQuoteBasket;
   quoteReadiness: FertiliserQuoteReadiness;
+  planningSeason: string;
+  planningBasis: "CURRENT_SEASON" | "NEXT_SEASON";
+  planningAssumption?: string;
 }
 
 
-export async function getFertiliserPlanOverviewAction(): Promise<FertiliserPlanOverview> {
+export async function getFertiliserPlanOverviewAction(planningSeason?: string): Promise<FertiliserPlanOverview> {
   const farm = await getFarmForCurrentUser();
   if (!farm) {
     throw new Error("getFertiliserPlanOverviewAction: no real farm for the current session");
   }
   const now = new Date().toISOString();
+  const currentSeason = now.slice(0, 4);
+  const targetSeason = planningSeason ?? currentSeason;
 
   const [allFields, slurryAllocations, housingList, stockRecords, demandResult, limeResult] = await Promise.all([
     listFieldsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
     listHousingForFarm(farm.id),
     listFertiliserStockRecordsForFarm(farm.id),
-    getFarmFertiliserDemandAction(),
+    getFarmFertiliserDemandAction(targetSeason),
     getFarmLimeRequirementAction(),
   ]);
   const fields = activeFields(allFields);
-  const season = now.slice(0, 4);
-  const productionCycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), season);
+  const productionCycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), currentSeason);
 
   // P4 presentation adapter: the overview reads the exact same P3 field
   // status contract as the field screen. No legacy Prompt/NutrientPlan
   // recompute is permitted here, so the overview, calculation audit and
   // procurement basket all trace back to one agronomy engine.
   const p3FieldResults = await Promise.all(
-    fields.map(async (field) => ({ field, result: await getFieldFertiliserStatusAction(field.id) })),
+    fields.map(async (field) => ({ field, result: await getFieldFertiliserStatusAction(field.id, targetSeason) })),
   );
   const perFieldRequirements: { areaHa: number; requirementKgHa?: { n: number; p: number; k: number } }[] = [];
   const fieldBreakdown: FertiliserPlanFieldBreakdownRow[] = p3FieldResults.map(({ field, result }) => {
@@ -222,10 +226,12 @@ export async function getFertiliserPlanOverviewAction(): Promise<FertiliserPlanO
     cycles: productionCycles,
     slurryAllocations,
     aggregation: demandResult.aggregation,
+    planningSeason: targetSeason,
+    currentSeason,
   });
 
   return {
-    seasonLabel: String(new Date(now).getUTCFullYear()),
+    seasonLabel: targetSeason,
     farmName: farm.name,
     ownerName: farm.ownerName,
     fieldsTotal: fields.length,
@@ -247,6 +253,9 @@ export async function getFertiliserPlanOverviewAction(): Promise<FertiliserPlanO
     aggregation: demandResult.aggregation,
     basket: demandResult.basket,
     quoteReadiness,
+    planningSeason: targetSeason,
+    planningBasis: targetSeason > currentSeason ? "NEXT_SEASON" : "CURRENT_SEASON",
+    ...(targetSeason > currentSeason ? { planningAssumption: `Current ${currentSeason} field use is carried forward for quote planning unless a ${targetSeason} production cycle exists. Chemical fertiliser and slurry applied in ${currentSeason} are not deducted from the ${targetSeason} requirement.` } : {}),
   };
 }
 

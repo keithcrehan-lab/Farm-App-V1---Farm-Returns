@@ -967,6 +967,31 @@ describe("getFarmFertiliserDemandAction", () => {
     expect(result.demand.length).toBeGreaterThan(0);
   });
 
+  it("builds a next-season quote from carried-forward field use while resetting prior chemical applications to zero", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([p3Field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+
+    const currentCycle = p3FirstCutCycle();
+    mockListFieldProductionCyclesForSeason.mockResolvedValueOnce([currentCycle]);
+    const current = await getFarmFertiliserDemandAction("2026");
+
+    mockListFieldProductionCyclesForSeason
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([currentCycle]);
+    const next = await getFarmFertiliserDemandAction("2027");
+
+    const currentKg = current.purchaseRequirementTonnes.reduce((sum, line) => sum + line.remainingTotalKg, 0);
+    const nextKg = next.purchaseRequirementTonnes.reduce((sum, line) => sum + line.remainingTotalKg, 0);
+
+    expect(next.fieldsWithBlockedEvidence).toBe(0);
+    expect(next.aggregation.status).toBe("READY");
+    expect(nextKg).toBeGreaterThan(currentKg);
+    expect(mockListFieldProductionCyclesForSeason).toHaveBeenCalledWith(["field-1"], "2027");
+    expect(mockListFieldProductionCyclesForSeason).toHaveBeenCalledWith(["field-1"], "2026");
+  });
+
   it("returns a partial P3 farm demand when another active field has no production cycle instead of crashing the overview", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([

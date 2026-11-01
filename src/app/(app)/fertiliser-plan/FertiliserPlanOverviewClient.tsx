@@ -59,6 +59,9 @@ export function FertiliserPlanOverviewClient() {
   const [calculationAuditOpen, setCalculationAuditOpen] = useState(false);
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [spatialAutoStatus, setSpatialAutoStatus] = useState<string | null>(null);
+  const currentSeason = String(new Date().getUTCFullYear());
+  const nextSeason = String(new Date().getUTCFullYear() + 1);
+  const [planningSeason, setPlanningSeason] = useState(currentSeason);
   const spatialAutoAttempted = useRef(false);
 
   // Bumped by `refresh()` to force a genuine refetch (e.g. after saving a
@@ -73,7 +76,7 @@ export function FertiliserPlanOverviewClient() {
     setLoad({ status: "loading" });
     if (!isRealMode) return;
     let cancelled = false;
-    getFertiliserPlanOverviewAction().then(
+    getFertiliserPlanOverviewAction(planningSeason).then(
       (overview) => {
         if (!cancelled) setLoad({ status: "ready", overview });
       },
@@ -85,7 +88,7 @@ export function FertiliserPlanOverviewClient() {
     return () => {
       cancelled = true;
     };
-  }, [isRealMode, refreshToken]);
+  }, [isRealMode, refreshToken, planningSeason]);
 
   useEffect(() => {
     if (load.status !== "ready" || spatialAutoAttempted.current) return;
@@ -136,6 +139,10 @@ export function FertiliserPlanOverviewClient() {
           overview={load.overview}
           onOpenQuoteSheet={() => setQuoteSheetOpen(true)}
           onOpenReadiness={() => setReadinessOpen(true)}
+          planningSeason={planningSeason}
+          currentSeason={currentSeason}
+          nextSeason={nextSeason}
+          onPlanningSeasonChange={setPlanningSeason}
           onOpenCalculationAudit={() => setCalculationAuditOpen(true)}
           onOpenStockSheet={(product) => {
             setStockSheetProduct(product);
@@ -144,7 +151,7 @@ export function FertiliserPlanOverviewClient() {
         />
       )}
 
-      <RequestQuoteSheet open={quoteSheetOpen} onClose={() => setQuoteSheetOpen(false)} onSubmitted={() => setQuoteSheetOpen(false)} />
+      <RequestQuoteSheet open={quoteSheetOpen} onClose={() => setQuoteSheetOpen(false)} onSubmitted={() => setQuoteSheetOpen(false)} planningSeason={planningSeason} />
 
       {load.status === "ready" ? <QuoteReadinessSheet open={readinessOpen} onClose={() => setReadinessOpen(false)} readiness={load.overview.quoteReadiness} farmerName={load.overview.ownerName} spatialAutoStatus={spatialAutoStatus} onConfirmedCommonage={() => { spatialAutoAttempted.current = true; refresh(); }} /> : null}
 
@@ -177,12 +184,20 @@ function OverviewContent({
   overview,
   onOpenQuoteSheet,
   onOpenReadiness,
+  planningSeason,
+  currentSeason,
+  nextSeason,
+  onPlanningSeasonChange,
   onOpenCalculationAudit,
   onOpenStockSheet,
 }: {
   overview: FertiliserPlanOverview;
   onOpenQuoteSheet: () => void;
   onOpenReadiness: () => void;
+  planningSeason: string;
+  currentSeason: string;
+  nextSeason: string;
+  onPlanningSeasonChange: (season: string) => void;
   onOpenCalculationAudit: () => void;
   onOpenStockSheet: (product?: string) => void;
 }) {
@@ -239,6 +254,22 @@ function OverviewContent({
 
       {/* ACTIONS (placed high, per brief's "consistent season, scope and quantities") */}
       <section className="flex flex-wrap gap-2">
+        <div className="flex items-center gap-1 rounded-full border border-fr-border p-1" aria-label="Quote planning season">
+          <button
+            type="button"
+            onClick={() => onPlanningSeasonChange(currentSeason)}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold ${planningSeason === currentSeason ? "bg-fr-green-700 text-white" : "text-fr-ink-700"}`}
+          >
+            This season · {currentSeason}
+          </button>
+          <button
+            type="button"
+            onClick={() => onPlanningSeasonChange(nextSeason)}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold ${planningSeason === nextSeason ? "bg-fr-green-700 text-white" : "text-fr-ink-700"}`}
+          >
+            Next season · {nextSeason}
+          </button>
+        </div>
         <button type="button" onClick={() => onOpenStockSheet()} className="rounded-full bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white">
           Update stock/levels
         </button>
@@ -269,6 +300,11 @@ function OverviewContent({
           Review quote requests
         </Link>
       </section>
+      {overview.planningBasis === "NEXT_SEASON" ? (
+        <p className="text-xs leading-relaxed text-fr-ink-600">
+          <strong>{overview.planningSeason} quote basis:</strong> current-season chemical fertiliser and slurry applications are not deducted. {overview.planningAssumption}
+        </p>
+      ) : null}
 
       <SlurryFirstPlanningPanel
         fields={overview.fieldBreakdown.map((field) => ({ fieldId: field.fieldId, fieldName: field.fieldName }))}

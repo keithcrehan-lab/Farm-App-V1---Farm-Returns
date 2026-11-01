@@ -53,8 +53,11 @@ export function buildFertiliserQuoteReadiness(input: {
   cycles: readonly FieldProductionCycle[];
   slurryAllocations: readonly SlurryAllocation[];
   aggregation: FarmFertiliserAggregation;
+  planningSeason?: string;
+  currentSeason?: string;
 }): FertiliserQuoteReadiness {
   const { fields, cycles, slurryAllocations, aggregation } = input;
+  const futureSeason = Boolean(input.planningSeason && input.currentSeason && input.planningSeason > input.currentSeason);
   const cycleByField = new Map(cycles.map((cycle) => [cycle.fieldId, cycle]));
   const aggregateByField = new Map(aggregation.fields.map((entry) => [entry.fieldId, entry]));
   const allocationsByField = new Map<string, SlurryAllocation[]>();
@@ -80,20 +83,22 @@ export function buildFertiliserQuoteReadiness(input: {
     add(items, field, "p-index", "Soil P Index", hasEvidence(field.fertility.pIndex?.value));
     add(items, field, "k-index", "Soil K Index", hasEvidence(field.fertility.kIndex?.value));
     add(items, field, "soil-test-date", "Soil test date", Boolean(field.fertility.verifiedTest?.sampleDate));
-    const chemicalAppliedKnown = hasEvidence(cycle.evidence.chemicalNAppliedKgHa?.value)
-      && hasEvidence(cycle.evidence.chemicalPAppliedKgHa?.value)
-      && hasEvidence(cycle.evidence.chemicalKAppliedKgHa?.value);
-    add(
-      items,
-      field,
-      "prior-fertiliser",
-      "Fertiliser already spread this season",
-      chemicalAppliedKnown,
-      undefined,
-      chemicalAppliedKnown
-        ? "Recorded as one field-level answer. Nutrient amounts are only needed when the answer is Yes."
-        : "Answer No once to record N, P and K as zero, or Yes to enter the amounts already applied.",
-    );
+    if (!futureSeason) {
+      const chemicalAppliedKnown = hasEvidence(cycle.evidence.chemicalNAppliedKgHa?.value)
+        && hasEvidence(cycle.evidence.chemicalPAppliedKgHa?.value)
+        && hasEvidence(cycle.evidence.chemicalKAppliedKgHa?.value);
+      add(
+        items,
+        field,
+        "prior-fertiliser",
+        "Fertiliser already spread this season",
+        chemicalAppliedKnown,
+        undefined,
+        chemicalAppliedKnown
+          ? "Recorded as one field-level answer. Nutrient amounts are only needed when the answer is Yes."
+          : "Answer No once to record N, P and K as zero, or Yes to enter the amounts already applied.",
+      );
+    }
 
     if (cycle.cropSystem === "GRASS_GRAZING") {
       add(

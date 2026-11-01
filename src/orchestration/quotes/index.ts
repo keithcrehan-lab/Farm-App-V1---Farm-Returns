@@ -89,8 +89,8 @@ export interface QuoteRequestPrefillContext {
  * array (never a fabricated row) if the farm has no real recommended
  * fertiliser demand yet — the farmer's own manual/farmer-entered route
  * remains available regardless. */
-export async function getQuoteRequestPrefillContext(): Promise<QuoteRequestPrefillContext> {
-  const [demandContext, limeRequirement] = await Promise.all([getFarmFertiliserDemandAction(), getFarmLimeRequirementAction()]);
+export async function getQuoteRequestPrefillContext(planningSeason?: string): Promise<QuoteRequestPrefillContext> {
+  const [demandContext, limeRequirement] = await Promise.all([getFarmFertiliserDemandAction(planningSeason), getFarmLimeRequirementAction()]);
   const asOf = new Date().toISOString();
   const options: QuoteRequestPrefillOption[] = demandContext.demand
     .filter((d) => d.remainingRequirementKg > 0)
@@ -119,6 +119,7 @@ export interface QuoteRequestFormInput {
    * re-validates both are present and not materially future-dated. */
   disclosureVersion: string;
   disclosureAcceptedAt: string;
+  planningSeason?: string;
 }
 
 /**
@@ -181,7 +182,7 @@ function buildRpcInput(input: QuoteRequestFormInput, demandContext: FarmFertilis
  * the key the client already committed to.
  */
 export async function submitQuoteRequestOrchestrated(idempotencyKey: string, input: QuoteRequestFormInput): Promise<SubmitOrReviseQuoteRequestResult> {
-  const demandContext = input.quantityBasis === "estimated" ? await getFarmFertiliserDemandAction() : null;
+  const demandContext = input.quantityBasis === "estimated" ? await getFarmFertiliserDemandAction(input.planningSeason) : null;
   const rpcInput = buildRpcInput(input, demandContext, new Date().toISOString());
   return submitQuoteRequest(idempotencyKey, rpcInput);
 }
@@ -191,7 +192,7 @@ export async function reviseQuoteRequestOrchestrated(
   expectedRevisionNumber: number,
   input: QuoteRequestFormInput,
 ): Promise<SubmitOrReviseQuoteRequestResult> {
-  const demandContext = input.quantityBasis === "estimated" ? await getFarmFertiliserDemandAction() : null;
+  const demandContext = input.quantityBasis === "estimated" ? await getFarmFertiliserDemandAction(input.planningSeason) : null;
   const rpcInput = buildRpcInput(input, demandContext, new Date().toISOString());
   return reviseQuoteRequest(requestId, expectedRevisionNumber, rpcInput);
 }

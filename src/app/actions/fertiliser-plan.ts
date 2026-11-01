@@ -554,7 +554,7 @@ export type FieldFertiliserStatusResult =
       truncated: boolean;
     };
 
-export async function getFieldFertiliserStatusAction(fieldId: string): Promise<FieldFertiliserStatusResult> {
+export async function getFieldFertiliserStatusAction(fieldId: string, planningSeason?: string): Promise<FieldFertiliserStatusResult> {
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("getFieldFertiliserStatusAction: no real farm for the current session");
 
@@ -563,15 +563,32 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
   if (!field) throw new Error("getFieldFertiliserStatusAction: field " + fieldId + " not found on the current session's farm");
 
   const now = new Date().toISOString();
-  const season = now.slice(0, 4);
-  const [cycle, cycles, livestockGroups, slurryAllocations, slurryCompositionRecords, grazingSessions] = await Promise.all([
-    getFieldProductionCycle(field.id, season),
-    listFieldProductionCyclesForSeason(fields.map((candidate) => candidate.id), season),
+  const currentSeason = now.slice(0, 4);
+  const season = planningSeason ?? currentSeason;
+  const [livestockGroups, slurryAllocations, slurryCompositionRecords, grazingSessions] = await Promise.all([
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
     listSlurryCompositionRecordsForFarm(farm.id),
     listGrazingFieldSessionsForFarm(farm.id, now),
   ]);
+
+  let cycles: Awaited<ReturnType<typeof listFieldProductionCyclesForSeason>>;
+  let cycle: Awaited<ReturnType<typeof getFieldProductionCycle>>;
+  if (season > currentSeason) {
+    const [targetCycles, currentCycles] = await Promise.all([
+      listFieldProductionCyclesForSeason(fields.map((candidate) => candidate.id), season),
+      listFieldProductionCyclesForSeason(fields.map((candidate) => candidate.id), currentSeason),
+    ]);
+    const targetByField = new Map(targetCycles.map((candidate) => [candidate.fieldId, candidate]));
+    cycles = currentCycles.map((candidate) => targetByField.get(candidate.fieldId) ?? carryCycleForwardForQuotePlanning(candidate, season));
+    for (const candidate of targetCycles) if (!cycles.some((existing) => existing.fieldId === candidate.fieldId)) cycles.push(candidate);
+    cycle = cycles.find((candidate) => candidate.fieldId === field.id) ?? null;
+  } else {
+    [cycle, cycles] = await Promise.all([
+      getFieldProductionCycle(field.id, season),
+      listFieldProductionCyclesForSeason(fields.map((candidate) => candidate.id), season),
+    ]);
+  }
 
   if (!cycle) return { status: "blocked", reasonCode: "MISSING_FIELD_PRODUCTION_CYCLE" };
 
@@ -600,13 +617,14 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
     });
   }
 
-  const allocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
+  const seasonSlurryAllocations = slurryAllocations.filter((allocation) => allocation.applicationDate?.value?.slice(0, 4) === season);
+  const allocation = resolveFieldSlurryAllocation(seasonSlurryAllocations, field.id);
   let organicCreditsKgHa = { n: 0, p: 0, k: 0 };
   if (allocation) {
     if (!allocation.applicationMethod?.value) return { status: "blocked", reasonCode: "MISSING_SLURRY_APPLICATION_METHOD" };
     if (!allocation.applicationDate?.value) return { status: "blocked", reasonCode: "MISSING_SLURRY_APPLICATION_DATE" };
     const compositionInput = resolveFieldSlurryCompositionInput(
-      slurryAllocations,
+      seasonSlurryAllocations,
       field.id,
       currentSlurryCompositionByHousing(slurryCompositionRecords),
     );
@@ -746,8 +764,9 @@ async function buildP3FarmFertiliserDemandResult(input: {
   grazingSessions: GrazingFieldSession[];
   now: string;
   p3Cycles: Awaited<ReturnType<typeof listFieldProductionCyclesForSeason>>;
+  planningSeason: string;
 }): Promise<FarmFertiliserDemandActionResult> {
-  const { farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, grazingSessions, now, p3Cycles } = input;
+  const { farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, grazingSessions, now, p3Cycles, planningSeason } = input;
   const cycleByFieldId = new Map(p3Cycles.map((cycle) => [cycle.fieldId, cycle]));
 
   const grasslandAreaHa = fields.reduce((sum, field) => {
@@ -777,9 +796,10 @@ async function buildP3FarmFertiliserDemandResult(input: {
       };
     }
     let organicCreditsKgHa = { n: 0, p: 0, k: 0 };
-    const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
+    const seasonSlurryAllocations = slurryAllocations.filter((allocation) => allocation.applicationDate?.value?.slice(0, 4) === planningSeason);
+    const slurryAllocation = resolveFieldSlurryAllocation(seasonSlurryAllocations, field.id);
     if (slurryAllocation) {
-      const compositionInput = resolveFieldSlurryCompositionInput(slurryAllocations, field.id, compositionByHousing);
+      const compositionInput = resolveFieldSlurryCompositionInput(seasonSlurryAllocations, field.id, compositionByHousing);
       if (
         !slurryAllocation.applicationMethod?.value ||
         !slurryAllocation.applicationDate?.value ||
@@ -827,7 +847,7 @@ async function buildP3FarmFertiliserDemandResult(input: {
           field,
           livestockGroups,
           sessions: grazingSessions,
-          season: now.slice(0, 4),
+          season: planningSeason,
           asOf: now,
           ...(stocking.status === "OK" ? { holdingFallbackKgHa: stocking.value.gsrKgNHa } : {}),
         })
@@ -955,7 +975,28 @@ async function buildP3FarmFertiliserDemandResult(input: {
   };
 }
 
-export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDemandActionResult> {
+function carryCycleForwardForQuotePlanning(cycle: Awaited<ReturnType<typeof listFieldProductionCyclesForSeason>>[number], planningSeason: string) {
+  const zero = (nutrient: string) => ({
+    value: 0,
+    method: "ASSUMED" as const,
+    source: `Farm Return ${planningSeason} quote planning`,
+    note: `${nutrient} applied in an earlier season is not deducted from the ${planningSeason} fertiliser requirement.`,
+  });
+  return {
+    ...cycle,
+    id: `${cycle.id}:quote:${planningSeason}`,
+    season: planningSeason,
+    status: "planned" as const,
+    evidence: {
+      ...cycle.evidence,
+      chemicalNAppliedKgHa: zero("Chemical N"),
+      chemicalPAppliedKgHa: zero("Chemical P"),
+      chemicalKAppliedKgHa: zero("Chemical K"),
+    },
+  };
+}
+
+export async function getFarmFertiliserDemandAction(planningSeason?: string): Promise<FarmFertiliserDemandActionResult> {
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("getFarmFertiliserDemandAction: no real farm for the current session");
 
@@ -968,11 +1009,19 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
     listGrazingFieldSessionsForFarm(farm.id, now),
   ]);
   const fields = activeFields(allFields);
-  const season = now.slice(0, 4);
-  const p3Cycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), season);
+  const currentSeason = now.slice(0, 4);
+  const targetSeason = planningSeason ?? currentSeason;
+  const targetCycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), targetSeason);
+  let p3Cycles = targetCycles;
+  if (targetSeason > currentSeason) {
+    const currentCycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), currentSeason);
+    const targetByField = new Map(targetCycles.map((cycle) => [cycle.fieldId, cycle]));
+    p3Cycles = currentCycles.map((cycle) => targetByField.get(cycle.fieldId) ?? carryCycleForwardForQuotePlanning(cycle, targetSeason));
+    for (const cycle of targetCycles) if (!p3Cycles.some((existing) => existing.fieldId === cycle.fieldId)) p3Cycles.push(cycle);
+  }
 
-  if (p3Cycles.length > 0) {
-    return buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, grazingSessions, now, p3Cycles });
+  if (p3Cycles.length > 0 || targetSeason > currentSeason) {
+    return buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, grazingSessions, now, p3Cycles, planningSeason: targetSeason });
   }
 
   const { demand, truncated, applicationsWithUnknownComposition, fieldsWithBlockedEvidence, aggregation } = await getFarmFertiliserDemand({
@@ -1433,8 +1482,8 @@ export async function previewSlurryFirstFertiliserPlanAction(input: SlurryFirstP
   const asOf = `${scenario.planningDate}T12:00:00.000Z`;
 
   const [baseline, withPlannedSlurry] = await Promise.all([
-    buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations: [], slurryCompositionRecords, grazingSessions: [], now: asOf, p3Cycles }),
-    buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations: scenarioAllocations, slurryCompositionRecords, grazingSessions: [], now: asOf, p3Cycles }),
+    buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations: [], slurryCompositionRecords, grazingSessions: [], now: asOf, p3Cycles, planningSeason: season }),
+    buildP3FarmFertiliserDemandResult({ farm, fields, livestockGroups, slurryAllocations: scenarioAllocations, slurryCompositionRecords, grazingSessions: [], now: asOf, p3Cycles, planningSeason: season }),
   ]);
 
   return {

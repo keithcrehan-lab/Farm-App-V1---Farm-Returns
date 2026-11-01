@@ -74,6 +74,8 @@ function overview(overrides: Partial<FertiliserPlanOverview> = {}): FertiliserPl
       { id: "f1:cycle", fieldId: "f1", fieldName: "Field 1", label: "Field use / production cycle", complete: true, href: "/fields?field=f1&chapter=nutrients" },
       { id: "f2:cycle", fieldId: "f2", fieldName: "Field 2", label: "Field use / production cycle", complete: false, href: "/fields?field=f2&chapter=nutrients" },
     ] },
+    planningSeason: "2026",
+    planningBasis: "CURRENT_SEASON",
     ...overrides,
   };
 }
@@ -98,6 +100,29 @@ describe("FertiliserPlanOverviewClient", () => {
     );
     expect(mockOverviewAction).not.toHaveBeenCalled();
     expect(screen.getByText(/sign in to see your farm-wide fertiliser plan/i)).toBeTruthy();
+  });
+
+  it("switches the quote planning basis to next season and refetches the target-season calculation", async () => {
+    const currentSeason = String(new Date().getUTCFullYear());
+    const nextSeason = String(new Date().getUTCFullYear() + 1);
+    mockOverviewAction.mockImplementation(async (season?: string) => overview({
+      seasonLabel: season ?? currentSeason,
+      planningSeason: season ?? currentSeason,
+      planningBasis: season === nextSeason ? "NEXT_SEASON" : "CURRENT_SEASON",
+      ...(season === nextSeason ? { planningAssumption: `Current ${currentSeason} field use carried forward for quote planning.` } : {}),
+    }));
+
+    render(
+      <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
+        <FertiliserPlanOverviewClient />
+      </FarmProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("button", { name: `Next season · ${nextSeason}` })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: `Next season · ${nextSeason}` }));
+
+    await waitFor(() => expect(mockOverviewAction).toHaveBeenCalledWith(nextSeason));
+    await waitFor(() => expect(screen.getByText(new RegExp(`${nextSeason} quote basis`, "i"))).toBeTruthy());
   });
 
   it("renders the real farm summary once loaded", async () => {

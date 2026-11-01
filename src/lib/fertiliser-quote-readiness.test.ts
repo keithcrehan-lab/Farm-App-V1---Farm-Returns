@@ -72,6 +72,29 @@ describe("buildFertiliserQuoteReadiness", () => {
     expect(result.items.some((item) => item.label === "Local buffer restriction status")).toBe(false);
   });
 
+  it("does not require current-season fertiliser history for a next-season quote", () => {
+    const incompleteCycle: FieldProductionCycle = {
+      ...cycle,
+      evidence: {
+        ...cycle.evidence,
+        chemicalNAppliedKgHa: undefined,
+        chemicalPAppliedKgHa: undefined,
+        chemicalKAppliedKgHa: undefined,
+      },
+    };
+    const aggregation = aggregateFarmFertiliserPurchasing([{ fieldId: "f1", fieldName: "P Collins", plan: { purchaseStatus: { status: "UNKNOWN", reasonCode: "INCOMPLETE_EVIDENCE", missingInputs: ["chemicalNAppliedKgHa", "chemicalPAppliedKgHa", "chemicalKAppliedKgHa"] }, purchasedProducts: [], calculationVersion: "p3" } }]);
+    const result = buildFertiliserQuoteReadiness({
+      fields: [field()],
+      cycles: [incompleteCycle],
+      slurryAllocations: [],
+      aggregation,
+      currentSeason: "2026",
+      planningSeason: "2027",
+    });
+
+    expect(result.items.some((item) => item.id.endsWith(":prior-fertiliser"))).toBe(false);
+  });
+
   it("routes stocking evidence to cattle management", () => {
     const aggregation = aggregateFarmFertiliserPurchasing([{ fieldId: "f1", fieldName: "P Collins", plan: { purchaseStatus: { status: "UNKNOWN", reasonCode: "INCOMPLETE_EVIDENCE", missingInputs: ["annualOrganicNStockingRateKgHa"] }, purchasedProducts: [], calculationVersion: "p3" } }]);
     const result = buildFertiliserQuoteReadiness({ fields: [field()], cycles: [cycle], slurryAllocations: [], aggregation });

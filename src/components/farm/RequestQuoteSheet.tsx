@@ -59,15 +59,15 @@ const DISCLOSURE_VERSION = "v1";
 
 type LoadState = { status: "loading" } | { status: "ready"; prefill: QuoteRequestPrefillContext; delivery: FarmDeliveryDetails | null } | { status: "error" };
 
-export function RequestQuoteSheet({ open, onClose, onSubmitted }: { open: boolean; onClose: () => void; onSubmitted: () => void }) {
+export function RequestQuoteSheet({ open, onClose, onSubmitted, planningSeason }: { open: boolean; onClose: () => void; onSubmitted: () => void; planningSeason?: string }) {
   return (
     <Sheet open={open} onClose={onClose} title="Request a quote">
-      {open ? <RequestQuoteSheetBody onSubmitted={onSubmitted} /> : null}
+      {open ? <RequestQuoteSheetBody onSubmitted={onSubmitted} planningSeason={planningSeason} /> : null}
     </Sheet>
   );
 }
 
-function RequestQuoteSheetBody({ onSubmitted }: { onSubmitted: () => void }) {
+function RequestQuoteSheetBody({ onSubmitted, planningSeason }: { onSubmitted: () => void; planningSeason?: string }) {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [idempotencyKey] = useState(() => crypto.randomUUID());
 
@@ -95,12 +95,12 @@ function RequestQuoteSheetBody({ onSubmitted }: { onSubmitted: () => void }) {
   const [disclosureAcceptedAt, setDisclosureAcceptedAt] = useState<string | null>(null);
   const [state, setState] = useState<{ status: "idle" | "submitting" | "error" | "submitted"; message?: string; reference?: string }>({ status: "idle" });
 
-  // Mounts fresh exactly once per open (see RequestQuoteSheet's own doc
-  // comment) — no "reset to loading" branch needed, `load`'s own
-  // useState initializer already starts there.
+  // Mounts fresh per open, and refetches if the caller changes the quote
+  // planning season while the sheet remains mounted. This keeps a 2027 RFQ
+  // from retaining a 2026 prefill snapshot.
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getQuoteRequestPrefillContextAction(), getFarmDeliveryDetailsAction()])
+    Promise.all([getQuoteRequestPrefillContextAction(planningSeason), getFarmDeliveryDetailsAction()])
       .then(([prefill, delivery]) => {
         if (cancelled) return;
         setLoad({ status: "ready", prefill, delivery });
@@ -121,7 +121,7 @@ function RequestQuoteSheetBody({ onSubmitted }: { onSubmitted: () => void }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [planningSeason]);
 
   if (load.status === "loading") {
     return <p className="text-sm text-fr-ink-600">Loading your farm&rsquo;s estimated requirements…</p>;
@@ -182,6 +182,7 @@ function RequestQuoteSheetBody({ onSubmitted }: { onSubmitted: () => void }) {
         deliveryWindow: { start: windowStart, end: windowEnd },
         disclosureVersion: DISCLOSURE_VERSION,
         disclosureAcceptedAt,
+        ...(planningSeason ? { planningSeason } : {}),
         delivery: {
           contactName: contactName.trim(),
           contactPhone: contactPhone.trim() || undefined,

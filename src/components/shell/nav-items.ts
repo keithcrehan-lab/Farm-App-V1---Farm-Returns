@@ -4,7 +4,6 @@ import {
   Sprout,
   Leaf,
   Wheat,
-  FlaskConical,
   Tractor,
   Gauge,
   Package,
@@ -21,6 +20,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import { CowIcon } from "./CowIcon";
+import { FertiliserBagIcon } from "./FertiliserBagIcon";
 
 export interface NavItem {
   href: string;
@@ -63,7 +63,7 @@ export function isNavItemActive(item: NavItem, pathname: string): boolean {
  */
 export const primaryNavItems: NavItem[] = [
   { href: "/today", label: "Farm", icon: Map, alsoActiveOn: ["/fields"] },
-  { href: "/fertiliser-plan", label: "Fertiliser", icon: FlaskConical },
+  { href: "/fertiliser-plan", label: "Fertiliser", icon: FertiliserBagIcon },
   { href: "/plan", label: "Plan", icon: CalendarDays },
   { href: "/cattle", label: "Cattle", icon: CowIcon },
   { href: "/grass", label: "Grass", icon: Leaf },

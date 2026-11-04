@@ -9,7 +9,7 @@ import { isNavItemActive, primaryNavItems, moreNavItems, moreNavIcon as MoreIcon
 import { useFarm } from "@/store/farm-store";
 
 /** Persistent dark-green left rail — desktop only (design-system.md).
- * `primaryNavItems` (Farm/Fertiliser/Plan/Cattle/Housing/Finance/Records)
+ * `primaryNavItems` (Farm/Fertiliser/Plan/Cattle/Grass/Housing/Finance/Records)
  * stay visible. Fertiliser is promoted for the first product launch. Phase 02B (spatial shell visual refinement):
  * every earlier screen (`moreNavItems`) sits behind one compact "More"
  * disclosure instead of a permanently expanded second list, so the rail

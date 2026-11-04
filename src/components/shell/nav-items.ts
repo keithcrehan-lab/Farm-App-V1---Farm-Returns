@@ -67,10 +67,10 @@ export function isNavItemActive(item: NavItem, pathname: string): boolean {
 export const primaryNavItems: NavItem[] = [
   { href: "/today", label: "Farm", icon: Map, alsoActiveOn: ["/fields"] },
   { href: "/fertiliser-plan", label: "Fertiliser", icon: FertiliserBagIcon },
+  { href: "/inputs-market", label: "Inputs Market", icon: ShoppingBasket },
   { href: "/plan", label: "Plan", icon: CalendarDays },
   { href: "/cattle", label: "Cattle", icon: CowIcon },
   { href: "/grass", label: "Grass", icon: Leaf },
-  { href: "/inputs-market", label: "Inputs", icon: ShoppingBasket },
   { href: "/housing", label: "Housing", icon: Warehouse },
   { href: "/finance", label: "Finance", icon: BarChart3 },
   { href: "/records", label: "Records", icon: Folder },

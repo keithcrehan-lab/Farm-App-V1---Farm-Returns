@@ -189,11 +189,10 @@ describe("FarmObjectRail", () => {
 });
 
 describe("Primary navigation (Farm + Fields redesign)", () => {
-  it("is Farm · Fertiliser · Plan · Cattle · Grass · Inputs · Housing · Finance · Records, with Farm on the map-led screen", () => {
-    // Fertiliser promoted to first-level for launch (6cdec9c); Grass follows Cattle as a first-class farm-management destination;
-    // Inputs (Inputs Market V1) follows the two workspaces whose need it prices.
-    expect(primaryNavItems.map((i) => i.label)).toEqual(["Farm", "Fertiliser", "Plan", "Cattle", "Grass", "Inputs", "Housing", "Finance", "Records"]);
-    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/fertiliser-plan", "/plan", "/cattle", "/grass", "/inputs-market", "/housing", "/finance", "/records"]);
+  it("is Farm · Fertiliser · Inputs Market · Plan · Cattle · Grass · Housing · Finance · Records, with Farm on the map-led screen", () => {
+    // Inputs Market sits immediately after Fertiliser as the commercial action layer for calculated farm requirements.
+    expect(primaryNavItems.map((i) => i.label)).toEqual(["Farm", "Fertiliser", "Inputs Market", "Plan", "Cattle", "Grass", "Housing", "Finance", "Records"]);
+    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/fertiliser-plan", "/inputs-market", "/plan", "/cattle", "/grass", "/housing", "/finance", "/records"]);
   });
 
   it("has no placeholder destinations", () => {
@@ -214,9 +213,9 @@ describe("Primary navigation (Farm + Fields redesign)", () => {
     for (const item of primaryNavItems) expect(moreHrefs).not.toContain(item.href);
   });
 
-  it("mobile keeps four primary slots plus More, and More leads with Fertiliser, Grass, Inputs, Housing and Finance so no destination is lost", () => {
+  it("mobile keeps four primary slots plus More, and More leads with Fertiliser, Inputs Market, Grass, Housing and Finance so no destination is lost", () => {
     expect(mobileNavItems.map((i) => i.label)).toEqual(["Farm", "Plan", "Cattle", "Records"]);
-    expect(mobileMoreNavItems.slice(0, 6).map((i) => i.label)).toEqual(["Fertiliser", "Grass", "Inputs", "Housing", "Finance", "What Matters"]);
+    expect(mobileMoreNavItems.slice(0, 6).map((i) => i.label)).toEqual(["Fertiliser", "Inputs Market", "Grass", "Housing", "Finance", "What Matters"]);
     const reachable = new Set([...mobileNavItems, ...mobileMoreNavItems].map((i) => i.href));
     for (const item of [...primaryNavItems, ...moreNavItems]) expect(reachable).toContain(item.href);
   });

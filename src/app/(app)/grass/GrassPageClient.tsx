@@ -536,7 +536,7 @@ export function GrassPageClient() {
             center={farm.location.centroid}
             plain
             flyToSelection={Boolean(selectedFieldId)}
-            flyToMaxZoom={16}
+            flyToMaxZoom={18}
             compactNeighbourLabels
             neighbourNameLabels
             neighbourDetailLabels

@@ -673,8 +673,8 @@ export default function TodayPage() {
             // change. Bottom padding keeps the field clear of the rising
             // panel, and the zoom cap keeps neighbours in frame.
             flyToSelection={Boolean(selectedField)}
-            flyToPadding={isDesktop ? { top: 140, bottom: 110, left: 470, right: 60 } : { top: 150, bottom: 500, left: 32, right: 32 }}
-            flyToMaxZoom={16}
+            flyToPadding={isDesktop ? { top: 118, bottom: 96, left: 360, right: 48 } : { top: 130, bottom: 390, left: 28, right: 28 }}
+            flyToMaxZoom={18}
             flyToDuration={reducedMotion ? 0 : 320}
             compactNeighbourLabels
             // Every mapped field keeps its real name on the map (bare
@@ -698,12 +698,12 @@ export default function TodayPage() {
             plain
             // Keep the whole farm clear of the identity, utilities and
             // lens switcher: a wide left margin beside the desktop identity.
-            fitPadding={(width) => (width >= 860 ? { top: 120, bottom: 110, left: 380, right: 60 } : { top: 250, bottom: 190, left: 24, right: 120 })}
+            fitPadding={(width) => (width >= 860 ? { top: 96, bottom: 88, left: 320, right: 44 } : { top: 220, bottom: 160, left: 20, right: 96 })}
             className="h-[calc(100dvh-0.5rem)] min-h-[600px] lg:h-dvh lg:min-h-[640px]"
           >
             <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between">
-              <div aria-hidden className="absolute inset-x-0 top-0 h-64 bg-[radial-gradient(ellipse_70%_100%_at_0%_0%,rgba(10,14,11,0.55),transparent_72%)]" />
-              <div aria-hidden className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/50 via-black/12 to-transparent" />
+              <div aria-hidden className="absolute left-0 top-0 h-56 w-[62%] bg-[radial-gradient(ellipse_72%_96%_at_0%_0%,rgba(10,14,11,0.34),transparent_76%)]" />
+              <div aria-hidden className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/28 via-black/7 to-transparent" />
 
               <div className="relative flex flex-col gap-4 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] sm:flex-row sm:items-start sm:justify-between lg:px-9 lg:pt-8">
                 <div className="pointer-events-auto min-w-0 [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]">

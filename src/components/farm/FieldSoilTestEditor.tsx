@@ -3,13 +3,21 @@
 import { useState, type FormEvent } from "react";
 import { useFarmActions } from "@/store/farm-store";
 import type { Field } from "@/domain/types";
+import { FIELD_NUTRIENT_FOCUS_ATTRIBUTE } from "@/lib/field-nutrient-focus";
 
 const INPUT = "w-full rounded-[4px] border border-fr-v2-cream-rule bg-white/80 px-2.5 py-2 text-sm text-fr-v2-graphite focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fr-v2-gold";
 const LABEL = "flex flex-col gap-1.5 text-xs text-fr-v2-muted";
 
-export function FieldSoilTestEditor({ field }: { field: Field }) {
+export function FieldSoilTestEditor({
+  field,
+  initiallyOpen = false,
+}: {
+  field: Field;
+  /** Deep-linked to a missing soil input: open the form straight away. */
+  initiallyOpen?: boolean;
+}) {
   const { addSoilTest } = useFarmActions();
-  const [open, setOpen] = useState(!field.fertility.verifiedTest);
+  const [open, setOpen] = useState(initiallyOpen || !field.fertility.verifiedTest);
   const [sampleDate, setSampleDate] = useState("");
   const [laboratory, setLaboratory] = useState("");
   const [sampleRef, setSampleRef] = useState("");
@@ -92,12 +100,12 @@ export function FieldSoilTestEditor({ field }: { field: Field }) {
         <p className="mt-1 text-xs leading-relaxed text-fr-v2-muted">Enter the laboratory result once. Farm Return derives the P and K indices from these values and keeps older tests in the evidence history.</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <label className={LABEL}>Sample date<input type="date" required value={sampleDate} onChange={(e) => setSampleDate(e.target.value)} className={INPUT} /></label>
+        <label className={LABEL}>Sample date<input {...{ [FIELD_NUTRIENT_FOCUS_ATTRIBUTE]: "soil-test-date" }} type="date" required value={sampleDate} onChange={(e) => setSampleDate(e.target.value)} className={INPUT} /></label>
         <label className={LABEL}>Laboratory<input type="text" required value={laboratory} onChange={(e) => setLaboratory(e.target.value)} placeholder="Laboratory name" className={INPUT} /></label>
         <label className={LABEL}>Sample reference<input type="text" required value={sampleRef} onChange={(e) => setSampleRef(e.target.value)} placeholder="Report / sample ref" className={INPUT} /></label>
         <label className={LABEL}>pH<input type="number" required step="0.01" min="0" max="14" value={pH} onChange={(e) => setPH(e.target.value)} className={INPUT} /></label>
-        <label className={LABEL}>P (mg/L)<input type="number" required step="0.01" min="0" value={p} onChange={(e) => setP(e.target.value)} className={INPUT} /></label>
-        <label className={LABEL}>K (mg/L)<input type="number" required step="0.01" min="0" value={k} onChange={(e) => setK(e.target.value)} className={INPUT} /></label>
+        <label className={LABEL}>P (mg/L)<input {...{ [FIELD_NUTRIENT_FOCUS_ATTRIBUTE]: "soil-p" }} type="number" required step="0.01" min="0" value={p} onChange={(e) => setP(e.target.value)} className={INPUT} /></label>
+        <label className={LABEL}>K (mg/L)<input {...{ [FIELD_NUTRIENT_FOCUS_ATTRIBUTE]: "soil-k" }} type="number" required step="0.01" min="0" value={k} onChange={(e) => setK(e.target.value)} className={INPUT} /></label>
         <label className={LABEL}>Lime requirement (t/ha, optional)<input type="number" step="0.1" min="0" value={limeRequirement} onChange={(e) => setLimeRequirement(e.target.value)} className={INPUT} /></label>
         <label className={LABEL}>Organic matter % (optional)<input type="number" step="0.1" min="0" value={organicMatterPct} onChange={(e) => setOrganicMatterPct(e.target.value)} className={INPUT} /></label>
       </div>

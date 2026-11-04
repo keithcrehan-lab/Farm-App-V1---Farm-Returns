@@ -129,6 +129,28 @@ describe("farmFieldSelectionView — the selected field's curated, truthful pane
     expect(v.primaryAction).toEqual({ label: "Take soil sample", href: "/soil-sample/f1" });
   });
 
+  it("Grass selection leads with the real current cover when it is known", () => {
+    const f = field();
+    const v = farmFieldSelectionView({
+      lens: "grass",
+      field: f,
+      lensView: {
+        markerLabel: "1,640 kg DM/ha",
+        facts: [
+          { label: "Current cover", value: "1,640 kg DM/ha", basis: "Estimated from measured cover + recorded growth − linked grazing demand" },
+          { label: "Last measured", value: "1,520 kg DM/ha", basis: "plate meter · 4 Nov" },
+          { label: "Freshness", value: "High", basis: "Measurement freshness" },
+          { label: "Grazing now", value: "Stores (20 head)" },
+        ],
+        links: [{ href: "/grass", label: "Open Grass analysis" }],
+      },
+      slurryAllocations: [],
+    });
+    expect(v.statement).toEqual({ text: "Current grass cover: 1,640 kg DM/ha · Estimated from measured cover + recorded growth − linked grazing demand.", tone: "fact" });
+    expect(v.context.map((row) => row.label)).toEqual(["Last measured", "Freshness", "Grazing now"]);
+    expect(v.primaryAction).toEqual({ label: "Open Grass analysis", href: "/grass" });
+  });
+
   it("Grass and Conditions make no per-field claim", () => {
     expect(view("grass", field()).statement.tone).toBe("unknown");
     const c = view("conditions", field(), { conditionsFacts: ["Slurry · Closed period"] });

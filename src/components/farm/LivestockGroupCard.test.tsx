@@ -36,4 +36,17 @@ describe("LivestockGroupCard", () => {
     render(<LivestockGroupCard group={group({ avgWeightKg: tracked(320, "estimated", "Farm Return estimate") })} />);
     expect(screen.getByText(/calculated as Suckler cow · Avg 320 kg/i)).toBeTruthy();
   });
+
+  it("flags a label that contradicts the calculation category for review, without changing it", () => {
+    render(<LivestockGroupCard group={group()} />);
+    const note = screen.getByRole("note");
+    expect(note.textContent).toMatch(/named “weanlings” but its category is Suckler cow/);
+    expect(screen.getByText(/calculated as Suckler cow/i)).toBeTruthy();
+    expect(screen.getByText("weanlings")).toBeTruthy();
+  });
+
+  it("raises no review note when the label fits the category", () => {
+    render(<LivestockGroupCard group={group({ label: "Suckler cows" })} />);
+    expect(screen.queryByRole("note")).toBeNull();
+  });
 });

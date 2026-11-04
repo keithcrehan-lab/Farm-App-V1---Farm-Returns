@@ -42,7 +42,7 @@ import { checkLocalBufferOverride, checkNationalBufferDistance, type BufferFeatu
 import { resolveLocalWaterBufferOverrideStatus } from "./input-gates";
 import { checkSoilTestAgeValidity, type SoilTestAgeStatus } from "./soil-test-validity";
 import { laboratoryPIndexForSoilTestValidity, resolveFieldSoilIndexProvenance } from "./soil-index-provenance";
-import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_UREA_46N, latestPoint } from "./market";
+import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_MURIATE_OF_POTASH_50K, CSO_UREA_46N, latestPoint } from "./market";
 
 // v1.1.0: CC-B2 / RISK-01 implementation correction — LESS P/K credit now
 // applies the Index 1/2 availability reduction; v1.0.0 results omitted it.
@@ -549,6 +549,14 @@ const SLURRY_TABLE_9_8: SlurryGridPoint[] = [
   { rateTHa: 44, n4: 21, p4: 15, k4: 93, n6: 31, p6: 21, k6: 127, n8: 40, p8: 27, k8: 161, n10: 49, p10: 33, k10: 195 },
   { rateTHa: 55, n4: 27, p4: 18, k4: 116, n6: 38, p6: 26, k6: 159, n8: 50, p8: 33, k8: 201, n10: 61, p10: 41, k10: 244 },
 ];
+
+/** The application-rate range Table 9-8 tabulates. Outside it the table
+ * is clamped to its first/last row, so a planner sizing a rate must stay
+ * within it rather than read a clamped figure as the rate's own credit. */
+export const SLURRY_TABLE_9_8_RATE_RANGE_M3_HA = {
+  min: SLURRY_TABLE_9_8[0].rateTHa,
+  max: SLURRY_TABLE_9_8[SLURRY_TABLE_9_8.length - 1].rateTHa,
+} as const;
 
 const SLURRY_DM_COLUMNS = [4, 6, 8, 10] as const;
 
@@ -1662,7 +1670,12 @@ interface ProductAnalysis {
  * protected urea specifically, but tracks the same 46% N product family
  * that dominates its price.
  */
-const PRODUCTS: { zeroSevenThirty: ProductAnalysis; blend181612: ProductAnalysis; protectedUrea: ProductAnalysis } = {
+const PRODUCTS: {
+  zeroSevenThirty: ProductAnalysis;
+  blend181612: ProductAnalysis;
+  protectedUrea: ProductAnalysis;
+  muriateOfPotash: ProductAnalysis;
+} = {
   zeroSevenThirty: {
     name: "0-7-30",
     npkAnalysis: "0-7-30",
@@ -1690,7 +1703,24 @@ const PRODUCTS: { zeroSevenThirty: ProductAnalysis; blend181612: ProductAnalysis
     pricePerTonneEur: latestPoint(CSO_UREA_46N).value,
     formulation: { physicalForm: "solid", ureicNPercent: 46, inhibitorStatus: "inhibited" },
   },
+  // Muriate of Potash (potassium chloride, 50% K — Teagasc "MOP", 0-0-50),
+  // priced from CSO AJM09 series 006 of the same name. Carries no N, so it
+  // has 0% ureic N and no inhibitor. Used only by the P-constrained
+  // allocation (`allocatePurchasedProductsPConstrained`) — the default
+  // waterfall above never selects it.
+  muriateOfPotash: {
+    name: "Muriate of Potash (50% K)",
+    npkAnalysis: "0-0-50",
+    nPct: 0,
+    pPct: 0,
+    kPct: 0.5,
+    pricePerTonneEur: latestPoint(CSO_MURIATE_OF_POTASH_50K).value,
+    formulation: { physicalForm: "solid", ureicNPercent: 0, inhibitorStatus: "uninhibited" },
+  },
 };
+
+/** The exact catalogue name of the phosphorus-free potash product. */
+export const MURIATE_OF_POTASH_PRODUCT_NAME = PRODUCTS.muriateOfPotash.name;
 
 /**
  * Fertiliser Vertical campaign, 2026-09-08 — a real, honest, additive
@@ -1700,14 +1730,16 @@ const PRODUCTS: { zeroSevenThirty: ProductAnalysis; blend181612: ProductAnalysis
  * declares, exposed by name so a confirmed fertiliser Actual's own real
  * `product` text can be checked against it.
  *
- * These are the ONLY three product compositions this app has ever
- * verified — `nutrients.ts`'s own header comment (`CLAUDE.md`'s "never
+ * These are the ONLY product compositions this app has verified (the
+ * three original products plus Muriate of Potash, added with the
+ * P-constrained allocation) — `nutrients.ts`'s own header comment (`CLAUDE.md`'s "never
  * let a model invent a production scientific number") applies with equal
  * force to a confirmed Actual as it does to a recommendation: a farmer's
- * free-text `product` field that does not match one of these three exact
+ * free-text `product` field that does not match one of these four exact
  * names has a genuinely unknown composition to this app, and must never
  * be guessed at. Matching is exact and case-sensitive against the real
- * catalogue name (`"0-7-30"`, `"18-6-12"`, `"Protected Urea"`) — no fuzzy
+ * catalogue name (`"0-7-30"`, `"18-6-12"`, `"Protected Urea"`,
+ * `"Muriate of Potash (50% K)"`) — no fuzzy
  * matching, which would risk silently misattributing one product's real
  * composition to a different one the farmer actually meant.
  */
@@ -1722,6 +1754,7 @@ const KNOWN_FERTILISER_PRODUCTS: readonly FertiliserProductComposition[] = [
   { name: PRODUCTS.zeroSevenThirty.name, nPct: PRODUCTS.zeroSevenThirty.nPct, pPct: PRODUCTS.zeroSevenThirty.pPct, kPct: PRODUCTS.zeroSevenThirty.kPct },
   { name: PRODUCTS.blend181612.name, nPct: PRODUCTS.blend181612.nPct, pPct: PRODUCTS.blend181612.pPct, kPct: PRODUCTS.blend181612.kPct },
   { name: PRODUCTS.protectedUrea.name, nPct: PRODUCTS.protectedUrea.nPct, pPct: PRODUCTS.protectedUrea.pPct, kPct: PRODUCTS.protectedUrea.kPct },
+  { name: PRODUCTS.muriateOfPotash.name, nPct: PRODUCTS.muriateOfPotash.nPct, pPct: PRODUCTS.muriateOfPotash.pPct, kPct: PRODUCTS.muriateOfPotash.kPct },
 ];
 
 /**
@@ -1739,8 +1772,8 @@ export function knownFertiliserProductComposition(productName: string): Fertilis
  * `FERTILISER_PRODUCT_ADMISSIBILITY` is now genuinely consulted, not
  * assumed — returns `null` (never included in a recommended blend) for
  * any product the gate does not resolve as `"ADMISSIBLE"`. For today's
- * static catalogue every line passes (all three are inhibited/solid or
- * carry no urea), so this is inert in practice; it stops being inert the
+ * static catalogue every line passes (every product is inhibited/solid or
+ * carries no urea), so this is inert in practice; it stops being inert the
  * moment a future product's real formulation data says otherwise.
  */
 function productLine(product: ProductAnalysis, rateKgHa: number, areaHa: number): FertiliserProduct | null {
@@ -1897,6 +1930,52 @@ export function allocatePurchasedProducts(
   return { products: lines, totalCostEur: lines.reduce((sum, l) => sum + l.costEur, 0), deliveredKgHa };
 }
 
+/**
+ * The P-constrained allocation, for a field whose default blend
+ * (`allocatePurchasedProducts`) delivers more P than the field may lawfully
+ * receive. Never a replacement for the default waterfall: callers use it
+ * only after the default blend is found over the statutory P budget.
+ *
+ * 18-6-12 is sized to `targetPKgHa` (the P the products may deliver, never
+ * above the budget; 0 = no P-bearing product at all); its N and K are
+ * credited; Muriate of Potash (0-0-50, no P) supplies only the K still
+ * needed; Protected Urea supplies the N still needed. 0-7-30 is never
+ * used, so its P by-product cannot arise. Delivered N/P/K are computed from
+ * the published (0.1 kg/ha-rounded) product rates, the same rule as the
+ * default allocator, and every line passes the same admissibility gate.
+ */
+export function allocatePurchasedProductsPConstrained(
+  remainingNKgHa: number,
+  targetPKgHa: number,
+  remainingKKgHa: number,
+  areaHa: number,
+): ReturnType<typeof allocatePurchasedProducts> {
+  const { blend181612, protectedUrea, muriateOfPotash } = PRODUCTS;
+
+  const rate181612 = targetPKgHa > 0 ? targetPKgHa / blend181612.pPct : 0;
+  const line181612 = rate181612 > 0.5 ? productLine(blend181612, rate181612, areaHa) : null;
+  // Credit only what the published 18-6-12 line actually delivers.
+  const nFrom181612 = line181612 ? line181612.rateKgHa * blend181612.nPct : 0;
+  const kFrom181612 = line181612 ? line181612.rateKgHa * blend181612.kPct : 0;
+
+  const kStillNeeded = Math.max(0, remainingKKgHa - kFrom181612);
+  const rateMop = kStillNeeded > 0 ? kStillNeeded / muriateOfPotash.kPct : 0;
+  const nStillNeeded = Math.max(0, remainingNKgHa - nFrom181612);
+  const rateUrea = nStillNeeded > 0 ? nStillNeeded / protectedUrea.nPct : 0;
+
+  const lineMop = rateMop > 0.5 ? productLine(muriateOfPotash, rateMop, areaHa) : null;
+  const lineUrea = rateUrea > 0.5 ? productLine(protectedUrea, rateUrea, areaHa) : null;
+
+  const lines = [line181612, lineMop, lineUrea].filter((l): l is FertiliserProduct => l !== null);
+  const deliveredKgHa = {
+    n: nFrom181612 + (lineUrea ? lineUrea.rateKgHa * protectedUrea.nPct : 0),
+    p: line181612 ? line181612.rateKgHa * blend181612.pPct : 0,
+    k: kFrom181612 + (lineMop ? lineMop.rateKgHa * muriateOfPotash.kPct : 0),
+  };
+
+  return { products: lines, totalCostEur: lines.reduce((sum, l) => sum + l.costEur, 0), deliveredKgHa };
+}
+
 // ---------------------------------------------------------------------------
 // Campaign B regulatory interpretation — home-produced grazing manure
 // ---------------------------------------------------------------------------
@@ -1924,6 +2003,13 @@ export const HOME_GRAZING_MANURE_MAXIMA_RULE = {
   verifiedOn: "2026-09-27",
   regulatoryStatus: "legal_interpretation",
 } as const;
+
+/** Whether planned manure of this evidenced origin is excluded from the
+ * Table 13/15a/15b/16/17 maxima (`HOME_GRAZING_MANURE_MAXIMA_RULE`, Art.
+ * 17(8)). Unknown origin is never excluded. */
+export function manureOriginExcludedFromNapMaxima(origin: RegulatoryManureOrigin | undefined): boolean {
+  return origin === "home_produced_grazing_livestock";
+}
 
 // ---------------------------------------------------------------------------
 // Orchestrator

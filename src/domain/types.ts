@@ -10,6 +10,7 @@
  * ones, only the `status`/`source` metadata on each TrackedValue.
  */
 
+import type { PrecedingYearGsrRecord } from "./preceding-year-gsr";
 import type { EngineOutcome, EvidenceState } from "./evidence";
 import type { StatutoryManureNutrientValue } from "./statutory-manure-value";
 import type { LessMethodGateOk } from "./less-method-gate";
@@ -112,6 +113,11 @@ export interface Farm {
     nmpSubmitted: boolean;
     trainingCompleted: boolean;
   }>;
+  /** Append-only, season-bound records of the holding's preceding-year
+   * grassland stocking rate (before exports) — the only evidence the LESS
+   * `LESS_GSR_100` trigger accepts (`src/domain/preceding-year-gsr.ts`).
+   * Absent or empty means not recorded, never "below the trigger". */
+  precedingYearGsrRecords?: PrecedingYearGsrRecord[];
 }
 
 export type FieldUse =
@@ -273,6 +279,13 @@ export interface Field {
      * `authoritative_rule` branch permanently unreachable — closes that
      * gap so a real local-authority figure can actually be recorded. */
     localOverrideDistanceM?: number;
+    /** The mapped water lines (EPA River Network Routes) near the field,
+     * kept only when the water is within the 3 m chemical-fertiliser strip
+     * (S.I. 588/2025 Article 18(1)) so the strip itself can be excluded
+     * from the chemical-fertiliser area — see
+     * `src/domain/chemical-fertiliser-water-strip.ts`. Absent with a
+     * distance under 3 m means the strip is unresolved (fails closed). */
+    chemicalStripWaterLines?: GeoJSON.MultiLineString;
   }>;
   history: FieldSeasonRecord[];
   /** Thumbnail asset for field cards — Phase 1 uses static crops, not live tiles. */

@@ -91,7 +91,15 @@ describe("RequestQuoteSheet", () => {
   it("prefills the exact, unrounded real remainingRequirementKg when a real estimated product option is selected — never rounds it in the component", async () => {
     mockGetPrefill.mockResolvedValue({
       ...EMPTY_PREFILL,
-      options: [{ product: "Protected Urea", remainingRequirementKg: 1234.5678901, mayUnderstate: false }],
+      options: [
+        {
+          product: "Protected Urea",
+          remainingRequirementKg: 1234.5678901,
+          mayUnderstate: false,
+          stock: { status: "not_recorded" },
+          suggestedPurchaseKg: 1234.5678901,
+        },
+      ],
     });
     await renderOpenSheet();
 
@@ -107,6 +115,41 @@ describe("RequestQuoteSheet", () => {
     expect((screen.getByLabelText(/^quantity$/i) as HTMLInputElement).value).toBe("1234.5678901");
     expect((screen.getByLabelText(/^unit$/i) as HTMLSelectElement).value).toBe("kg");
   });
+
+  it.each([
+    // [label, stockKg | undefined, suggestedPurchaseKg, expected quantity, expected note]
+    ["partial stock", 200, 216.7, "216.7", /Still to buy:\s*216\.7 kg/],
+    ["sufficient stock", 416.7, 0, "", /recorded stock covers this requirement/],
+    ["zero stock", 0, 416.7, "416.7", /In stock:\s*0 kg/],
+    ["unknown stock", undefined, 416.7, "416.7", /Stock not recorded — the full requirement is suggested/],
+  ] as const)(
+    "F011: prefills the stock-adjusted purchase quantity (%s) while keeping the plan requirement as evidence",
+    async (_label, stockKg, suggestedPurchaseKg, expectedQuantity, note) => {
+      mockGetPrefill.mockResolvedValue({
+        ...EMPTY_PREFILL,
+        options: [
+          {
+            product: "0-7-30",
+            remainingRequirementKg: 416.7,
+            mayUnderstate: false,
+            stock:
+              stockKg === undefined
+                ? { status: "not_recorded" }
+                : { status: "recorded", stockKg, stockAsOf: "2026-10-30", stockSource: "Farmer count" },
+            suggestedPurchaseKg,
+          },
+        ],
+      });
+      await renderOpenSheet();
+      fireEvent.change(screen.getByLabelText(/product source/i), { target: { value: "0-7-30" } });
+
+      expect((screen.getByLabelText(/^quantity$/i) as HTMLInputElement).value).toBe(expectedQuantity);
+      expect(screen.getByText(/Fertiliser plan requirement:/).textContent).toContain("416.7 kg");
+      expect(
+        screen.getByText((_, element) => element?.tagName === "P" && note.test(element.textContent ?? "")),
+      ).toBeTruthy();
+    },
+  );
 
   it("required acknowledgement: Submit stays disabled until the disclosure checkbox is ticked, even with every other field valid", async () => {
     await renderOpenSheet();

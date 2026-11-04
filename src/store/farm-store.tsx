@@ -110,6 +110,7 @@ import {
   restoreFieldAction,
   setFieldBoundaryAction,
   updateFarmProfileAction,
+  recordPrecedingYearGsrAction,
   updateFieldCommonageStatusAction,
   updateFieldDetailsAction,
   updateFieldIndexAction,
@@ -145,6 +146,7 @@ import {
   type SlurryAllocationLifecycleActionResult,
 } from "@/app/actions/slurry-allocation-lifecycle";
 import { summariseLiveWeight } from "@/lib/livestock-live-weight";
+import { validateNewPrecedingYearGsrInput, type NewPrecedingYearGsrInput } from "@/domain/preceding-year-gsr";
 
 /** Phase 1B.1 — whether the slurry plan on screen is known to match the
  * canonical server state. `stale` after any failed re-read: the displayed
@@ -337,6 +339,10 @@ export type AddSlurryCompositionInput = NewSlurryCompositionInput;
 
 interface FarmActions {
   updateFarmProfile: (patch: { name?: string; ownerName?: string; county?: string; grazingProductionSystem?: FarmGrazingProductionSystem | null }) => void;
+  /** Appends a preceding-year grassland stocking-rate record — the LESS
+   * trigger's only evidence (`src/domain/preceding-year-gsr.ts`). Rejected
+   * input returns its issues; nothing is saved. */
+  recordPrecedingYearGsr: (input: NewPrecedingYearGsrInput) => Promise<{ status: "saved" } | { status: "rejected"; issues: string[] }>;
   /** Returns a Promise — in real mode (`FarmProvider remote`) the field's
    * id comes from Postgres, not a client-generated placeholder, so callers
    * that need the new field's real id (e.g. selecting it immediately
@@ -595,6 +601,13 @@ export function FarmProvider({
   // retryable state, not just a console.error.
   const [pendingCount, setPendingCount] = useState(0);
   const [syncedWriteCount, setSyncedWriteCount] = useState(0);
+  // Every awaited real-mode write that can change a fertiliser
+  // recommendation's inputs (fields, livestock, stores, slurry plans,
+  // slurry composition, legal evidence) marks itself here once the server
+  // has persisted it, so screens showing a persisted recommendation
+  // (`useSyncStatus().syncedCount`) re-read it — the fire-and-forget
+  // `persistRemote` writes do the same on success.
+  const markRecommendationInputSaved = useCallback(() => setSyncedWriteCount((c) => c + 1), []);
   const [syncFailures, setSyncFailures] = useState<SyncFailure[]>([]);
   const [slurryPlanFreshness, setSlurryPlanFreshness] = useState<SlurryPlanFreshness>("current");
   const [regulatoryEvidenceFreshness, setRegulatoryEvidenceFreshness] = useState<RegulatoryEvidenceFreshness>("current");
@@ -726,6 +739,30 @@ export function FarmProvider({
         persistRemote("updateFarmProfile", () => updateFarmProfileAction(state.farm.id, patch));
       },
 
+      async recordPrecedingYearGsr(input) {
+        if (remote) {
+          const result = await recordPrecedingYearGsrAction(input, state.farm.ownerName);
+          if (result.status === "rejected") return result;
+          setState((s) => ({ ...s, farm: { ...s.farm, precedingYearGsrRecords: result.farm.precedingYearGsrRecords } }));
+          markRecommendationInputSaved();
+          return { status: "saved" };
+        }
+        const now = new Date().toISOString();
+        const issues = validateNewPrecedingYearGsrInput(input, now.slice(0, 10));
+        if (issues.length > 0) return { status: "rejected", issues };
+        setState((s) => ({
+          ...s,
+          farm: {
+            ...s.farm,
+            precedingYearGsrRecords: [
+              ...(s.farm.precedingYearGsrRecords ?? []),
+              { id: newId("gsr", input.referenceYear), ...input, source: input.source.trim(), recordedAt: now, recordedBy: s.farm.ownerName },
+            ],
+          },
+        }));
+        return { status: "saved" };
+      },
+
       // Codex remediation Priority 6 — boundary-first: `input.polygon` is a
       // real drawn boundary (`FieldBoundaryMapModal`), not a manually-typed
       // area. `areaHa`/`centroid` are always derived from it
@@ -742,6 +779,7 @@ export function FarmProvider({
             polygon: input.polygon,
           });
           setState((s) => ({ ...s, fields: [...s.fields, field] }));
+          markRecommendationInputSaved();
           return field;
         }
 
@@ -1002,6 +1040,7 @@ export function FarmProvider({
                   )
                 : s.housing,
           }));
+          markRecommendationInputSaved();
           return group;
         }
 
@@ -1076,6 +1115,7 @@ export function FarmProvider({
         if (remote) {
           const housing = await addHousingAction(state.farm.id, input);
           setState((s) => ({ ...s, housing: [...s.housing, housing] }));
+          markRecommendationInputSaved();
           return housing;
         }
 
@@ -1148,6 +1188,7 @@ export function FarmProvider({
           setState((s) => ({ ...s, slurryAllocations: [...s.slurryAllocations, allocation] }));
           // The new plan's lifecycle record (its id) comes from the server.
           await refreshSlurryPlan();
+          markRecommendationInputSaved();
           return allocation;
         }
 
@@ -1309,6 +1350,7 @@ export function FarmProvider({
         if (remote) {
           const record = await addSlurryCompositionRecordAction(state.farm.id, input);
           setState((s) => ({ ...s, slurryCompositionRecords: [...s.slurryCompositionRecords, record] }));
+          markRecommendationInputSaved();
           return record;
         }
 
@@ -1333,7 +1375,7 @@ export function FarmProvider({
         return record;
       },
     }),
-    [state.farm.id, state.farm.ownerName, state.housing, remote, persistRemote, refreshSlurryPlan, runRemoteLifecycle, applyLocal, reloadRegulatoryEvidence],
+    [state.farm.id, state.farm.ownerName, state.housing, remote, persistRemote, refreshSlurryPlan, runRemoteLifecycle, applyLocal, reloadRegulatoryEvidence, markRecommendationInputSaved],
   );
 
   const dismissSyncFailure = useCallback((id: string) => {
@@ -1514,6 +1556,7 @@ export function useSyncStatus(): { pendingCount: number; syncedCount: number; fa
 export function useFarmActions(): FarmActions {
   const {
     updateFarmProfile,
+    recordPrecedingYearGsr,
     addField,
     setFieldBoundary,
     updateFieldDetails,
@@ -1552,6 +1595,7 @@ export function useFarmActions(): FarmActions {
     completePlannedSlurryAllocation,
     refreshSlurryPlan,
     updateFarmProfile,
+    recordPrecedingYearGsr,
     addField,
     setFieldBoundary,
     updateFieldDetails,

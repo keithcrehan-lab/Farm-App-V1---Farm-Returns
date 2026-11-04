@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  allocatePurchasedProducts,
+  allocatePurchasedProductsPConstrained,
   calculateGrasslandStockingRateKgHa,
   calculateNutrientPlan,
   NUTRIENT_ENGINE_VERSION,
@@ -45,6 +47,7 @@ import type { Field, LivestockGroup, NutrientPlan, SlurryAllocation } from "./ty
 import fertilityEvidenceBaseline from "./nutrients.fertility-evidence-baseline.json";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
 import type { SlurryComposition } from "./slurry-composition";
+import { CSO_MURIATE_OF_POTASH_50K } from "./market";
 
 // Every expected value below is transcribed directly from the named Green
 // Book table (see file header comments in nutrients.ts and
@@ -3490,6 +3493,13 @@ describe("knownFertiliserProductComposition", () => {
     expect(knownFertiliserProductComposition("0-7-30")).toEqual({ name: "0-7-30", nPct: 0, pPct: 0.07, kPct: 0.3 });
     expect(knownFertiliserProductComposition("18-6-12")).toEqual({ name: "18-6-12", nPct: 0.18, pPct: 0.06, kPct: 0.12 });
     expect(knownFertiliserProductComposition("Protected Urea")).toEqual({ name: "Protected Urea", nPct: 0.46, pPct: 0, kPct: 0 });
+    expect(knownFertiliserProductComposition("Muriate of Potash (50% K)")).toEqual({ name: "Muriate of Potash (50% K)", nPct: 0, pPct: 0, kPct: 0.5 });
+  });
+
+  it("Muriate of Potash resolves only by its exact catalogue name — no lower-case, shortened or altered match", () => {
+    for (const name of ["muriate of potash (50% k)", "Muriate of Potash", "MOP", "0-0-50", "Muriate of Potash (60% K)", " Muriate of Potash (50% K)"]) {
+      expect(knownFertiliserProductComposition(name)).toBeUndefined();
+    }
   });
 
   it("fails closed (undefined) for any product not in the real, verified catalogue", () => {
@@ -4593,5 +4603,56 @@ describe("fieldRemainingRequirement (Fertiliser Vertical Increment 2b)", () => {
     expect(credit.value.kgHa).toBeGreaterThan(k.requirementKgHa);
     expect(k.kgHa).toBe(0);
     expect(Object.keys(k).sort()).toEqual(["creditBasis", "creditKgHa", "evidenceState", "kgHa", "requirementKgHa", "status", "totalKg"]);
+  });
+});
+
+describe("allocatePurchasedProductsPConstrained (P-free potash)", () => {
+  it("the default waterfall is unchanged and never selects Muriate of Potash", () => {
+    const result = allocatePurchasedProducts(100, 0, 175, 1);
+    expect(result.products.map((p) => [p.name, p.rateKgHa])).toEqual([
+      ["0-7-30", 583.3],
+      ["Protected Urea", 217.4],
+    ]);
+    expect(result.deliveredKgHa.p).toBeCloseTo(583.3 * 0.07, 9);
+  });
+
+  it("a zero P target supplies K from MOP and N from Protected Urea, with zero delivered P", () => {
+    const result = allocatePurchasedProductsPConstrained(100, 0, 175, 2);
+    expect(result.products.map((p) => [p.name, p.npkAnalysis, p.rateKgHa, p.totalKg])).toEqual([
+      ["Muriate of Potash (50% K)", "0-0-50", 350, 700],
+      ["Protected Urea", "46-0-0", 217.4, 434.8],
+    ]);
+    expect(result.deliveredKgHa).toEqual({ n: 217.4 * 0.46, p: 0, k: 175 });
+    // Priced from the CSO AJM09 code 006 series' latest observation (2026-06).
+    expect(result.products[0].costEur).toBe(Math.round(0.7 * CSO_MURIATE_OF_POTASH_50K[CSO_MURIATE_OF_POTASH_50K.length - 1].value));
+    expect(CSO_MURIATE_OF_POTASH_50K[CSO_MURIATE_OF_POTASH_50K.length - 1]).toEqual({ month: "2026-06", value: 528 });
+    expect(result.products[0].formulation?.value).toEqual({ physicalForm: "solid", ureicNPercent: 0, inhibitorStatus: "uninhibited" });
+  });
+
+  it("a positive P target sizes 18-6-12 to it, credits its N and K, and tops up K with MOP", () => {
+    const result = allocatePurchasedProductsPConstrained(100, 1.99, 175, 1);
+    expect(result.products.map((p) => [p.name, p.rateKgHa])).toEqual([
+      ["18-6-12", 33.2],
+      ["Muriate of Potash (50% K)", 342],
+      ["Protected Urea", 204.4],
+    ]);
+    // Delivered from the published (rounded) rates.
+    expect(result.deliveredKgHa.p).toBeCloseTo(33.2 * 0.06, 9);
+    expect(result.deliveredKgHa.k).toBeCloseTo(33.2 * 0.12 + 342 * 0.5, 9);
+    expect(result.deliveredKgHa.n).toBeCloseTo(33.2 * 0.18 + 204.4 * 0.46, 9);
+  });
+
+  it("no residual K need means no MOP line", () => {
+    const result = allocatePurchasedProductsPConstrained(50, 3, 0, 1);
+    expect(result.products.map((p) => p.name)).toEqual(["18-6-12", "Protected Urea"]);
+  });
+
+  it("delivered P never exceeds a budget sized with the caller's 0.01 kg/ha rounding margin", () => {
+    for (let budget = 0; budget <= 30; budget += 0.017) {
+      const target = Math.max(0, budget - 0.01);
+      const result = allocatePurchasedProductsPConstrained(120, target, 175, 3.7);
+      expect(result.deliveredKgHa.p).toBeLessThanOrEqual(budget);
+      expect(result.products.some((p) => p.name === "0-7-30")).toBe(false);
+    }
   });
 });

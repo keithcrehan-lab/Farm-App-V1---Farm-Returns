@@ -19,6 +19,7 @@ import { calculateActiveFarmAreaHa } from "@/domain/farm-stats";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt } from "@/orchestration/prompt/select-primary";
 import { parseSlurryDetailsRequest } from "@/lib/slurry-details-link";
+import { parseFieldNutrientFocusTarget, type FieldNutrientFocusTarget } from "@/lib/field-nutrient-focus";
 import { usePrefersReducedMotion } from "@/lib/use-prefers-reduced-motion";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/use-media-query";
 import { useFieldNutrientPlan } from "@/lib/use-field-nutrient-plan";
@@ -69,6 +70,10 @@ function FieldsPageContent() {
   // an id that is unknown, archived or not yet hydrated shows the
   // companion view rather than a guess.
   const requestedFieldId = searchParams.get("field") ?? undefined;
+  const requestedSeason = searchParams.get("season") ?? undefined;
+  const focusFieldUse = searchParams.get("focus") === "field-use";
+  const focusFieldArea = searchParams.get("focus") === "field-area";
+  const nutrientFocus = parseFieldNutrientFocusTarget(searchParams.get("focus"));
   const workspaceField = fields.find((f) => f.id === requestedFieldId);
   // What Matters' "Add spreading details" link (`slurryDetailsHref`).
   const slurryDetailsRequest = parseSlurryDetailsRequest(searchParams.get("complete"), searchParams.get("missing"));
@@ -93,6 +98,10 @@ function FieldsPageContent() {
         leadingPrompt={leadingPromptFor(workspaceField.id)}
         initialChapter={parseFieldWorkspaceChapter(searchParams.get("chapter"))}
         slurryDetailsRequest={slurryDetailsRequest ?? undefined}
+        planningSeason={requestedSeason}
+        focusFieldUse={focusFieldUse}
+        focusFieldArea={focusFieldArea}
+        nutrientFocus={nutrientFocus}
       />
     );
   }
@@ -445,12 +454,20 @@ function FieldWorkspaceView({
   leadingPrompt,
   initialChapter,
   slurryDetailsRequest,
+  planningSeason,
+  focusFieldUse,
+  focusFieldArea,
+  nutrientFocus,
 }: {
   field: Field;
   allFields: Field[];
   leadingPrompt: Prompt | undefined;
   initialChapter: ReturnType<typeof parseFieldWorkspaceChapter>;
   slurryDetailsRequest?: MissingSlurryPlanningDetail[];
+  planningSeason?: string;
+  focusFieldUse?: boolean;
+  focusFieldArea?: boolean;
+  nutrientFocus?: FieldNutrientFocusTarget;
 }) {
   const router = useRouter();
   const isRealMode = useIsRealMode();
@@ -519,6 +536,10 @@ function FieldWorkspaceView({
           slurryDetailsRequest={slurryDetailsRequest}
           leadingPrompt={leadingPrompt}
           onViewPrompt={leadingPrompt ? () => setPromptOpen(true) : undefined}
+          planningSeason={planningSeason}
+          focusFieldUse={focusFieldUse}
+          focusFieldArea={focusFieldArea}
+          nutrientFocus={nutrientFocus}
         />
       </div>
 

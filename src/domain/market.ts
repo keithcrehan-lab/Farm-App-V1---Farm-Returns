@@ -236,6 +236,39 @@ export const CSO_COMPOUND_0_7_30: TimeSeriesPoint[] = [
   { month: "2026-06", value: 570 },
 ];
 
+/**
+ * Exact product match to the "Muriate of Potash (50% K)" catalogue product
+ * (AJM09 series code 006, label "Muriate of Potash (50% K)") — potassium
+ * chloride, the common straight-K fertiliser (Teagasc: MOP, 0-0-50). Same
+ * Jul 2024–Jun 2026 horizon as the three fertiliser series above.
+ */
+export const CSO_MURIATE_OF_POTASH_50K: TimeSeriesPoint[] = [
+  { month: "2024-07", value: 500 },
+  { month: "2024-08", value: 495 },
+  { month: "2024-09", value: 491 },
+  { month: "2024-10", value: 491 },
+  { month: "2024-11", value: 491 },
+  { month: "2024-12", value: 486 },
+  { month: "2025-01", value: 486 },
+  { month: "2025-02", value: 484 },
+  { month: "2025-03", value: 486 },
+  { month: "2025-04", value: 487 },
+  { month: "2025-05", value: 487 },
+  { month: "2025-06", value: 485 },
+  { month: "2025-07", value: 485 },
+  { month: "2025-08", value: 488 },
+  { month: "2025-09", value: 495 },
+  { month: "2025-10", value: 494 },
+  { month: "2025-11", value: 493 },
+  { month: "2025-12", value: 491 },
+  { month: "2026-01", value: 492 },
+  { month: "2026-02", value: 494 },
+  { month: "2026-03", value: 518 },
+  { month: "2026-04", value: 532 },
+  { month: "2026-05", value: 531 },
+  { month: "2026-06", value: 528 },
+];
+
 // ---------------------------------------------------------------------------
 // CSO AHM05 — Core Agricultural Input/Output Price Indices (Base 2020=100).
 // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import {
   type NdviObservation,
   type SatelliteRenderMode,
 } from "@/server/satellite/sentinel-hub-client";
+import { satelliteViewBounds } from "@/lib/satellite-image-frame";
 
 export type SatelliteHistoryPreset = "3M" | "1Y" | "3Y" | "CUSTOM";
 
@@ -34,7 +35,7 @@ export interface SatelliteHistoryResult {
   processingBlockedReason: string | null;
 }
 
-export interface FieldNdviPoint extends NdviObservation {}
+export type FieldNdviPoint = NdviObservation;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HISTORY_CHUNK_DAYS = 90;
@@ -123,12 +124,14 @@ export async function getFieldSatelliteHistoryAction(
   const height = Math.max(maxLat - minLat, 0.0001);
   const padX = width * 0.22;
   const padY = height * 0.22;
-  const contextBounds: [number, number, number, number] = [
+  // The same widened view bounds the Sentinel request uses, so the
+  // Mapbox reference fitted to them is never squeezed past 5:1.
+  const contextBounds = satelliteViewBounds([
     minLng - padX,
     minLat - padY,
     maxLng + padX,
     maxLat + padY,
-  ];
+  ]);
   const all = new Map<string, Sentinel2L2AItem>();
   for (const chunk of chunkRange(range.from, range.to)) {
     const result = await searchSentinel2L2AScenes({

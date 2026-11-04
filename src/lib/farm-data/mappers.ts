@@ -82,6 +82,9 @@ export function rowToFarm(row: FarmRow): Farm {
     ownerName: row.owner_name,
     ...(row.grazing_production_system ? { grazingProductionSystem: row.grazing_production_system } : {}),
     ...(row.p_build_up_compliance ? { pBuildUpCompliance: row.p_build_up_compliance } : {}),
+    ...(Array.isArray(row.preceding_year_gsr_records) && row.preceding_year_gsr_records.length > 0
+      ? { precedingYearGsrRecords: row.preceding_year_gsr_records }
+      : {}),
   };
 }
 

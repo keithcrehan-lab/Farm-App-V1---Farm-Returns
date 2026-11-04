@@ -20,10 +20,12 @@ vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn(), update
 import { addFieldAction, setFieldBoundaryAction } from "./farm";
 import { createField, setFieldBoundary, applyDerivedLegalSpatialEvidence } from "@/lib/farm-data/fields";
 import { assessInternalSpatialEvidence } from "@/server/spatial-reference-evidence";
+import { assessPublicLegalSpatialEvidence } from "@/server/legal-spatial-evidence";
+import type { Field } from "@/domain/types";
 
 const polygon: GeoJSON.Polygon = { type: "Polygon", coordinates: [[[-8.47,53.51],[-8.46,53.51],[-8.46,53.52],[-8.47,53.52],[-8.47,53.51]]] };
-const field = { id: "field-1", farmId: "farm-1", name: "Hill Field", polygon } as any;
-const resolvedField = { ...field, commonageStatus: { value: "not_commonage" } } as any;
+const field = { id: "field-1", farmId: "farm-1", name: "Hill Field", polygon } as unknown as Field;
+const resolvedField = { ...field, commonageStatus: { value: "not_commonage" } } as unknown as Field;
 
 const internal = {
   legal: {
@@ -53,6 +55,26 @@ describe("automatic spatial evidence after field mapping", () => {
       water: expect.objectContaining({ distanceM: 179 }),
     }));
     expect(result).toBe(resolvedField);
+  });
+
+  it("takes the live EPA water geometry when the cached stream is inside the 3 m chemical-fertiliser strip", async () => {
+    const lines: GeoJSON.MultiLineString = { type: "MultiLineString", coordinates: [[[-8.46, 53.505], [-8.46, 53.525]]] };
+    vi.mocked(assessInternalSpatialEvidence).mockResolvedValue({
+      ...internal,
+      legal: { ...internal.legal, water: { ...internal.legal.water, distanceM: 0 } },
+    } as never);
+    vi.mocked(assessPublicLegalSpatialEvidence).mockResolvedValue({
+      ...internal.legal,
+      water: { state: "resolved", featureType: "surface_water", nearestFeature: "Boundary Stream", distanceM: 0, chemicalStripWaterLines: lines, source: "EPA Water Flow Network / River Network Routes WFS", sourceDate: "2026-11-02", detail: "" },
+    } as never);
+    vi.mocked(createField).mockResolvedValue(field);
+    await addFieldAction("farm-1", { name: "Hill Field", polygon });
+    expect(assessPublicLegalSpatialEvidence).toHaveBeenCalledWith(polygon);
+    expect(applyDerivedLegalSpatialEvidence).toHaveBeenCalledWith("field-1", expect.objectContaining({
+      // Cached commonage is kept; only the water half comes from the live source.
+      commonage: expect.objectContaining({ source: "Farm Return cache · DAFM LPIS 2025" }),
+      water: expect.objectContaining({ distanceM: 0, chemicalStripWaterLines: lines }),
+    }));
   });
 
   it("re-runs internal spatial matching after a boundary edit", async () => {

@@ -18,6 +18,8 @@ const mockListFields = vi.mocked(listFieldsForFarm);
 const mockListSessions = vi.mocked(listConfirmedJobSessionsForFarm);
 const mockSearchScenes = vi.mocked(searchSentinel2L2AScenes);
 
+const RECENT_CONFIRMED_AT = () => new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+
 afterEach(() => {
   vi.clearAllMocks();
 });
@@ -90,8 +92,8 @@ function confirmedSession(overrides: Partial<JobSessionWithActual> = {}): JobSes
       completionType: "whole",
       payload: { fieldIds: ["field-1"] },
       confirmedBy: "farmer",
-      confirmedAt: "2026-09-05T09:00:00.000Z",
-      createdAt: "2026-09-05T09:00:00.000Z",
+      confirmedAt: RECENT_CONFIRMED_AT(),
+      createdAt: RECENT_CONFIRMED_AT(),
     },
     ...overrides,
   } as JobSessionWithActual;
@@ -262,8 +264,8 @@ describe("getFieldAwarenessForCurrentUser", () => {
             completionType: "whole",
             payload: { fieldIds: ["field-9", "field-1"] },
             confirmedBy: "farmer",
-            confirmedAt: "2026-09-05T09:00:00.000Z",
-            createdAt: "2026-09-05T09:00:00.000Z",
+            confirmedAt: RECENT_CONFIRMED_AT(),
+            createdAt: RECENT_CONFIRMED_AT(),
           },
         }),
       ],
@@ -317,8 +319,8 @@ describe("getFieldAwarenessForCurrentUser", () => {
             completionType: "whole",
             payload: {},
             confirmedBy: "farmer",
-            confirmedAt: "2026-09-05T09:00:00.000Z",
-            createdAt: "2026-09-05T09:00:00.000Z",
+            confirmedAt: RECENT_CONFIRMED_AT(),
+            createdAt: RECENT_CONFIRMED_AT(),
           },
         }),
       ],

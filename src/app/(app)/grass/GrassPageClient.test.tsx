@@ -1,0 +1,149 @@
+import React from "react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GrassPageClient } from "./GrassPageClient";
+import type { Field, Farm } from "@/domain/types";
+
+const FIELD_ID = "11111111-1111-4111-8111-111111111111";
+const FARM_ID = "22222222-2222-4222-8222-222222222222";
+const field = {
+  id: FIELD_ID,
+  farmId: FARM_ID,
+  name: "Home Field",
+  areaHa: 4,
+  centroid: [-8, 53],
+  polygon: { type: "Polygon", coordinates: [[[-8,53],[-8.001,53],[-8.001,53.001],[-8,53]]] },
+  fertility: {},
+} as Field;
+const farm = { id: FARM_ID, name: "Ballybeg Farm", ownerName: "Keith", location: { centroid: [-8, 53] } } as Farm;
+
+const getData = vi.fn();
+const recordCover = vi.fn();
+const recordGrowth = vi.fn();
+vi.mock("@/app/actions/grass-management", () => ({
+  getGrassManagementDataAction: (...args: unknown[]) => getData(...args),
+  recordGrassCoverObservationAction: (...args: unknown[]) => recordCover(...args),
+  recordGrassGrowthObservationAction: (...args: unknown[]) => recordGrowth(...args),
+}));
+vi.mock("@/store/farm-store", () => ({ useFarm: () => farm, useFields: () => [field] }));
+vi.mock("@/components/farm/MapHero", () => ({
+  MapHero: (props: { fields: Field[]; getStatusLabel?: (f: Field) => string | undefined; getTone: (f: Field) => string }) => (
+    <div data-testid="grass-map">{props.fields.map((f) => <span key={f.id}>{f.name}:{props.getStatusLabel?.(f)}:{props.getTone(f)}</span>)}</div>
+  ),
+}));
+vi.mock("@/lib/location/web-location-tracking-provider", () => ({
+  createWebLocationTrackingProvider: () => ({
+    getCapability: async () => ({ activeTrackingSupported: false, permissionState: "prompt" }),
+    startActiveTracking: async () => undefined,
+    stopActiveTracking: async () => undefined,
+  }),
+}));
+
+const empty = { status: "ok" as const, fields: [{ id: FIELD_ID, name: "Home Field", areaHa: 4 }], coverObservations: [], growthObservations: [], grazingSessions: [], openGrazingSessions: [] };
+
+function isoDaysAgo(days: number): string { return new Date(Date.now() - days * 86_400_000).toISOString(); }
+
+describe("GrassPageClient", () => {
+  beforeEach(() => { vi.clearAllMocks(); getData.mockResolvedValue(empty); });
+  afterEach(() => cleanup());
+
+  it("keeps an unmeasured farm honest and does not invent animal demand or forecasts", async () => {
+    render(<GrassPageClient />);
+    expect(await screen.findByText(/Animal demand: No cattle currently recorded in fields/i)).toBeTruthy();
+    expect(screen.getByText("Not measured")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "+3 days" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "+7 days" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByTestId("grass-map").textContent).toMatch(/No cover/);
+    expect(screen.getByText(/Farm Return will not assume zero growth/i)).toBeTruthy();
+  });
+
+  it("shows measured/estimated grass state and unlocks a growth-backed forecast", async () => {
+    const observedAt = isoDaysAgo(1);
+    getData.mockResolvedValue({
+      ...empty,
+      coverObservations: [{ id:"33333333-3333-4333-8333-333333333333", farmId:FARM_ID, fieldId:FIELD_ID, coverKgDmHa:1500, method:"plate_meter", observedAt, source:"Farmer", createdAt:observedAt }],
+      growthObservations: [{ id:"44444444-4444-4444-8444-444444444444", farmId:FARM_ID, growthRateKgDmHaDay:50, origin:"farmer_entered", observedAt, source:"Farmer", createdAt:observedAt }],
+    });
+    render(<GrassPageClient />);
+    await screen.findByText(/Animal demand: No cattle currently recorded in fields/i);
+    expect(screen.getByRole("button", { name: "+3 days" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByTestId("grass-map").textContent).toMatch(/kg DM\/ha/);
+    fireEvent.click(screen.getByRole("button", { name: "+3 days" }));
+    await waitFor(() => expect(screen.getByText(/projected/i)).toBeTruthy());
+    expect(screen.getByText(/configurable visual reference, not a grazing recommendation/i)).toBeTruthy();
+  });
+
+  it("automatically subtracts demand from a cattle movement using the recorded liveweight", async () => {
+    const observedAt = isoDaysAgo(2);
+    const startedAt = isoDaysAgo(1);
+    const session = {
+      sessionId: "session-1",
+      fieldId: FIELD_ID,
+      fieldName: "Home Field",
+      livestockGroupId: "group-1",
+      groupLabel: "Stores",
+      category: "store" as const,
+      headCountSnapshot: 20,
+      startedAt,
+      demand: {
+        status: "resolved" as const,
+        provider: "beef_liveweight_v1" as const,
+        groupId: "group-1",
+        category: "store" as const,
+        headCount: 20,
+        kgDmPerHeadDay: 10,
+        dailyDemandKgDm: 200,
+        confidence: "medium" as const,
+        ruleId: "TEAGASC_BEEF_GRAZING_2PCT_LW",
+        source: "Teagasc beef grazing guidance: herbage demand approximated at 2% of liveweight per head per day",
+        evidence: [
+          { key: "avg_weight_kg", label: "Average liveweight", value: 500, unit: "kg", source: "Farmer" },
+          { key: "head_count", label: "Movement headcount", value: 20, unit: "head", source: "Recorded cattle movement" },
+        ],
+      },
+    };
+    getData.mockResolvedValue({
+      ...empty,
+      coverObservations: [{
+        id: "33333333-3333-4333-8333-333333333333",
+        farmId: FARM_ID,
+        fieldId: FIELD_ID,
+        coverKgDmHa: 1500,
+        method: "plate_meter",
+        observedAt,
+        source: "Farmer",
+        createdAt: observedAt,
+      }],
+      growthObservations: [{
+        id: "44444444-4444-4444-8444-444444444444",
+        farmId: FARM_ID,
+        growthRateKgDmHaDay: 50,
+        origin: "farmer_entered",
+        observedAt,
+        source: "Farmer",
+        createdAt: observedAt,
+      }],
+      grazingSessions: [session],
+      openGrazingSessions: [session],
+    });
+
+    render(<GrassPageClient />);
+    expect(await screen.findByText(/Animal demand: 200 kg DM\/day/i)).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("grass-map").textContent).toMatch(/1,550 kg DM\/ha/));
+    expect(screen.getByText(/Automatically linked from Cattle movements/i)).toBeTruthy();
+  });
+
+  it("records a cover reading only after the farmer chooses a field, then reloads real data", async () => {
+    recordCover.mockResolvedValue({ status:"saved", observation:{ id:"55555555-5555-4555-8555-555555555555", farmId:FARM_ID, fieldId:FIELD_ID, coverKgDmHa:1420, method:"plate_meter", observedAt:new Date().toISOString(), source:"Farmer", createdAt:new Date().toISOString() } });
+    render(<GrassPageClient />);
+    await screen.findByText(/Animal demand: No cattle currently recorded in fields/i);
+    fireEvent.change(screen.getByLabelText("Cover (kg DM/ha)"), { target: { value: "1420" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record grass reading" }));
+    expect(await screen.findByText(/Choose the field/i)).toBeTruthy();
+    expect(recordCover).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Field"), { target: { value: FIELD_ID } });
+    fireEvent.click(screen.getByRole("button", { name: "Record grass reading" }));
+    await waitFor(() => expect(recordCover).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getData.mock.calls.length).toBeGreaterThan(1));
+  });
+});

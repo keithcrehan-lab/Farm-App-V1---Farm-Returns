@@ -121,7 +121,7 @@ export function RemainingFertiliserRequirementCard({ fieldId, canRecord }: { fie
     );
   }
 
-  if (!result || result.status === "not_applicable") return null;
+  if (!result || result.status === "prohibited") return null;
 
   return (
     <Card>

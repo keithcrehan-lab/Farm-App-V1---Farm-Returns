@@ -18,6 +18,30 @@ describe("mapCsoFertiliserSeries", () => {
     });
   });
 
+  it("22. classifies Muriate of Potash (code 006) as an exact match to the catalogue product", () => {
+    expect(mapCsoFertiliserSeries("006", "Muriate of Potash (50% K)")).toEqual({
+      sourceSeriesCode: "006",
+      mappedProduct: "Muriate of Potash (50% K)",
+      mappingKind: "EXACT_PRODUCT_MATCH",
+    });
+    // Same trim + case-fold tolerance as every other mapped code.
+    expect(mapCsoFertiliserSeries("006", "  muriate of potash (50% k) ").mappedProduct).toBe("Muriate of Potash (50% K)");
+  });
+
+  it("27. code 006 with a different label, or the MOP label on a different code, fails closed", () => {
+    for (const [code, label] of [
+      ["006", "Muriate of Potash"],
+      ["006", "Muriate of Potash (60% K)"],
+      ["006", "Sulphate of Potash (40% K)"],
+      ["007", "Muriate of Potash (50% K)"],
+    ]) {
+      const result = mapCsoFertiliserSeries(code, label);
+      expect(result.mappingKind).toBe("UNSUPPORTED_MAPPING");
+      expect(result.mappedProduct).toBeNull();
+      expect(result.sourceSeriesCode).toBe(code);
+    }
+  });
+
   it("23. classifies Urea (code 002) as a benchmark, not an exact match", () => {
     const result = mapCsoFertiliserSeries("002", "Urea (46% N)");
     expect(result.mappingKind).toBe("CATEGORY_BENCHMARK");

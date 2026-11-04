@@ -432,7 +432,7 @@ function GroupsTab({
                     <div className="mt-4 border-t border-fr-risk/30 bg-fr-risk/5 p-4">
                       <p className="text-sm font-semibold text-fr-risk">Delete {group.label}?</p>
                       <p className="mt-1 max-w-2xl text-xs leading-relaxed text-fr-ink-600">
-                        This removes the group from herd totals and calculations. Any individual animals linked to this group are not deleted; they remain in Cattle but become ungrouped. This action cannot be undone.
+                        This removes the group from herd totals and calculations, and deletes the field movements recorded for it. Fields that relied on those movements fall back to the farm-level stocking rate in the fertiliser plan. Any individual animals linked to this group are not deleted; they remain in Cattle but become ungrouped. This action cannot be undone.
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button type="button" onClick={() => setDeleteConfirmId(null)} className="min-h-10 rounded-fr-control border border-fr-border px-4 text-sm font-semibold text-fr-ink-600">Keep group</button>

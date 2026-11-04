@@ -554,6 +554,50 @@ export function MapHero({
       neutral: "#667085",
       silage: "#8BA23A",
     };
+
+    // Grass and other detail-rich lenses can put two lines beside every
+    // field pin. On compact farms those labels can share almost the same
+    // screen y-coordinate, making the map unreadable. Keep the actual pin
+    // anchored to the real field centroid, but vertically stagger only the
+    // text stacks that would collide. This is derived from projected screen
+    // positions, not field names or farm-specific hard-coded offsets.
+    const detailLabelShiftByField = new Map<string, number>();
+    if (compactNeighbourLabels && neighbourNameLabels && neighbourDetailLabels && typeof map.project === "function") {
+      const candidates = mappedFields
+        .filter((field) => field.id !== selectedFieldId)
+        .map((field) => {
+          const point = map.project(field.centroid as [number, number]);
+          return { id: field.id, x: point.x, y: point.y };
+        })
+        .sort((a, b) => a.y - b.y);
+
+      const flushCluster = (cluster: typeof candidates) => {
+        if (cluster.length < 2) {
+          if (cluster[0]) detailLabelShiftByField.set(cluster[0].id, 0);
+          return;
+        }
+        const centreY = cluster.reduce((sum, item) => sum + item.y, 0) / cluster.length;
+        const spacing = 38;
+        cluster.forEach((item, index) => {
+          const targetY = centreY + (index - (cluster.length - 1) / 2) * spacing;
+          const shift = Math.max(-44, Math.min(44, targetY - item.y));
+          detailLabelShiftByField.set(item.id, Math.round(shift));
+        });
+      };
+
+      let cluster: typeof candidates = [];
+      for (const candidate of candidates) {
+        const previous = cluster[cluster.length - 1];
+        if (!previous || (Math.abs(candidate.y - previous.y) < 40 && Math.abs(candidate.x - previous.x) < 280)) {
+          cluster.push(candidate);
+        } else {
+          flushCluster(cluster);
+          cluster = [candidate];
+        }
+      }
+      flushCluster(cluster);
+    }
+
     markersRef.current = mappedFields.map((field) => {
       const tone = getTone(field);
       const selected = field.id === selectedFieldId;
@@ -645,6 +689,10 @@ export function MapHero({
         if (neighbourDetailLabels && statusLabel) {
           const stack = document.createElement("span");
           stack.className = "flex flex-col items-start gap-0.5";
+          const labelShift = detailLabelShiftByField.get(field.id) ?? 0;
+          if (labelShift !== 0) {
+            stack.style.transform = `translateY(${labelShift}px)`;
+          }
           const detail = document.createElement("span");
           detail.className = "whitespace-nowrap text-[11px] font-medium leading-none text-white/90 tabular-nums";
           detail.style.textShadow = name.style.textShadow;

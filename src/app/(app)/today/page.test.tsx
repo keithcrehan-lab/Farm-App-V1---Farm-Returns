@@ -1393,7 +1393,8 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([fertiliserRecommendationOkPrompt()]);
     renderTodayRealModeMap();
     await screen.findByTestId("map-hero-stub");
-    await waitFor(() => expect(document.querySelector("[data-what-matters-trigger]")!.textContent).toMatch(/1$/));
+    expect(document.querySelector("[data-what-matters-trigger]")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /What matters/i })).toBeNull();
     const before = { ...capturedMapHeroProps! };
     fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
     expect(screen.getByText(/farm return · nutrients/i)).toBeTruthy();
@@ -1451,7 +1452,7 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
     expect(Array.from(drawer().querySelectorAll("[data-selection-context] dt")).map((dt) => dt.textContent)).toContain("P");
     fireEvent.click(screen.getByRole("button", { name: "Grass" }));
-    expect(within(drawer()).getByText(/aren't measured for this field yet/i)).toBeTruthy();
+    expect(within(drawer()).getByText(/record grass for this field to establish ground truth/i)).toBeTruthy();
     act(() => capturedMapHeroProps!.onMapBackgroundClick!());
     expect(drawer().getAttribute("data-open")).toBe("false");
 
@@ -1619,9 +1620,10 @@ describe("TodayPage — Farm + Fields redesign (2026-10-27)", () => {
     expect(drawer.textContent).not.toMatch(/cattle|livestock|weanling|head\b|move .* here/i);
   });
 
-  it("keeps the Fields companion one quiet utility away", async () => {
+  it("keeps Fields list and What matters shortcuts off the map header", async () => {
     renderTodayMap();
     await screen.findByTestId("map-hero-stub");
-    expect(screen.getByRole("link", { name: "Fields list" }).getAttribute("href")).toBe("/fields");
+    expect(screen.queryByRole("link", { name: "Fields list" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /What matters/i })).toBeNull();
   });
 });

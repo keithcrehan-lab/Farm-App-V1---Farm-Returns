@@ -63,6 +63,10 @@ describe("Manage herd groups redesign", () => {
 
     expect(screen.getByText(/delete weanlings\?/i)).toBeTruthy();
     expect(screen.getByText(/individual animals linked to this group are not deleted/i)).toBeTruthy();
+    // The cascade on grazing_field_sessions removes the group's movement
+    // history, which feeds field stocking: the farmer is told before deleting.
+    expect(screen.getByText(/deletes the field movements recorded for it/i)).toBeTruthy();
+    expect(screen.getByText(/fall back to the farm-level stocking rate in the fertiliser plan/i)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /keep group/i }));
     expect(screen.getByText("Weanlings")).toBeTruthy();

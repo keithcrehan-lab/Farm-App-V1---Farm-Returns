@@ -108,8 +108,10 @@ export function validateNewFertiliserStockRecordInput(input: NewFertiliserStockR
   if (!input.product || input.product.trim().length === 0) {
     errors.push({ field: "product", message: "Choose or enter a product" });
   }
-  if (!Number.isFinite(input.quantity) || input.quantity <= 0) {
-    errors.push({ field: "quantity", message: "Enter a quantity greater than zero" });
+  // Zero is a real count: "used up" must be recordable, otherwise an older
+  // positive balance stays current and keeps reducing what is bought.
+  if (!Number.isFinite(input.quantity) || input.quantity < 0) {
+    errors.push({ field: "quantity", message: "Enter a quantity of zero or more" });
   }
   if (!FERTILISER_STOCK_UNITS.includes(input.unit)) {
     errors.push({ field: "unit", message: "Unit must be kg or t" });

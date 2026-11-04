@@ -160,7 +160,7 @@ export async function applyDerivedLegalSpatialEvidence(
   evidence: {
     assessedAt: string;
     commonage?: { value: "commonage" | "not_commonage"; source: string; sourceDate?: string };
-    water?: { featureType: "surface_water"; nearestFeature: string; distanceM: number; source: string; sourceDate?: string };
+    water?: { featureType: "surface_water"; nearestFeature: string; distanceM: number; chemicalStripWaterLines?: GeoJSON.MultiLineString; source: string; sourceDate?: string };
   },
 ): Promise<Field> {
   const { supabase, field } = await fetchField(fieldId);
@@ -184,6 +184,7 @@ export async function applyDerivedLegalSpatialEvidence(
         featureType: evidence.water.featureType,
         nearestFeature: evidence.water.nearestFeature,
         distanceM: evidence.water.distanceM,
+        ...(evidence.water.chemicalStripWaterLines ? { chemicalStripWaterLines: evidence.water.chemicalStripWaterLines } : {}),
         localOverrideStatus: field.waterBufferContext?.value.localOverrideStatus ?? "unknown",
         ...(field.waterBufferContext?.value.localOverrideDistanceM !== undefined ? { localOverrideDistanceM: field.waterBufferContext.value.localOverrideDistanceM } : {}),
       },

@@ -134,8 +134,8 @@ describe("Pilot P4 — navigation", () => {
     }
   });
 
-  it("Farm + Fields redesign: the primary destinations are Farm, Plan, Cattle, Housing, Finance and Records; What Matters stays reachable under More", () => {
-    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/plan", "/cattle", "/housing", "/finance", "/records"]);
+  it("Farm + Fields redesign: the primary destinations are Farm, Fertiliser, Plan, Cattle, Housing, Finance and Records; What Matters stays reachable under More", () => {
+    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/fertiliser-plan", "/plan", "/cattle", "/housing", "/finance", "/records"]);
     expect(moreNavItems.map((i) => i.href)).toContain("/what-matters");
     expect(routeExists("/what-matters")).toBe(true);
   });

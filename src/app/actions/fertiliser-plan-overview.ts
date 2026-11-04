@@ -40,8 +40,15 @@ import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listHousingForFarm } from "@/lib/farm-data/housing";
 import { listFieldProductionCyclesForSeason } from "@/lib/farm-data/field-production-cycles";
-import { listFertiliserStockRecordsForFarm, createFertiliserStockRecord } from "@/lib/farm-data/fertiliser-stock";
-import { getFarmFertiliserDemandAction, getFarmLimeRequirementAction, getFieldFertiliserStatusAction } from "./fertiliser-plan";
+import {
+  listFertiliserStockRecordsForFarm,
+  createFertiliserStockRecord,
+} from "@/lib/farm-data/fertiliser-stock";
+import {
+  getFarmFertiliserDemandAction,
+  getFarmLimeRequirementAction,
+  getFieldFertiliserStatusAction,
+} from "./fertiliser-plan";
 import {
   aggregateFarmNutrientRequirementKg,
   type FarmFertiliserAggregation,
@@ -51,7 +58,10 @@ import {
   type FarmLimeRequirement,
   type FarmNutrientRequirementTotalsKg,
 } from "@/domain/fertiliser-plan";
-import { buildFarmSlurryStorageOverview, type FarmSlurryStorageOverview } from "@/domain/slurry-storage";
+import {
+  buildFarmSlurryStorageOverview,
+  type FarmSlurryStorageOverview,
+} from "@/domain/slurry-storage";
 import {
   buildFertiliserStockBand,
   currentFertiliserStockByProduct,
@@ -62,7 +72,11 @@ import {
   type NewFertiliserStockRecordInput,
 } from "@/domain/fertiliser-stock";
 import { activeFields, type FieldUse } from "@/domain/types";
-import { buildFertiliserQuoteReadiness, type FertiliserQuoteReadiness } from "@/lib/fertiliser-quote-readiness";
+import {
+  buildFertiliserQuoteReadiness,
+  type FertiliserQuoteReadiness,
+} from "@/lib/fertiliser-quote-readiness";
+import { resolvePlanningSeasonCycles } from "@/lib/fertiliser-planning-season";
 
 export interface FertiliserPlanFieldBreakdownRow {
   fieldId: string;
@@ -75,7 +89,13 @@ export interface FertiliserPlanFieldBreakdownRow {
    * table at all); every other status is a real, disclosed gap
    * (`reasonCode` carries the honest reason, most commonly missing
    * livestock evidence). */
-  status: "OK" | "NOT_APPLICABLE" | "BLOCKED_INSUFFICIENT_EVIDENCE" | "AMBIGUOUS" | "LEGAL_PROHIBITION" | "UNKNOWN";
+  status:
+    | "OK"
+    | "NOT_APPLICABLE"
+    | "BLOCKED_INSUFFICIENT_EVIDENCE"
+    | "AMBIGUOUS"
+    | "LEGAL_PROHIBITION"
+    | "UNKNOWN";
   reasonCode?: string;
 }
 
@@ -110,17 +130,48 @@ export interface FertiliserPlanOverview {
   planningAssumption?: string;
 }
 
+async function resolveQuoteReadinessCycles(
+  fieldIds: string[],
+  planningSeason: string,
+  currentSeason: string,
+) {
+  const targetCycles = await listFieldProductionCyclesForSeason(
+    fieldIds,
+    planningSeason,
+  );
+  if (planningSeason <= currentSeason) return targetCycles;
+  return resolvePlanningSeasonCycles({
+    targetCycles,
+    currentCycles: await listFieldProductionCyclesForSeason(
+      fieldIds,
+      currentSeason,
+    ),
+    planningSeason,
+    currentSeason,
+  });
+}
 
-export async function getFertiliserPlanOverviewAction(planningSeason?: string): Promise<FertiliserPlanOverview> {
+export async function getFertiliserPlanOverviewAction(
+  planningSeason?: string,
+): Promise<FertiliserPlanOverview> {
   const farm = await getFarmForCurrentUser();
   if (!farm) {
-    throw new Error("getFertiliserPlanOverviewAction: no real farm for the current session");
+    throw new Error(
+      "getFertiliserPlanOverviewAction: no real farm for the current session",
+    );
   }
   const now = new Date().toISOString();
   const currentSeason = now.slice(0, 4);
   const targetSeason = planningSeason ?? currentSeason;
 
-  const [allFields, slurryAllocations, housingList, stockRecords, demandResult, limeResult] = await Promise.all([
+  const [
+    allFields,
+    slurryAllocations,
+    housingList,
+    stockRecords,
+    demandResult,
+    limeResult,
+  ] = await Promise.all([
     listFieldsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
     listHousingForFarm(farm.id),
@@ -129,41 +180,100 @@ export async function getFertiliserPlanOverviewAction(planningSeason?: string): 
     getFarmLimeRequirementAction(),
   ]);
   const fields = activeFields(allFields);
-  const productionCycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), currentSeason);
-
-  // P4 presentation adapter: the overview reads the exact same P3 field
-  // status contract as the field screen. No legacy Prompt/NutrientPlan
-  // recompute is permitted here, so the overview, calculation audit and
-  // procurement basket all trace back to one agronomy engine.
-  const p3FieldResults = await Promise.all(
-    fields.map(async (field) => ({ field, result: await getFieldFertiliserStatusAction(field.id, targetSeason) })),
+  const productionCycles = await resolveQuoteReadinessCycles(
+    fields.map((field) => field.id),
+    targetSeason,
+    currentSeason,
   );
-  const perFieldRequirements: { areaHa: number; requirementKgHa?: { n: number; p: number; k: number } }[] = [];
-  const fieldBreakdown: FertiliserPlanFieldBreakdownRow[] = p3FieldResults.map(({ field, result }) => {
-    if (result.status === "ok") {
-      perFieldRequirements.push({ areaHa: field.areaHa, requirementKgHa: result.requirementKgHa });
+
+  // P3 exposes the canonical per-field agronomic calculation from the SAME
+  // farm-demand pass that produced the product basket. Use it directly so
+  // field counts, area and N/P/K totals cannot drift from procurement again.
+  // The fallback exists only for legacy demand results that pre-date the P3
+  // field-calculation contract.
+  const perFieldRequirements: {
+    areaHa: number;
+    requirementKgHa?: { n: number; p: number; k: number };
+  }[] = [];
+  let fieldBreakdown: FertiliserPlanFieldBreakdownRow[];
+
+  if (demandResult.fieldCalculations) {
+    const calculationByFieldId = new Map(
+      demandResult.fieldCalculations.map((result) => [result.fieldId, result]),
+    );
+    fieldBreakdown = fields.map((field) => {
+      const result = calculationByFieldId.get(field.id);
+      if (result?.status === "OK") {
+        perFieldRequirements.push({
+          areaHa: field.areaHa,
+          requirementKgHa: result.requirementKgHa,
+        });
+        return {
+          fieldId: field.id,
+          fieldName: field.name,
+          areaHa: field.areaHa,
+          seasonalUse: field.plannedUse?.value,
+          status: "OK" as const,
+        };
+      }
+      perFieldRequirements.push({
+        areaHa: field.areaHa,
+        requirementKgHa: undefined,
+      });
       return {
         fieldId: field.id,
         fieldName: field.name,
         areaHa: field.areaHa,
         seasonalUse: field.plannedUse?.value,
-        status: "OK" as const,
+        status: "BLOCKED_INSUFFICIENT_EVIDENCE" as const,
+        reasonCode: result?.reasonCode ?? "P3_FIELD_CALCULATION_MISSING",
       };
-    }
-    perFieldRequirements.push({ areaHa: field.areaHa, requirementKgHa: undefined });
-    return {
-      fieldId: field.id,
-      fieldName: field.name,
-      areaHa: field.areaHa,
-      seasonalUse: field.plannedUse?.value,
-      status: result.status === "not_applicable" ? ("NOT_APPLICABLE" as const) : ("BLOCKED_INSUFFICIENT_EVIDENCE" as const),
-      ...(result.status === "blocked" ? { reasonCode: result.reasonCode } : {}),
-    };
-  });
+    });
+  } else {
+    const p3FieldResults = await Promise.all(
+      fields.map(async (field) => ({
+        field,
+        result: await getFieldFertiliserStatusAction(field.id, targetSeason),
+      })),
+    );
+    fieldBreakdown = p3FieldResults.map(({ field, result }) => {
+      if (result.status === "ok") {
+        perFieldRequirements.push({
+          areaHa: field.areaHa,
+          requirementKgHa: result.requirementKgHa,
+        });
+        return {
+          fieldId: field.id,
+          fieldName: field.name,
+          areaHa: field.areaHa,
+          seasonalUse: field.plannedUse?.value,
+          status: "OK" as const,
+        };
+      }
+      perFieldRequirements.push({
+        areaHa: field.areaHa,
+        requirementKgHa: undefined,
+      });
+      return {
+        fieldId: field.id,
+        fieldName: field.name,
+        areaHa: field.areaHa,
+        seasonalUse: field.plannedUse?.value,
+        status:
+          result.status === "prohibited"
+            ? ("LEGAL_PROHIBITION" as const)
+            : ("BLOCKED_INSUFFICIENT_EVIDENCE" as const),
+        reasonCode: result.reasonCode,
+      };
+    });
+  }
 
-  const nutrientRequirementKg = aggregateFarmNutrientRequirementKg(perFieldRequirements);
+  const nutrientRequirementKg =
+    aggregateFarmNutrientRequirementKg(perFieldRequirements);
   const fieldsIncluded = fieldBreakdown.filter((f) => f.status === "OK").length;
-  const totalAreaHaIncluded = fieldBreakdown.filter((f) => f.status === "OK").reduce((sum, f) => sum + f.areaHa, 0);
+  const totalAreaHaIncluded = fieldBreakdown
+    .filter((f) => f.status === "OK")
+    .reduce((sum, f) => sum + f.areaHa, 0);
   const totalAreaHaTotal = fields.reduce((sum, f) => sum + f.areaHa, 0);
 
   const currentStockByProduct = currentFertiliserStockByProduct(stockRecords);
@@ -188,12 +298,23 @@ export async function getFertiliserPlanOverviewAction(planningSeason?: string): 
   // (Codex audit HIGH, round 1: "Urea"/"urea"/" Urea " must never form
   // separate balances), so a raw product string must never be used as a
   // map key directly anywhere in this function.
-  const npkAnalysisByProduct = new Map(demandResult.purchaseRequirementTonnes.map((line) => [normaliseFertiliserProductKey(line.product), line.npkAnalysis]));
-  const demandProductKeys = new Set(demandResult.demand.map((d) => normaliseFertiliserProductKey(d.product)));
+  const npkAnalysisByProduct = new Map(
+    demandResult.purchaseRequirementTonnes.map((line) => [
+      normaliseFertiliserProductKey(line.product),
+      line.npkAnalysis,
+    ]),
+  );
+  const demandProductKeys = new Set(
+    demandResult.demand.map((d) => normaliseFertiliserProductKey(d.product)),
+  );
   const limeKey = normaliseFertiliserProductKey("Lime");
   const stockColumns: FertiliserStockBand[] = [
     ...demandResult.demand
-      .filter((d) => d.remainingRequirementKg > 0 || currentStockByProduct.has(normaliseFertiliserProductKey(d.product)))
+      .filter(
+        (d) =>
+          d.remainingRequirementKg > 0 ||
+          currentStockByProduct.has(normaliseFertiliserProductKey(d.product)),
+      )
       .map((d) => {
         const key = normaliseFertiliserProductKey(d.product);
         return buildFertiliserStockBand({
@@ -228,7 +349,9 @@ export async function getFertiliserPlanOverviewAction(planningSeason?: string): 
     aggregation: demandResult.aggregation,
     planningSeason: targetSeason,
     currentSeason,
-    ...(farm.grazingProductionSystem?.value ? { farmGrazingProductionSystem: farm.grazingProductionSystem.value } : {}),
+    ...(farm.grazingProductionSystem?.value
+      ? { farmGrazingProductionSystem: farm.grazingProductionSystem.value }
+      : {}),
   });
 
   return {
@@ -243,7 +366,8 @@ export async function getFertiliserPlanOverviewAction(planningSeason?: string): 
     nutrientRequirementKg,
     demand: demandResult.demand,
     purchaseRequirementTonnes: demandResult.purchaseRequirementTonnes,
-    applicationsWithUnknownComposition: demandResult.applicationsWithUnknownComposition,
+    applicationsWithUnknownComposition:
+      demandResult.applicationsWithUnknownComposition,
     fieldsWithBlockedEvidence: demandResult.fieldsWithBlockedEvidence,
     truncated: demandResult.truncated,
     lime: limeResult,
@@ -255,8 +379,13 @@ export async function getFertiliserPlanOverviewAction(planningSeason?: string): 
     basket: demandResult.basket,
     quoteReadiness,
     planningSeason: targetSeason,
-    planningBasis: targetSeason > currentSeason ? "NEXT_SEASON" : "CURRENT_SEASON",
-    ...(targetSeason > currentSeason ? { planningAssumption: `Current ${currentSeason} field use is carried forward for quote planning unless a ${targetSeason} production cycle exists. Chemical fertiliser and slurry applied in ${currentSeason} are not deducted from the ${targetSeason} requirement.` } : {}),
+    planningBasis:
+      targetSeason > currentSeason ? "NEXT_SEASON" : "CURRENT_SEASON",
+    ...(targetSeason > currentSeason
+      ? {
+          planningAssumption: `Current ${currentSeason} field use is carried forward for quote planning unless a ${targetSeason} production cycle exists. Chemical fertiliser and slurry applied in ${currentSeason} are not deducted from the ${targetSeason} requirement.`,
+        }
+      : {}),
   };
 }
 
@@ -273,10 +402,14 @@ export interface AddFertiliserStockRecordResult {
  * every call is a real, new, immutable `fertiliser_stock_records` insert;
  * a farmer correcting a mistaken figure simply records a new one.
  */
-export async function addFertiliserStockRecordAction(input: NewFertiliserStockRecordInput): Promise<AddFertiliserStockRecordResult> {
+export async function addFertiliserStockRecordAction(
+  input: NewFertiliserStockRecordInput,
+): Promise<AddFertiliserStockRecordResult> {
   const farm = await getFarmForCurrentUser();
   if (!farm) {
-    throw new Error("addFertiliserStockRecordAction: no real farm for the current session");
+    throw new Error(
+      "addFertiliserStockRecordAction: no real farm for the current session",
+    );
   }
   const today = new Date().toISOString().slice(0, 10);
   const errors = validateNewFertiliserStockRecordInput(input, today);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { purchaseStatusPresentation } from "./purchase-status-presentation";
+import { purchaseStatusPresentation, unknownReasonMessage } from "./purchase-status-presentation";
 
 describe("purchaseStatusPresentation (Session 2b)", () => {
   it("a sized blend shows products; credit not counted is provisional with the engine's own text", () => {
@@ -42,5 +42,20 @@ describe("purchaseStatusPresentation (Session 2b)", () => {
     expect(text).toContain("Farm Return's P and K products are blends that supply both nutrients");
     expect(text).toContain("no fertiliser products are recommended for this field");
     expect(text).not.toContain("Every product");
+  });
+});
+
+describe("phosphorus-maximum reasons", () => {
+  it("the product-mix guard no longer says a phosphorus-free potash product would be needed", () => {
+    const message = unknownReasonMessage("P3_PRODUCT_P_EXCEEDS_NAP_CEILING");
+    expect(message).not.toMatch(/would be needed/);
+    expect(message).toMatch(/including phosphorus-free potash/);
+  });
+
+  it("prior chemical P over the maximum has its own reason: over the maximum, not missing information", () => {
+    const message = unknownReasonMessage("P3_PRIOR_CHEMICAL_P_EXCEEDS_NAP_CEILING");
+    expect(message).toMatch(/already recorded on this field this season is above its legal phosphorus maximum/);
+    expect(message).not.toMatch(/needs more information|within its legal/i);
+    expect(message).not.toBe(unknownReasonMessage("SOME_UNMAPPED_CODE"));
   });
 });

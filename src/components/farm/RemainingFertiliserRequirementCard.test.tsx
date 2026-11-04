@@ -20,8 +20,11 @@ describe("RemainingFertiliserRequirementCard", () => {
     expect(screen.queryByText(/remaining requirement/i)).toBeNull();
   });
 
-  it("renders nothing when the real status is genuinely NOT_APPLICABLE", async () => {
-    mockAction.mockResolvedValue({ status: "not_applicable" });
+  it("renders no remaining-requirement figure when chemical fertiliser is legally prohibited", async () => {
+    mockAction.mockResolvedValue({
+      status: "prohibited",
+      reasonCode: "COMMONAGE_CHEMICAL_FERTILISER_PROHIBITED",
+    });
     render(<RemainingFertiliserRequirementCard fieldId="field-1" canRecord />);
     await waitFor(() => expect(mockAction).toHaveBeenCalledWith("field-1"));
     expect(screen.queryByText(/remaining requirement/i)).toBeNull();
@@ -162,7 +165,10 @@ describe("RemainingFertiliserRequirementCard", () => {
   });
 
   it("re-fetches when the field changes", async () => {
-    mockAction.mockResolvedValue({ status: "not_applicable" });
+    mockAction.mockResolvedValue({
+      status: "prohibited",
+      reasonCode: "COMMONAGE_CHEMICAL_FERTILISER_PROHIBITED",
+    });
     const { rerender } = render(<RemainingFertiliserRequirementCard fieldId="field-1" canRecord />);
     await waitFor(() => expect(mockAction).toHaveBeenCalledWith("field-1"));
     rerender(<RemainingFertiliserRequirementCard fieldId="field-2" canRecord />);

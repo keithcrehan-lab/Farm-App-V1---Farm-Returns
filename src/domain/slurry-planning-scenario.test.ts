@@ -15,6 +15,14 @@ describe("buildSlurryPlanningScenario", () => {
   it("keeps future forecast supply separate from physical storage and conserves finite volume", () => {
     expect(buildSlurryPlanningScenario(base)).toMatchObject({ status: "READY", expectedAvailableM3: 300, allocatedM3: 250, unallocatedM3: 50, source: "FARMER_FORECAST" });
   });
+  it("rejects a proposal dated outside the planning season, which would otherwise credit nothing silently", () => {
+    const result = buildSlurryPlanningScenario({
+      ...base,
+      candidates: [{ ...base.candidates[0], applicationDate: "2026-11-15" }],
+    });
+    expect(result).toMatchObject({ status: "INVALID" });
+    if (result.status === "INVALID") expect(result.issues).toEqual(["CANDIDATE_APPLICATION_DATE_OUTSIDE_PLANNING_SEASON"]);
+  });
   it("fails closed when proposed allocations exceed forecast supply", () => {
     const result = buildSlurryPlanningScenario({ ...base, expectedAvailableM3: 200 });
     expect(result).toMatchObject({ status: "INVALID" });

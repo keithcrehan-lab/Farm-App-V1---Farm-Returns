@@ -9,7 +9,10 @@ import { getFertiliserPlanOverviewAction, type FertiliserPlanOverview } from "@/
 import {
   getFieldFertiliserStatusAction,
   type FieldFertiliserStatusResult,
+  type OrganicCreditBasis,
+  type TrackedEvidence,
 } from "@/app/actions/fertiliser-plan";
+import type { PlanningSlurrySource } from "@/domain/slurry-forecast-adoption";
 import { CROP_SYSTEM_LABELS, type CropSystem } from "@/domain/fertiliser-field-evidence";
 import type { GrassRuleTrace } from "@/domain/grass-fertiliser-engine-v2";
 
@@ -77,7 +80,13 @@ function RuleTrace({ nutrient, trace }: { nutrient: "N" | "P" | "K"; trace?: Gra
   );
 }
 
-export function FertiliserCalculationAuditClient({ fieldId }: { fieldId?: string }) {
+export function FertiliserCalculationAuditClient({
+  fieldId,
+  planningSeason,
+}: {
+  fieldId?: string;
+  planningSeason?: string;
+}) {
   const [overview, setOverview] = useState<FertiliserPlanOverview | null>(null);
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [failed, setFailed] = useState(false);
@@ -86,7 +95,7 @@ export function FertiliserCalculationAuditClient({ fieldId }: { fieldId?: string
     let cancelled = false;
     async function load() {
       try {
-        const nextOverview = await getFertiliserPlanOverviewAction();
+        const nextOverview = await getFertiliserPlanOverviewAction(planningSeason);
         if (cancelled) return;
         setOverview(nextOverview);
         const selected = fieldId
@@ -97,7 +106,10 @@ export function FertiliserCalculationAuditClient({ fieldId }: { fieldId?: string
         const nextRows = await Promise.all(
           selected.map(async (row): Promise<AuditRow> => {
             try {
-              const result = await getFieldFertiliserStatusAction(row.fieldId);
+              const result = await getFieldFertiliserStatusAction(
+                row.fieldId,
+                planningSeason,
+              );
               return { fieldId: row.fieldId, fieldName: row.fieldName, areaHa: row.areaHa, status: "ready", result };
             } catch {
               return { fieldId: row.fieldId, fieldName: row.fieldName, areaHa: row.areaHa, status: "error" };
@@ -114,7 +126,7 @@ export function FertiliserCalculationAuditClient({ fieldId }: { fieldId?: string
     return () => {
       cancelled = true;
     };
-  }, [fieldId]);
+  }, [fieldId, planningSeason]);
 
   const readyCount = useMemo(() => rows.filter((row) => row.result?.status === "ok").length, [rows]);
 
@@ -185,12 +197,17 @@ export function FertiliserCalculationAuditClient({ fieldId }: { fieldId?: string
               }
               const result = row.result;
               if (!result || result.status !== "ok") {
-                const reason = result?.status === "blocked" ? result.reasonCode : result?.status === "not_applicable" ? "P3_UNSUPPORTED_OR_NOT_APPLICABLE" : "UNKNOWN";
+                const reason = result?.reasonCode ?? "UNKNOWN";
+                const prohibited = result?.status === "prohibited";
                 return (
                   <section key={row.fieldId} className="break-inside-avoid border-t border-fr-v2-rule pt-5">
                     <h2 className="font-display text-xl text-fr-v2-graphite">{row.fieldName}</h2>
                     <p className="mt-1 text-sm text-fr-v2-muted">{row.areaHa.toFixed(2)} ha</p>
-                    <p className="mt-3 text-sm text-fr-attention">Recommendation withheld: {reason}. No fertiliser quantity is inferred.</p>
+                    <p className="mt-3 text-sm text-fr-attention">
+                      {prohibited
+                        ? `Chemical fertiliser legally prohibited: ${reason}. No fertiliser is recommended for this field.`
+                        : `Recommendation withheld: ${reason}. No fertiliser quantity is inferred.`}
+                    </p>
                   </section>
                 );
               }
@@ -224,6 +241,7 @@ export function FertiliserCalculationAuditClient({ fieldId }: { fieldId?: string
 
                     <AuditBlock title="3. Credits already accounted for">
                       <AuditLine label="Organic / slurry credit" value={npk(organic)} />
+                      {result.organicCreditBasis ? <OrganicCreditBasisLines basis={result.organicCreditBasis} /> : null}
                       <AuditLine label="Chemical fertiliser already applied" value={npk(chemical)} />
                       <AuditLine label="Evidence rule" value="Blank evidence is never treated as zero; these credits exist only where the P3 evidence contract resolved them." />
                     </AuditBlock>
@@ -235,6 +253,12 @@ export function FertiliserCalculationAuditClient({ fieldId }: { fieldId?: string
                     </AuditBlock>
 
                     <AuditBlock title="5. Product allocation sent to procurement">
+                      {result.waterStrip ? (
+                        <AuditLine
+                          label="Chemical-fertiliser area"
+                          value={`${row.areaHa.toFixed(2)} ha − ${result.waterStrip.excludedStripHa.toFixed(2)} ha within 3 m of surface water = ${result.waterStrip.chemicalAreaHa.toFixed(2)} ha (${result.waterStrip.source}; ${result.waterStrip.ruleId})`}
+                        />
+                      ) : null}
                       {result.recommendedProducts.length === 0 ? (
                         <AuditLine label="Products" value="No purchased fertiliser product currently required." />
                       ) : (
@@ -242,7 +266,7 @@ export function FertiliserCalculationAuditClient({ fieldId }: { fieldId?: string
                           <div key={product.name} className="border-b border-fr-v2-rule py-2 last:border-b-0">
                             <p className="text-sm font-semibold text-fr-v2-graphite">{product.name} · {product.npkAnalysis}</p>
                             <p className="mt-1 text-xs text-fr-v2-muted">
-                              {product.rateKgHa.toFixed(2)} kg/ha × {row.areaHa.toFixed(2)} ha = {product.totalKg.toFixed(2)} kg
+                              {product.rateKgHa.toFixed(2)} kg/ha × {(result.waterStrip?.chemicalAreaHa ?? row.areaHa).toFixed(2)} ha = {product.totalKg.toFixed(2)} kg
                             </p>
                           </div>
                         ))
@@ -264,6 +288,78 @@ export function FertiliserCalculationAuditClient({ fieldId }: { fieldId?: string
         </>
       )}
     </div>
+  );
+}
+
+function trackedLine(evidence: TrackedEvidence<string>): string {
+  const own = `${evidence.value} · ${evidence.status} · ${evidence.source}${evidence.sourceDate ? ` (${evidence.sourceDate})` : ""}`;
+  return evidence.history.length === 0
+    ? own
+    : `${own} · replaced ${evidence.history.map((h) => `${h.value} (${h.status}, ${h.source})`).join("; ")}`;
+}
+
+function slurrySourceLine(source: PlanningSlurrySource): string {
+  switch (source.kind) {
+    case "PHYSICAL_RESERVATION":
+      return `planned allocation ${source.allocationId ?? "(no id)"}${source.planRevision !== undefined ? ` rev ${source.planRevision}` : ""}`;
+    case "FORECAST_INTENT":
+      return `adopted forecast ${source.adoptionId} (${source.forecastSource === "FARMER_FORECAST" ? "farmer forecast" : "livestock/store forecast"} of ${source.expectedAvailableM3.toFixed(0)} m³ for ${source.planningDate}, adopted ${source.adoptedAt.slice(0, 10)}; ${source.scenarioVersion}; ${source.adoptionVersion})`;
+    case "PREVIEW_SCENARIO":
+      return `preview scenario for ${source.planningDate} (${source.scenarioVersion})`;
+    case "AUTOMATIC_CANDIDATE":
+      return `automatic planning candidate for ${source.planningDate}`;
+  }
+}
+
+function OrganicCreditBasisLines({ basis }: { basis: OrganicCreditBasis }) {
+  const area = basis.spreadableArea;
+  const less = basis.lessTrigger;
+  return (
+    <>
+      <AuditLine
+        label="Slurry allocation"
+        value={`${basis.allocation.volumeM3.toFixed(1)} m³ from store ${basis.allocation.housingId}`}
+      />
+      {basis.allocation.contributing.map((allocation, index) => (
+        <AuditLine
+          key={`${allocation.housingId}-${index}`}
+          label={`Allocation ${index + 1} identity`}
+          value={`${allocation.volumeM3.toFixed(1)} m³ from ${allocation.housingId} · ${slurrySourceLine(allocation.source)}${allocation.compositionRecordId ? ` · composition record ${allocation.compositionRecordId}` : " · no composition record"}`}
+        />
+      ))}
+      <AuditLine label="Application method" value={trackedLine(basis.applicationMethod)} />
+      <AuditLine label="Application date" value={trackedLine(basis.applicationDate)} />
+      <AuditLine
+        label="LESS requirement basis"
+        value={
+          less.status === "RESOLVED"
+            ? `${less.referenceYear} grassland stocking rate ${less.gsrKgNHa} kg N/ha (${less.evidenceStatus}, ${less.source}; record ${less.recordId}) · ${less.version}`
+            : `${less.referenceYear ?? "Preceding-year"} grassland stocking rate not established (${less.reasonCode}) — only LESS is accepted · ${less.version}`
+        }
+      />
+      <AuditLine
+        label="Spreading area"
+        value={
+          area.basis === "SPREADABLE_AREA_DECLARATION"
+            ? `${area.areaHa.toFixed(2)} ha of ${area.grossAreaHa.toFixed(2)} ha after mapped no-spread areas (${area.source}, ${area.effectiveDate ?? "undated"}; record ${area.recordId}) · ${area.version}`
+            : `${area.areaHa.toFixed(2)} ha — the whole mapped field; no no-spread areas declared · ${area.version}`
+        }
+      />
+      <AuditLine label="Application rate" value={`${basis.applicationRateM3ha.toFixed(2)} m³/ha on the spreading area`} />
+      <AuditLine
+        label="Dry matter"
+        value={`${basis.dryMatter.dmPct}% DM · ${basis.dryMatter.status} · ${basis.dryMatter.source}${basis.dryMatter.sourceDate ? ` (${basis.dryMatter.sourceDate})` : ""}${basis.dryMatter.compositionRecordId ? ` · record ${basis.dryMatter.compositionRecordId}` : ""} · ${basis.dryMatter.compositionVersion}`}
+      />
+      <AuditLine
+        label="Availability rule"
+        value={`${basis.rule.ruleId} · ${basis.rule.source} · ${basis.rule.timingCategory.toLowerCase()} timing${basis.rule.timingAssumed ? " (assumed)" : ""}${basis.rule.soilIndexAdjustmentApplied.p || basis.rule.soilIndexAdjustmentApplied.k ? " · low soil-index availability adjustment applied" : ""} · evidence ${basis.evidenceState}`}
+      />
+      <AuditLine label="Slurry calculation" value={basis.calculationVersion} />
+      <AuditLine
+        label="Credit"
+        value={`${npk(basis.creditOnSpreadAreaKgHa)} on the spreading area = ${npk(basis.fieldAverageCreditKgHa)} across the field`}
+      />
+    </>
   );
 }
 

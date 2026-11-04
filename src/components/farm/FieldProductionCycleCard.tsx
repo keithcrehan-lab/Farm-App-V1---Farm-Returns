@@ -15,6 +15,8 @@ import {
   saveFieldProductionCycleAction,
 } from "@/app/actions/fertiliser-field-evidence";
 import { useFarm } from "@/store/farm-store";
+import { FIELD_NUTRIENT_FOCUS_ATTRIBUTE } from "@/lib/field-nutrient-focus";
+import { CROP_SYSTEM_CONTEXT } from "@/lib/crop-system-context";
 
 const INPUT = "min-h-10 w-full border border-fr-v2-cream-rule bg-white px-3 text-sm text-fr-v2-graphite outline-none focus:border-fr-v2-forest";
 const LABEL = "flex flex-col gap-1.5 text-xs font-semibold text-fr-v2-graphite";
@@ -25,6 +27,12 @@ const GRAZING_SYSTEM_LABELS: Readonly<Record<GrazingProductionSystem, string>> =
   SUCKLER_CALF_TO_BEEF: "Suckler calf-to-beef",
   SUCKLER_CALF_TO_WEANING: "Suckler calf-to-weaning",
   OTHER_DRYSTOCK: "Other drystock",
+});
+
+const GRAZING_SYSTEM_CONTEXT: Readonly<Record<GrazingProductionSystem, string>> = Object.freeze({
+  SUCKLER_CALF_TO_BEEF: "Cows and their calves, with the calves kept on and finished as beef.",
+  SUCKLER_CALF_TO_WEANING: "Cows and their calves, with the calves sold at weaning.",
+  OTHER_DRYSTOCK: "Bought-in stores, dry cattle or another drystock system.",
 });
 
 
@@ -71,9 +79,31 @@ function gateCopy(gate: FertiliserInputGateResult | null): { title: string; deta
   };
 }
 
-export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onSaved?: () => void }) {
+export function FieldProductionCycleCard({
+  field,
+  onSaved,
+  planningSeason,
+  defaultOpen = false,
+}: {
+  field: Field;
+  onSaved?: () => void;
+  /** Quote-planning season carried from Fertiliser Plan. Without its own
+   * cycle, a future season is planned from the carried-forward current
+   * cycle, so that is the cycle edited here. */
+  planningSeason?: string;
+  defaultOpen?: boolean;
+}) {
   const farm = useFarm();
-  const season = String(new Date().getFullYear());
+  const currentSeason = String(new Date().getFullYear());
+  const requestedSeason = planningSeason ?? currentSeason;
+  const [loaded, setLoaded] = useState<{ requested: string; season: string }>({ requested: requestedSeason, season: requestedSeason });
+  // Never edit a stale season while a newly requested one is loading.
+  const season = loaded.requested === requestedSeason ? loaded.season : requestedSeason;
+  const carriedForwardTo = season !== requestedSeason ? requestedSeason : null;
+  // Saving always writes the planning season. A carried-forward cycle is
+  // only the starting point; editing it for a future quote must never
+  // rewrite the current season's record.
+  const futureSeason = requestedSeason > currentSeason;
   const [cycle, setCycle] = useState<FieldProductionCycle | null>(null);
   const [gate, setGate] = useState<FertiliserInputGateResult | null>(null);
   const [cropSystem, setCropSystem] = useState<CropSystem>("GRASS_GRAZING");
@@ -87,14 +117,20 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
   const [grazingMode, setGrazingMode] = useState<"baseline" | "farmer">("baseline");
   const [editingGrazingSystem, setEditingGrazingSystem] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
     let cancelled = false;
-    void loadFieldProductionCycleAction(field.id, season)
-      .then((state) => {
+    void loadFieldProductionCycleAction(field.id, requestedSeason)
+      .then(async (requestedState) => {
+        if (requestedState.cycle || requestedSeason === currentSeason) return { state: requestedState, season: requestedSeason };
+        const carried = await loadFieldProductionCycleAction(field.id, currentSeason);
+        return carried.cycle ? { state: carried, season: currentSeason } : { state: requestedState, season: requestedSeason };
+      })
+      .then(({ state, season: resolvedSeason }) => {
         if (cancelled) return;
+        setLoaded({ requested: requestedSeason, season: resolvedSeason });
         setCycle(state.cycle);
         setGate(state.gate);
         if (state.cycle) {
@@ -129,7 +165,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
     return () => {
       cancelled = true;
     };
-  }, [field.id, season, farm.grazingProductionSystem?.value]);
+  }, [field.id, requestedSeason, currentSeason, farm.grazingProductionSystem?.value]);
 
   const supported = P2_SUPPORTED_CROP_SYSTEMS.includes(cropSystem);
   const needsTarget = cropSystem === "GRASS_FIRST_CUT_SILAGE" || cropSystem === "GRASS_SECOND_CUT_SILAGE" || cropSystem === "GRASS_THIRD_CUT_SILAGE" || cropSystem === "GRASS_HAY" || cropSystem === "GRASS_MIXED" || cropSystem === "GRASS_WHITE_CLOVER_SILAGE";
@@ -140,7 +176,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
   const evidenceLabel = gate?.status === "READY_FOR_CALCULATION" ? "Evidence complete" : gate?.status === "UNSUPPORTED_PATHWAY" ? "Agronomy not enabled" : "Evidence incomplete";
 
   return (
-    <section className="border-t border-fr-v2-cream-rule" aria-label="1 · Crop & production">
+    <section className="border-t border-fr-v2-cream-rule" aria-label="1 · Crop & production" id="production-cycle">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -158,14 +194,19 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-gold">Field evidence</p>
-          <h3 className="mt-1 text-base font-semibold text-fr-v2-graphite">{season} production cycle</h3>
+          <h3 className="mt-1 text-base font-semibold text-fr-v2-graphite">{requestedSeason} production cycle</h3>
+          {carriedForwardTo ? (
+            <p className="mt-1 text-xs text-fr-v2-muted">
+              No {carriedForwardTo} cycle is saved, so this {season} cycle is carried forward for {carriedForwardTo} quote planning. Saving creates a planned {carriedForwardTo} cycle and leaves {season} unchanged.
+            </p>
+          ) : null}
         </div>
-        <span className="text-xs font-semibold text-fr-v2-muted">{cycle ? "Saved" : "Not saved"}</span>
+        <span className="text-xs font-semibold text-fr-v2-muted">{cycle && !carriedForwardTo ? "Saved" : "Not saved"}</span>
       </div>
 
       <label className={LABEL}>
         Crop system
-        <select className={INPUT} value={cropSystem} onChange={(event) => setCropSystem(event.target.value as CropSystem)}>
+        <select className={INPUT} value={cropSystem} onChange={(event) => setCropSystem(event.target.value as CropSystem)} aria-describedby={`crop-system-context-${field.id}`}>
           {cropOptions.map(([value, label]) => (
             <option key={value} value={value}>
               {label}{P2_SUPPORTED_CROP_SYSTEMS.includes(value) ? "" : " — not enabled yet"}
@@ -173,6 +214,9 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
           ))}
         </select>
       </label>
+      <span id={`crop-system-context-${field.id}`} className="-mt-2 text-xs leading-relaxed text-fr-v2-muted">
+        {CROP_SYSTEM_CONTEXT[cropSystem]}
+      </span>
 
       {cropSystem === "GRASS_GRAZING" ? (
         <div className="border border-fr-v2-cream-rule bg-fr-v2-cream-soft px-4 py-3" aria-label="Grazing production system">
@@ -203,6 +247,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
                 Field exception
                 <select
                   className={INPUT}
+                  aria-describedby={`grazing-system-context-${field.id}`}
                   value={grazingMode === "farmer" ? grazingSystem : ""}
                   onChange={(event) => {
                     setGrazingSystem(event.target.value as GrazingProductionSystem | "");
@@ -215,6 +260,11 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
                   <option value="OTHER_DRYSTOCK">Other drystock</option>
                 </select>
               </label>
+              <span id={`grazing-system-context-${field.id}`} className="-mt-2 text-xs leading-relaxed text-fr-v2-muted">
+                {grazingMode === "farmer" && grazingSystem
+                  ? GRAZING_SYSTEM_CONTEXT[grazingSystem]
+                  : "Choose a different system only if this field is run differently from the rest of the farm."}
+              </span>
               <button type="button" className="self-start text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-gold underline-offset-4" onClick={() => { setGrazingMode("baseline"); setGrazingSystem(farm.grazingProductionSystem?.value ?? ""); setEditingGrazingSystem(false); }}>Use farm baseline</button>
             </div>
           ) : grazingSystem ? (
@@ -232,19 +282,35 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
       ) : null}
 
       {needsTarget ? (
+        <>
         <label className={LABEL}>
           Production target (t DM/ha)
-          <input type="number" min="0" step="0.1" className={INPUT} value={target} onChange={(event) => setTarget(event.target.value)} />
+          <input {...{ [FIELD_NUTRIENT_FOCUS_ATTRIBUTE]: "production-target" }} type="number" min="0" step="0.1" className={INPUT} value={target} onChange={(event) => setTarget(event.target.value)} aria-describedby={`production-target-context-${field.id}`} />
         </label>
+        <span id={`production-target-context-${field.id}`} className="-mt-2 text-xs leading-relaxed text-fr-v2-muted">
+          The dry matter you expect to harvest per hectare from this cut, from your own records or your contractor&apos;s yields.
+          {cropSystem === "GRASS_FIRST_CUT_SILAGE" ? " Farm Return's validated first-cut rule covers the published 5 t DM/ha table; another target is saved but not calculated." : ""}
+        </span>
+        </>
       ) : null}
 
       {needsClover ? (
+        <>
         <label className={LABEL}>
           White clover content (%)
-          <input type="number" min="0" max="100" step="1" className={INPUT} value={cloverPct} onChange={(event) => setCloverPct(event.target.value)} />
+          <input type="number" min="0" max="100" step="1" className={INPUT} value={cloverPct} onChange={(event) => setCloverPct(event.target.value)} aria-describedby={`clover-context-${field.id}`} />
         </label>
+        <span id={`clover-context-${field.id}`} className="-mt-2 text-xs leading-relaxed text-fr-v2-muted">
+          Your estimate of the share of the sward that is white clover, by eye or from a sward assessment.
+        </span>
+        </>
       ) : null}
 
+      {futureSeason ? (
+        <p className="text-xs text-fr-v2-muted">
+          Fertiliser spread before {requestedSeason} is not deducted from the {requestedSeason} requirement, so nothing needs to be entered here.
+        </p>
+      ) : (
       <fieldset className="flex flex-col gap-2">
         <legend className="text-xs font-semibold text-fr-v2-graphite">Has chemical fertiliser already been applied to this field this season?</legend>
         <p className="text-xs text-fr-v2-muted">Only enter nutrient amounts when fertiliser has actually been applied.</p>
@@ -256,6 +322,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
           ].map(([value, label]) => (
             <button
               key={value}
+              {...(value === "none" ? { [FIELD_NUTRIENT_FOCUS_ATTRIBUTE]: "prior-fertiliser" } : {})}
               type="button"
               role="radio"
               aria-checked={chemicalApplied === value}
@@ -290,6 +357,7 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
           </div>
         ) : null}
       </fieldset>
+      )}
 
       <div className="border-l-[3px] border-fr-v2-forest pl-3">
         <p className="text-sm font-semibold text-fr-v2-graphite">{status.title}</p>
@@ -307,17 +375,20 @@ export function FieldProductionCycleCard({ field, onSaved }: { field: Field; onS
             try {
               const state = await saveFieldProductionCycleAction({
                 fieldId: field.id,
-                season,
+                season: requestedSeason,
                 cropSystem,
-                status: "active",
+                status: futureSeason ? "planned" : "active",
                 ...(numericValue(target) !== undefined ? { productionTargetTDMHa: numericValue(target) } : {}),
-                ...(numericValue(nApplied) !== undefined ? { chemicalNAppliedKgHa: numericValue(nApplied) } : {}),
-                ...(numericValue(pApplied) !== undefined ? { chemicalPAppliedKgHa: numericValue(pApplied) } : {}),
-                ...(numericValue(kApplied) !== undefined ? { chemicalKAppliedKgHa: numericValue(kApplied) } : {}),
+                // A future season's prior chemical baseline is the planning
+                // contract's explicit zero, never a carried-over answer.
+                ...(!futureSeason && numericValue(nApplied) !== undefined ? { chemicalNAppliedKgHa: numericValue(nApplied) } : {}),
+                ...(!futureSeason && numericValue(pApplied) !== undefined ? { chemicalPAppliedKgHa: numericValue(pApplied) } : {}),
+                ...(!futureSeason && numericValue(kApplied) !== undefined ? { chemicalKAppliedKgHa: numericValue(kApplied) } : {}),
                 ...(numericValue(cloverPct) !== undefined ? { whiteCloverPct: numericValue(cloverPct) } : {}),
                 ...(grazingMode === "farmer" && grazingSystem ? { grazingProductionSystem: grazingSystem } : {}),
                 farmerName: farm.ownerName,
               });
+              setLoaded({ requested: requestedSeason, season: requestedSeason });
               setCycle(state.cycle);
               setGate(state.gate);
               setMessage("Field evidence saved.");

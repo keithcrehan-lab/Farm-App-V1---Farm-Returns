@@ -68,6 +68,11 @@ export function buildSlurryPlanningScenario(input: SlurryPlanningScenarioInput):
     if (!Number.isFinite(candidate.volumeM3) || candidate.volumeM3 <= 0) issues.push("CANDIDATE_VOLUME_INVALID");
     if (!isApplicationMethod(candidate.applicationMethod)) issues.push("CANDIDATE_METHOD_INVALID");
     if (!isoDate(candidate.applicationDate)) issues.push("CANDIDATE_APPLICATION_DATE_INVALID");
+    // Only slurry spread in the planning season credits that season
+    // (`slurryAllocationsForPlanningSeason`). A proposal dated in another
+    // season would silently count for nothing, so it is rejected instead.
+    else if (isoDate(input.planningDate) && candidate.applicationDate.slice(0, 4) !== input.planningDate.slice(0, 4))
+      issues.push("CANDIDATE_APPLICATION_DATE_OUTSIDE_PLANNING_SEASON");
     allocatedM3 += Number.isFinite(candidate.volumeM3) && candidate.volumeM3 > 0 ? candidate.volumeM3 : 0;
   }
 

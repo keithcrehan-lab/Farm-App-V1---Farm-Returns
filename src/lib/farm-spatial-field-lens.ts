@@ -1,5 +1,6 @@
 import { resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import type { DataStatus, Field, SlurryAllocation, TrackedValue } from "@/domain/types";
+import type { FarmGrassGrowthObservation, GrassFieldState } from "@/domain/grass-management";
 import { formatNumber } from "@/lib/format";
 import { landUseLabel } from "@/lib/status";
 import { resolveFarmLensId, type FarmLensId, type FarmLensLink } from "@/lib/farm-spatial-lenses";
@@ -135,10 +136,20 @@ function nutrientMarkerLabel(field: Field): string {
   return `P${p ?? "?"} · K${k ?? "?"}${estimatedMark(field.fertility.pIndex, field.fertility.kIndex)}`;
 }
 
+export interface FarmFieldLensContext {
+  slurryAllocations: readonly SlurryAllocation[];
+  conditionsFacts?: readonly string[];
+  /** Current Grass state comes from the shared Grass Management engine.
+   * Optional so every non-Grass caller and pre-migration farm remains honest. */
+  grassStateByField?: ReadonlyMap<string, GrassFieldState>;
+  grassGrowth?: FarmGrassGrowthObservation;
+  grassGrazingGroupsByField?: ReadonlyMap<string, readonly string[]>;
+}
+
 export function farmFieldLensView(
   lens: FarmLensId,
   field: Field,
-  context: { slurryAllocations: readonly SlurryAllocation[]; conditionsFacts?: readonly string[] },
+  context: FarmFieldLensContext,
 ): FarmFieldLensView {
   const fieldDetail: FarmLensLink = { href: fieldWorkspaceHref(field.id), label: "Field detail" };
 
@@ -152,12 +163,53 @@ export function farmFieldLensView(
         links: [fieldDetail, { href: "/plan", label: "Planned work" }],
       };
     }
-    case "grass":
+    case "grass": {
+      const state = context.grassStateByField?.get(field.id);
+      const grazingGroups = context.grassGrazingGroupsByField?.get(field.id) ?? [];
+      const grassLink: FarmLensLink = { href: "/grass", label: "Open Grass analysis" };
+      if (!state || state.status === "unknown") {
+        return {
+          markerLabel: "No cover",
+          facts: [
+            { label: "Cover", value: "No reading", missing: true },
+            context.grassGrowth
+              ? { label: "Farm growth", value: `${formatNumber(context.grassGrowth.growthRateKgDmHaDay, 0)} kg DM/ha/day`, basis: context.grassGrowth.origin === "farmer_entered" ? "Farmer entered" : context.grassGrowth.source }
+              : { label: "Farm growth", value: "Not recorded", missing: true },
+            grazingGroups.length > 0
+              ? { label: "Grazing now", value: grazingGroups.join(", ") }
+              : { label: "Grazing now", value: "None recorded", missing: true },
+          ],
+          unavailableNote: "Record grass for this field to establish ground truth. Farm Return does not assume a cover for an unmeasured field.",
+          links: [grassLink, fieldDetail],
+        };
+      }
+      const currentBasis = state.current.basis === "measured"
+        ? "Measured"
+        : state.current.demand.status === "time_bounded"
+          ? "Estimated from measured cover + recorded growth − linked grazing demand"
+          : "Estimated from measured cover + recorded growth";
+      const facts: FarmFieldLensFact[] = [
+        { label: "Current cover", value: `${formatNumber(state.current.coverKgDmHa, 0)} kg DM/ha`, basis: currentBasis },
+        { label: "Last measured", value: `${formatNumber(state.measured.coverKgDmHa, 0)} kg DM/ha`, basis: `${state.measured.method.replaceAll("_", " ")} · ${new Date(state.measured.observedAt).toLocaleDateString("en-IE", { day: "numeric", month: "short" })}` },
+        { label: "Freshness", value: state.confidence.charAt(0) + state.confidence.slice(1).toLowerCase(), basis: "Measurement freshness" },
+        context.grassGrowth
+          ? { label: "Farm growth", value: `${formatNumber(context.grassGrowth.growthRateKgDmHaDay, 0)} kg DM/ha/day`, basis: context.grassGrowth.origin === "farmer_entered" ? "Farmer entered" : context.grassGrowth.source }
+          : { label: "Farm growth", value: "Not recorded", missing: true },
+        grazingGroups.length > 0
+          ? { label: "Grazing now", value: grazingGroups.join(", ") }
+          : { label: "Grazing now", value: "None recorded", missing: true },
+      ];
       return {
-        facts: [],
-        unavailableNote: "Grass cover, growth and readiness aren't measured for this field yet.",
-        links: [fieldDetail],
+        markerLabel: `${formatNumber(state.current.coverKgDmHa, 0)} kg DM/ha`,
+        facts,
+        unavailableNote: state.current.basis === "estimated" && state.current.demand.status === "time_bounded" && state.current.demand.completeness === "partial"
+          ? "Some linked grazing demand is unresolved, so the current cover estimate may overstate available grass. Complete the missing livestock nutrition inputs in Cattle."
+          : state.current.basis === "estimated" && state.current.demand.status === "not_supplied" && grazingGroups.length > 0
+            ? "Cattle are recorded on this field but grazing demand could not be applied to this estimate."
+            : undefined,
+        links: [grassLink, fieldDetail],
       };
+    }
     case "nutrients": {
       // Soil evidence sits underneath nutrient state (the former Soil lens).
       const allocation = resolveFieldSlurryAllocation(context.slurryAllocations, field.id);

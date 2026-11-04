@@ -106,6 +106,7 @@ export async function moveLivestockGroupToFieldAction(input: {
     });
 
     revalidatePath("/fields");
+    revalidatePath("/grass");
     revalidatePath("/fertiliser-plan");
     revalidatePath(`/today/field/${field.id}`);
     return { status: "saved", sessionId: session.id };

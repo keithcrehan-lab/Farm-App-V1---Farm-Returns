@@ -70,6 +70,7 @@ describe("grazing field movement actions", () => {
     expect(recordGrazingFieldMove).toHaveBeenCalledWith({
       livestockGroupId: "group-1", fieldId: "field-a", startedAt: "2026-05-02T00:00:00.000Z", source: "Keith",
     });
+    expect(revalidatePath).toHaveBeenCalledWith("/grass");
     expect(revalidatePath).toHaveBeenCalledWith("/fertiliser-plan");
     expect(revalidatePath).toHaveBeenCalledWith("/today/field/field-a");
   });

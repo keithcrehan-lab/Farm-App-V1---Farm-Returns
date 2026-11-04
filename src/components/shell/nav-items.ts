@@ -2,7 +2,7 @@ import {
   Home,
   Map,
   Sprout,
-  Beef,
+  Leaf,
   Wheat,
   FlaskConical,
   Tractor,
@@ -20,6 +20,7 @@ import {
   Store,
   Warehouse,
 } from "lucide-react";
+import { CowIcon } from "./CowIcon";
 
 export interface NavItem {
   href: string;
@@ -64,7 +65,7 @@ export const primaryNavItems: NavItem[] = [
   { href: "/today", label: "Farm", icon: Map, alsoActiveOn: ["/fields"] },
   { href: "/fertiliser-plan", label: "Fertiliser", icon: FlaskConical },
   { href: "/plan", label: "Plan", icon: CalendarDays },
-  { href: "/cattle", label: "Cattle", icon: Beef },
+  { href: "/cattle", label: "Cattle", icon: CowIcon },
   { href: "/housing", label: "Housing", icon: Warehouse },
   { href: "/finance", label: "Finance", icon: BarChart3 },
   { href: "/records", label: "Records", icon: Folder },
@@ -79,6 +80,7 @@ export const moreNavItems: NavItem[] = [
   // Transitional: What Matters stays reachable here until the Plan redesign.
   { href: "/what-matters", label: "What Matters", icon: Target },
   { href: "/fields", label: "Fields", icon: Map },
+  { href: "/grass", label: "Grass", icon: Leaf },
   { href: "/soil", label: "Soil", icon: Sprout },
   { href: "/spreading", label: "Spreading", icon: Tractor },
   { href: "/supports", label: "Supports", icon: HandCoins },

@@ -19,12 +19,12 @@ describe("MobileBottomNav (Farm + Fields redesign)", () => {
     expect(within(nav).queryByText("What Matters")).toBeNull();
   });
 
-  it("reaches Housing, Finance and What Matters through More", () => {
+  it("reaches Fertiliser, Housing, Finance and What Matters through More", () => {
     render(<MobileBottomNav />);
     fireEvent.click(screen.getByRole("button", { name: /more/i }));
     const more = screen.getByRole("navigation", { name: "More" });
     const hrefs = within(more).getAllByRole("link").map((a) => a.getAttribute("href"));
-    expect(hrefs.slice(0, 3)).toEqual(["/housing", "/finance", "/what-matters"]);
+    expect(hrefs.slice(0, 4)).toEqual(["/fertiliser-plan", "/housing", "/finance", "/what-matters"]);
     expect(hrefs).toContain("/fields");
   });
 

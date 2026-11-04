@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { tracked, type Field, type SlurryAllocation } from "@/domain/types";
+import type { GrassFieldState } from "@/domain/grass-management";
 import {
   FARM_LENS_MARKER_COLOR,
   farmFieldLensView,
@@ -85,15 +86,112 @@ describe("farmFieldLensView — honest per-field lens data", () => {
     expect(farmFieldLensView("current", field({ plannedUse: tracked("grazing", "farmer_adjusted", "Farmer") }), none).markerLabel).toBe("Grazing");
   });
 
-  it("gives Grass and Conditions no per-field value, only an honest note", () => {
+  it("keeps an unmeasured Grass field explicitly unknown and Conditions honest", () => {
     const grass = farmFieldLensView("grass", field(), none);
-    expect(grass.markerLabel).toBeUndefined();
-    expect(grass.facts).toEqual([]);
-    expect(grass.unavailableNote).toMatch(/aren't measured/);
+    expect(grass.markerLabel).toBe("No cover");
+    expect(grass.facts[0]).toEqual({ label: "Cover", value: "No reading", missing: true });
+    expect(grass.links).toContainEqual({ href: "/grass", label: "Open Grass analysis" });
+    expect(grass.unavailableNote).toMatch(/establish ground truth/i);
     const conditions = farmFieldLensView("conditions", field(), { slurryAllocations: [], conditionsFacts: ["Slurry · Closed period"] });
     expect(conditions.markerLabel).toBeUndefined();
     expect(conditions.facts).toEqual([{ label: "Calendar", value: "Slurry · Closed period" }]);
     expect(conditions.unavailableNote).toMatch(/workability aren't available/);
+  });
+
+  it("shows the Farm Grass lens as demand-aware when linked cattle demand is applied", () => {
+    const state: GrassFieldState = {
+      status: "known",
+      fieldId: "f1",
+      areaHa: 4.2,
+      measured: {
+        observationId: "obs-1",
+        coverKgDmHa: 1600,
+        method: "plate_meter",
+        observedAt: "2026-05-08T12:00:00.000Z",
+        source: "Farmer",
+        ageDays: 2,
+      },
+      current: {
+        basis: "estimated",
+        coverKgDmHa: 1525,
+        rawCoverKgDmHa: 1525,
+        clampedAtZero: false,
+        elapsedDays: 2,
+        growth: {
+          observationId: "growth-1",
+          growthRateKgDmHaDay: 50,
+          origin: "farmer_entered",
+          observedAt: "2026-05-08T12:00:00.000Z",
+          source: "Farmer",
+        },
+        demand: {
+          status: "time_bounded",
+          currentDailyDemandKgDm: 367.5,
+          demandRemovedKgDm: 735,
+          demandRemovedKgDmHa: 175,
+          windowCount: 1,
+          unresolvedSessionCount: 0,
+          completeness: "complete",
+        },
+      },
+      confidence: "HIGH",
+      band: "target",
+    };
+    const view = farmFieldLensView("grass", field(), {
+      slurryAllocations: [],
+      grassStateByField: new Map([["f1", state]]),
+      grassGrazingGroupsByField: new Map([["f1", ["Stores (35 head)"]]]),
+    });
+    expect(view.markerLabel).toBe("1,525 kg DM/ha");
+    expect(view.facts[0].basis).toMatch(/linked grazing demand/i);
+    expect(view.unavailableNote).toBeUndefined();
+  });
+
+  it("flags a partial demand estimate rather than presenting it as complete", () => {
+    const state: GrassFieldState = {
+      status: "known",
+      fieldId: "f1",
+      areaHa: 4.2,
+      measured: {
+        observationId: "obs-1",
+        coverKgDmHa: 1600,
+        method: "plate_meter",
+        observedAt: "2026-05-08T12:00:00.000Z",
+        source: "Farmer",
+        ageDays: 2,
+      },
+      current: {
+        basis: "estimated",
+        coverKgDmHa: 1575,
+        rawCoverKgDmHa: 1575,
+        clampedAtZero: false,
+        elapsedDays: 2,
+        growth: {
+          observationId: "growth-1",
+          growthRateKgDmHaDay: 50,
+          origin: "farmer_entered",
+          observedAt: "2026-05-08T12:00:00.000Z",
+          source: "Farmer",
+        },
+        demand: {
+          status: "time_bounded",
+          currentDailyDemandKgDm: 200,
+          demandRemovedKgDm: 525,
+          demandRemovedKgDmHa: 125,
+          windowCount: 1,
+          unresolvedSessionCount: 1,
+          completeness: "partial",
+        },
+      },
+      confidence: "HIGH",
+      band: "target",
+    };
+    const view = farmFieldLensView("grass", field(), {
+      slurryAllocations: [],
+      grassStateByField: new Map([["f1", state]]),
+      grassGrazingGroupsByField: new Map([["f1", ["Stores (20 head)", "Weanlings (12 head)"]]]),
+    });
+    expect(view.unavailableNote).toMatch(/may overstate available grass/i);
   });
 
   it("gives every non-Current lens its own marker colour and keeps Current neutral", () => {

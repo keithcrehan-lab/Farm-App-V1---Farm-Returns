@@ -11,6 +11,7 @@
  * comment for why a generated-types tool wasn't used instead (no live
  * Supabase project to generate from yet, in this environment).
  */
+import type { PrecedingYearGsrRecord } from "@/domain/preceding-year-gsr";
 import type {
   Confidence,
   DataStatus,
@@ -51,6 +52,9 @@ export interface FarmRow {
     nmpSubmitted: boolean;
     trainingCompleted: boolean;
   }> | null;
+  /** `20261103090000_farm_preceding_year_gsr_records.sql` — absent until
+   * that migration is applied, then no record exists. */
+  preceding_year_gsr_records?: PrecedingYearGsrRecord[] | null;
   /** Real Mode Completion Phase 2/3 — onboarding resumability; not part
    * of the domain `Farm` type (it's onboarding process metadata, not a
    * farm fact), read directly by `getOnboardingStatusForCurrentUser`. */

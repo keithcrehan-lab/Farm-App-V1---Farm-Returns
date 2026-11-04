@@ -101,7 +101,7 @@ function activityCopy(activityType: string, completionType: "whole" | "partial" 
   };
 }
 
-export async function getFieldWorkspaceContextAction(fieldId: string): Promise<FieldWorkspaceContext> {
+export async function getFieldWorkspaceContextAction(fieldId: string, requestedSeason?: string): Promise<FieldWorkspaceContext> {
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("No farm is available for the signed-in user.");
 
@@ -110,7 +110,7 @@ export async function getFieldWorkspaceContextAction(fieldId: string): Promise<F
     throw new Error("Field not found for the signed-in farm.");
   }
 
-  const season = String(new Date().getFullYear());
+  const season = requestedSeason && /^[0-9]{4}$/.test(requestedSeason) ? requestedSeason : String(new Date().getFullYear());
   const [cycle, confirmed] = await Promise.all([
     getFieldProductionCycle(fieldId, season),
     listConfirmedJobSessionsForFarm(farm.id),

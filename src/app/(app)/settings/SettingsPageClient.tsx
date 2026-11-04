@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { Pill } from "@/components/ui/StatusBadge";
 import { useFarm, useFarmActions } from "@/store/farm-store";
+import { resolvePrecedingYearGsr } from "@/domain/preceding-year-gsr";
 import { signOut } from "@/app/actions/auth";
 import { flushAndCleanupOutboxOnSignOut } from "@/lib/offline/job-session-sync";
 
@@ -186,6 +187,8 @@ export function SettingsPageClient({
           </div>
         </Card>
 
+        <PrecedingYearGsrCard />
+
         <Card>
           <CardHeader>
             <span className="flex items-center gap-3">
@@ -322,5 +325,97 @@ function ToggleRow({
         />
       </button>
     </div>
+  );
+}
+
+const GSR_ISSUE_COPY: Record<string, string> = {
+  REFERENCE_YEAR_INVALID: "Choose the year the figure describes.",
+  REFERENCE_YEAR_NOT_COMPLETE: "Only a completed year's stocking rate can be recorded.",
+  GSR_INVALID: "Enter the stocking rate in kg N/ha (0–1000).",
+  STATUS_INVALID: "Choose where the figure comes from.",
+  SOURCE_REQUIRED: "Say where the figure comes from, e.g. your Nitrates statement.",
+};
+
+/** The LESS trigger's season-bound evidence (Codex audit F003): last
+ * year's grassland stocking rate, never inferred from the current herd. */
+function PrecedingYearGsrCard() {
+  const farm = useFarm();
+  const { recordPrecedingYearGsr } = useFarmActions();
+  const lastYear = String(new Date().getFullYear() - 1);
+  const current = resolvePrecedingYearGsr(farm.precedingYearGsrRecords ?? [], `${Number(lastYear) + 1}-06-01`);
+  const [gsrInput, setGsrInput] = useState("");
+  const [sourceInput, setSourceInput] = useState(`Nitrates statement ${lastYear}`);
+  const [issues, setIssues] = useState<string[]>([]);
+  const [saved, setSaved] = useState(false);
+
+  async function handleSave() {
+    const result = await recordPrecedingYearGsr({
+      referenceYear: lastYear,
+      gsrKgNHa: gsrInput.trim() === "" ? Number.NaN : Number(gsrInput),
+      status: "farmer_adjusted",
+      source: sourceInput,
+    });
+    setIssues(result.status === "rejected" ? result.issues : []);
+    if (result.status === "saved") {
+      setGsrInput("");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <span className="flex items-center gap-3">
+          <IconChip icon={Sliders} tone="neutral" />
+          <CardTitle>Low-emission slurry spreading</CardTitle>
+        </span>
+      </CardHeader>
+      <p className="mb-3 text-sm text-fr-ink-600">
+        Whether slurry must be spread with LESS depends on last year&apos;s grassland stocking rate from grazing livestock, before exports (S.I. 588/2025 Art. 19). Until it is recorded, Farm Return only counts slurry planned with LESS.
+      </p>
+      <p className="mb-4 text-sm text-fr-ink-900" aria-label={`${lastYear} grassland stocking rate`}>
+        {current.status === "RESOLVED"
+          ? `${lastYear}: ${current.gsrKgNHa} kg N/ha · ${current.source} · ${current.evidenceStatus === "verified" ? "verified" : "farmer entered"}`
+          : current.reasonCode === "PRECEDING_YEAR_GSR_CONFLICT"
+            ? `${lastYear}: conflicting figures recorded — record the correct one again.`
+            : `${lastYear}: not recorded`}
+      </p>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-xs text-fr-ink-600">{lastYear} grassland stocking rate (kg N/ha)</span>
+          <input
+            inputMode="decimal"
+            value={gsrInput}
+            onChange={(e) => setGsrInput(e.target.value)}
+            className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs text-fr-ink-600">Source</span>
+          <input
+            type="text"
+            value={sourceInput}
+            onChange={(e) => setSourceInput(e.target.value)}
+            className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+          />
+        </label>
+      </div>
+      {issues.length > 0 ? (
+        <div className="mt-3 text-xs text-fr-ink-600">
+          {issues.map((issue) => <p key={issue}>{GSR_ISSUE_COPY[issue] ?? issue}</p>)}
+        </div>
+      ) : null}
+      <div className="mt-4 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          className="rounded-fr-control bg-fr-ink-900 px-4 py-2 text-sm font-medium text-white"
+        >
+          Record {lastYear} figure
+        </button>
+        {saved ? <span className="flex items-center gap-1 text-xs text-fr-ink-600"><Check className="size-3.5" /> Saved</span> : null}
+      </div>
+    </Card>
   );
 }

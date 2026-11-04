@@ -35,13 +35,13 @@ describe("AddFertiliserStockRecordSheet", () => {
   });
 
   it("shows real validation errors from the server action rather than closing", async () => {
-    mockAdd.mockResolvedValue({ status: "validation_error", errors: [{ field: "quantity", message: "Enter a quantity greater than zero" }] });
+    mockAdd.mockResolvedValue({ status: "validation_error", errors: [{ field: "quantity", message: "Enter a quantity of zero or more" }] });
     const onSaved = vi.fn();
     render(<AddFertiliserStockRecordSheet open onClose={vi.fn()} onSaved={onSaved} products={["Urea"]} defaultSource="Farmer entered" />);
     await waitFor(() => expect(screen.getByRole("button", { name: /^save$/i })).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-    await waitFor(() => expect(screen.getByText(/enter a quantity greater than zero/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/enter a quantity of zero or more/i)).toBeTruthy());
     expect(onSaved).not.toHaveBeenCalled();
   });
 

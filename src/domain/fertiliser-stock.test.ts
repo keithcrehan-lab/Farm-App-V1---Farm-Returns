@@ -42,8 +42,10 @@ describe("validateNewFertiliserStockRecordInput", () => {
     const errors = validateNewFertiliserStockRecordInput({ ...base, product: "  " }, today);
     expect(errors.some((e) => e.field === "product")).toBe(true);
   });
-  it("rejects a non-positive quantity", () => {
-    expect(validateNewFertiliserStockRecordInput({ ...base, quantity: 0 }, today).some((e) => e.field === "quantity")).toBe(true);
+  it("accepts zero so a farmer can record stock as used up", () => {
+    expect(validateNewFertiliserStockRecordInput({ ...base, quantity: 0 }, today)).toEqual([]);
+  });
+  it("rejects a negative or non-finite quantity", () => {
     expect(validateNewFertiliserStockRecordInput({ ...base, quantity: -5 }, today).some((e) => e.field === "quantity")).toBe(true);
     expect(validateNewFertiliserStockRecordInput({ ...base, quantity: Number.NaN }, today).some((e) => e.field === "quantity")).toBe(true);
   });
@@ -102,6 +104,18 @@ describe("currentFertiliserStockByProduct", () => {
     ]);
     expect(map.get("urea")?.quantityKg).toBe(100);
     expect(map.get("urea")?.quantityKg).not.toBe(150);
+  });
+
+  it("lets a later zero count replace an older balance, so used-up stock stops reducing the purchase", () => {
+    const map = currentFertiliserStockByProduct([
+      record({ id: "s1", effectiveDate: "2026-08-01", quantity: 400, recordedAt: "2026-08-01T09:00:00.000Z" }),
+      record({ id: "s2", effectiveDate: "2026-09-01", quantity: 0, recordedAt: "2026-09-01T09:00:00.000Z" }),
+    ]);
+    expect(map.get("urea")?.quantityKg).toBe(0);
+    const band = buildFertiliserStockBand({ product: "Urea", remainingRequirementKg: 1000, currentStock: map.get("urea") });
+    expect(band.status).toBe("recorded");
+    if (band.status !== "recorded") throw new Error("unreachable");
+    expect(band.shortfallKg).toBe(1000);
   });
 
   it("tracks separate products independently", () => {

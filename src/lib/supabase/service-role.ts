@@ -12,7 +12,12 @@
  * `authenticated` role has (or should have) an INSERT grant for (see
  * `supabase/migrations/20260920000000_market_price_observations.sql`).
  * Never use this client for any farmer-owned table or any code path a
- * client component can reach.
+ * client component can reach — with one narrow, documented exception:
+ * `src/lib/farm-data/slurry-forecast-adoptions.ts` writes SYSTEM_FORECAST
+ * adoption rows, which `authenticated` is forbidden from inserting
+ * (`20261103135703_slurry_forecast_adoption_server_write_boundary.sql`), only
+ * after the server recomputed the forecast and an explicit session-scoped
+ * ownership check of the farm (Codex audit F010).
  */
 
 import "server-only";

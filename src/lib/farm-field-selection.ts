@@ -23,10 +23,10 @@ import { nutrientCellText, type FieldNutrientPlanView } from "@/lib/field-nutrie
  * panel says so plainly, and the primary action stays the neutral
  * "Open field workspace" rather than guessing at work.
  *
- * Deliberately never shown, because the model has no source for it yet:
- * livestock on a field (groups carry no field location), a current use
- * distinct from the recorded planned use, grass cover, or a field-level
- * ground-conditions verdict.
+ * Deliberately never shown without a real source: a current use distinct
+ * from the recorded planned use or a field-level ground-conditions verdict.
+ * Grass cover and current grazing groups are now shown only when supplied by
+ * the shared Grass Management evidence contract.
  */
 
 export type SelectionTone = "fact" | "unknown" | "blocked";
@@ -131,10 +131,21 @@ export function farmFieldSelectionView(input: FarmFieldSelectionInput): FarmFiel
       statement = leadingPrompt ? promptStatement(leadingPrompt) : { text: "No open prompt for this field.", tone: "unknown" };
       context = [useRow, plannedSlurryRow(input), legal];
       break;
-    case "grass":
-      statement = { text: lensView.unavailableNote ?? "Grass isn't measured for this field yet.", tone: "unknown" };
-      context = [useRow];
+    case "grass": {
+      const currentCover = factRow(lensView, "Current cover");
+      if (currentCover && currentCover.tone === "fact") {
+        statement = { text: `Current grass cover: ${currentCover.value}.`, tone: "fact" };
+      } else {
+        statement = { text: lensView.unavailableNote ?? "Grass isn't measured for this field yet.", tone: "unknown" };
+      }
+      context = [
+        factRow(lensView, "Last measured"),
+        factRow(lensView, "Freshness"),
+        factRow(lensView, "Grazing now"),
+      ];
+      primaryAction = { label: "Open Grass analysis", href: "/grass" };
       break;
+    }
     case "nutrients":
       statement = nutrientStatement(nutrientPlan);
       context = [legal, factRow(lensView, "P"), factRow(lensView, "K"), factRow(lensView, "Soil test")];

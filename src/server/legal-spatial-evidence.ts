@@ -1,5 +1,6 @@
 import "server-only";
 
+import { CHEMICAL_FERTILISER_WATER_STRIP_RULE, waterLinesNearField } from "@/domain/chemical-fertiliser-water-strip";
 import { bbox as turfBbox, booleanIntersects, feature, lineString, point, pointToLineDistance, polygon as turfPolygon } from "@turf/turf";
 
 export type SpatialEvidenceState = "resolved" | "not_found" | "unavailable";
@@ -17,6 +18,9 @@ export interface WaterSpatialEvidence {
   featureType?: "surface_water";
   nearestFeature?: string;
   distanceM?: number;
+  /** Mapped water lines near the field, present only when the water is
+   * within the 3 m chemical-fertiliser strip. */
+  chemicalStripWaterLines?: GeoJSON.MultiLineString;
   source: string;
   detail: string;
   sourceDate?: string;
@@ -154,22 +158,28 @@ async function resolveNearestSurfaceWater(polygon: GeoJSON.Polygon): Promise<Wat
     });
     const data = (await fetchJson(`${EPA_WFS}?${params.toString()}`)) as GeoJSON.FeatureCollection;
     let best: { distanceM: number; name: string } | null = null;
+    const stripLines: GeoJSON.Position[][] = [];
     for (const candidate of data.features ?? []) {
       if (!candidate.geometry) continue;
       for (const coords of lineCoordinates(candidate.geometry)) {
         const distanceM = fieldToLineDistanceMetres(polygon, coords);
         if (!Number.isFinite(distanceM)) continue;
+        if (distanceM < CHEMICAL_FERTILISER_WATER_STRIP_RULE.stripWidthM) stripLines.push(coords);
         const props = (candidate.properties ?? {}) as Record<string, unknown>;
         const name = String(props.WATERBODY_NAME ?? props.RIVER_NAME ?? props.NAME ?? props.name ?? "Mapped river/stream");
         if (!best || distanceM < best.distanceM) best = { distanceM, name };
       }
     }
     if (!best) return { state: "not_found", source, detail: "No EPA mapped stream/river was returned within 1 km. Farm Return does not convert that into a fabricated distance." };
+    const chemicalStripWaterLines = stripLines.length > 0 ? waterLinesNearField(polygon, stripLines) : undefined;
     return {
       state: "resolved",
       featureType: "surface_water",
       nearestFeature: best.name,
-      distanceM: Math.round(best.distanceM * 10) / 10,
+      // Unrounded: legal thresholds (3 m strip, slurry buffers) are decided
+      // on the measured distance; rounding is a display concern only.
+      distanceM: best.distanceM,
+      ...(chemicalStripWaterLines ? { chemicalStripWaterLines } : {}),
       source,
       sourceDate: new Date().toISOString().slice(0, 10),
       detail: "Minimum geometry-to-geometry distance from the farmer field polygon to the EPA mapped river/stream network.",

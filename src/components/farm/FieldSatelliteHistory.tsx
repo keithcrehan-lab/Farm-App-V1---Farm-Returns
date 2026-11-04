@@ -13,6 +13,7 @@ import {
 } from "@/app/actions/field-satellite-history";
 import type { Field } from "@/domain/types";
 import { MAPBOX_TOKEN, mapboxConfigured } from "@/lib/mapbox";
+import { satelliteImageFrame } from "@/lib/satellite-image-frame";
 
 type ImageMode = "satellite" | "vegetation";
 type QualityFilter = "all" | "clear";
@@ -24,7 +25,10 @@ type RenderedImage = {
 function mapboxSatelliteUrl(bounds: [number, number, number, number]): string | null {
   if (!mapboxConfigured) return null;
   const bbox = `[${bounds.map((value) => value.toFixed(7)).join(",")}]`;
-  return `https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/${bbox}/1280x900@2x?access_token=${MAPBOX_TOKEN}`;
+  // Same true-aspect frame as the dated Sentinel layer, so the two are
+  // registered rather than stretched to different fits; @2x for sharpness.
+  const frame = satelliteImageFrame(bounds);
+  return `https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/${bbox}/${frame.width}x${frame.height}@2x?padding=0&access_token=${MAPBOX_TOKEN}`;
 }
 
 const CLEAR_CLOUD_LIMIT = 40;
@@ -101,7 +105,9 @@ function NdviChart({ points }: { points: FieldNdviPoint[] }) {
     return <p className="text-sm text-fr-v2-muted">Not enough clear observations to draw a trend yet.</p>;
   }
 
-  const width = 640;
+  // Every datapoint keeps its own date label: the chart widens (and the
+  // container scrolls) rather than letting labels overlap.
+  const width = Math.max(640, 54 + points.length * 18);
   const height = 225;
   const left = 42;
   const right = 12;
@@ -118,7 +124,8 @@ function NdviChart({ points }: { points: FieldNdviPoint[] }) {
     .join(" ");
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Vegetation index time series" className="w-full">
+    <div className="overflow-x-auto">
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Vegetation index time series" className="w-full" style={{ minWidth: width > 640 ? width : undefined }}>
       {[0, 0.5, 1].map((tick) => (
         <g key={tick}>
           <line x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} stroke="currentColor" opacity="0.12" />
@@ -157,6 +164,7 @@ function NdviChart({ points }: { points: FieldNdviPoint[] }) {
         </g>
       ))}
     </svg>
+    </div>
   );
 }
 
@@ -279,7 +287,9 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
       setLoadingImage(false);
     }
 
-    if (selected) void loadImage();
+    // Always run: with no selected observation this clears the previous
+    // image so it can never sit under an undated "reference" caption.
+    void loadImage();
     return () => {
       cancelled = true;
     };
@@ -319,6 +329,7 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
   }, [open, selected, visibleScenes]);
 
   const baseSatelliteUrl = history ? mapboxSatelliteUrl(history.contextBounds) : null;
+  const imageFrame = history ? satelliteImageFrame(history.contextBounds) : { width: 64, height: 45 };
 
   if (!field.polygon) {
     return <p className="text-sm italic text-fr-v2-muted">Map this field boundary to enable satellite history.</p>;
@@ -551,7 +562,7 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
                 ) : null}
               </div>
 
-              <div className="relative flex min-h-[320px] items-center justify-center bg-fr-v2-forest-deep/5" style={{ aspectRatio: "64 / 45" }}>
+              <div className="relative flex items-center justify-center bg-fr-v2-forest-deep/5" style={{ aspectRatio: `${imageFrame.width} / ${imageFrame.height}` }}>
                 {baseSatelliteUrl || renderedImage ? (
                   <>
                     {baseSatelliteUrl ? (
@@ -564,13 +575,13 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
                         />
                       </>
                     ) : null}
-                    {mode === "satellite" && renderedImage ? (
+                    {mode === "satellite" && renderedImage && selected ? (
                       <>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          key={`natural-${selected?.id ?? "none"}`}
+                          key={`natural-${selected.id}`}
                           src={renderedImage.dataUrl}
-                          alt={`Sentinel satellite observation for ${field.name} on ${shortDate(selected?.acquisitionTimestamp ?? "")}`}
+                          alt={`Sentinel satellite observation for ${field.name} on ${shortDate(selected.acquisitionTimestamp)}`}
                           className="absolute inset-0 size-full object-fill"
                           style={{ opacity: baseSatelliteUrl ? satelliteOpacity / 100 : 1 }}
                         />
@@ -581,19 +592,19 @@ export function FieldSatelliteHistory({ field }: { field: Field }) {
                         <Loader2 className="size-5 animate-spin text-white drop-shadow" />
                       </div>
                     ) : null}
-                    {mode === "vegetation" && renderedImage ? (
+                    {mode === "vegetation" && renderedImage && selected ? (
                       <>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          key={`ndvi-${selected?.id ?? "none"}`}
+                          key={`ndvi-${selected.id}`}
                           src={renderedImage.dataUrl}
-                          alt={`Sentinel vegetation overlay for ${field.name} on ${shortDate(selected?.acquisitionTimestamp ?? "")}`}
+                          alt={`Sentinel vegetation overlay for ${field.name} on ${shortDate(selected.acquisitionTimestamp)}`}
                           className="absolute inset-0 size-full object-fill"
                           style={{ opacity: overlayOpacity / 100 }}
                         />
                       </>
                     ) : null}
-                    <FieldBoundaryOverlay polygon={field.polygon} bounds={renderedImage?.bounds ?? history.contextBounds} />
+                    <FieldBoundaryOverlay polygon={field.polygon} bounds={(selected ? renderedImage?.bounds : undefined) ?? history.contextBounds} />
                   </>
                 ) : (
                   <div className="max-w-md px-6 py-10 text-center">

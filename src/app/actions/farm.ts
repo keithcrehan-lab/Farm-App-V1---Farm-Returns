@@ -16,10 +16,12 @@
  * itself is what makes the *current* page reflect it immediately.
  */
 import { revalidatePath } from "next/cache";
-import type { FarmGrazingProductionSystem, Field, FieldUse, Housing, LivestockCategory, LivestockGoal, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import type { Farm, FarmGrazingProductionSystem, Field, FieldUse, Housing, LivestockCategory, LivestockGoal, LivestockGroup, SlurryAllocation } from "@/domain/types";
 import { assessPublicLegalSpatialEvidence, type PublicLegalSpatialEvidence } from "@/server/legal-spatial-evidence";
+import { CHEMICAL_FERTILISER_WATER_STRIP_RULE } from "@/domain/chemical-fertiliser-water-strip";
 import { assessInternalSpatialEvidence } from "@/server/spatial-reference-evidence";
-import { getFarmForCurrentUser, updateFarmProfileForCurrentUser } from "@/lib/farm-data/farms";
+import { appendPrecedingYearGsrRecordForCurrentUser, getFarmForCurrentUser, updateFarmProfileForCurrentUser } from "@/lib/farm-data/farms";
+import { validateNewPrecedingYearGsrInput, type NewPrecedingYearGsrInput } from "@/domain/preceding-year-gsr";
 import {
   applyDerivedLegalSpatialEvidence,
   archiveField as archiveFieldRow,
@@ -55,6 +57,35 @@ import { createSlurryCompositionRecord } from "@/lib/farm-data/slurry-compositio
 import { validateNewSlurryCompositionInput, type NewSlurryCompositionInput, type SlurryComposition } from "@/domain/slurry-composition";
 
 
+/** Mapped water within the 3 m chemical-fertiliser strip but no stored
+ * water geometry (evidence saved before the strip was modelled): re-check
+ * so the strip can be excluded rather than staying unresolved. */
+function chemicalStripGeometryMissing(field: Field): boolean {
+  const water = field.waterBufferContext;
+  return (
+    water?.status === "mapped" &&
+    typeof water.value.distanceM === "number" &&
+    water.value.distanceM < CHEMICAL_FERTILISER_WATER_STRIP_RULE.stripWidthM &&
+    !water.value.chemicalStripWaterLines
+  );
+}
+
+function derivedWaterEvidence(assessment: PublicLegalSpatialEvidence) {
+  const water = assessment.water;
+  return water.state === "resolved" && water.featureType && water.nearestFeature && water.distanceM !== undefined
+    ? {
+        water: {
+          featureType: water.featureType,
+          nearestFeature: water.nearestFeature,
+          distanceM: water.distanceM,
+          ...(water.chemicalStripWaterLines ? { chemicalStripWaterLines: water.chemicalStripWaterLines } : {}),
+          source: water.source,
+          sourceDate: water.sourceDate,
+        },
+      }
+    : {};
+}
+
 async function persistAutomaticSpatialEvidence(field: Field): Promise<Field> {
   if (!field.polygon) return field;
   try {
@@ -64,9 +95,7 @@ async function persistAutomaticSpatialEvidence(field: Field): Promise<Field> {
       ...(assessment.commonage.state === "resolved" && assessment.commonage.value
         ? { commonage: { value: assessment.commonage.value, source: assessment.commonage.source, sourceDate: assessment.commonage.sourceDate } }
         : {}),
-      ...(assessment.water.state === "resolved" && assessment.water.featureType && assessment.water.nearestFeature && assessment.water.distanceM !== undefined
-        ? { water: { featureType: assessment.water.featureType, nearestFeature: assessment.water.nearestFeature, distanceM: assessment.water.distanceM, source: assessment.water.source, sourceDate: assessment.water.sourceDate } }
-        : {}),
+      ...derivedWaterEvidence(assessment),
     });
   } catch (error) {
     // Mapping a field must never fail merely because a public/reference source
@@ -84,6 +113,33 @@ export async function updateFarmProfileAction(
   const farm = await updateFarmProfileForCurrentUser(farmId, patch);
   revalidatePath("/settings");
   return farm;
+}
+
+export type RecordPrecedingYearGsrActionResult =
+  | { status: "saved"; farm: Farm }
+  | { status: "rejected"; issues: string[] };
+
+/** Records the holding's preceding-year grassland stocking rate — the
+ * season-bound evidence the LESS trigger requires (Codex audit F003). */
+export async function recordPrecedingYearGsrAction(
+  input: NewPrecedingYearGsrInput,
+  farmerName: string,
+): Promise<RecordPrecedingYearGsrActionResult> {
+  const farm = await getFarmForCurrentUser();
+  if (!farm) throw new Error("recordPrecedingYearGsrAction: no real farm for the current session");
+  const now = new Date().toISOString();
+  const issues = validateNewPrecedingYearGsrInput(input, now.slice(0, 10));
+  if (issues.length > 0) return { status: "rejected", issues };
+  const updated = await appendPrecedingYearGsrRecordForCurrentUser(farm.id, {
+    referenceYear: input.referenceYear,
+    gsrKgNHa: input.gsrKgNHa,
+    status: input.status,
+    source: input.source.trim(),
+    recordedBy: farmerName,
+  });
+  revalidatePath("/settings");
+  revalidatePath("/fertiliser-plan");
+  return { status: "saved", farm: updated };
 }
 
 /**
@@ -221,7 +277,14 @@ export async function updateFinancialAssumptionAction(
 async function assessBestAvailableLegalSpatialEvidence(polygon: GeoJSON.Polygon): Promise<PublicLegalSpatialEvidence> {
   try {
     const internal = await assessInternalSpatialEvidence(polygon);
-    if (internal.legal.commonage.state === "resolved" && internal.legal.water.state === "resolved") return internal.legal;
+    // The cache resolves the distance but not the water geometry. Inside
+    // the 3 m chemical-fertiliser strip the geometry is what defines the
+    // excluded strip, so the live EPA network supplies the water half.
+    const waterNeedsStripGeometry =
+      internal.legal.water.state === "resolved" &&
+      internal.legal.water.distanceM !== undefined &&
+      internal.legal.water.distanceM < CHEMICAL_FERTILISER_WATER_STRIP_RULE.stripWidthM;
+    if (internal.legal.commonage.state === "resolved" && internal.legal.water.state === "resolved" && !waterNeedsStripGeometry) return internal.legal;
 
     // Cache coverage may be partial during rollout or source refresh. Fall back
     // only for the unresolved half; never replace a resolved pinned-cache
@@ -230,7 +293,10 @@ async function assessBestAvailableLegalSpatialEvidence(polygon: GeoJSON.Polygon)
     return {
       assessedAt: new Date().toISOString(),
       commonage: internal.legal.commonage.state === "resolved" ? internal.legal.commonage : live.commonage,
-      water: internal.legal.water.state === "resolved" ? internal.legal.water : live.water,
+      water:
+        internal.legal.water.state === "resolved" && !(waterNeedsStripGeometry && live.water.state === "resolved")
+          ? internal.legal.water
+          : live.water,
       localOverride: internal.legal.localOverride,
     };
   } catch {
@@ -258,7 +324,8 @@ export async function autoAssessFarmLegalSpatialEvidenceAction(): Promise<FarmLe
   const unresolved = fields.filter((field) =>
     !field.commonageStatus || field.commonageStatus.value === "unknown" ||
     field.waterBufferContext?.value.featureType === undefined ||
-    field.waterBufferContext.value.distanceM === undefined
+    field.waterBufferContext.value.distanceM === undefined ||
+    chemicalStripGeometryMissing(field)
   );
 
   const results = await Promise.all(unresolved.map(async (field) => {
@@ -270,13 +337,14 @@ export async function autoAssessFarmLegalSpatialEvidenceAction(): Promise<FarmLe
       ...(assessment.commonage.state === "resolved" && assessment.commonage.value
         ? { commonage: { value: assessment.commonage.value, source: assessment.commonage.source, sourceDate: assessment.commonage.sourceDate } }
         : {}),
-      ...(assessment.water.state === "resolved" && assessment.water.featureType && assessment.water.nearestFeature && assessment.water.distanceM !== undefined
-        ? { water: { featureType: assessment.water.featureType, nearestFeature: assessment.water.nearestFeature, distanceM: assessment.water.distanceM, source: assessment.water.source, sourceDate: assessment.water.sourceDate } }
-        : {}),
+      ...derivedWaterEvidence(assessment),
     });
     return {
       assessment,
-      updated: next.commonageStatus?.value !== beforeCommonage || next.waterBufferContext?.value.distanceM !== beforeWater,
+      updated:
+        next.commonageStatus?.value !== beforeCommonage ||
+        next.waterBufferContext?.value.distanceM !== beforeWater ||
+        Boolean(next.waterBufferContext?.value.chemicalStripWaterLines) !== Boolean(field.waterBufferContext?.value.chemicalStripWaterLines),
     };
   }));
 
@@ -322,9 +390,7 @@ export async function autoAssessFieldLegalSpatialEvidenceAction(fieldId: string)
     ...(assessment.commonage.state === "resolved" && assessment.commonage.value
       ? { commonage: { value: assessment.commonage.value, source: assessment.commonage.source, sourceDate: assessment.commonage.sourceDate } }
       : {}),
-    ...(assessment.water.state === "resolved" && assessment.water.featureType && assessment.water.nearestFeature && assessment.water.distanceM !== undefined
-      ? { water: { featureType: assessment.water.featureType, nearestFeature: assessment.water.nearestFeature, distanceM: assessment.water.distanceM, source: assessment.water.source, sourceDate: assessment.water.sourceDate } }
-      : {}),
+    ...derivedWaterEvidence(assessment),
   });
   revalidatePath("/fields");
   revalidatePath("/fertiliser-plan");

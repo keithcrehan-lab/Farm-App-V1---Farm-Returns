@@ -11,6 +11,7 @@ vi.mock("@/app/actions/fertiliser-field-evidence", () => ({
 }));
 
 const field = mockFields[0];
+type CycleState = Awaited<ReturnType<typeof loadFieldProductionCycleAction>>;
 
 function renderCard() {
   return render(
@@ -40,14 +41,14 @@ function readySaveResult() {
       updatedAt: "2026-10-30T00:00:00.000Z",
     },
     gate: { status: "READY_FOR_CALCULATION", missingInputs: [] },
-  } as any;
+  } as unknown as CycleState & { cycle: NonNullable<CycleState["cycle"]> };
 }
 
 afterEach(() => {
   window.history.replaceState(null, "", window.location.pathname);
   cleanup();
   vi.clearAllMocks();
-  vi.mocked(loadFieldProductionCycleAction).mockResolvedValue({ cycle: null, gate: null } as any);
+  vi.mocked(loadFieldProductionCycleAction).mockResolvedValue({ cycle: null, gate: null } as CycleState);
 });
 
 describe("FieldProductionCycleCard — streamlined chemical-fertiliser evidence", () => {
@@ -60,6 +61,25 @@ describe("FieldProductionCycleCard — streamlined chemical-fertiliser evidence"
     expect(screen.queryByLabelText("Field exception")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /set field exception/i }));
     expect(screen.getByLabelText("Field exception")).toBeTruthy();
+  });
+
+  it("explains each field use with an example, and the production target with its validated scope", async () => {
+    renderCard();
+    openCard();
+    await waitFor(() => expect(loadFieldProductionCycleAction).toHaveBeenCalled());
+    const crop = screen.getByLabelText(/crop system/i);
+    const context = () => document.getElementById(crop.getAttribute("aria-describedby") ?? "")?.textContent;
+    expect(context()).toMatch(/Grazed through the season.*e\.g\. paddocks/);
+
+    fireEvent.change(crop, { target: { value: "GRASS_FIRST_CUT_SILAGE" } });
+    expect(context()).toMatch(/Closed in spring for one silage cut/);
+    const target = screen.getByLabelText(/production target/i);
+    const targetContext = document.getElementById(target.getAttribute("aria-describedby") ?? "")?.textContent;
+    expect(targetContext).toMatch(/dry matter you expect to harvest/);
+    expect(targetContext).toMatch(/published 5 t DM\/ha table; another target is saved but not calculated/);
+
+    fireEvent.change(crop, { target: { value: "GRASS_MIXED" } });
+    expect(context()).toMatch(/grazed early, closed for a June cut/);
   });
 
   it("asks one farmer-facing question first and only shows N/P/K boxes after Yes", async () => {
@@ -112,5 +132,52 @@ describe("FieldProductionCycleCard — streamlined chemical-fertiliser evidence"
     await waitFor(() => expect(screen.getByText("Could not save production evidence. Please try again.")).toBeTruthy());
     expect(document.body.textContent).not.toContain("23505");
     expect(document.body.textContent).not.toContain("details: null");
+  });
+});
+
+describe("FieldProductionCycleCard — quote-planning season", () => {
+  const currentSeason = String(new Date().getFullYear());
+  const nextSeason = String(new Date().getFullYear() + 1);
+
+  it("starts from the carried-forward current cycle but saves a planned cycle into the planning season, leaving the current season untouched", async () => {
+    const current = readySaveResult();
+    vi.mocked(loadFieldProductionCycleAction).mockImplementation(async (_fieldId, season) =>
+      season === currentSeason ? current : ({ cycle: null, gate: null } as CycleState),
+    );
+    vi.mocked(saveFieldProductionCycleAction).mockResolvedValue(current);
+    render(
+      <FarmProvider>
+        <FieldProductionCycleCard field={field} planningSeason={nextSeason} defaultOpen />
+      </FarmProvider>,
+    );
+    expect(await screen.findByText(`${nextSeason} production cycle`)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`No ${nextSeason} cycle is saved, so this ${currentSeason} cycle is carried forward`))).toBeTruthy();
+    expect(loadFieldProductionCycleAction).toHaveBeenCalledWith(field.id, nextSeason);
+    // Prior-season chemical fertiliser is not asked for a future season.
+    expect(screen.queryByRole("radiogroup", { name: /chemical fertiliser already applied/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await waitFor(() => expect(saveFieldProductionCycleAction).toHaveBeenCalled());
+    const saved = vi.mocked(saveFieldProductionCycleAction).mock.calls[0][0];
+    expect(saved.season).toBe(nextSeason);
+    expect(saved.status).toBe("planned");
+    expect(saved.chemicalNAppliedKgHa).toBeUndefined();
+    expect(saved.chemicalPAppliedKgHa).toBeUndefined();
+    expect(saved.chemicalKAppliedKgHa).toBeUndefined();
+  });
+
+  it("edits the planning season's own cycle when one is saved", async () => {
+    const next = readySaveResult();
+    next.cycle.season = nextSeason;
+    vi.mocked(loadFieldProductionCycleAction).mockImplementation(async (_fieldId, season) =>
+      season === nextSeason ? next : readySaveResult(),
+    );
+    render(
+      <FarmProvider>
+        <FieldProductionCycleCard field={field} planningSeason={nextSeason} defaultOpen />
+      </FarmProvider>,
+    );
+    expect(await screen.findByText(`${nextSeason} production cycle`)).toBeTruthy();
+    expect(screen.queryByText(/is carried forward/)).toBeNull();
+    expect(loadFieldProductionCycleAction).not.toHaveBeenCalledWith(field.id, currentSeason);
   });
 });

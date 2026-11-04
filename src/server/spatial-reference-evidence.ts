@@ -42,7 +42,8 @@ export async function assessInternalSpatialEvidence(polygon: GeoJSON.Polygon): P
         state: "resolved",
         featureType: "surface_water",
         nearestFeature: cached.nearestWatercourse.featureName ?? "EPA mapped river/stream",
-        distanceM: Math.round(cached.nearestWatercourse.distanceM * 10) / 10,
+        // Unrounded for legal thresholds; the UI rounds for display.
+        distanceM: cached.nearestWatercourse.distanceM,
         source: `Farm Return cache · EPA Water Flow Network ${cached.nearestWatercourse.sourceVersion}`,
         sourceDate: cached.nearestWatercourse.sourceVersion,
         detail: "Minimum PostGIS geometry-to-geometry distance from the mapped field to the cached EPA river network.",

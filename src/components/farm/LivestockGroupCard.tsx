@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/StatusBadge";
 import { formatNumber } from "@/lib/format";
 import { livestockCategoryLabel } from "@/lib/status";
+import { livestockLabelCategoryConflict } from "@/lib/livestock-label-category";
 import type { LivestockGroup } from "@/domain/types";
 
 /**
@@ -14,6 +15,7 @@ import type { LivestockGroup } from "@/domain/types";
  * working link.
  */
 export function LivestockGroupCard({ group, hasEconomics = false }: { group: LivestockGroup; hasEconomics?: boolean }) {
+  const labelConflict = livestockLabelCategoryConflict(group);
   const content = (
     <Card className="flex items-center gap-3 p-4">
       <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-fr-green-100">
@@ -33,6 +35,12 @@ export function LivestockGroupCard({ group, hasEconomics = false }: { group: Liv
           Calculated as {livestockCategoryLabel(group.category)}
           {group.avgWeightKg ? ` · Avg ${formatNumber(group.avgWeightKg.value, 0)} kg` : ""}
         </p>
+        {labelConflict ? (
+          <p role="note" className="mt-1 text-xs font-medium text-fr-attention">
+            Check this group: it is named “{labelConflict.label}” but its category is{" "}
+            {livestockCategoryLabel(labelConflict.category)}. The category changes the stocking rate used for fertiliser — edit it if it is wrong.
+          </p>
+        ) : null}
       </div>
       {group.statusLabel ? <Pill tone="good">{group.statusLabel}</Pill> : null}
       {hasEconomics ? <ChevronRight className="size-4 shrink-0 text-fr-ink-400" /> : null}

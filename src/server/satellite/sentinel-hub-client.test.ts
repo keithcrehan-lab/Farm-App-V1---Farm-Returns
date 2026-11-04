@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { satelliteImageFrame } from "@/lib/satellite-image-frame";
 import {
   __resetSentinelHubTokenCacheForTests,
   fetchSentinel2NdviSeries,
@@ -62,6 +63,23 @@ describe("sentinel-hub-client", () => {
     expect(body.evalscript).toContain("B08");
     expect(body.evalscript).toContain("SCL");
     expect(JSON.stringify(processCall[1]?.headers)).not.toContain("secret");
+  });
+
+  it("requests the dated image at the field's true ground aspect, the same frame as the reference layer", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) =>
+      String(input).includes("/token")
+        ? new Response(JSON.stringify({ access_token: "token-value", expires_in: 3600 }), { status: 200, headers: { "content-type": "application/json" } })
+        : new Response(new Uint8Array([137, 80, 78, 71]), { status: 200, headers: { "content-type": "image/png" } }),
+    );
+    const result = await renderSentinel2FieldImage(
+      { polygon, acquisitionTimestamp: "2026-10-23T11:30:00Z", mode: "natural" },
+      { fetchImpl, config },
+    );
+    const processCall = fetchImpl.mock.calls.find(([input]) => String(input).includes("/api/v1/process"));
+    const body = JSON.parse(String(processCall?.[1]?.body));
+    expect(body.output).toMatchObject(satelliteImageFrame(result.bounds));
+    // Not the old fixed 1280 × 900, which stretched a square field.
+    expect(body.output.width).not.toBe(body.output.height * (1280 / 900));
   });
 
   it("parses field NDVI and field-cloud statistics from the Statistical API", async () => {

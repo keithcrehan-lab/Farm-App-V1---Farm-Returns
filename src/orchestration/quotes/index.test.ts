@@ -13,6 +13,12 @@ vi.mock("@/app/actions/fertiliser-plan", () => ({
   getFarmFertiliserDemandAction: vi.fn(),
   getFarmLimeRequirementAction: vi.fn(),
 }));
+vi.mock("@/lib/farm-data/farms", () => ({
+  getFarmForCurrentUser: vi.fn(async () => ({ id: "farm-1" })),
+}));
+vi.mock("@/lib/farm-data/fertiliser-stock", () => ({
+  listFertiliserStockRecordsForFarm: vi.fn(async () => []),
+}));
 vi.mock("@/lib/farm-data/quote-requests", () => ({
   listQuoteRequestsForFarm: vi.fn(),
   listQuoteRequestsForOperatorInbox: vi.fn(),
@@ -23,6 +29,7 @@ vi.mock("@/lib/farm-data/quote-requests", () => ({
 
 import { getFarmFertiliserDemandAction, getFarmLimeRequirementAction } from "@/app/actions/fertiliser-plan";
 import { getQuoteRequestPrefillContext } from "./index";
+import { listFertiliserStockRecordsForFarm } from "@/lib/farm-data/fertiliser-stock";
 import { aggregateFarmFertiliserPurchasing, buildFarmFertiliserQuoteBasket } from "@/domain/fertiliser-plan";
 
 const mockGetFarmFertiliserDemand = vi.mocked(getFarmFertiliserDemandAction);
@@ -70,5 +77,59 @@ describe("getQuoteRequestPrefillContext — real lime quick-fill (Checkpoint C)"
 
     expect(mockGetFarmLimeRequirement).toHaveBeenCalledTimes(1);
     expect(result.limeOption?.farmTotalTonnes).toBe(12.5);
+  });
+});
+
+describe("getQuoteRequestPrefillContext — stock-adjusted purchase quantity (F011)", () => {
+  const demandFor = (remainingRequirementKg: number) => ({
+    ...EMPTY_DEMAND,
+    demand: [
+      {
+        farmId: "farm-1",
+        product: "0-7-30",
+        recommendedTotalKg: remainingRequirementKg,
+        plannedTotalKg: 0,
+        confirmedTotalKg: 0,
+        remainingRequirementKg,
+      },
+    ],
+  });
+  const stockRecord = (quantity: number) => ({
+    id: `stock-${quantity}`,
+    farmId: "farm-1",
+    product: "0-7-30",
+    quantity,
+    unit: "kg" as const,
+    effectiveDate: "2026-10-30",
+    source: "Farmer count",
+    recordedAt: "2026-10-30T09:00:00.000Z",
+  });
+
+  it.each([
+    ["sufficient", 416.7, 0],
+    ["partial", 200, 216.7],
+    ["zero", 0, 416.7],
+  ] as const)(
+    "subtracts %s recorded stock through the stock contract and keeps the agronomic requirement",
+    async (_label, stockKg, expectedPurchaseKg) => {
+      mockGetFarmFertiliserDemand.mockResolvedValue(demandFor(416.7) as never);
+      mockGetFarmLimeRequirement.mockResolvedValue({ fields: [], farmTotalTonnes: 0, fieldsWithoutLimeEvidence: 0 });
+      vi.mocked(listFertiliserStockRecordsForFarm).mockResolvedValue([stockRecord(stockKg)] as never);
+
+      const [option] = (await getQuoteRequestPrefillContext()).options;
+      expect(option.remainingRequirementKg).toBe(416.7);
+      expect(option.stock).toMatchObject({ status: "recorded", stockKg });
+      expect(option.suggestedPurchaseKg).toBeCloseTo(expectedPurchaseKg, 9);
+    },
+  );
+
+  it("never treats unrecorded stock as zero stock or as enough stock", async () => {
+    mockGetFarmFertiliserDemand.mockResolvedValue(demandFor(416.7) as never);
+    mockGetFarmLimeRequirement.mockResolvedValue({ fields: [], farmTotalTonnes: 0, fieldsWithoutLimeEvidence: 0 });
+    vi.mocked(listFertiliserStockRecordsForFarm).mockResolvedValue([]);
+
+    const [option] = (await getQuoteRequestPrefillContext()).options;
+    expect(option.stock).toEqual({ status: "not_recorded" });
+    expect(option.suggestedPurchaseKg).toBe(416.7);
   });
 });

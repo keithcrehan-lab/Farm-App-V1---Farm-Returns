@@ -27,8 +27,8 @@ describe("Farm lenses (Farm + Fields redesign)", () => {
     for (const className of active) expect(className).not.toMatch(/green|forest/);
   });
 
-  it("states honestly what has no production source yet (grass, SMD, workability)", () => {
-    expect(farmLensById("grass").unavailableNote).toMatch(/isn't available yet/i);
+  it("states honestly what remains unknown or has no production source yet", () => {
+    expect(farmLensById("grass").unavailableNote).toMatch(/without a grass reading.*unknown/i);
     expect(farmLensById("conditions").unavailableNote).toMatch(/soil moisture deficit.*aren't available yet/i);
   });
 });
@@ -189,9 +189,10 @@ describe("FarmObjectRail", () => {
 });
 
 describe("Primary navigation (Farm + Fields redesign)", () => {
-  it("is Farm · Plan · Cattle · Housing · Finance · Records, with Farm on the map-led screen", () => {
-    expect(primaryNavItems.map((i) => i.label)).toEqual(["Farm", "Plan", "Cattle", "Housing", "Finance", "Records"]);
-    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/plan", "/cattle", "/housing", "/finance", "/records"]);
+  it("is Farm · Fertiliser · Plan · Cattle · Housing · Finance · Records, with Farm on the map-led screen", () => {
+    // Fertiliser promoted to first-level for launch (6cdec9c).
+    expect(primaryNavItems.map((i) => i.label)).toEqual(["Farm", "Fertiliser", "Plan", "Cattle", "Housing", "Finance", "Records"]);
+    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/fertiliser-plan", "/plan", "/cattle", "/housing", "/finance", "/records"]);
   });
 
   it("has no placeholder destinations", () => {
@@ -205,15 +206,16 @@ describe("Primary navigation (Farm + Fields redesign)", () => {
 
   it("keeps every earlier screen under More, without duplicating a primary item", () => {
     const moreHrefs = moreNavItems.map((i) => i.href);
-    for (const href of ["/what-matters", "/fields", "/soil", "/supports", "/quotes", "/market-prices", "/nutrients", "/fertiliser-plan", "/spreading", "/reports", "/settings"]) {
+    // `/nutrients` left navigation in 17b5a83; `/fertiliser-plan` is now primary.
+    for (const href of ["/what-matters", "/fields", "/soil", "/supports", "/quotes", "/market-prices", "/spreading", "/reports", "/settings"]) {
       expect(moreHrefs).toContain(href);
     }
     for (const item of primaryNavItems) expect(moreHrefs).not.toContain(item.href);
   });
 
-  it("mobile keeps four primary slots plus More, and More leads with Housing and Finance so no destination is lost", () => {
+  it("mobile keeps four primary slots plus More, and More leads with Fertiliser, Housing and Finance so no destination is lost", () => {
     expect(mobileNavItems.map((i) => i.label)).toEqual(["Farm", "Plan", "Cattle", "Records"]);
-    expect(mobileMoreNavItems.slice(0, 3).map((i) => i.label)).toEqual(["Housing", "Finance", "What Matters"]);
+    expect(mobileMoreNavItems.slice(0, 4).map((i) => i.label)).toEqual(["Fertiliser", "Housing", "Finance", "What Matters"]);
     const reachable = new Set([...mobileNavItems, ...mobileMoreNavItems].map((i) => i.href));
     for (const item of [...primaryNavItems, ...moreNavItems]) expect(reachable).toContain(item.href);
   });

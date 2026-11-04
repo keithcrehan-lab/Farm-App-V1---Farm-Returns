@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { assessPublicLegalSpatialEvidence } from "./legal-spatial-evidence";
+import { resolveChemicalFertiliserWaterStrip } from "@/domain/chemical-fertiliser-water-strip";
 
 const FIELD: GeoJSON.Polygon = {
   type: "Polygon",
@@ -57,6 +58,70 @@ describe("public legal spatial evidence", () => {
     expect(result.water.nearestFeature).toBe("Test Stream");
     expect(result.water.distanceM).toBeGreaterThan(100);
     expect(result.localOverride.state).toBe("unknown");
+  });
+
+  it("keeps the mapped stream geometry only when it lies within the 3 m chemical-fertiliser strip", async () => {
+    const stub = (streamLon: number) => vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/collections?f=json")) return jsonResponse({ collections: [{ id: "lpis-2025", title: "2025 LPIS Data" }] });
+      if (url.includes("gis.epa.ie/geoserver/wfs")) {
+        return jsonResponse({
+          type: "FeatureCollection",
+          features: [{
+            type: "Feature",
+            geometry: { type: "LineString", coordinates: [[streamLon, 52.99], [streamLon, 53.02]] },
+            properties: { NAME: "Boundary Stream" },
+          }],
+        });
+      }
+      return jsonResponse({ type: "FeatureCollection", features: [] });
+    });
+
+    // A stream along the field's east boundary: inside the strip.
+    vi.stubGlobal("fetch", stub(-7.99));
+    const adjoining = await assessPublicLegalSpatialEvidence(FIELD);
+    expect(adjoining.water.distanceM).toBe(0);
+    expect(adjoining.water.chemicalStripWaterLines?.type).toBe("MultiLineString");
+    expect(adjoining.water.chemicalStripWaterLines?.coordinates.length).toBeGreaterThan(0);
+
+    // The same stream ~130 m away: distance only, no geometry kept.
+    vi.stubGlobal("fetch", stub(-7.988));
+    const distant = await assessPublicLegalSpatialEvidence(FIELD);
+    expect(distant.water.distanceM).toBeGreaterThan(100);
+    expect(distant.water.chemicalStripWaterLines).toBeUndefined();
+  });
+
+  it("F001: keeps a just-under-3 m distance unrounded so it never becomes a whole-field pass", async () => {
+    // ~2.97 m east of the field's east boundary (1° lon ≈ 66.9 km at 53° N).
+    const streamLon = -7.99 + 2.97 / (111_320 * Math.cos((53.005 * Math.PI) / 180));
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/collections?f=json")) return jsonResponse({ collections: [{ id: "lpis-2025", title: "2025 LPIS Data" }] });
+      if (url.includes("gis.epa.ie/geoserver/wfs")) {
+        return jsonResponse({
+          type: "FeatureCollection",
+          features: [{
+            type: "Feature",
+            geometry: { type: "LineString", coordinates: [[streamLon, 52.99], [streamLon, 53.02]] },
+            properties: { NAME: "Near Stream" },
+          }],
+        });
+      }
+      return jsonResponse({ type: "FeatureCollection", features: [] });
+    }));
+    const result = await assessPublicLegalSpatialEvidence(FIELD);
+    expect(result.water.distanceM).toBeGreaterThan(2.9);
+    expect(result.water.distanceM).toBeLessThan(3);
+    expect(result.water.chemicalStripWaterLines?.coordinates.length).toBeGreaterThan(0);
+
+    const strip = resolveChemicalFertiliserWaterStrip({
+      fieldPolygon: FIELD,
+      fieldAreaHa: 74,
+      featureType: result.water.featureType,
+      distanceM: result.water.distanceM,
+      waterLines: result.water.chemicalStripWaterLines,
+    });
+    expect(strip.status).not.toBe("WHOLE_FIELD");
   });
 
   it("fails closed when public services are unavailable", async () => {

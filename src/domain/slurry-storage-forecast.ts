@@ -205,8 +205,19 @@ export function buildSlurryStoreForecast(input: {
     return { status: "BLOCKED", housingId: housing.id, shedName: housing.shedName, targetDate, reasonCodes: ["MISSING_STORE_CAPACITY"], version: SLURRY_STORAGE_FORECAST_VERSION };
   }
 
+  // The forecast starts from a real, dated tank reading. An unrecorded
+  // (estimated/default) fill or an undated reading is an unknown opening
+  // balance — never a confirmed empty tank — and a reading dated after the
+  // assessment date cannot be its opening balance either.
   const recordedAt = housing.storeObservedAt ?? housing.storageFillRecordedAt;
-  const baseDate = recordedAt && dateOnly(recordedAt) <= asOfDate ? dateOnly(recordedAt) : asOfDate;
+  const observedOn = recordedAt !== undefined && parseDate(recordedAt) ? dateOnly(recordedAt) : undefined;
+  if (housing.storageFillStatus !== "farmer_recorded" || observedOn === undefined) {
+    return { status: "BLOCKED", housingId: housing.id, shedName: housing.shedName, targetDate, reasonCodes: ["MISSING_DATED_STORE_OBSERVATION"], version: SLURRY_STORAGE_FORECAST_VERSION };
+  }
+  if (observedOn > asOfDate) {
+    return { status: "BLOCKED", housingId: housing.id, shedName: housing.shedName, targetDate, reasonCodes: ["STORE_OBSERVATION_AFTER_ASSESSMENT_DATE"], version: SLURRY_STORAGE_FORECAST_VERSION };
+  }
+  const baseDate = observedOn;
   const currentReconciledM3 = storeReconciledVolumeM3(housing);
   const contributions: SlurryForecastGroupContribution[] = [];
   const blocked: string[] = [];
@@ -285,6 +296,7 @@ export function buildSlurryStoreForecast(input: {
     ...(projectedCapacityDate ? { projectedCapacityDate } : {}),
     contributions,
     assumptions: [
+      `Opening balance: the tank reading recorded on ${baseDate}, less slurry spread since.`,
       "Livestock counts and recorded housing plans remain unchanged unless a movement is recorded.",
       "Only S.I. 588/2025 Table 2 livestock slurry production is included; rainfall, soiled water and other inflows are not invented.",
       "Recorded store capacity is used as the operational capacity; legal freeboard is not re-derived from the current data model.",

@@ -2,10 +2,15 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
+  adoptSlurryForecastScenarioAction,
+  getAdoptedSlurryForecastAction,
   getAutomaticSlurryPlanAction,
   getSlurryStorageForecastAction,
   previewSlurryFirstFertiliserPlanAction,
+  withdrawSlurryForecastAdoptionAction,
+  type AdoptedSlurryForecastSummary,
   type SlurryFirstFertiliserPlanResult,
+  type SlurryFirstPreviewInput,
 } from "@/app/actions/fertiliser-plan";
 
 interface PlanningField {
@@ -30,6 +35,7 @@ interface CandidateDraft {
 
 const ISSUE_COPY: Record<string, string> = {
   PLANNING_DATE_INVALID: "Choose a valid planning date.",
+  PLANNING_DATE_OUTSIDE_PLANNING_SEASON: "Choose a planning date in the season being planned.",
   EXPECTED_AVAILABLE_VOLUME_INVALID: "Enter the slurry volume you expect to have available.",
   DUPLICATE_FIELD_STORE_CANDIDATE: "The same field and slurry store cannot be added twice.",
   MULTIPLE_CANDIDATES_FOR_FIELD_UNSUPPORTED: "Use one slurry proposal per field in this planning preview.",
@@ -37,24 +43,56 @@ const ISSUE_COPY: Record<string, string> = {
   CANDIDATE_VOLUME_INVALID: "Enter a positive slurry volume for every proposal.",
   CANDIDATE_METHOD_INVALID: "Choose how the slurry will be spread for every proposal.",
   CANDIDATE_APPLICATION_DATE_INVALID: "Choose a spreading date for every proposal.",
+  CANDIDATE_APPLICATION_DATE_OUTSIDE_PLANNING_SEASON: "Every spreading date must fall in the planning season — slurry spread in another season does not reduce this season's fertiliser.",
   FORECAST_VOLUME_EXCEEDED: "The proposed slurry applications exceed the forecast volume available.",
   FIELD_NOT_FOUND: "One selected field is no longer available.",
   STORE_NOT_FOUND: "One selected slurry store is no longer available.",
   STORE_CAPACITY_EXCEEDED: "A slurry store is allocated more than its recorded physical capacity.",
+  FORECAST_ADOPTION_REQUIRES_FUTURE_SEASON: "Only a future season's forecast can be adopted. Plan this season's slurry from the store as a live allocation.",
 };
 
-function nextJanuaryDate(): string {
-  const year = new Date().getUTCFullYear() + 1;
-  return `${year}-01-30`;
+const METHOD_LABELS: Record<string, string> = {
+  LESS: "LESS",
+  splashplate: "Splashplate",
+  incorporate_24h: "Incorporated within 24 h",
+  other: "Other method",
+};
+
+/** A future season starts from its late-January forecast date (the
+ * end of the typical closed period); the current season from today. */
+function defaultPlanningDate(planningSeason: string): string {
+  const today = new Date().toISOString().slice(0, 10);
+  return planningSeason > today.slice(0, 4) ? `${planningSeason}-01-30` : today;
 }
 
-function tonnesLines(result: Extract<SlurryFirstFertiliserPlanResult, { status: "ready" }>["baseline"]) {
+type PreviewDemand = Extract<SlurryFirstFertiliserPlanResult, { status: "ready" }>["baseline"];
+
+function tonnesLines(result: PreviewDemand) {
   return result.purchaseRequirementTonnes.filter((line) => line.remainingTotalKg > 0);
 }
 
-export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 }: { fields: PlanningField[]; stores: PlanningStore[]; currentUnallocatedM3: number }) {
+export function SlurryFirstPlanningPanel({
+  planningSeason,
+  fields,
+  stores,
+  currentUnallocatedM3,
+  onAdoptionChange,
+}: {
+  /** The season the fertiliser plan is quoting. Every proposal is dated in
+   * it, because only that season's slurry credits its chemical need. */
+  planningSeason: string;
+  fields: PlanningField[];
+  stores: PlanningStore[];
+  currentUnallocatedM3: number;
+  /** Called after a forecast is adopted or withdrawn, so the season's plan
+   * and quote figures are re-read. */
+  onAdoptionChange?: () => void;
+}) {
+  const futureSeason = planningSeason > String(new Date().getUTCFullYear());
+  const seasonStart = `${planningSeason}-01-01`;
+  const seasonEnd = `${planningSeason}-12-31`;
   const [open, setOpen] = useState(false);
-  const [planningDate, setPlanningDate] = useState(nextJanuaryDate);
+  const [planningDate, setPlanningDate] = useState(() => defaultPlanningDate(planningSeason));
   const [expectedAvailableM3, setExpectedAvailableM3] = useState("");
   const [calculatedForecastM3, setCalculatedForecastM3] = useState<number | null>(null);
   const [forecastMessage, setForecastMessage] = useState("Calculating from livestock and tank records…");
@@ -63,7 +101,22 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
   const [candidates, setCandidates] = useState<CandidateDraft[]>([]);
   const [result, setResult] = useState<SlurryFirstFertiliserPlanResult | null>(null);
   const [autoPlanMessage, setAutoPlanMessage] = useState<string | null>(null);
+  const [previewedInput, setPreviewedInput] = useState<SlurryFirstPreviewInput | null>(null);
+  const [adopted, setAdopted] = useState<AdoptedSlurryForecastSummary | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (!futureSeason) return;
+    let cancelled = false;
+    void getAdoptedSlurryForecastAction(planningSeason)
+      .then((summary) => {
+        if (!cancelled) setAdopted(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setAdopted(null);
+      });
+    return () => { cancelled = true; };
+  }, [futureSeason, planningSeason]);
 
   const allocatedDraftM3 = useMemo(
     () => candidates.reduce((sum, candidate) => sum + (Number(candidate.volumeM3) > 0 ? Number(candidate.volumeM3) : 0), 0),
@@ -132,14 +185,19 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
   };
 
   const runPreview = () => {
+    if (planningDate.slice(0, 4) !== planningSeason) {
+      setResult({ status: "validation_error", issues: ["PLANNING_DATE_OUTSIDE_PLANNING_SEASON"] });
+      return;
+    }
     setResult(null);
+    setPreviewedInput(null);
     startTransition(async () => {
       const expected = Number(expectedAvailableM3);
-      const response = await previewSlurryFirstFertiliserPlanAction({
+      const input: SlurryFirstPreviewInput = {
         planningDate,
         expectedAvailableM3: expected,
         source: forecastSource,
-        productionBasis: carryForwardCurrent ? "CARRY_FORWARD_CURRENT_SETTINGS" : "TARGET_SEASON_SAVED",
+        productionBasis: futureSeason && carryForwardCurrent ? "CARRY_FORWARD_CURRENT_SETTINGS" : "TARGET_SEASON_SAVED",
         candidates: candidates.map((candidate) => ({
           fieldId: candidate.fieldId,
           housingId: candidate.housingId,
@@ -147,8 +205,34 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
           applicationMethod: candidate.applicationMethod,
           applicationDate: candidate.applicationDate,
         })),
-      });
+      };
+      const response = await previewSlurryFirstFertiliserPlanAction(input);
       setResult(response);
+      if (response.status === "ready") setPreviewedInput(input);
+    });
+  };
+
+  // Adopts exactly the scenario that was previewed; the server re-validates
+  // it by the same contract before storing it as forecast intent.
+  const adoptPreview = () => {
+    if (!previewedInput) return;
+    startTransition(async () => {
+      const response = await adoptSlurryForecastScenarioAction(previewedInput);
+      if (response.status === "adopted") {
+        setAdopted(response.adoption);
+        onAdoptionChange?.();
+      } else {
+        setResult(response);
+        setPreviewedInput(null);
+      }
+    });
+  };
+
+  const withdrawAdoption = () => {
+    startTransition(async () => {
+      await withdrawSlurryForecastAdoptionAction(planningSeason);
+      setAdopted(null);
+      onAdoptionChange?.();
     });
   };
 
@@ -165,19 +249,32 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
         className="flex min-h-16 w-full items-center justify-between gap-4 py-3 text-left"
       >
         <span>
-          <span className="block text-sm font-semibold text-fr-v2-graphite">Plan slurry before fertiliser</span>
-          <span className="mt-0.5 block text-xs text-fr-v2-muted">Forecast available slurry, assign it to fields, then recalculate the chemical basket.</span>
+          <span className="block text-sm font-semibold text-fr-v2-graphite">Plan {planningSeason} slurry before fertiliser</span>
+          <span className="mt-0.5 block text-xs text-fr-v2-muted">Assign forecast slurry to fields for {planningSeason}, then recalculate that season&apos;s chemical basket.</span>
         </span>
         <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-v2-forest">{open ? "Hide" : "Open"}</span>
       </button>
 
       {open ? (
         <div className="flex flex-col gap-5 pb-5 pt-2">
+          {adopted ? (
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-l-[3px] border-fr-v2-forest pl-3 text-sm" aria-label={`Adopted ${planningSeason} slurry forecast`}>
+              <p className="text-fr-v2-graphite">
+                <span className="font-semibold">Used for {planningSeason} quotes</span>
+                <span className="text-fr-v2-muted">
+                  {" "}· {adopted.intents.filter((intent) => intent.countsInPlan).length} field{adopted.intents.filter((intent) => intent.countsInPlan).length === 1 ? "" : "s"} · {adopted.intents.reduce((sum, intent) => sum + intent.volumeM3, 0).toFixed(0)} m³ forecast slurry ({adopted.forecastSource === "FARMER_FORECAST" ? "farmer forecast" : "livestock/store forecast"} for {adopted.planningDate}). Tank levels and live slurry plans are unchanged.
+                </span>
+              </p>
+              <button type="button" disabled={isPending} onClick={withdrawAdoption} className="text-xs font-semibold text-fr-v2-muted underline underline-offset-2">Stop using</button>
+            </div>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-semibold text-fr-v2-muted">
               Planning date
               <input
                 type="date"
+                min={seasonStart}
+                max={seasonEnd}
                 value={planningDate}
                 onChange={(event) => {
                   setPlanningDate(event.target.value);
@@ -208,18 +305,20 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
             </label>
           </div>
 
-          <label className="flex items-start gap-3 border-l-[3px] border-fr-v2-gold pl-3 text-sm text-fr-v2-graphite">
-            <input type="checkbox" checked={carryForwardCurrent} onChange={(event) => setCarryForwardCurrent(event.target.checked)} className="mt-1" />
-            <span>
-              <span className="font-semibold">Use current crop and production settings as the future-season starting assumption</span>
-              <span className="mt-0.5 block text-xs leading-relaxed text-fr-v2-muted">Farm Return carries the current field settings into the planning year in memory and resets chemical fertiliser applied to zero. This does not overwrite field records and should be reviewed if next year&apos;s crop or target will change.</span>
-            </span>
-          </label>
+          {futureSeason ? (
+            <label className="flex items-start gap-3 border-l-[3px] border-fr-v2-gold pl-3 text-sm text-fr-v2-graphite">
+              <input type="checkbox" checked={carryForwardCurrent} onChange={(event) => setCarryForwardCurrent(event.target.checked)} className="mt-1" />
+              <span>
+                <span className="font-semibold">Use current crop and production settings as the future-season starting assumption</span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-fr-v2-muted">Fields with no saved {planningSeason} field use carry their current settings into {planningSeason} in memory, with chemical fertiliser applied reset to zero. This does not overwrite field records and should be reviewed if next year&apos;s crop or target will change.</span>
+              </span>
+            </label>
+          ) : null}
 
           <div className="flex items-baseline justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-fr-v2-graphite">Field slurry proposals</p>
-              <p className="text-xs text-fr-v2-muted">Planning assumptions only — these do not change today&apos;s tank volume or create live spreading jobs.</p>
+              <p className="text-sm font-semibold text-fr-v2-graphite">Field slurry proposals · {planningSeason}</p>
+              <p className="text-xs text-fr-v2-muted">Spreading dates fall in {planningSeason}. Planning assumptions only — these do not change today&apos;s tank volume or create live spreading jobs.</p>
             </div>
             <div className="flex shrink-0 items-center gap-3">
               <button type="button" onClick={useRecommendedAllocation} className="text-sm font-semibold text-fr-v2-forest">Use Farm Return recommendation</button>
@@ -277,6 +376,8 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
                     <input
                       aria-label={`Slurry proposal ${index + 1} date`}
                       type="date"
+                      min={seasonStart}
+                      max={seasonEnd}
                       value={candidate.applicationDate}
                       onChange={(event) => setCandidates((current) => current.map((item) => item.key === candidate.key ? { ...item, applicationDate: event.target.value } : item))}
                       className="min-h-11 min-w-0 flex-1 rounded-[6px] border border-fr-v2-rule bg-white px-2 text-sm"
@@ -322,13 +423,34 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <ProcurementPreview title="Without planned slurry" lines={baseline} />
-                <ProcurementPreview title="After planned slurry" lines={withSlurry} />
+                <ProcurementPreview title="Without planned slurry" lines={baseline} unresolvedFieldCount={ready.baseline.aggregation.counts.unresolved} />
+                <ProcurementPreview title="After planned slurry" lines={withSlurry} unresolvedFieldCount={ready.withPlannedSlurry.aggregation.counts.unresolved} />
               </div>
 
-              <p className="border-l-[3px] border-fr-v2-gold pl-3 text-xs text-fr-v2-muted">
-                Automatic best-return allocation is not being shown yet. The existing economic optimiser still uses the legacy nutrient engine, so Farm Return will not rank fields with it until that assessment path is rebuilt on P3.
-              </p>
+              {futureSeason && previewedInput ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-fr-v2-rule pt-3">
+                  <p className="text-xs leading-relaxed text-fr-v2-muted">Use this forecast as the {planningSeason} slurry plan for the fertiliser requirement and supplier quotes. It stays a forecast: today&apos;s tank and live slurry plans do not change, and a live slurry plan for a field replaces its forecast.</p>
+                  <button type="button" disabled={isPending} onClick={adoptPreview} className="text-sm font-semibold text-fr-v2-forest">
+                    Use for {planningSeason} quotes
+                  </button>
+                </div>
+              ) : null}
+
+              {ready.allocations.length > 0 ? (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-fr-v2-muted">{planningSeason} slurry by field</p>
+                  <dl className="mt-2 divide-y divide-fr-v2-rule" aria-label={`${planningSeason} slurry by field`}>
+                    {ready.allocations.map((allocation) => (
+                      <div key={`${allocation.fieldId}:${allocation.housingId}`} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 py-2 text-sm">
+                        <dt className="font-semibold text-fr-v2-graphite">{allocation.fieldName}</dt>
+                        <dd className="tabular-nums text-fr-v2-muted">
+                          {allocation.volumeM3.toFixed(0)} m³ from {allocation.storeName} · {METHOD_LABELS[allocation.applicationMethod] ?? allocation.applicationMethod} · {allocation.applicationDate}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -337,12 +459,31 @@ export function SlurryFirstPlanningPanel({ fields, stores, currentUnallocatedM3 
   );
 }
 
-function ProcurementPreview({ title, lines }: { title: string; lines: { product: string; npkAnalysis: string; remainingTotalTonnes: number; remainingTotalKg: number }[] }) {
+function ProcurementPreview({
+  title,
+  lines,
+  unresolvedFieldCount,
+}: {
+  title: string;
+  lines: { product: string; npkAnalysis: string; remainingTotalTonnes: number; remainingTotalKg: number }[];
+  /** Fields the canonical aggregation could not resolve. Their need is
+   * unknown, never zero, so the preview must not read as complete. */
+  unresolvedFieldCount: number;
+}) {
+  const unresolvedLabel =
+    unresolvedFieldCount === 1 ? "1 field still needs" : `${unresolvedFieldCount} fields still need`;
   return (
     <div>
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-fr-v2-muted">{title}</p>
+      {unresolvedFieldCount > 0 ? (
+        <p className="mt-2 text-sm text-fr-v2-muted">
+          {lines.length === 0
+            ? `Requirement not available yet — ${unresolvedLabel} evidence.`
+            : `Partial — ${unresolvedLabel} evidence and ${unresolvedFieldCount === 1 ? "is" : "are"} not included below.`}
+        </p>
+      ) : null}
       {lines.length === 0 ? (
-        <p className="mt-2 text-sm text-fr-v2-muted">No chemical fertiliser remaining in this preview.</p>
+        unresolvedFieldCount > 0 ? null : <p className="mt-2 text-sm text-fr-v2-muted">No chemical fertiliser remaining in this preview.</p>
       ) : (
         <dl className="mt-2 divide-y divide-fr-v2-rule">
           {lines.map((line) => (

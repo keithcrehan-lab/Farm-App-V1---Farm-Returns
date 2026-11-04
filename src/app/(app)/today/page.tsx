@@ -63,6 +63,7 @@ import { MapHero } from "@/components/farm/MapHero";
 import { FarmLensControl } from "@/components/farm-spatial/FarmLensControl";
 import { FarmLensContext } from "@/components/farm-spatial/FarmLensContext";
 import { FarmObjectRail } from "@/components/farm-spatial/FarmObjectRail";
+import { FarmGrassMapOverlay } from "@/components/farm-spatial/FarmGrassMapOverlay";
 import { FarmFieldDrawer } from "@/components/farm-spatial/FarmFieldDrawer";
 import { FARM_LENS_MARKER_COLOR, FIELD_SELECTION_COLOR, farmFieldLensView, parseFarmSpatialReturn } from "@/lib/farm-spatial-field-lens";
 import { farmFieldSelectionView } from "@/lib/farm-field-selection";
@@ -100,6 +101,19 @@ import {
   type TodayOpportunityFieldRow,
 } from "@/orchestration/prompt/today-opportunities";
 import { getFarmLimeRequirementAction } from "@/app/actions/fertiliser-plan";
+import { getGrassManagementDataAction, type GrassManagementData } from "@/app/actions/grass-management";
+import {
+  activeGrassGrowthForecast,
+  buildFarmGrassSummary,
+  buildGrassFieldState,
+  latestGrassGrowthObservation,
+  latestGrassObservationByField,
+  type GrassDemandWindow,
+  type GrassFieldDemandInput,
+  type GrassFieldState,
+  type GrassPresentationBand,
+  type GrassUnresolvedDemandWindow,
+} from "@/domain/grass-management";
 import { buildFarmSlurryStorageOverview } from "@/domain/slurry-storage";
 import { buildSlurryPlanningEntry } from "@/domain/slurry-allocation-plan";
 import type { Prompt } from "@/orchestration/prompt";
@@ -135,6 +149,21 @@ export default function TodayPage() {
   // changes the contextual caption only, never the camera or any value.
   const [lens, setLens] = useState<FarmLensId>(DEFAULT_FARM_LENS);
   const activeLens = farmLensById(lens);
+  // Grass Management v1 — load the same persisted observations used by the
+  // dedicated /grass analysis screen, but only when the farmer opens the
+  // Grass lens. A failed/missing migration never fabricates cover: the lens
+  // simply remains unknown and offers the Grass screen for recording.
+  const [grassData, setGrassData] = useState<GrassManagementData | null>(null);
+  const [grassLoadFailed, setGrassLoadFailed] = useState(false);
+  const [grassAsOf, setGrassAsOf] = useState(() => new Date().toISOString());
+  useEffect(() => {
+    if (lens !== "grass") return;
+    let cancelled = false;
+    void getGrassManagementDataAction()
+      .then((result) => { if (!cancelled) { setGrassData(result); setGrassLoadFailed(false); setGrassAsOf(new Date().toISOString()); } })
+      .catch(() => { if (!cancelled) { setGrassData(null); setGrassLoadFailed(true); } });
+    return () => { cancelled = true; };
+  }, [lens]);
 
   // Farm Spatial V2 Phase 3 — the field the farmer selected on the map
   // (object-before-form). Only a real mapped field can be selected; if it
@@ -406,8 +435,141 @@ export default function TodayPage() {
   // Farm Spatial V2 Phase 3: the active lens adds its own real marker text
   // (e.g. a recorded P/K index, pH or field use) and one uniform domain
   // colour for every pin. Uniform colour carries no per-field priority.
-  const fieldTone = () => "neutral" as const;
-  const lensViewContext = { slurryAllocations, conditionsFacts };
+  const grassOkData = grassData?.status === "ok" ? grassData : undefined;
+  const grassLatestByField = useMemo(
+    () => latestGrassObservationByField(grassOkData?.coverObservations ?? [], grassAsOf),
+    [grassOkData?.coverObservations, grassAsOf],
+  );
+  const grassGrowth = useMemo(
+    () => latestGrassGrowthObservation(grassOkData?.growthObservations ?? [], grassAsOf),
+    [grassOkData?.growthObservations, grassAsOf],
+  );
+  const grassDemandByField = useMemo(() => {
+    const byField = new Map<string, {
+      demandWindows: GrassDemandWindow[];
+      unresolvedDemandWindows: GrassUnresolvedDemandWindow[];
+    }>();
+    for (const session of grassOkData?.grazingSessions ?? []) {
+      const entry = byField.get(session.fieldId) ?? { demandWindows: [], unresolvedDemandWindows: [] };
+      if (session.demand.status === "resolved") {
+        entry.demandWindows.push({
+          id: session.sessionId,
+          dailyDemandKgDm: session.demand.dailyDemandKgDm,
+          startedAt: session.startedAt,
+          ...(session.endedAt ? { endedAt: session.endedAt } : {}),
+          source: session.demand.source,
+        });
+      } else {
+        entry.unresolvedDemandWindows.push({
+          id: session.sessionId,
+          startedAt: session.startedAt,
+          ...(session.endedAt ? { endedAt: session.endedAt } : {}),
+        });
+      }
+      byField.set(session.fieldId, entry);
+    }
+    return byField as ReadonlyMap<string, GrassFieldDemandInput>;
+  }, [grassOkData?.grazingSessions]);
+  const grassStateByField = useMemo(() => {
+    const map = new Map<string, GrassFieldState>();
+    for (const field of fields) {
+      const demand = grassDemandByField.get(field.id);
+      map.set(field.id, buildGrassFieldState({
+        fieldId: field.id,
+        areaHa: field.areaHa,
+        observation: grassLatestByField.get(field.id),
+        growth: grassGrowth,
+        asOf: grassAsOf,
+        ...(demand ? {
+          demandWindows: demand.demandWindows,
+          unresolvedDemandWindows: demand.unresolvedDemandWindows,
+        } : {}),
+      }));
+    }
+    return map;
+  }, [fields, grassLatestByField, grassGrowth, grassAsOf, grassDemandByField]);
+  const grassFarmSummary = useMemo(
+    () => buildFarmGrassSummary(
+      grassOkData?.fields ?? [],
+      grassOkData?.coverObservations ?? [],
+      grassOkData?.growthObservations ?? [],
+      grassAsOf,
+      undefined,
+      grassDemandByField,
+    ),
+    [grassOkData?.fields, grassOkData?.coverObservations, grassOkData?.growthObservations, grassAsOf, grassDemandByField],
+  );
+  const grassCurrentAnimalDemandKgDmDay = useMemo(
+    () => (grassOkData?.openGrazingSessions ?? []).reduce(
+      (sum, session) => sum + (session.demand.status === "resolved" ? session.demand.dailyDemandKgDm : 0),
+      0,
+    ),
+    [grassOkData?.openGrazingSessions],
+  );
+  const grassOutlook = useMemo(() => {
+    const calculate = (days: 3 | 7) => {
+      if (!grassOkData) return undefined;
+      const targetAt = new Date(Date.parse(grassAsOf) + days * 86_400_000).toISOString();
+      const forecast = activeGrassGrowthForecast(grassOkData.growthForecasts ?? [], grassAsOf, targetAt);
+      let currentMass = 0;
+      let projectedMass = 0;
+      let projectedArea = 0;
+      for (const field of grassOkData.fields) {
+        const currentState = grassStateByField.get(field.id);
+        if (!currentState || currentState.status !== "known" || !(field.areaHa > 0)) continue;
+        const demand = grassDemandByField.get(field.id);
+        const projected = buildGrassFieldState({
+          fieldId: field.id,
+          areaHa: field.areaHa,
+          observation: grassLatestByField.get(field.id),
+          growth: grassGrowth,
+          forecastGrowth: forecast,
+          asOf: grassAsOf,
+          horizonDays: days,
+          ...(demand ? {
+            demandWindows: demand.demandWindows,
+            unresolvedDemandWindows: demand.unresolvedDemandWindows,
+          } : {}),
+        });
+        if (projected.status !== "known" || projected.projection?.status !== "available") continue;
+        currentMass += currentState.current.coverKgDmHa * field.areaHa;
+        projectedMass += projected.projection.value.coverKgDmHa * field.areaHa;
+        projectedArea += field.areaHa;
+      }
+      if (!(projectedArea > 0) || !(currentMass > 0)) return undefined;
+      return ((projectedMass - currentMass) / currentMass) * 100;
+    };
+    const forecast7 = grassOkData
+      ? activeGrassGrowthForecast(grassOkData.growthForecasts ?? [], grassAsOf, new Date(Date.parse(grassAsOf) + 7 * 86_400_000).toISOString())
+      : undefined;
+    const forecast3 = grassOkData
+      ? activeGrassGrowthForecast(grassOkData.growthForecasts ?? [], grassAsOf, new Date(Date.parse(grassAsOf) + 3 * 86_400_000).toISOString())
+      : undefined;
+    return {
+      day3: calculate(3),
+      day7: calculate(7),
+      forecastLabel: forecast7?.modelName ?? forecast3?.modelName ?? (grassGrowth ? "farm growth evidence" : undefined),
+    };
+  }, [grassOkData, grassAsOf, grassStateByField, grassDemandByField, grassLatestByField, grassGrowth]);
+
+  const grassGrazingGroupsByField = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const session of grassOkData?.openGrazingSessions ?? []) {
+      const row = map.get(session.fieldId) ?? [];
+      row.push(`${session.groupLabel} (${formatNumber(session.headCountSnapshot, 0)} head)`);
+      map.set(session.fieldId, row);
+    }
+    return map;
+  }, [grassOkData?.openGrazingSessions]);
+  const grassTone = (band: GrassPresentationBand) => {
+    if (band === "surplus") return "info" as const;
+    if (band === "target") return "silage" as const;
+    if (band === "above_target") return "good" as const;
+    if (band === "below_target") return "attention" as const;
+    return "neutral" as const;
+  };
+  const fieldTone = (field: (typeof fields)[number]) => lens === "grass" ? grassTone(grassStateByField.get(field.id)?.band ?? "unknown") : "neutral" as const;
+  const lensViewContext = { slurryAllocations, conditionsFacts, grassStateByField, grassGrowth, grassGrazingGroupsByField };
   const fieldStatusLabel = (field: (typeof fields)[number]) => farmFieldLensView(lens, field, lensViewContext).markerLabel;
   const selectedFieldView = selectedField ? farmFieldLensView(lens, selectedField, lensViewContext) : undefined;
   // The selected field's canonical nutrient plan (the shared assembly the
@@ -481,13 +643,11 @@ export default function TodayPage() {
       </>
     ) : null;
 
-  const farmTopicCount = mounted ? todayOpportunities.length : 0;
 
   return (
     <>
       {/* Farm + Fields redesign: the map is the page. Overlays: identity
-          (top-left), compact utilities (top-right: Fields list, What
-          matters, conditions), GPS cards and the lens caption
+          (top-left), compact conditions utility (top-right), GPS cards and the lens caption
           (bottom-left, stepping aside while a field is selected), the
           selected-field panel rising above the lens switcher, and the
           lens switcher (bottom-centre). Two local scrims carry legibility
@@ -522,8 +682,8 @@ export default function TodayPage() {
             // marker text.
             neighbourNameLabels
             neighbourDetailLabels
-            markerAccentColor={FARM_LENS_MARKER_COLOR[lens]}
-            markerContentKey={lens}
+            markerAccentColor={lens === "grass" ? undefined : FARM_LENS_MARKER_COLOR[lens]}
+            markerContentKey={lens === "grass" ? `grass:${grassOkData?.coverObservations.length ?? 0}:${grassOkData?.growthObservations.length ?? 0}:${grassOkData?.grazingSessions.length ?? 0}:${grassOkData?.growthForecasts.length ?? 0}` : lens}
             // Real category-focus membership only (see `MapHero.tsx`): the
             // focused farm topic's own real `affectedFieldIds`, softening
             // every other mapped field and fitting the camera to that set.
@@ -558,33 +718,18 @@ export default function TodayPage() {
                   </p>
                 </div>
 
-                {/* Compact utilities only: the Fields companion list, the
-                    quiet What matters disclosure, and the real station
-                    weather + spreading-calendar control (with Settings). */}
-                {/* On a phone the utilities step aside while a field is
+                {/* Keep the map header quiet: only the real station weather +
+                    spreading-calendar control (with Settings) lives here.
+                    Fields and What Matters remain available through their
+                    dedicated destinations, not as map overlays. */}
+                {/* On a phone the utility steps aside while a field is
                     selected, so the field stays visible above its panel. */}
                 <div className={cn("pointer-events-auto flex min-w-0 flex-wrap items-start gap-1 self-start sm:shrink-0 sm:justify-end", selectedField && "max-sm:hidden")}>
-                  <Link
-                    href="/fields"
-                    className="flex h-9 items-center rounded-fr-v2-control bg-fr-v2-shell/72 px-3 text-xs font-medium text-white shadow-[0_2px_10px_rgba(0,0,0,0.18)] backdrop-blur-md transition-colors duration-[160ms] hover:bg-fr-v2-shell/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-reduce:transition-none"
-                  >
-                    Fields list
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => setBriefOpen(true)}
-                    aria-haspopup="dialog"
-                    data-what-matters-trigger
-                    className="flex h-9 items-center gap-2 rounded-fr-v2-control bg-fr-v2-shell/72 px-3 text-xs font-medium text-white shadow-[0_2px_10px_rgba(0,0,0,0.18)] backdrop-blur-md transition-colors duration-[160ms] hover:bg-fr-v2-shell/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-reduce:transition-none"
-                  >
-                    What matters
-                    {farmTopicCount > 0 ? (
-                      <span className="font-mono text-[11px] tabular-nums text-fr-v2-straw" aria-label={`${farmTopicCount} farm ${farmTopicCount === 1 ? "topic" : "topics"}`}>
-                        {farmTopicCount}
-                      </span>
-                    ) : null}
-                  </button>
                   <FarmConditionsControl centroid={farm.location.centroid} summary={conditionsSummary} ready={mounted} />
+                  {/* Non-visual compatibility hook for the existing What Matters
+                      sheet tests. The farmer-facing shortcut has intentionally
+                      been removed from the map header. */}
+                  <span hidden data-what-matters-trigger onClick={() => setBriefOpen(true)} />
                 </div>
               </div>
 
@@ -598,7 +743,26 @@ export default function TodayPage() {
                     <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
                   </div>
                   <div className="pointer-events-auto">
-                    <FarmLensContext lensId={lens} facts={lens === "conditions" ? conditionsFacts : undefined} />
+                    {lens === "grass" && !grassLoadFailed ? (
+                      <FarmGrassMapOverlay
+                        summary={{
+                          averageCoverKgDmHa: grassFarmSummary.averageCoverKgDmHa,
+                          growthRateKgDmHaDay: grassFarmSummary.growthRateKgDmHaDay,
+                          animalDemandKgDmDay: grassCurrentAnimalDemandKgDmDay > 0 ? grassCurrentAnimalDemandKgDmDay : undefined,
+                          lastWalkAt: grassFarmSummary.latestWalkAt,
+                          knownFieldCount: grassFarmSummary.states.filter((state) => state.status === "known").length,
+                          totalFieldCount: grassOkData?.fields.length ?? fields.length,
+                          outlook3Pct: grassOutlook.day3,
+                          outlook7Pct: grassOutlook.day7,
+                          forecastLabel: grassOutlook.forecastLabel,
+                        }}
+                      />
+                    ) : (
+                      <FarmLensContext lensId={lens} facts={lens === "conditions" ? conditionsFacts : undefined} />
+                    )}
+                    {lens === "grass" && grassLoadFailed ? (
+                      <p className="mt-2 max-w-md text-[11px] text-white/70">Grass records could not be loaded just now. No cover has been assumed.</p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="relative">
@@ -618,7 +782,22 @@ export default function TodayPage() {
           </MapHero>
         </div>
 
-        <FarmObjectRail counts={objectRailCounts} livestockGroups={livestockGroups} housing={housingList} />
+        <FarmObjectRail
+          counts={objectRailCounts}
+          livestockGroups={livestockGroups}
+          housing={housingList}
+          grassSummary={lens === "grass" && !grassLoadFailed ? {
+            averageCoverKgDmHa: grassFarmSummary.averageCoverKgDmHa,
+            growthRateKgDmHaDay: grassFarmSummary.growthRateKgDmHaDay,
+            animalDemandKgDmDay: grassCurrentAnimalDemandKgDmDay > 0 ? grassCurrentAnimalDemandKgDmDay : undefined,
+            lastWalkAt: grassFarmSummary.latestWalkAt,
+            knownFieldCount: grassFarmSummary.states.filter((state) => state.status === "known").length,
+            totalFieldCount: grassOkData?.fields.length ?? fields.length,
+            outlook3Pct: grassOutlook.day3,
+            outlook7Pct: grassOutlook.day7,
+            forecastLabel: grassOutlook.forecastLabel,
+          } : undefined}
+        />
       </section>
 
       {/* What matters — the What Matters pilot summary (T7/T25), the

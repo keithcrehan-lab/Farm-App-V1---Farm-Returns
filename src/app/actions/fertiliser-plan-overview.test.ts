@@ -2,29 +2,77 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
 vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
-vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry", () => {
+  const listSlurryAllocationsForFarm = vi.fn();
+  return {
+    listSlurryAllocationsForFarm,
+    // The planning loader reads lifecycle records; each test's planned
+    // allocations become planned records with a stable identity.
+    listSlurryAllocationRecordsForFarm: vi.fn(async (farmId: string) =>
+      ((await listSlurryAllocationsForFarm(farmId)) ?? []).map(
+        (allocation: object, index: number) => ({
+          id: `alloc-${index + 1}`,
+          farmId,
+          status: "planned",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          ...allocation,
+        }),
+      ),
+    ),
+  };
+});
+vi.mock("@/lib/farm-data/slurry-forecast-adoptions", () => ({
+  listSlurryForecastAdoptionsForFarm: vi.fn(async () => []),
+  createSlurryForecastAdoption: vi.fn(),
+  isSystemSlurryForecastWriteConfigured: vi.fn(() => true),
+}));
 vi.mock("@/lib/farm-data/housing", () => ({ listHousingForFarm: vi.fn() }));
-vi.mock("@/lib/farm-data/field-production-cycles", () => ({ listFieldProductionCyclesForSeason: vi.fn(async () => []) }));
-vi.mock("@/lib/farm-data/fertiliser-stock", () => ({ listFertiliserStockRecordsForFarm: vi.fn(), createFertiliserStockRecord: vi.fn() }));
-vi.mock("./fertiliser-plan", () => ({ getFarmFertiliserDemandAction: vi.fn(), getFarmLimeRequirementAction: vi.fn(), getFieldFertiliserStatusAction: vi.fn() }));
+vi.mock("@/lib/farm-data/field-production-cycles", () => ({
+  listFieldProductionCyclesForSeason: vi.fn(async () => []),
+}));
+vi.mock("@/lib/farm-data/fertiliser-stock", () => ({
+  listFertiliserStockRecordsForFarm: vi.fn(),
+  createFertiliserStockRecord: vi.fn(),
+}));
+vi.mock("./fertiliser-plan", () => ({
+  getFarmFertiliserDemandAction: vi.fn(),
+  getFarmLimeRequirementAction: vi.fn(),
+  getFieldFertiliserStatusAction: vi.fn(),
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listHousingForFarm } from "@/lib/farm-data/housing";
-import { listFertiliserStockRecordsForFarm, createFertiliserStockRecord } from "@/lib/farm-data/fertiliser-stock";
-import { getFarmFertiliserDemandAction, getFarmLimeRequirementAction, getFieldFertiliserStatusAction } from "./fertiliser-plan";
-import { getFertiliserPlanOverviewAction, addFertiliserStockRecordAction } from "./fertiliser-plan-overview";
+import { listFieldProductionCyclesForSeason } from "@/lib/farm-data/field-production-cycles";
+import {
+  listFertiliserStockRecordsForFarm,
+  createFertiliserStockRecord,
+} from "@/lib/farm-data/fertiliser-stock";
+import {
+  getFarmFertiliserDemandAction,
+  getFarmLimeRequirementAction,
+  getFieldFertiliserStatusAction,
+} from "./fertiliser-plan";
+import {
+  getFertiliserPlanOverviewAction,
+  addFertiliserStockRecordAction,
+} from "./fertiliser-plan-overview";
 import type { Farm, Field } from "@/domain/types";
 import type { FertiliserStockRecord } from "@/domain/fertiliser-stock";
-import { aggregateFarmFertiliserPurchasing, buildFarmFertiliserQuoteBasket } from "@/domain/fertiliser-plan";
+import {
+  aggregateFarmFertiliserPurchasing,
+  buildFarmFertiliserQuoteBasket,
+} from "@/domain/fertiliser-plan";
 const EMPTY_AGGREGATION = aggregateFarmFertiliserPurchasing([]);
 
 const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
 const mockListSlurryAllocations = vi.mocked(listSlurryAllocationsForFarm);
 const mockListHousing = vi.mocked(listHousingForFarm);
+const mockListProductionCycles = vi.mocked(listFieldProductionCyclesForSeason);
 const mockListStockRecords = vi.mocked(listFertiliserStockRecordsForFarm);
 const mockCreateStockRecord = vi.mocked(createFertiliserStockRecord);
 const mockGetDemand = vi.mocked(getFarmFertiliserDemandAction);
@@ -45,10 +93,22 @@ const FARM: Farm = {
 };
 
 function field(overrides: Partial<Field> = {}): Field {
-  return { id: "f1", farmId: "farm-1", name: "Field 1", areaHa: 5, centroid: [0, 0], fertility: {}, ...overrides } as Field;
+  return {
+    id: "f1",
+    farmId: "farm-1",
+    name: "Field 1",
+    areaHa: 5,
+    centroid: [0, 0],
+    fertility: {},
+    ...overrides,
+  } as Field;
 }
 
-function demandResult(overrides: Partial<Awaited<ReturnType<typeof getFarmFertiliserDemandAction>>> = {}) {
+function demandResult(
+  overrides: Partial<
+    Awaited<ReturnType<typeof getFarmFertiliserDemandAction>>
+  > = {},
+) {
   return {
     demand: [],
     purchaseRequirementTonnes: [],
@@ -56,16 +116,32 @@ function demandResult(overrides: Partial<Awaited<ReturnType<typeof getFarmFertil
     applicationsWithUnknownComposition: 0,
     fieldsWithBlockedEvidence: 0,
     aggregation: EMPTY_AGGREGATION,
-    basket: buildFarmFertiliserQuoteBasket(EMPTY_AGGREGATION, { farmId: "farm-1", createdAt: "2026-10-03T00:00:00.000Z" }),
+    basket: buildFarmFertiliserQuoteBasket(EMPTY_AGGREGATION, {
+      farmId: "farm-1",
+      createdAt: "2026-10-03T00:00:00.000Z",
+    }),
     ...overrides,
   };
 }
 
-function limeResult(overrides: Partial<Awaited<ReturnType<typeof getFarmLimeRequirementAction>>> = {}) {
-  return { fields: [], farmTotalTonnes: 0, fieldsWithoutLimeEvidence: 0, ...overrides };
+function limeResult(
+  overrides: Partial<
+    Awaited<ReturnType<typeof getFarmLimeRequirementAction>>
+  > = {},
+) {
+  return {
+    fields: [],
+    farmTotalTonnes: 0,
+    fieldsWithoutLimeEvidence: 0,
+    ...overrides,
+  };
 }
 
-function p3Ok(requirementKgHa: { n: number; p: number; k: number }): Awaited<ReturnType<typeof getFieldFertiliserStatusAction>> {
+function p3Ok(requirementKgHa: {
+  n: number;
+  p: number;
+  k: number;
+}): Awaited<ReturnType<typeof getFieldFertiliserStatusAction>> {
   return {
     status: "ok",
     engineVersion: "grass_fertiliser_engine_v2.0.0",
@@ -88,18 +164,63 @@ function setUpBaseMocks() {
   mockGetFarm.mockResolvedValue(FARM);
   mockListSlurryAllocations.mockResolvedValue([]);
   mockListHousing.mockResolvedValue([]);
+  mockListProductionCycles.mockResolvedValue([]);
   mockListStockRecords.mockResolvedValue([]);
   mockGetDemand.mockResolvedValue(demandResult());
   mockGetLime.mockResolvedValue(limeResult());
-  mockGetFieldStatus.mockResolvedValue({ status: "blocked", reasonCode: "P3_INCOMPLETE_EVIDENCE" });
+  mockGetFieldStatus.mockResolvedValue({
+    status: "blocked",
+    reasonCode: "P3_INCOMPLETE_EVIDENCE",
+  });
 }
 
 describe("getFertiliserPlanOverviewAction", () => {
+  it("uses the target-season production cycle for next-season quote readiness when the farmer has already selected a use", async () => {
+    setUpBaseMocks();
+    mockListFields.mockResolvedValue([
+      field({ id: "f1", name: "Back Avenue Tillage Field" }),
+    ]);
+    mockListProductionCycles.mockImplementation(async (_fieldIds, season) =>
+      season === "2027"
+        ? [
+            {
+              id: "cycle-2027",
+              fieldId: "f1",
+              season: "2027",
+              cropSystem: "GRASS_GRAZING",
+              status: "planned",
+              evidence: {
+                cropSystem: {
+                  value: "GRASS_GRAZING",
+                  method: "FARMER_DECLARED",
+                  source: "Farmer",
+                },
+              },
+              createdAt: "2026-11-01T00:00:00.000Z",
+              updatedAt: "2026-11-01T00:00:00.000Z",
+            },
+          ]
+        : [],
+    );
+
+    const overview = await getFertiliserPlanOverviewAction("2027");
+
+    expect(mockListProductionCycles).toHaveBeenCalledWith(["f1"], "2027");
+    expect(
+      overview.quoteReadiness.items.find((item) => item.id === "f1:cycle"),
+    ).toMatchObject({
+      complete: true,
+      label: "Field use / production cycle",
+    });
+  });
+
   it("P4 reads each active field through the P3 field-status contract", async () => {
     setUpBaseMocks();
     mockListFields.mockResolvedValue([field({ id: "a" }), field({ id: "b" })]);
     mockGetFieldStatus.mockImplementation(async (fieldId) =>
-      fieldId === "a" ? p3Ok({ n: 10, p: 1, k: 2 }) : { status: "blocked", reasonCode: "MISSING_FIELD_PRODUCTION_CYCLE" },
+      fieldId === "a"
+        ? p3Ok({ n: 10, p: 1, k: 2 })
+        : { status: "blocked", reasonCode: "MISSING_FIELD_PRODUCTION_CYCLE" },
     );
 
     const overview = await getFertiliserPlanOverviewAction();
@@ -107,16 +228,74 @@ describe("getFertiliserPlanOverviewAction", () => {
     expect(mockGetFieldStatus).toHaveBeenCalledTimes(2);
     expect(mockGetFieldStatus).toHaveBeenCalledWith("a", "2026");
     expect(mockGetFieldStatus).toHaveBeenCalledWith("b", "2026");
-    expect(overview.fieldBreakdown.find((row) => row.fieldId === "a")?.status).toBe("OK");
-    expect(overview.fieldBreakdown.find((row) => row.fieldId === "b")).toMatchObject({
+    expect(
+      overview.fieldBreakdown.find((row) => row.fieldId === "a")?.status,
+    ).toBe("OK");
+    expect(
+      overview.fieldBreakdown.find((row) => row.fieldId === "b"),
+    ).toMatchObject({
       status: "BLOCKED_INSUFFICIENT_EVIDENCE",
       reasonCode: "MISSING_FIELD_PRODUCTION_CYCLE",
     });
   });
 
+  it("uses the farm-demand engine's canonical per-field calculations without recalculating fields a second time", async () => {
+    setUpBaseMocks();
+    mockListFields.mockResolvedValue([
+      field({ id: "a", areaHa: 10 }),
+      field({ id: "b", areaHa: 5 }),
+    ]);
+    mockGetDemand.mockResolvedValue(
+      demandResult({
+        fieldCalculations: [
+          {
+            fieldId: "a",
+            fieldName: "Field 1",
+            areaHa: 10,
+            status: "OK",
+            engineVersion: "grass_fertiliser_engine_v2.0.0",
+            cropSystem: "GRASS_GRAZING",
+            requirementKgHa: { n: 100, p: 20, k: 30 },
+            organicCreditsKgHa: { n: 0, p: 0, k: 0 },
+            remainingKgHa: { n: 100, p: 20, k: 30 },
+            chemicalAreaHa: 10,
+          },
+          {
+            fieldId: "b",
+            fieldName: "Field 1",
+            areaHa: 5,
+            status: "BLOCKED_INSUFFICIENT_EVIDENCE",
+            reasonCode: "P3_MISSING_PRODUCTION_CYCLE",
+          },
+        ],
+      }),
+    );
+
+    const overview = await getFertiliserPlanOverviewAction();
+
+    expect(mockGetFieldStatus).not.toHaveBeenCalled();
+    expect(overview.nutrientRequirementKg).toEqual({
+      n: 1000,
+      p: 200,
+      k: 300,
+      fieldsIncluded: 1,
+    });
+    expect(overview.fieldsIncluded).toBe(1);
+    expect(overview.totalAreaHaIncluded).toBe(10);
+    expect(
+      overview.fieldBreakdown.find((row) => row.fieldId === "b"),
+    ).toMatchObject({
+      status: "BLOCKED_INSUFFICIENT_EVIDENCE",
+      reasonCode: "P3_MISSING_PRODUCTION_CYCLE",
+    });
+  });
+
   it("excludes an archived field from every total, the same rule every other farm-wide aggregation applies", async () => {
     setUpBaseMocks();
-    mockListFields.mockResolvedValue([field({ id: "active", areaHa: 5 }), field({ id: "archived", areaHa: 100, archivedAt: "2026-01-01" })]);
+    mockListFields.mockResolvedValue([
+      field({ id: "active", areaHa: 5 }),
+      field({ id: "archived", areaHa: 100, archivedAt: "2026-01-01" }),
+    ]);
     mockGetFieldStatus.mockResolvedValue(p3Ok({ n: 10, p: 1, k: 2 }));
 
     const overview = await getFertiliserPlanOverviewAction();
@@ -129,13 +308,23 @@ describe("getFertiliserPlanOverviewAction", () => {
 
   it("sums real N/P/K only across fields whose P3 status genuinely reached ok", async () => {
     setUpBaseMocks();
-    mockListFields.mockResolvedValue([field({ id: "a", areaHa: 10 }), field({ id: "b", areaHa: 5 })]);
+    mockListFields.mockResolvedValue([
+      field({ id: "a", areaHa: 10 }),
+      field({ id: "b", areaHa: 5 }),
+    ]);
     mockGetFieldStatus.mockImplementation(async (fieldId) =>
-      fieldId === "a" ? p3Ok({ n: 100, p: 20, k: 30 }) : { status: "blocked", reasonCode: "NO_LIVESTOCK" },
+      fieldId === "a"
+        ? p3Ok({ n: 100, p: 20, k: 30 })
+        : { status: "blocked", reasonCode: "NO_LIVESTOCK" },
     );
 
     const overview = await getFertiliserPlanOverviewAction();
-    expect(overview.nutrientRequirementKg).toEqual({ n: 1000, p: 200, k: 300, fieldsIncluded: 1 });
+    expect(overview.nutrientRequirementKg).toEqual({
+      n: 1000,
+      p: 200,
+      k: 300,
+      fieldsIncluded: 1,
+    });
     expect(overview.fieldsIncluded).toBe(1);
     expect(overview.fieldsExcluded).toBe(1);
     const blocked = overview.fieldBreakdown.find((f) => f.fieldId === "b");
@@ -148,12 +337,43 @@ describe("getFertiliserPlanOverviewAction", () => {
     mockListFields.mockResolvedValue([]);
     mockGetDemand.mockResolvedValue(
       demandResult({
-        demand: [{ farmId: "farm-1", product: "Urea", unit: "kg", totalRequirementKg: 1000, plannedRequirementKg: 0, confirmedRequirementKg: 0, remainingRequirementKg: 1000, confidence: "estimated" }],
-        purchaseRequirementTonnes: [{ product: "Urea", npkAnalysis: "46-0-0", recommendedTotalTonnes: 1, plannedTotalTonnes: 0, confirmedAppliedTotalTonnes: 0, remainingTotalTonnes: 1, remainingTotalKg: 1000, fieldsCount: 1 }],
+        demand: [
+          {
+            farmId: "farm-1",
+            product: "Urea",
+            unit: "kg",
+            totalRequirementKg: 1000,
+            plannedRequirementKg: 0,
+            confirmedRequirementKg: 0,
+            remainingRequirementKg: 1000,
+            confidence: "estimated",
+          },
+        ],
+        purchaseRequirementTonnes: [
+          {
+            product: "Urea",
+            npkAnalysis: "46-0-0",
+            recommendedTotalTonnes: 1,
+            plannedTotalTonnes: 0,
+            confirmedAppliedTotalTonnes: 0,
+            remainingTotalTonnes: 1,
+            remainingTotalKg: 1000,
+            fieldsCount: 1,
+          },
+        ],
       }),
     );
     mockListStockRecords.mockResolvedValue([
-      { id: "s1", farmId: "farm-1", product: "Urea", quantity: 100, unit: "kg", effectiveDate: "2026-09-01", source: "Farmer count", recordedAt: "2026-09-01T09:00:00.000Z" } satisfies FertiliserStockRecord,
+      {
+        id: "s1",
+        farmId: "farm-1",
+        product: "Urea",
+        quantity: 100,
+        unit: "kg",
+        effectiveDate: "2026-09-01",
+        source: "Farmer count",
+        recordedAt: "2026-09-01T09:00:00.000Z",
+      } satisfies FertiliserStockRecord,
     ]);
 
     const overview = await getFertiliserPlanOverviewAction();
@@ -172,7 +392,16 @@ describe("getFertiliserPlanOverviewAction", () => {
     mockListFields.mockResolvedValue([]);
     mockGetDemand.mockResolvedValue(demandResult({ demand: [] }));
     mockListStockRecords.mockResolvedValue([
-      { id: "s1", farmId: "farm-1", product: "CAN 27%", quantity: 200, unit: "kg", effectiveDate: "2026-09-01", source: "Farmer count", recordedAt: "2026-09-01T09:00:00.000Z" } satisfies FertiliserStockRecord,
+      {
+        id: "s1",
+        farmId: "farm-1",
+        product: "CAN 27%",
+        quantity: 200,
+        unit: "kg",
+        effectiveDate: "2026-09-01",
+        source: "Farmer count",
+        recordedAt: "2026-09-01T09:00:00.000Z",
+      } satisfies FertiliserStockRecord,
     ]);
 
     const overview = await getFertiliserPlanOverviewAction();
@@ -189,9 +418,20 @@ describe("getFertiliserPlanOverviewAction", () => {
   it("builds the lime stock band from the real farm-wide lime tonnes, converted honestly to kg", async () => {
     setUpBaseMocks();
     mockListFields.mockResolvedValue([]);
-    mockGetLime.mockResolvedValue(limeResult({ farmTotalTonnes: 2, fieldsWithoutLimeEvidence: 1 }));
+    mockGetLime.mockResolvedValue(
+      limeResult({ farmTotalTonnes: 2, fieldsWithoutLimeEvidence: 1 }),
+    );
     mockListStockRecords.mockResolvedValue([
-      { id: "s1", farmId: "farm-1", product: "Lime", quantity: 1, unit: "t", effectiveDate: "2026-09-01", source: "Farmer count", recordedAt: "2026-09-01T09:00:00.000Z" } satisfies FertiliserStockRecord,
+      {
+        id: "s1",
+        farmId: "farm-1",
+        product: "Lime",
+        quantity: 1,
+        unit: "t",
+        effectiveDate: "2026-09-01",
+        source: "Farmer count",
+        recordedAt: "2026-09-01T09:00:00.000Z",
+      } satisfies FertiliserStockRecord,
     ]);
 
     const overview = await getFertiliserPlanOverviewAction();
@@ -205,14 +445,22 @@ describe("getFertiliserPlanOverviewAction", () => {
 
   it("throws a clear error rather than silently returning empty data when there is no real farm", async () => {
     mockGetFarm.mockResolvedValue(null);
-    await expect(getFertiliserPlanOverviewAction()).rejects.toThrow(/no real farm/);
+    await expect(getFertiliserPlanOverviewAction()).rejects.toThrow(
+      /no real farm/,
+    );
   });
 });
 
 describe("addFertiliserStockRecordAction", () => {
   it("returns real validation errors and never calls the database write on invalid input", async () => {
     mockGetFarm.mockResolvedValue(FARM);
-    const result = await addFertiliserStockRecordAction({ product: "", quantity: 0, unit: "kg", effectiveDate: "2026-09-01", source: "" });
+    const result = await addFertiliserStockRecordAction({
+      product: "",
+      quantity: 0,
+      unit: "kg",
+      effectiveDate: "2026-09-01",
+      source: "",
+    });
     expect(result.status).toBe("validation_error");
     expect(result.errors?.length).toBeGreaterThan(0);
     expect(mockCreateStockRecord).not.toHaveBeenCalled();
@@ -220,10 +468,28 @@ describe("addFertiliserStockRecordAction", () => {
 
   it("inserts a real new record on valid input", async () => {
     mockGetFarm.mockResolvedValue(FARM);
-    const record: FertiliserStockRecord = { id: "s1", farmId: "farm-1", product: "Urea", quantity: 100, unit: "kg", effectiveDate: "2026-09-01", source: "Farmer entered", recordedAt: "2026-09-01T09:00:00.000Z" };
+    const record: FertiliserStockRecord = {
+      id: "s1",
+      farmId: "farm-1",
+      product: "Urea",
+      quantity: 100,
+      unit: "kg",
+      effectiveDate: "2026-09-01",
+      source: "Farmer entered",
+      recordedAt: "2026-09-01T09:00:00.000Z",
+    };
     mockCreateStockRecord.mockResolvedValue(record);
-    const result = await addFertiliserStockRecordAction({ product: "Urea", quantity: 100, unit: "kg", effectiveDate: "2026-09-01", source: "Farmer entered" });
+    const result = await addFertiliserStockRecordAction({
+      product: "Urea",
+      quantity: 100,
+      unit: "kg",
+      effectiveDate: "2026-09-01",
+      source: "Farmer entered",
+    });
     expect(result).toEqual({ status: "ok", record });
-    expect(mockCreateStockRecord).toHaveBeenCalledWith("farm-1", expect.objectContaining({ product: "Urea", quantity: 100 }));
+    expect(mockCreateStockRecord).toHaveBeenCalledWith(
+      "farm-1",
+      expect.objectContaining({ product: "Urea", quantity: 100 }),
+    );
   });
 });

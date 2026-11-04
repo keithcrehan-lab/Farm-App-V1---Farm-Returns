@@ -26,6 +26,13 @@ import {
   type SubmitOrReviseQuoteRequestResult,
 } from "@/lib/farm-data/quote-requests";
 import { getFarmFertiliserDemandAction, getFarmLimeRequirementAction, type FarmFertiliserDemandActionResult } from "@/app/actions/fertiliser-plan";
+import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
+import { listFertiliserStockRecordsForFarm } from "@/lib/farm-data/fertiliser-stock";
+import {
+  buildFertiliserStockBand,
+  currentFertiliserStockByProduct,
+  normaliseFertiliserProductKey,
+} from "@/domain/fertiliser-stock";
 
 /**
  * A single farm-wide fertiliser demand line, shaped for the "Request a
@@ -46,6 +53,18 @@ export interface QuoteRequestPrefillOption {
    * combined here only for prefill-banner purposes; the individual
    * counts remain available on `demandContext` for a fuller disclosure. */
   mayUnderstate: boolean;
+  /** The farmer's recorded stock of this product, through the stock
+   * contract (`currentFertiliserStockByProduct`/`buildFertiliserStockBand`)
+   * — the same figures the Fertiliser Plan overview's "still to buy"
+   * uses. `not_recorded` is unknown stock, never zero. */
+  stock:
+    | { status: "not_recorded" }
+    | { status: "recorded"; stockKg: number; stockAsOf: string; stockSource: string };
+  /** The suggested commercial purchase quantity: the remaining agronomic
+   * requirement less recorded stock (`shortfallKg`). With no stock record
+   * it is the full requirement — nothing is subtracted for stock that is
+   * not known. `remainingRequirementKg` stays the agronomic evidence. */
+  suggestedPurchaseKg: number;
 }
 
 /**
@@ -90,15 +109,34 @@ export interface QuoteRequestPrefillContext {
  * fertiliser demand yet — the farmer's own manual/farmer-entered route
  * remains available regardless. */
 export async function getQuoteRequestPrefillContext(planningSeason?: string): Promise<QuoteRequestPrefillContext> {
-  const [demandContext, limeRequirement] = await Promise.all([getFarmFertiliserDemandAction(planningSeason), getFarmLimeRequirementAction()]);
+  const farm = await getFarmForCurrentUser();
+  if (!farm) throw new Error("getQuoteRequestPrefillContext: no real farm for the current session");
+  const [demandContext, limeRequirement, stockRecords] = await Promise.all([
+    getFarmFertiliserDemandAction(planningSeason),
+    getFarmLimeRequirementAction(),
+    listFertiliserStockRecordsForFarm(farm.id),
+  ]);
   const asOf = new Date().toISOString();
+  const currentStockByProduct = currentFertiliserStockByProduct(stockRecords);
   const options: QuoteRequestPrefillOption[] = demandContext.demand
     .filter((d) => d.remainingRequirementKg > 0)
-    .map((d) => ({
-      product: d.product,
-      remainingRequirementKg: d.remainingRequirementKg,
-      mayUnderstate: demandContext.truncated || demandContext.applicationsWithUnknownComposition > 0 || demandContext.fieldsWithBlockedEvidence > 0,
-    }));
+    .map((d) => {
+      const band = buildFertiliserStockBand({
+        product: d.product,
+        remainingRequirementKg: d.remainingRequirementKg,
+        currentStock: currentStockByProduct.get(normaliseFertiliserProductKey(d.product)),
+      });
+      return {
+        product: d.product,
+        remainingRequirementKg: d.remainingRequirementKg,
+        mayUnderstate: demandContext.truncated || demandContext.applicationsWithUnknownComposition > 0 || demandContext.fieldsWithBlockedEvidence > 0,
+        stock:
+          band.status === "recorded"
+            ? { status: "recorded" as const, stockKg: band.stockKg, stockAsOf: band.stockAsOf, stockSource: band.stockSource }
+            : { status: "not_recorded" as const },
+        suggestedPurchaseKg: band.status === "recorded" ? band.shortfallKg : band.remainingRequirementKg,
+      };
+    });
   const limeOption: QuoteRequestLimeOption | undefined =
     limeRequirement.farmTotalTonnes > 0 ? { farmTotalTonnes: limeRequirement.farmTotalTonnes, fieldsWithoutLimeEvidence: limeRequirement.fieldsWithoutLimeEvidence } : undefined;
   return { options, demandContext, limeOption, asOf };

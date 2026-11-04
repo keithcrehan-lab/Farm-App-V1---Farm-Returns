@@ -5,9 +5,9 @@
  * `cso-fertiliser-client.real-fixtures.ts` and the full live curl this
  * mapping's classifications were checked against).
  *
- * Only two codes are `EXACT_PRODUCT_MATCH` — CSO's own label is a
- * byte-identical compound formulation to a `nutrients.ts` `PRODUCTS`
- * name. Urea is `CATEGORY_BENCHMARK`, never `EXACT_PRODUCT_MATCH`: AJM09
+ * Only three codes are `EXACT_PRODUCT_MATCH` — CSO's own label is the
+ * same product (byte-identical compound formulation, or for 006 the
+ * byte-identical name) as a `nutrients.ts` `PRODUCTS` entry. Urea is `CATEGORY_BENCHMARK`, never `EXACT_PRODUCT_MATCH`: AJM09
  * tracks generic "Urea (46% N)", not specifically stabilised/protected
  * urea — `market.ts`'s own `CSO_UREA_46N` doc comment already recorded
  * this exact caveat for the embedded snapshot; this mapping makes the
@@ -65,6 +65,13 @@ const AJM09_PRODUCT_MAPPING: Record<
   // Compound 18-6-12 — exact byte-identical match to
   // PRODUCTS.blend181612.name.
   "012": { mappedProduct: "18-6-12", mappingKind: "EXACT_PRODUCT_MATCH", expectedSourceSeriesLabel: "Compound 18-6-12" },
+  // Muriate of Potash (50% K) — byte-identical to
+  // PRODUCTS.muriateOfPotash.name (0-0-50, potassium chloride).
+  "006": {
+    mappedProduct: "Muriate of Potash (50% K)",
+    mappingKind: "EXACT_PRODUCT_MATCH",
+    expectedSourceSeriesLabel: "Muriate of Potash (50% K)",
+  },
   // Urea (46% N) — same nutrient content (46% N) and the dominant driver
   // of Protected Urea's own price, but CSO does not track a
   // stabilised/protected-urea-specific series; see this file's header.

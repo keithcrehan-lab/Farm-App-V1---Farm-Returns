@@ -290,7 +290,10 @@ function RequestQuoteSheetBody({ onSubmitted, planningSeason }: { onSubmitted: (
               // this editable field verbatim — the farmer can still
               // adjust it before submitting, but the starting point is
               // never silently altered by UI-layer arithmetic.
-              setQuantity(String(opt.remainingRequirementKg));
+              // F011: the starting point is the stock-adjusted purchase
+              // quantity from the stock contract, not the gross agronomic
+              // requirement; stock that covers the need leaves it empty.
+              setQuantity(opt.suggestedPurchaseKg > 0 ? String(opt.suggestedPurchaseKg) : "");
               setUnit("kg");
             } else {
               setQuantity("");
@@ -312,15 +315,28 @@ function RequestQuoteSheetBody({ onSubmitted, planningSeason }: { onSubmitted: (
                   convention (trailing zeros drop naturally) rather than
                   a raw, inconsistent `String(...)`. */}
               {o.product} — estimated {formatNumber(o.remainingRequirementKg, 20)} kg remaining
+              {o.stock.status === "recorded" ? ` · ${formatNumber(o.suggestedPurchaseKg, 20)} kg to buy after stock` : ""}
             </option>
           ))}
           <option value={MANUAL_OPTION}>Something else (enter manually)</option>
         </select>
         {selectedEstimate ? (
-          <p className="text-xs text-fr-ink-600">
-            Estimated from your farm&rsquo;s fertiliser plan{selectedEstimate.mayUnderstate ? " — this figure may understate your real need (some evidence is incomplete)." : "."}{" "}
-            Adjust the quantity below to what you actually want quoted.
-          </p>
+          <div className="flex flex-col gap-1 text-xs text-fr-ink-600">
+            <p>
+              Fertiliser plan requirement: <span className="font-semibold text-fr-ink-900">{formatNumber(selectedEstimate.remainingRequirementKg, 20)} kg</span>
+              {selectedEstimate.mayUnderstate ? " — this figure may understate your real need (some evidence is incomplete)." : "."}
+            </p>
+            {selectedEstimate.stock.status === "recorded" ? (
+              <p>
+                In stock: <span className="font-semibold text-fr-ink-900">{formatNumber(selectedEstimate.stock.stockKg, 20)} kg</span> (recorded {selectedEstimate.stock.stockAsOf}) · Still to buy:{" "}
+                <span className="font-semibold text-fr-ink-900">{formatNumber(selectedEstimate.suggestedPurchaseKg, 20)} kg</span>
+                {selectedEstimate.suggestedPurchaseKg > 0 ? "" : " — your recorded stock covers this requirement."}
+              </p>
+            ) : (
+              <p>Stock not recorded — the full requirement is suggested. Record your stock on the Fertiliser Plan to subtract it.</p>
+            )}
+            <p>Adjust the quantity below to what you actually want quoted.</p>
+          </div>
         ) : null}
         {selectedOption === MANUAL_OPTION ? (
           <input

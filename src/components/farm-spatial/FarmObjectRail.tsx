@@ -4,6 +4,8 @@ import { useId, useMemo, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { formatNumber } from "@/lib/format";
+import type { FarmGrassMapSummary } from "@/components/farm-spatial/FarmGrassMapOverlay";
 import type { FarmObjectRailCounts } from "@/domain/farm-stats";
 import type { Housing, LivestockGroup } from "@/domain/types";
 import {
@@ -44,11 +46,13 @@ export function FarmObjectRail({
   counts,
   livestockGroups,
   housing,
+  grassSummary,
   className,
 }: {
   counts: FarmObjectRailCounts;
   livestockGroups: readonly LivestockGroup[];
   housing: readonly Housing[];
+  grassSummary?: FarmGrassMapSummary;
   className?: string;
 }) {
   const [selected, setSelected] = useState<FarmObjectId | undefined>(undefined);
@@ -89,6 +93,30 @@ export function FarmObjectRail({
           ruleClassName="bg-fr-v2-clay"
         />
       </div>
+      {grassSummary ? (
+        <div className="mx-2.5 mt-3 hidden border-t border-fr-v2-rule pt-4 lg:block" data-rail-grass>
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold text-fr-v2-graphite">
+            <span aria-hidden className="h-3 w-[3px] bg-fr-v2-forest" />
+            Grass
+          </p>
+          <p className="mt-2 font-display text-[24px] leading-none tabular-nums text-fr-v2-charcoal">
+            {grassSummary.averageCoverKgDmHa === undefined ? "—" : formatNumber(grassSummary.averageCoverKgDmHa, 0)}
+          </p>
+          <p className="mt-1 text-[9.5px] leading-tight text-fr-v2-muted">kg DM/ha avg.</p>
+          <div className="mt-3 space-y-2 border-t border-fr-v2-rule pt-3">
+            <RailGrassMetric value={grassSummary.growthRateKgDmHaDay} unit="kg DM/ha/day" />
+            <RailGrassMetric value={grassSummary.animalDemandKgDmDay} unit="kg DM/day" />
+          </div>
+          {grassSummary.outlook3Pct !== undefined ? (
+            <div className="mt-3 rounded-[8px] bg-fr-v2-forest/8 px-2 py-2">
+              <p className="text-sm font-semibold tabular-nums text-fr-v2-forest">
+                {grassSummary.outlook3Pct > 0 ? "+" : ""}{formatNumber(grassSummary.outlook3Pct, 1)}%
+              </p>
+              <p className="text-[9.5px] text-fr-v2-muted">3-day outlook</p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {selected ? (
         <FarmObjectPanel id={panelId} objectId={selected} livestockGroups={livestockGroups} housing={housing} onClose={() => setSelected(undefined)} />
       ) : null}
@@ -256,5 +284,14 @@ function FarmObjectPanel({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function RailGrassMetric({ value, unit }: { value?: number; unit: string }) {
+  return (
+    <div>
+      <p className="font-display text-[20px] leading-none tabular-nums text-fr-v2-charcoal">{value === undefined ? "—" : formatNumber(value, 0)}</p>
+      <p className="mt-1 text-[9px] leading-tight text-fr-v2-muted">{unit}</p>
+    </div>
   );
 }

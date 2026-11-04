@@ -1,6 +1,7 @@
 import "server-only";
 
 import { boundingBox } from "@/domain/field-boundary";
+import { satelliteImageFrame, satelliteViewBounds } from "@/lib/satellite-image-frame";
 
 const TOKEN_URL = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token";
 const PROCESS_URL = "https://sh.dataspace.copernicus.eu/api/v1/process";
@@ -161,12 +162,15 @@ export async function renderSentinel2FieldImage(
   const height = Math.max(maxLat - minLat, 0.0001);
   const padX = width * 0.22;
   const padY = height * 0.22;
-  const contextBounds: [number, number, number, number] = [
+  // Widened past 5:1 the same way as the history's reference bounds, so
+  // the dated layer and the Mapbox reference share one undistorted frame.
+  const contextBounds = satelliteViewBounds([
     minLng - padX,
     minLat - padY,
     maxLng + padX,
     maxLat + padY,
-  ];
+  ]);
+  const frame = satelliteImageFrame(contextBounds);
 
   const response = await fetchImpl(PROCESS_URL, {
     method: "POST",
@@ -192,8 +196,10 @@ export async function renderSentinel2FieldImage(
         ],
       },
       output: {
-        width: request.width ?? 1280,
-        height: request.height ?? 900,
+        // The field's true ground aspect, shared with the reference layer
+        // (`satelliteImageFrame`), so neither layer is stretched.
+        width: request.width ?? frame.width,
+        height: request.height ?? frame.height,
         responses: [{ identifier: "default", format: { type: "image/png" } }],
       },
       evalscript: request.mode === "ndvi" ? NDVI_IMAGE_EVALSCRIPT : NATURAL_COLOR_EVALSCRIPT,

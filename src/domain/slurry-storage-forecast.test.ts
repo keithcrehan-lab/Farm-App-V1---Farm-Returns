@@ -43,12 +43,56 @@ describe("buildSlurryStoreForecast", () => {
     expect(result.projectedVolumeM3).toBeCloseTo(102.9, 6);
   });
 
+  it("projects the tank-full date from housed animals and gives none when housing ends first", () => {
+    // 100 sucklers × 0.29 m3/week ≈ 4.14 m3/day; 400 m3 headroom fills on day 97.
+    const filling = buildSlurryStoreForecast({ housing: store(), livestockGroups: [group({ count: tracked(100, "verified", "test") })], allocations: [], asOfDate: "2026-11-01", targetDate: "2026-11-08" });
+    expect(filling.status).toBe("READY");
+    if (filling.status !== "READY") return;
+    expect(filling.projectedCapacityDate).toBe("2027-02-06");
+
+    // 10 sucklers add ~55 m3 before housing ends on 15 March: never full.
+    const notFilling = buildSlurryStoreForecast({ housing: store(), livestockGroups: [group()], allocations: [], asOfDate: "2026-11-01", targetDate: "2026-11-08" });
+    expect(notFilling.status).toBe("READY");
+    if (notFilling.status !== "READY") return;
+    expect(notFilling.projectedCapacityDate).toBeUndefined();
+  });
+
   it("uses a future linked housing period for a group currently at grass", () => {
     const future = group({ system: "grazing", housingId: undefined });
-    const result = buildSlurryStoreForecast({ housing: store(), livestockGroups: [future], allocations: [], asOfDate: "2026-10-01", targetDate: "2026-11-08" });
+    // The tank reading predates the assessment date: it is the opening balance.
+    const result = buildSlurryStoreForecast({ housing: store({ storageFillRecordedAt: "2026-09-30T09:00:00.000Z" }), livestockGroups: [future], allocations: [], asOfDate: "2026-10-01", targetDate: "2026-11-08" });
     expect(result.status).toBe("READY");
     if (result.status !== "READY") return;
     expect(result.producedM3).toBeCloseTo(2.9, 6);
+  });
+
+  it("F005: never turns an unrecorded or undated tank level into a READY empty tank", () => {
+    // The audit's reproduction: estimated fill 0, no observed date, no livestock.
+    for (const housing of [
+      store({ storageFillPct: 0, storageFillStatus: "estimated", storageFillRecordedAt: undefined, storeObservedAt: undefined }),
+      store({ storageFillPct: 0, storageFillStatus: "farmer_recorded", storageFillRecordedAt: undefined, storeObservedAt: undefined }),
+      store({ storageFillPct: 0, storageFillStatus: "estimated" }),
+      store({ storageFillPct: 0, storageFillRecordedAt: "not-a-date" }),
+    ]) {
+      const result = buildSlurryStoreForecast({ housing, livestockGroups: [], allocations: [], asOfDate: "2026-11-01", targetDate: "2026-11-08" });
+      expect(result).toMatchObject({ status: "BLOCKED", reasonCodes: ["MISSING_DATED_STORE_OBSERVATION"] });
+      expect("currentReconciledM3" in result).toBe(false);
+      expect("projectedAvailableForNewPlanM3" in result).toBe(false);
+    }
+  });
+
+  it("F005: a reading dated after the assessment date is not an opening balance", () => {
+    const result = buildSlurryStoreForecast({ housing: store({ storageFillRecordedAt: "2026-11-05T09:00:00.000Z" }), livestockGroups: [], allocations: [], asOfDate: "2026-11-01", targetDate: "2026-11-08" });
+    expect(result).toMatchObject({ status: "BLOCKED", reasonCodes: ["STORE_OBSERVATION_AFTER_ASSESSMENT_DATE"] });
+  });
+
+  it("F005: a recorded empty tank forecasts from that dated reading and discloses it", () => {
+    const result = buildSlurryStoreForecast({ housing: store({ storageFillPct: 0, storageFillRecordedAt: "2026-10-20T09:00:00.000Z" }), livestockGroups: [], allocations: [], asOfDate: "2026-11-01", targetDate: "2026-11-08" });
+    expect(result.status).toBe("READY");
+    if (result.status !== "READY") return;
+    expect(result.baseDate).toBe("2026-10-20");
+    expect(result.currentReconciledM3).toBe(0);
+    expect(result.assumptions[0]).toBe("Opening balance: the tank reading recorded on 2026-10-20, less slurry spread since.");
   });
 
   it("subtracts existing planned reservations from volume available for a new future plan", () => {

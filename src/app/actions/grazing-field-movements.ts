@@ -105,6 +105,8 @@ export async function moveLivestockGroupToFieldAction(input: {
       source: farm.ownerName.trim() || "Farmer",
     });
 
+    revalidatePath("/cattle");
+    revalidatePath(`/cattle/groups/${group.id}`);
     revalidatePath("/fields");
     revalidatePath("/grass");
     revalidatePath("/fertiliser-plan");

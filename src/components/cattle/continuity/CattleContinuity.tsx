@@ -16,8 +16,14 @@
 import Link from "next/link";
 import { useId, useState } from "react";
 import type { RealHerdView } from "@/server/cattle-real/real-service";
+import { CattleGroupWorkspace } from "./CattleGroupWorkspace";
 import type { CattleContinuityVM, ContinuityAnimalVM, ContinuityGroupVM } from "@/server/cattle-real/herd-continuity";
-import type { Details, DisplayTone } from "@/domain/cattle/presentation";
+import {
+  cattleGroupLocationLine,
+  cattleGroupOperationsFor,
+  type Details,
+  type DisplayTone,
+} from "@/domain/cattle/presentation";
 import { StateLabel, TONE_TEXT } from "../ui";
 import s from "./continuity.module.css";
 
@@ -60,7 +66,7 @@ function PlanningFailed({ planning }: { planning: CattleContinuityVM["planning"]
   );
 }
 
-function GroupObject({ g }: { g: ContinuityGroupVM }) {
+function GroupObject({ g, locationLine }: { g: ContinuityGroupVM; locationLine: string }) {
   const [quick, setQuick] = useState(false);
   const id = useId();
   const lw = g.latestWeight;
@@ -77,6 +83,7 @@ function GroupObject({ g }: { g: ContinuityGroupVM }) {
               <p className={`mt-2 text-sm ${s.onForestMuted}`} data-headcount-group={g.groupRef}>
                 {g.composition}
               </p>
+              <p className={`mt-2 text-[13px] ${s.onForestMuted}`}>{locationLine}</p>
             </div>
             <div className={`${s.count} ${s.mono}`}>
               <strong>{g.headline.value}</strong>
@@ -151,6 +158,16 @@ function AnimalRow({ a }: { a: ContinuityAnimalVM }) {
   );
 }
 
+function HerdMetric({ label, value, unit }: { label: string; value: string; unit: string }) {
+  return (
+    <div className="bg-[var(--cc-paper)] px-4 py-4">
+      <p className={s.quietLabel}>{label}</p>
+      <p className={`mt-2 font-display text-[27px] leading-none text-[var(--cc-ink)] ${s.mono}`}>{value}</p>
+      <p className="mt-1 text-[10.5px] text-[var(--cc-muted)]">{unit}</p>
+    </div>
+  );
+}
+
 /** Pilot Integration P1 — the signed-in farmer's herd (read-only, server-rendered data; no demonstration session). */
 export function RealHerdScreen({ view }: { view: RealHerdView }) {
   const c = view.continuity;
@@ -170,6 +187,22 @@ export function RealHerdScreen({ view }: { view: RealHerdView }) {
       </header>
 
       <div className="px-4 pb-8 pt-6 lg:px-8">
+        <section className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-[14px] border border-[var(--cc-rule)] bg-[var(--cc-rule)] lg:grid-cols-5" aria-label="Herd status">
+          <HerdMetric label="Cattle" value={c.headline.value} unit={c.headline.unit} />
+          <HerdMetric label="Groups" value={c.groupsCount.value} unit={c.groupsCount.unit} />
+          <HerdMetric
+            label={view.operations.fieldsOccupied.label}
+            value={view.operations.fieldsOccupied.value ?? view.operations.fieldsOccupied.state.label}
+            unit={view.operations.fieldsOccupied.unit ?? view.operations.fieldsOccupied.caption ?? view.operations.fieldsOccupied.state.detail ?? view.operations.fieldsOccupied.state.label}
+          />
+          <HerdMetric label="Individually tracked" value={String(view.herd.animalCount)} unit={view.herd.animalCount === 1 ? "animal" : "animals"} />
+          <HerdMetric
+            label="Open jobs"
+            value={view.herd.openWorkCount.state === "KNOWN" ? String(view.herd.openWorkCount.value) : "—"}
+            unit={view.herd.openWorkCount.state === "KNOWN" ? "supported" : "not checked"}
+          />
+        </section>
+
         <div className="mb-4 flex items-center justify-between gap-4">
           <div className="min-w-0">
             <div className={s.quietLabel}>Living herd</div>
@@ -183,10 +216,10 @@ export function RealHerdScreen({ view }: { view: RealHerdView }) {
         <PlanningFailed planning={c.planning} />
 
         {c.groups.state === "ITEMS" ? (
-          <ul className="space-y-6" aria-label="Cattle groups">
+          <ul className="space-y-3" aria-label="Cattle groups">
             {c.groups.items.map((g) => (
               <li key={g.groupRef}>
-                <GroupObject g={g} />
+                <GroupObject g={g} locationLine={cattleGroupLocationLine(view.operations, g.groupRef)} />
               </li>
             ))}
           </ul>
@@ -278,7 +311,14 @@ export function RealGroupScreen({ view, groupRef }: { view: RealHerdView; groupR
           <PlanningFailed planning={c.planning} />
         </div>
 
-        <div className={s.detailGrid}>
+        <CattleGroupWorkspace
+          vm={cattleGroupOperationsFor(view.operations, g.groupRef)}
+          asOfDate={view.herd.viewpoint.effectiveAt.slice(0, 10)}
+          workLabel={g.work.label}
+          workDetail={g.work.detail}
+        />
+
+        <div className={`${s.detailGrid} mt-8`}>
           <section aria-labelledby="group-animals" className="min-w-0">
             <h2 id="group-animals" className={s.quietLabel}>
               Individual animals

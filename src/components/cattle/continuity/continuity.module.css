@@ -154,7 +154,7 @@ details[open] > .pill {
 
 .inner {
   position: relative;
-  padding: 28px;
+  padding: 20px 22px;
 }
 
 /* The whole object is one link: the open control's hit area is stretched over the surface. */
@@ -181,11 +181,11 @@ details[open] > .pill {
 .objectGrid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 28px;
+  gap: 20px;
 }
 
 .groupTitle {
-  font-size: 43px;
+  font-size: 32px;
   line-height: 1;
   font-weight: 500;
 }
@@ -199,9 +199,9 @@ details[open] > .pill {
 }
 .count strong {
   display: block;
-  font-size: 72px;
+  font-size: 48px;
   line-height: 0.9;
-  letter-spacing: -0.07em;
+  letter-spacing: -0.06em;
   color: #fff;
   font-weight: 700;
 }
@@ -216,13 +216,13 @@ details[open] > .pill {
 .divider {
   height: 1px;
   background: rgba(255, 255, 255, 0.14);
-  margin: 22px 0;
+  margin: 16px 0;
 }
 
 .metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
+  gap: 18px;
 }
 .mlabel {
   font-size: 11px;
@@ -231,8 +231,8 @@ details[open] > .pill {
   color: #9fb0a4;
 }
 .mvalue {
-  margin-top: 7px;
-  font-size: 29px;
+  margin-top: 5px;
+  font-size: 23px;
   line-height: 1;
   color: #fff;
 }
@@ -242,8 +242,8 @@ details[open] > .pill {
   color: #afbbb2;
 }
 .status {
-  margin-top: 7px;
-  font-size: 16px;
+  margin-top: 5px;
+  font-size: 14px;
   font-weight: 700;
   color: #fff;
 }
@@ -251,7 +251,7 @@ details[open] > .pill {
 .primary {
   display: inline-flex;
   flex: 1;
-  min-height: 48px;
+  min-height: 42px;
   align-items: center;
   justify-content: center;
   border-radius: 10px;
@@ -261,7 +261,7 @@ details[open] > .pill {
   font-weight: 750;
 }
 .secondary {
-  min-height: 48px;
+  min-height: 42px;
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 10px;
   background: transparent;

@@ -7,17 +7,13 @@
  * opportunities/suggestions... Avoid a generic calendar-first
  * implementation."
  *
- * This build has no real scheduled/dated job anywhere in the app yet —
- * `jobs` (`supabase/migrations/20260829000000_orchestration_foundation.sql`)
- * has no date/window column at all, and no screen creates a `jobs` row
- * for any of the four real Prompt kinds Today surfaces (see
- * `ExpandedPromptSheet`'s own doc comment). A Day/Week/Month tab control
- * with nothing real to show per tab would be exactly the "placeholder
- * content that makes a mock-up look complete" §19 explicitly says not to
- * build — so this screen ships only the half that's real today:
- * "genuine opportunities" (every real Prompt, via the same
- * `buildAllRealPrompts` Today uses) plus an honest, explicit empty state
- * for "planned work", not a fake calendar shell.
+ * The orchestration `jobs` table still has no general date/window
+ * contract, so this is deliberately not a generic calendar. Cattle group
+ * Production Plans now provide the first real farmer-entered dated
+ * milestones (target dates), which appear under Planned work alongside
+ * the existing genuine opportunities. Recurring weighing, treatment and
+ * review jobs remain absent until a real scheduling contract owns them —
+ * no fake calendar rows are generated to make the screen look complete.
  *
  * Visual Alignment Phase V3 (2026-09-03): `media/image1.png`'s own Plan
  * panel is a literal colour/composition reference for this exact screen
@@ -32,6 +28,7 @@
  * state text.
  */
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { CalendarClock, Flag } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -46,6 +43,10 @@ import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/pro
 import { promptStatusTone } from "@/lib/status";
 import type { Prompt } from "@/orchestration/prompt";
 import { farmerReadableText } from "@/lib/farmer-readable-codes";
+import {
+  loadCattleProductionMilestonesAction,
+  type CattleProductionMilestone,
+} from "@/app/actions/cattle-group-production-plan";
 
 export default function PlanPage() {
   const farm = useFarm();
@@ -58,12 +59,25 @@ export default function PlanPage() {
   // Same post-mount deferral as Today, and for the identical reason — see
   // that page's own doc comment on `mounted`.
   const [mounted, setMounted] = useState(false);
+  const [cattleMilestones, setCattleMilestones] = useState<CattleProductionMilestone[] | null>(isRealMode ? null : []);
   useEffect(() => {
     // Same sanctioned post-mount flag as Today's identical effect — see
     // that page's own comment for the full reasoning.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above.
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!mounted || !isRealMode) return;
+    let cancelled = false;
+    void loadCattleProductionMilestonesAction().then((result) => {
+      if (cancelled) return;
+      setCattleMilestones(result.status === "ok" ? result.milestones : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted, isRealMode]);
 
   const opportunities = useMemo(() => {
     if (!mounted) return [];
@@ -145,19 +159,43 @@ export default function PlanPage() {
 
         <section>
           <FarmSectionHeading>Planned work</FarmSectionHeading>
-          {/* Codex audit round 1 (Phase V3): the original longer copy
-              ("...but this build doesn't yet turn one into a dated,
-              trackable job") read as implementation-focused rather than
-              calm/operational. Shortened to the plain fact plus where to
-              look next — the exact test-asserted lead phrase ("No jobs
-              are scheduled yet") is unchanged. */}
-          <div className="flex items-start gap-3 py-1">
-            <CalendarClock className="mt-0.5 size-4 shrink-0 text-fr-ink-400" />
-            <p className="text-sm text-fr-ink-600">
-              No jobs are scheduled yet. Accepting a Prompt below records a real decision — see Records for what&apos;s
-              been decided so far.
-            </p>
-          </div>
+          {cattleMilestones === null ? (
+            <div className="flex items-start gap-3 py-1">
+              <CalendarClock className="mt-0.5 size-4 shrink-0 text-fr-ink-400" />
+              <p className="text-sm text-fr-ink-600">Cattle production milestones could not be loaded just now.</p>
+            </div>
+          ) : cattleMilestones.length > 0 ? (
+            <div className="divide-y divide-fr-border border-y border-fr-border">
+              {cattleMilestones.map((milestone) => (
+                <Link
+                  key={milestone.groupId}
+                  href={`/cattle/groups/${milestone.groupId}`}
+                  className="grid gap-2 py-3 sm:grid-cols-[112px_minmax(0,1fr)_auto] sm:items-center"
+                >
+                  <p className="font-mono text-xs font-semibold tabular-nums text-fr-green-700">
+                    {new Date(`${milestone.targetDate}T00:00:00Z`).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}
+                  </p>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-fr-ink-900">{milestone.groupLabel}</p>
+                    <p className="mt-0.5 text-xs text-fr-ink-600">
+                      Production target{milestone.targetWeightKg !== undefined ? ` · ${milestone.targetWeightKg} kg` : ""}
+                    </p>
+                  </div>
+                  <span className="text-xs font-semibold text-fr-green-700">Open group →</span>
+                </Link>
+              ))}
+              <p className="py-3 text-xs leading-relaxed text-fr-ink-500">
+                These are farmer-set cattle production target dates. Automatic weigh, health and economic-review jobs are not generated from them yet.
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-start gap-3 py-1">
+              <CalendarClock className="mt-0.5 size-4 shrink-0 text-fr-ink-400" />
+              <p className="text-sm text-fr-ink-600">
+                No jobs are scheduled yet. Set a target date on a cattle group to bring its production milestone into Planning.
+              </p>
+            </div>
+          )}
         </section>
 
         <section>

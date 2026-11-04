@@ -17,6 +17,7 @@ export * from "./format";
 export * from "./goal-read";
 export * from "./herd-view";
 export * from "./numeric-input";
+export * from "./operations-view";
 export * from "./plan-timeline";
 export * from "./plan-view";
 export * from "./timeline";

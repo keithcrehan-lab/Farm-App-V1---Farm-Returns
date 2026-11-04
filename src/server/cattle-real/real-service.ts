@@ -33,8 +33,12 @@ import {
   type CattleViewpoint,
   type Details,
   type HerdVM,
+  buildCattleOperationsVM,
+  type CattleOperationsVM,
 } from "@/domain/cattle/presentation";
+import type { CattleOperationalView } from "./operational-view";
 import { readCattleSourceForCurrentFarm } from "@/lib/farm-data/cattle-source";
+import type { LivestockGroup } from "@/domain/types";
 import { reconcileJobs } from "@/server/cattle-plan/plan-jobs";
 import { realCattleRecords, type RealCattleRecords, type RealRecordsInput } from "./real-records";
 import { cattleContinuityOf, type CattleContinuityVM } from "./herd-continuity";
@@ -146,6 +150,7 @@ export interface RealHerdExtras {
 export interface RealHerdView {
   herd: HerdVM;
   extras: RealHerdExtras;
+  operations: CattleOperationsVM;
   /** The Cattle home and group pages (continuity reference): D16-gated wording, recorded headcounts, real weights. */
   continuity: CattleContinuityVM;
 }
@@ -171,8 +176,11 @@ export interface RealAnimalView {
 }
 
 export interface RealEvaluation {
+  farmId: string;
   outputs: CattleOutputs;
   records: RealCattleRecords;
+  /** Original farm-scoped group rows for non-frozen operational UI (movement/production-plan context). */
+  sourceGroups: LivestockGroup[];
   /** Animals whose C1 ledger was refused, with their recorded tag (or `null`). */
   unreadable: { animalId: string; tag: string | null }[];
 }
@@ -241,8 +249,10 @@ export function evaluateRealCattle(input: RealRecordsInput, viewpoint: CattleVie
   return {
     ok: true,
     evaluation: {
+      farmId: input.farmId,
       outputs: { viewpoint, ledgers, snapshots, groups, weights: contract.ok ? contract.contract : null, performance, goals, health, recommendations, plan, jobs },
       records,
+      sourceGroups: input.groups.map((group) => ({ ...group })),
       unreadable,
     },
   };
@@ -250,7 +260,7 @@ export function evaluateRealCattle(input: RealRecordsInput, viewpoint: CattleVie
 
 const NOT_SUPPLIED_COSTS = { state: "UNAVAILABLE", reason: "NOT_KEPT_IN_FARM_RETURN" } as const;
 
-export function realHerdView(e: RealEvaluation): RealHerdView {
+export function realHerdView(e: RealEvaluation, operational?: CattleOperationalView): RealHerdView {
   const { outputs, records } = e;
   const herd = buildHerd(outputs, records.directory);
   const inLedgers = new Set(outputs.ledgers.map((l) => l.animalId as string));
@@ -261,6 +271,7 @@ export function realHerdView(e: RealEvaluation): RealHerdView {
   const notes = { readOnly: REAL_NOTES.readOnly, method: REAL_NOTES.method, work: REAL_NOTES.work };
   return {
     herd,
+    operations: buildCattleOperationsVM(operational, outputs.viewpoint.effectiveAt.slice(0, 10)),
     continuity: cattleContinuityOf(herd, outputs, records, ungrouped, REAL_MODE_CAPABILITIES, notes),
     extras: {
       notes,

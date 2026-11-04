@@ -2320,3 +2320,18 @@ Scope limits: holding-level N/P maxima across fields are not composed into the c
 | Sanity ceilings | cover ≤ 10000 kg DM/ha, growth ≤ 500 kg DM/ha/day | Defensive input bounds against keying/unit errors — NOT biological claims |
 
 No growth rate, grazing demand, DM intake or "days ahead" figure is ever substituted; the farm summary reports demand and net balance as undefined.
+
+## Inputs Market V1 (2026-11-04) — no new evidence
+
+`src/domain/inputs-market.ts` (`inputs_market_v1.0.0`) adds a new consumer of already-registered evidence only:
+
+| Figure | Source (existing) | Label on screen |
+|---|---|---|
+| Fertiliser reference €/t (18-6-12, Protected Urea, 0-7-30, MOP) | CSO AJM09 latest embedded point (`market.ts`), the same price `nutrients.ts` costs the fertiliser plan with | "Official statistic · CSO AJM09 · <month>"; Protected Urea carries the generic-urea near-match caveat |
+| Beef concentrate €/t | Teagasc first-winter nutrition worked example, €350/t (`WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE`) | "Published benchmark" — an advisory worked-example price, not an observed market price |
+| Rolled barley, maize meal, beet pulp | No sourced price (the `mockMarketPrices` feed rows are not CSO observations) | "Price not sourced" — never priced |
+| €/kg and €/kg nutrient | Arithmetic on the above and the verified catalogue N-P-K (`knownFertiliserProductComposition`); compounds use total N+P+K, never one nutrient | Normalised unit price |
+| Fertiliser quantity to buy | Canonical stock bands (`buildFertiliserStockBand`) — the Fertiliser workspace's "still to buy" and the RFQ prefill's `suggestedPurchaseKg` | "Fertiliser plan" |
+| Concentrate quantity | Farmer's cattle production plan: kg/head/day × head × days to target date; else the existing finance feed model per group (`calculateFarmConcentrateFeedRequirement`) | "Your cattle production plan" / "Teagasc feed budget estimate" |
+
+Implied cost = quantity × reference €/t, labelled as an indication, never as a quote or saving. Unknown price ⇒ unknown cost (never €0); totals over partial data are labelled "known subtotal". A DB-backed auditable resolution (`resolveMarketReferencePrice`) is a follow-up, not used here.

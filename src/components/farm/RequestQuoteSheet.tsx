@@ -59,15 +59,41 @@ const DISCLOSURE_VERSION = "v1";
 
 type LoadState = { status: "loading" } | { status: "ready"; prefill: QuoteRequestPrefillContext; delivery: FarmDeliveryDetails | null } | { status: "error" };
 
-export function RequestQuoteSheet({ open, onClose, onSubmitted, planningSeason }: { open: boolean; onClose: () => void; onSubmitted: () => void; planningSeason?: string }) {
+/**
+ * Inputs Market V1 — optional, additive entry context. `initialProduct`
+ * preselects the matching fertiliser estimate option (the existing
+ * `"estimated"` route, quantity prefilled exactly as a manual selection
+ * would); any other product only prefills the manual product NAME. A
+ * calculated quantity for a non-fertiliser input is never auto-filled —
+ * the same Checkpoint C round 1 rule the lime banner follows: it may be
+ * shown in `contextNote`, and the farmer types the quantity they want.
+ */
+export interface RequestQuoteSheetContext {
+  initialProduct?: string;
+  contextNote?: string;
+}
+
+export function RequestQuoteSheet({
+  open,
+  onClose,
+  onSubmitted,
+  planningSeason,
+  initialProduct,
+  contextNote,
+}: { open: boolean; onClose: () => void; onSubmitted: () => void; planningSeason?: string } & RequestQuoteSheetContext) {
   return (
     <Sheet open={open} onClose={onClose} title="Request a quote">
-      {open ? <RequestQuoteSheetBody onSubmitted={onSubmitted} planningSeason={planningSeason} /> : null}
+      {open ? <RequestQuoteSheetBody onSubmitted={onSubmitted} planningSeason={planningSeason} initialProduct={initialProduct} contextNote={contextNote} /> : null}
     </Sheet>
   );
 }
 
-function RequestQuoteSheetBody({ onSubmitted, planningSeason }: { onSubmitted: () => void; planningSeason?: string }) {
+function RequestQuoteSheetBody({
+  onSubmitted,
+  planningSeason,
+  initialProduct,
+  contextNote,
+}: { onSubmitted: () => void; planningSeason?: string } & RequestQuoteSheetContext) {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [idempotencyKey] = useState(() => crypto.randomUUID());
 
@@ -104,6 +130,17 @@ function RequestQuoteSheetBody({ onSubmitted, planningSeason }: { onSubmitted: (
       .then(([prefill, delivery]) => {
         if (cancelled) return;
         setLoad({ status: "ready", prefill, delivery });
+        if (initialProduct) {
+          const opt = prefill.options.find((o) => o.product === initialProduct);
+          if (opt) {
+            setSelectedOption(opt.product);
+            setQuantity(opt.suggestedPurchaseKg > 0 ? String(opt.suggestedPurchaseKg) : "");
+            setUnit("kg");
+          } else {
+            setSelectedOption(MANUAL_OPTION);
+            setManualProduct(initialProduct);
+          }
+        }
         if (delivery) {
           setContactName(delivery.contactName);
           setContactPhone(delivery.contactPhone ?? "");
@@ -121,7 +158,7 @@ function RequestQuoteSheetBody({ onSubmitted, planningSeason }: { onSubmitted: (
     return () => {
       cancelled = true;
     };
-  }, [planningSeason]);
+  }, [planningSeason, initialProduct]);
 
   if (load.status === "loading") {
     return <p className="text-sm text-fr-ink-600">Loading your farm&rsquo;s estimated requirements…</p>;
@@ -231,6 +268,11 @@ function RequestQuoteSheetBody({ onSubmitted, planningSeason }: { onSubmitted: (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <p className="text-label uppercase tracking-wide text-fr-ink-600">Product</p>
+        {contextNote ? (
+          <p data-testid="quote-context-note" className="rounded-fr-control border border-fr-border bg-fr-bg p-2.5 text-xs text-fr-ink-600">
+            {contextNote}
+          </p>
+        ) : null}
         {/* Grassland Fertiliser Pilot Completion, Checkpoint C (audit
             F1/F5/"see products/units/lime") — the farm's real, laboratory-
             evidenced lime total, shown here for the farmer's own

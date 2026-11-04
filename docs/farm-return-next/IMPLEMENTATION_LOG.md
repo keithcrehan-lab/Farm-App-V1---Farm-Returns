@@ -824,3 +824,15 @@ RFQ routes, quotes, lines, append-only events; RLS + security-definer RPCs) — 
 database. Isolation validation script written, NOT RUN. Independent Codex audit not run.
 Farmer-facing quote view, acceptance, contact release and supplier notifications are not built.
 See `SUPPLIER_PORTAL.md`.
+
+## Inputs Market V1 (2026-11-04)
+
+New primary destination `/inputs-market` ("Inputs"): Fertiliser and Feed tabs. Each tab shows the
+farm's calculated need to buy and its implied cost at a dated reference price, a reference price
+list normalised to €/t, €/kg and €/kg nutrient, and Request Quote through the existing
+`RequestQuoteSheet` (additive `initialProduct`/`contextNote`; feed quantities are shown, never
+auto-filled as farmer-entered). Pure model `src/domain/inputs-market.ts` (`inputs_market_v1.0.0`);
+farm-scoped read `getInputsMarketViewAction` reuses `getFertiliserPlanOverviewAction` and
+`loadCattleOperationalView` verbatim. Categories are a registry, so seed/lime can be added
+without reshaping. No new evidence, no migration, no frozen contract change (evidence register,
+"Inputs Market V1"). Independent Codex audit not run.

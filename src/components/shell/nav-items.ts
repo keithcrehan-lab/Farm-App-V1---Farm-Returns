@@ -18,6 +18,7 @@ import {
   Target,
   Store,
   Warehouse,
+  ShoppingBasket,
 } from "lucide-react";
 import { CowIcon } from "./CowIcon";
 import { FertiliserBagIcon } from "./FertiliserBagIcon";
@@ -45,11 +46,13 @@ export function isNavItemActive(item: NavItem, pathname: string): boolean {
  * Farm + Fields redesign (2026-10-27,
  * `docs/design/farm-fields-high-fidelity-reference.md` "Global shell
  * direction"): the primary navigation is
- * Farm · Fertiliser · Plan · Cattle · Grass · Housing · Finance · Records, plus More.
+ * Farm · Fertiliser · Plan · Cattle · Grass · Inputs · Housing · Finance · Records, plus More.
  * Fertiliser was promoted to first-level for the initial product launch so
  * the first commercial workflow is never hidden behind More.
  *
  * - Farm → `/today`, the map-led home.
+ * - Inputs → `/inputs-market` (Inputs Market V1): the farm's calculated
+ *   feed and fertiliser need beside reference prices and the quote route.
  * - Housing and Finance are first-level now (Finance leaves
  *   `pilotHiddenNavItems`; Housing leaves the legacy list).
  * - What Matters is no longer first-level. Its route and behaviour are
@@ -67,6 +70,7 @@ export const primaryNavItems: NavItem[] = [
   { href: "/plan", label: "Plan", icon: CalendarDays },
   { href: "/cattle", label: "Cattle", icon: CowIcon },
   { href: "/grass", label: "Grass", icon: Leaf },
+  { href: "/inputs-market", label: "Inputs", icon: ShoppingBasket },
   { href: "/housing", label: "Housing", icon: Warehouse },
   { href: "/finance", label: "Finance", icon: BarChart3 },
   { href: "/records", label: "Records", icon: Folder },

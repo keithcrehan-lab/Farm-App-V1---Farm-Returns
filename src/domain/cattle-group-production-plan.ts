@@ -1,5 +1,8 @@
 import Decimal from "decimal.js";
 
+export type CattleFeedingSituation = "housed_grass_silage" | "at_grass" | "other_diet";
+export type SilageQualityBasis = "lab_analysis" | "planning_scenario";
+
 export interface CattleGroupProductionPlan {
   groupId: string;
   farmId: string;
@@ -11,6 +14,12 @@ export interface CattleGroupProductionPlan {
   forageCostEurHeadDay?: number;
   housingCostEurHeadDay?: number;
   notes?: string;
+  /** Goal-first nutrition context (`cattle-nutrition-plan.ts`). */
+  feedingSituation?: CattleFeedingSituation;
+  silageQualityBasis?: SilageQualityBasis;
+  silageDmdPct?: number;
+  silageCpPct?: number;
+  silageAnalysisDate?: string;
   createdAt?: string;
   updatedAt?: string;
 }

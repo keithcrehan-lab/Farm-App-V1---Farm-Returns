@@ -205,6 +205,30 @@ describe("buildFeedNeed", () => {
     expect(lines[0].notes.join(" ")).toMatch(/Model estimate/);
   });
 
+  it("sizes a goal-first plan with the Teagasc guideline feeding plan, labelled with its silage basis", () => {
+    // 550 → 640 kg by 2027-01-31 (90 days) = 1.0 kg/day; lab 72 DMD → 5 kg/head/day.
+    const steers = group({ goal: "finish_slaughter", avgWeightKg: tracked(550, "verified", "Scale") });
+    const goalPlan = plan({ concentrateKgHeadDay: undefined, targetWeightKg: 640, silageQualityBasis: "lab_analysis", silageDmdPct: 72, silageCpPct: 10, silageAnalysisDate: "2026-10-01" });
+    const { lines, gaps } = buildFeedNeed([feedInput(steers, goalPlan)]);
+    expect(gaps).toEqual([]);
+    expect(lines[0]).toMatchObject({ basis: "cattle_nutrition_guideline", requirementKg: 9000, specification: "0.93–0.94 UFV/kg · 14% CP" });
+    expect(lines[0].impliedCost).toMatchObject({ status: "known", eur: 3150 });
+    expect(lines[0].details).toContainEqual({ label: "Silage", value: "72 DMD (lab)" });
+
+    const scenario = buildFeedNeed([feedInput(steers, { ...goalPlan, silageQualityBasis: "planning_scenario", silageCpPct: undefined, silageAnalysisDate: undefined })]);
+    expect(scenario.lines[0].notes.join(" ")).toMatch(/Planning scenario/);
+  });
+
+  it("is a gap with the reason when a goal-first plan is outside the evidence or missing silage quality", () => {
+    const steers = group({ goal: "finish_slaughter", avgWeightKg: tracked(550, "verified", "Scale") });
+    const noSilage = buildFeedNeed([feedInput(steers, plan({ concentrateKgHeadDay: undefined, targetWeightKg: 640 }))]);
+    expect(noSilage.lines).toEqual([]);
+    expect(noSilage.gaps[0].reason).toMatch(/silage lab analysis/i);
+    const tooFast = buildFeedNeed([feedInput(steers, plan({ concentrateKgHeadDay: undefined, targetWeightKg: 700, silageQualityBasis: "planning_scenario", silageDmdPct: 72 }))]);
+    expect(tooFast.lines).toEqual([]);
+    expect(tooFast.gaps[0].reason).toMatch(/advisor review required/i);
+  });
+
   it("is a gap when neither a plan rate nor a model covers the group", () => {
     const { lines, gaps } = buildFeedNeed([feedInput(group({ category: "steer", avgWeightKg: undefined }))]);
     expect(lines).toEqual([]);

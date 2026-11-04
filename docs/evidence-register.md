@@ -2335,3 +2335,20 @@ No growth rate, grazing demand, DM intake or "days ahead" figure is ever substit
 | Concentrate quantity | Farmer's cattle production plan: kg/head/day × head × days to target date; else the existing finance feed model per group (`calculateFarmConcentrateFeedRequirement`) | "Your cattle production plan" / "Teagasc feed budget estimate" |
 
 Implied cost = quantity × reference €/t, labelled as an indication, never as a quote or saving. Unknown price ⇒ unknown cost (never €0); totals over partial data are labelled "known subtotal". A DB-backed auditable resolution (`resolveMarketReferencePrice`) is a follow-up, not used here.
+
+## Goal-first cattle nutrition plan (2026-11-04)
+
+`src/domain/cattle-nutrition-plan.ts` (`cattle_nutrition_plan_v1.0.0`). Sources re-read 2026-11-04 and quoted against the pages:
+
+| Figure | Source | Encoding / limits |
+|---|---|---|
+| Concentrate kg/head/day by DMD 66–76, target ADG 0.6 / 1.0 / 0.9 (weanling / finishing steer / finishing heifer) | DairyBeef 500 Table 3 (`TEAGASC_DAIRYBEEF_DMD`), already encoded in `livestock.ts` `concentrateKgPerDay` | Reused, not re-declared. Exact row ⇒ "Teagasc guideline". Lab DMD between rows (or > 76) ⇒ next LOWER published row, labelled an upper bound. < 66 ⇒ outside evidence. Never interpolated |
+| Heifer 66 DMD "Ad-lib feeding should be considered" | Table 3 footnote | Shown as a note |
+| Required-ADG fit | Table 3 targets as stated (0.1 kg/day precision) | Rounds (half-up, 1 dp) to the target ⇒ matches; below ⇒ table rate as an upper bound; above ⇒ outside evidence, no rate, plus the date the gain is reached at the guideline ADG |
+| Energy: weanling rations > 0.94 UFL, finishing rations > 0.92 UFV | DairyBeef 500 text ("rations") | Weanling headline (> 0.94 UFL — class-specific and stricter than the general 0.93–0.94); finishing detail |
+| Concentrates 0.93–0.94 UFL/UFV per kg fed; UFV finishing, UFL growing stock | Teagasc Beef Management Notes, 4 Nov 2026 | Finishing headline (0.93–0.94 UFV — stricter than > 0.92); weanling detail |
+| CP by silage CP (10% / 14%): weanlings 20% (1.0–1.5 kg/day) / 14–16%, 16% at 2.5 kg/day; finishing steers & heifers 14% / 11–12%; finishing bulls 11–12% | DairyBeef 500 Table 4 = Nov 2026 notes Table 1 | Lab CP rounded to the whole percent; ≥ 14 uses the 14% column (Table 4 footnote "14% or greater"); other CP ⇒ general text (weanling 14–16%, finishing 11–14%); a weanling rate outside the published bands on 10% CP silage ⇒ "16–20%, not a published row" |
+| ~600 kg steers ~1 kg/day: 7–8 / 5.5–6.5 / 4–5 kg at ~66/70/74 DMD; ~0.33 kg per DMD unit; curvilinear response | "Nutritional management of finishing beef cattle", 1 Jul 2026 (`TEAGASC_BEEF_2026_FINISHING`) | Disclosure only. The ~0.33 figure is not used anywhere (its own table midpoints imply ~0.375; the exact-row contract forbids interpolation) |
+| Concentrate €/t | Inputs Market catalogue (Teagasc €350/t published benchmark, 2026-07) or the farmer's own override price | Labelled benchmark / "your price"; concentrate only — forage and housing are not costed |
+
+Not covered (fail closed): finishing-bull feeding rates, store/suckler/dairy classes, at-grass and non-grass-silage diets, unknown silage quality (a published-row planning scenario may be chosen and is always labelled as such, never as a lab result).

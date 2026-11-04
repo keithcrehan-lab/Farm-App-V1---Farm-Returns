@@ -4,8 +4,12 @@ import { revalidatePath } from "next/cache";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { saveCattleGroupProductionPlan, type SaveCattleGroupProductionPlanInput } from "@/lib/farm-data/cattle-group-production-plans";
+import type { CattleFeedingSituation, SilageQualityBasis } from "@/domain/cattle-group-production-plan";
+import { silageColumnsFor } from "@/domain/cattle-nutrition-plan";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const FEEDING_SITUATIONS: readonly string[] = ["housed_grass_silage", "at_grass", "other_diet"];
 
 function validOptionalNumber(value: number | null | undefined): boolean {
   return value === null || value === undefined || (Number.isFinite(value) && value >= 0);
@@ -69,6 +73,11 @@ export async function saveCattleGroupProductionPlanAction(input: {
   forageCostEurHeadDay?: number | null;
   housingCostEurHeadDay?: number | null;
   notes?: string | null;
+  feedingSituation?: CattleFeedingSituation | null;
+  silageQualityBasis?: SilageQualityBasis | null;
+  silageDmdPct?: number | null;
+  silageCpPct?: number | null;
+  silageAnalysisDate?: string | null;
 }): Promise<SaveCattleGroupProductionPlanResult> {
   const farm = await getFarmForCurrentUser();
   if (!farm) return { status: "rejected", reasonCode: "NO_FARM" };
@@ -100,6 +109,12 @@ export async function saveCattleGroupProductionPlanAction(input: {
   ]) {
     if (!validOptionalNumber(value)) return { status: "rejected", reasonCode: "DIET_COST_INPUT_INVALID" };
   }
+  if (input.feedingSituation !== undefined && input.feedingSituation !== null && !FEEDING_SITUATIONS.includes(input.feedingSituation)) {
+    return { status: "rejected", reasonCode: "FEEDING_SITUATION_INVALID" };
+  }
+  const silage = silageColumnsFor(input, new Date().toISOString().slice(0, 10));
+  if (!silage.ok) return { status: "rejected", reasonCode: silage.reasonCode };
+  Object.assign(p, silage.columns, input.feedingSituation !== undefined ? { feedingSituation: input.feedingSituation } : {});
 
   await saveCattleGroupProductionPlan(farm.id, group.id, p);
   revalidatePath("/cattle");

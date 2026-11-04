@@ -76,13 +76,13 @@ function view(): InputsMarketView {
   };
 }
 
-function renderClient(remote: boolean) {
+function renderClient(remote: boolean, initialCategory?: "feed" | "fertiliser") {
   return render(
     <FarmProvider
       {...(remote ? { remote: true } : {})}
       initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}
     >
-      <InputsMarketClient />
+      <InputsMarketClient {...(initialCategory ? { initialCategory } : {})} />
     </FarmProvider>,
   );
 }
@@ -135,11 +135,18 @@ describe("InputsMarketClient", () => {
     // 4 kg × 20 head × 90 days = 7.2 t at the €350/t benchmark.
     expect(within(row).getByText("7.2 t")).toBeTruthy();
     expect(within(row).getByText("≈ €2,520")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /set diet in group plan/i }).getAttribute("href")).toBe("/cattle/groups/g-2");
+    expect(screen.getByRole("link", { name: /set target in group plan/i }).getAttribute("href")).toBe("/cattle/groups/g-2");
     expect(within(screen.getByTestId("reference-prices")).getAllByText("Price not sourced").length).toBeGreaterThan(0);
 
     fireEvent.click(within(row).getByRole("button", { name: /show detail/i }));
     expect(within(row).getByText("4 kg/head/day")).toBeTruthy();
+  });
+
+  it("opens directly on Feed from the cattle feeding-plan link", async () => {
+    mockView.mockResolvedValue(view());
+    renderClient(true, "feed");
+    await waitFor(() => expect(screen.getByTestId("need-summary")).toBeTruthy());
+    expect(screen.getByRole("tab", { name: /feed/i }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("opens the existing quote sheet with the fertiliser estimate option preselected", async () => {

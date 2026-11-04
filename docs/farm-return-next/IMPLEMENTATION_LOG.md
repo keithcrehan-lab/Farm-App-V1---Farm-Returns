@@ -836,3 +836,19 @@ farm-scoped read `getInputsMarketViewAction` reuses `getFertiliserPlanOverviewAc
 `loadCattleOperationalView` verbatim. Categories are a registry, so seed/lime can be added
 without reshaping. No new evidence, no migration, no frozen contract change (evidence register,
 "Inputs Market V1"). Independent Codex audit not run.
+
+## Goal-first cattle nutrition plan (2026-11-04)
+
+The cattle group workspace's production plan is now goal-first: the farmer sets a target weight and
+date (plus feeding situation and the silage being fed); Farm Return shows the required ADG live and a
+"Recommended feeding plan" from `buildCattleNutritionPlan` (`src/domain/cattle-nutrition-plan.ts`,
+reusing `livestock.ts`'s exact-row DairyBeef 500 lookup and the existing plan metrics). States:
+SUPPORTED / BOUNDED (upper bound) / OUTSIDE_EVIDENCE / INPUT_REQUIRED; silage basis lab / planning
+scenario / unknown. Outputs: concentrate kg/head/day, UFL/UFV and CP specification, totals per head
+and group, cost at the reference or the farmer's price, assumptions and evidence. The manual
+concentrate rate/price moved behind an "Advanced: farmer / advisor override" disclosure; forage,
+housing and free-text ration inputs were removed from the form (stored values are untouched; saves
+write only supplied columns). Inputs Market's feed need uses the same plan (override → guideline →
+model fallback → gap) and opens on Feed via `?category=feed`. Additive migration
+`20261104200000_cattle_group_nutrition_context.sql` — NOT applied to any database. No frozen cattle
+contract changed. Evidence register: "Goal-first cattle nutrition plan". Independent Codex audit not run.

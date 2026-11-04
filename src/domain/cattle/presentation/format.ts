@@ -137,3 +137,13 @@ export function formatAge(months: number): string {
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+/** A feed rate: up to two decimals, trailing zeros dropped (`1.2`, `5`, `2.25`). */
+export function formatFeedRate(kgPerDay: number): string {
+  return String(roundHalfAway(kgPerDay, 2));
+}
+
+/** A feed quantity: kilograms below a tonne (`120 kg`), else tonnes to one decimal (`2.4 t`). */
+export function formatFeedQuantity(kg: number): string {
+  return kg >= 1000 ? `${group(String(Math.trunc(roundHalfAway(kg / 1000, 1))))}.${roundHalfAway(kg / 1000, 1).toFixed(1).split(".")[1]} t` : formatKg(kg);
+}

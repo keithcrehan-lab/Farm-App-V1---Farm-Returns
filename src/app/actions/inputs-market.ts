@@ -89,7 +89,7 @@ async function loadFeedGroups(farmId: string, asOfDate: string): Promise<{ ok: t
       groups: groups.flatMap((group) => {
         const view = byId.get(group.id);
         if (!view) return [];
-        return [{ group, metrics: view.productionMetrics, ...(view.productionPlan ? { plan: view.productionPlan } : {}) }];
+        return [{ group, metrics: view.productionMetrics, asOfDate, ...(view.productionPlan ? { plan: view.productionPlan } : {}) }];
       }),
     };
   } catch (error) {

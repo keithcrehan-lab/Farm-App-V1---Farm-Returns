@@ -50,6 +50,7 @@ import { knownFertiliserProductComposition, MURIATE_OF_POTASH_PRODUCT_NAME } fro
 import { CONCENTRATE_FORMULATION_PCT, WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE } from "./livestock";
 import { calculateFarmConcentrateFeedRequirement } from "./finance";
 import type { CattleGroupProductionPlan, CattleGroupProductionPlanMetrics } from "./cattle-group-production-plan";
+import { buildCattleNutritionPlan, feedingSituationFor, NUTRITION_INPUT_LABEL, silageQualityOf } from "./cattle-nutrition-plan";
 import type { FarmFertiliserAggregation } from "./fertiliser-plan";
 import type { FertiliserStockBand } from "./fertiliser-stock";
 import type { LivestockGroup } from "./types";
@@ -267,11 +268,12 @@ export function normaliseUnitPrices(item: InputCatalogueItem): NormalisedUnitPri
 // Need lines
 // ---------------------------------------------------------------------------
 
-export type InputNeedBasis = "fertiliser_plan" | "cattle_production_plan" | "feed_model_estimate";
+export type InputNeedBasis = "fertiliser_plan" | "cattle_production_plan" | "cattle_nutrition_guideline" | "feed_model_estimate";
 
 export const INPUT_NEED_BASIS_LABEL: Record<InputNeedBasis, string> = {
   fertiliser_plan: "Fertiliser plan",
-  cattle_production_plan: "Your cattle production plan",
+  cattle_production_plan: "Your cattle plan (farmer/advisor rate)",
+  cattle_nutrition_guideline: "Teagasc guideline feeding plan",
   feed_model_estimate: "Teagasc feed budget estimate",
 };
 
@@ -387,6 +389,8 @@ export interface FeedGroupInput {
   group: LivestockGroup;
   plan?: CattleGroupProductionPlan;
   metrics: CattleGroupProductionPlanMetrics;
+  /** The plan's as-of date (only dates an outside-evidence explanation). */
+  asOfDate?: string;
 }
 
 export interface FeedNeedResult {
@@ -401,10 +405,14 @@ function groupHref(groupId: string): string {
 /**
  * Concentrate need per cattle group.
  *
- * - A plan with a diet rate is authoritative: kg/head/day × head ×
+ * - A farmer/advisor override rate is authoritative: kg/head/day × head ×
  *   days to the plan's target date. A missing target date or head count
  *   is a gap, never a model substitute (the farmer has stated a diet).
- * - With no plan rate, the existing finance feed model is used when it
+ * - A goal-first plan (target weight or date set) is sized by the Teagasc
+ *   guideline feeding plan (`buildCattleNutritionPlan`) — the same plan the
+ *   group workspace shows. Outside the evidence, or missing inputs, is a
+ *   gap with the reason; never a model substitute that contradicts it.
+ * - With no plan target, the existing finance feed model is used when it
  *   covers the group (labelled as a model estimate).
  * - Otherwise the group is a gap linking to its plan.
  */
@@ -413,7 +421,8 @@ export function buildFeedNeed(groups: readonly FeedGroupInput[], catalogue: read
   const lines: InputNeedLine[] = [];
   const gaps: InputNeedGap[] = [];
 
-  for (const { group, plan, metrics } of groups) {
+  for (const input of groups) {
+    const { group, plan, metrics } = input;
     const head = Number.isFinite(group.count.value) && group.count.value > 0 ? group.count.value : null;
     const rate = plan?.concentrateKgHeadDay;
     const hasRate = typeof rate === "number" && Number.isFinite(rate) && rate >= 0;
@@ -464,6 +473,60 @@ export function buildFeedNeed(groups: readonly FeedGroupInput[], catalogue: read
       continue;
     }
 
+    if (plan && (plan.targetWeightKg !== undefined || plan.targetDate !== undefined)) {
+      const nutrition = buildCattleNutritionPlan({
+        category: group.category,
+        ...(group.goal ? { goal: group.goal } : {}),
+        ...(head !== null ? { headCount: head } : {}),
+        metrics,
+        asOfDate: input.asOfDate ?? "",
+        feedingSituation: feedingSituationFor(plan.feedingSituation, group.system),
+        silage: silageQualityOf(plan),
+        ...(item ? { concentrateReferencePrice: item.referencePrice } : {}),
+      });
+      if (nutrition.concentrate.status === "recommended" && nutrition.totals.status === "known") {
+        const kg = nutrition.totals.kgGroup;
+        const lineNotes: string[] = [];
+        if (nutrition.totals.precision === "upper_bound") lineNotes.push("Upper bound — a published Teagasc rate used conservatively.");
+        if (nutrition.silage.basis === "planning_scenario") lineNotes.push(`Planning scenario: silage assumed at ${nutrition.silage.dmdPct} DMD, not tested.`);
+        lines.push({
+          id: `feed:${group.id}`,
+          category: "feed",
+          label: group.label,
+          specification: `${nutrition.energy.text} · ${nutrition.protein.text}`,
+          catalogueItemId: item?.id ?? null,
+          quoteProductName: item?.quoteProductName ?? "Beef concentrate ration",
+          basis: "cattle_nutrition_guideline",
+          requirementKg: kg,
+          toBuyKg: kg,
+          stock: "not_tracked",
+          horizon: `To ${plan.targetDate} · ${nutrition.totals.days} days`,
+          notes: lineNotes,
+          impliedCost: impliedCostAtReference(kg, item),
+          details: [
+            { label: "Concentrate", value: `${nutrition.totals.precision === "upper_bound" ? "up to " : ""}${nutrition.totals.kgHeadDay} kg/head/day` },
+            { label: "Silage", value: nutrition.silage.basis === "lab_analysis" ? `${nutrition.silage.dmdPct} DMD (lab)` : nutrition.silage.basis === "planning_scenario" ? `${nutrition.silage.dmdPct} DMD (scenario)` : "Not tested" },
+            { label: "Head", value: String(nutrition.totals.headCount) },
+            { label: "Days to target", value: String(nutrition.totals.days) },
+          ],
+        });
+        continue;
+      }
+      gaps.push({
+        id: `feed-gap:${group.id}`,
+        category: "feed",
+        label: group.label,
+        reason:
+          nutrition.applicability === "OUTSIDE_EVIDENCE"
+            ? nutrition.summary
+            : nutrition.inputsNeeded.length > 0
+              ? `${NUTRITION_INPUT_LABEL[nutrition.inputsNeeded[0]]} to size the feeding plan.`
+              : nutrition.totals.status === "unknown" ? nutrition.totals.reason : nutrition.summary,
+        action: { label: "Open group plan", href: groupHref(group.id) },
+      });
+      continue;
+    }
+
     const model = calculateFarmConcentrateFeedRequirement([group]);
     if (model.sourceGroupLabels.length > 0 && head !== null) {
       const kg = new Decimal(model.totalTonnes).times(KG_PER_TONNE).toNumber();
@@ -479,7 +542,7 @@ export function buildFeedNeed(groups: readonly FeedGroupInput[], catalogue: read
         toBuyKg: kg,
         stock: "not_tracked",
         horizon: "To finish or target weight (model)",
-        notes: ["Model estimate from Teagasc feed budgets — set a diet in the group plan to use your own rate."],
+        notes: ["Model estimate from Teagasc feed budgets — set a target weight and date in the group plan for a goal-based feeding plan."],
         impliedCost: impliedCostAtReference(kg, item),
         details: [{ label: "Head", value: String(head) }],
       });
@@ -490,8 +553,8 @@ export function buildFeedNeed(groups: readonly FeedGroupInput[], catalogue: read
       id: `feed-gap:${group.id}`,
       category: "feed",
       label: group.label,
-      reason: "No concentrate rate in the group plan yet.",
-      action: { label: "Set diet in group plan", href: groupHref(group.id) },
+      reason: "No target weight and date in the group plan yet.",
+      action: { label: "Set target in group plan", href: groupHref(group.id) },
     });
   }
 

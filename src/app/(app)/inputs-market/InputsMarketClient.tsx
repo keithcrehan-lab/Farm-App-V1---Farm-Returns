@@ -59,12 +59,12 @@ const CATEGORY_SOURCE_HREF: Record<InputCategoryId, string> = {
   feed: "/cattle",
 };
 
-export function InputsMarketClient() {
+export function InputsMarketClient({ initialCategory }: { initialCategory?: InputCategoryId } = {}) {
   const isRealMode = useIsRealMode();
   const currentSeason = String(new Date().getUTCFullYear());
   const nextSeason = String(new Date().getUTCFullYear() + 1);
   const [planningSeason, setPlanningSeason] = useState(currentSeason);
-  const [category, setCategory] = useState<InputCategoryId>(INPUT_MARKET_CATEGORIES[0].id);
+  const [category, setCategory] = useState<InputCategoryId>(initialCategory ?? INPUT_MARKET_CATEGORIES[0].id);
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [quote, setQuote] = useState<QuoteContext | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { rowToCattleGroupProductionPlan } from "./cattle-group-production-plans";
+import { cattleGroupProductionPlanPayload, rowToCattleGroupProductionPlan } from "./cattle-group-production-plans";
 
 describe("cattle group production plan persistence", () => {
   it("parses a persisted farmer plan without inventing missing fields", () => {
@@ -42,5 +42,28 @@ describe("cattle group production plan persistence", () => {
     expect(sql).toMatch(/cattle_group_production_plans_owner_delete/i);
     expect(sql).toMatch(/revoke all on public\.cattle_group_production_plans from anon/i);
     expect(sql).toMatch(/g\.farm_id = farm_id/i);
+  });
+
+  it("reads the nutrition context with its silage provenance", () => {
+    const plan = rowToCattleGroupProductionPlan({
+      group_id: "g", farm_id: "f", target_weight_kg: null, target_date: null, diet_label: null,
+      concentrate_kg_head_day: null, concentrate_price_eur_t: null, forage_cost_eur_head_day: null, housing_cost_eur_head_day: null, notes: null,
+      feeding_situation: "housed_grass_silage", silage_quality_basis: "lab_analysis", silage_dmd_pct: "71.5", silage_cp_pct: "12.1", silage_analysis_date: "2026-10-01",
+      created_at: "2026-11-04T13:00:00.000Z", updated_at: "2026-11-04T13:00:00.000Z",
+    } as never);
+    expect(plan).toMatchObject({ feedingSituation: "housed_grass_silage", silageQualityBasis: "lab_analysis", silageDmdPct: 71.5, silageCpPct: 12.1, silageAnalysisDate: "2026-10-01" });
+    expect(() => rowToCattleGroupProductionPlan({ group_id: "g", farm_id: "f", silage_quality_basis: "guess", created_at: "", updated_at: "" } as never)).toThrow(/invalid enum/);
+  });
+
+  it("writes only the fields a save supplies, so the goal-first form never wipes legacy cost fields", () => {
+    const payload = cattleGroupProductionPlanPayload("f", "g", { targetWeightKg: 600, notes: null, silageQualityBasis: null }, "2026-11-04T00:00:00.000Z");
+    expect(payload).toEqual({ group_id: "g", farm_id: "f", target_weight_kg: 600, notes: null, silage_quality_basis: null, updated_at: "2026-11-04T00:00:00.000Z" });
+  });
+
+  it("adds the nutrition context additively with provenance-shape checks", () => {
+    const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20261104200000_cattle_group_nutrition_context.sql"), "utf8");
+    expect(sql).not.toMatch(/\bdrop\b|\btruncate\b/i);
+    expect(sql).toMatch(/silage_quality_basis = 'planning_scenario' and silage_dmd_pct in \(66, 68, 70, 72, 74, 76\)/);
+    expect(sql).toMatch(/silage_quality_basis = 'lab_analysis' and silage_dmd_pct is not null and silage_analysis_date is not null/);
   });
 });

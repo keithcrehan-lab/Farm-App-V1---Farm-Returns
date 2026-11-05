@@ -177,8 +177,23 @@
     "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — resolved through CC-B4A"
   },
   "next_action": "Active programme: Pilot Integration (branch pilot-integration-v1). Active programme: Farmer Pilot (READY_TO_RECRUIT; docs/farm-return-next/farmer-pilot/{README,STATE,FEEDBACK}.md). Validated build 5e35def, tag farm-return-pilot-v1 (c40bf99). No product changes until initial pilot evidence. Pilot Integration COMPLETE (historical: pilot-integration/STATE.md). Detailed state: docs/farm-return-next/pilot-integration/STATE.md (decisions: DECISIONS.md). Cattle Engine v1 CLOSED (C0–C9 runner-frozen; C10 manually adopted at 510f003). Fertiliser Vertical v1 COMPLETE. Open decisions: CC-B5, D1/D2; Campaign C items unchanged. No AI_REVIEW_ONLY or AI_PROVISIONAL rule enters production.",
-  "farmer_pilot": {"active": true, "status": "READY_TO_RECRUIT", "validated_build": "5e35def", "release_tag": "farm-return-pilot-v1", "state_ref": "docs/farm-return-next/farmer-pilot/STATE.md"},
-  "pilot_integration": {"active": false, "branch": "pilot-integration-v1", "phase": "COMPLETE", "phase_status": "PILOT_INTEGRATION_COMPLETE_READY_FOR_FARMER_PILOT", "implementation_sha": "5e35def", "last_gate": "quality-20261025T193923Z-33856", "next_phase": null, "state_ref": "docs/farm-return-next/pilot-integration/STATE.md"},
+  "farmer_pilot": {
+    "active": true,
+    "status": "READY_TO_RECRUIT",
+    "validated_build": "5e35def",
+    "release_tag": "farm-return-pilot-v1",
+    "state_ref": "docs/farm-return-next/farmer-pilot/STATE.md"
+  },
+  "pilot_integration": {
+    "active": false,
+    "branch": "pilot-integration-v1",
+    "phase": "COMPLETE",
+    "phase_status": "PILOT_INTEGRATION_COMPLETE_READY_FOR_FARMER_PILOT",
+    "implementation_sha": "5e35def",
+    "last_gate": "quality-20261025T193923Z-33856",
+    "next_phase": null,
+    "state_ref": "docs/farm-return-next/pilot-integration/STATE.md"
+  },
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",
@@ -508,6 +523,20 @@
   "supplier_portal_v1": {
     "status": "BUILT 2026-10-31 on fertiliser-engine-v2; migration 20261031150000_supplier_portal_foundations.sql NOT APPLIED; isolation validation NOT RUN; independent Codex audit NOT RUN",
     "doc": "docs/farm-return-next/SUPPLIER_PORTAL.md",
-    "not_built": ["farmer-facing supplier quote view and acceptance", "farmer contact release", "supplier notifications"]
+    "not_built": [
+      "farmer-facing supplier quote view and acceptance",
+      "farmer contact release",
+      "supplier notifications"
+    ]
+  },
+  "schemes_adviser_v1": {
+    "campaign": ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+    "campaign_progress": {
+      "last_frozen_phase": null,
+      "next_phase": "S0",
+      "next_phase_status": "NOT_STARTED",
+      "campaign_status": "READY",
+      "updated_by": "controller-bootstrap-2026-11-05"
+    }
   }
 }

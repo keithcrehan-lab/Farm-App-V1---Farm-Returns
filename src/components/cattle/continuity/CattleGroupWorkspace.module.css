@@ -1,0 +1,196 @@
+.workspace {
+  --interaction-ease: cubic-bezier(.2,.82,.2,1);
+}
+
+.stateGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stateTile {
+  min-height: 116px;
+  text-align: left;
+  border: 1px solid var(--color-fr-v2-rule, #d6cec0);
+  border-radius: 16px;
+  background: rgba(255,255,255,.78);
+  padding: 14px;
+  transition:
+    transform 240ms var(--interaction-ease),
+    border-color 240ms var(--interaction-ease),
+    box-shadow 240ms var(--interaction-ease),
+    background-color 240ms var(--interaction-ease);
+  cursor: pointer;
+}
+
+.stateTile:hover {
+  transform: translateY(-2px);
+  border-color: rgba(36,90,67,.38);
+  box-shadow: 0 10px 24px rgba(28,45,35,.08);
+}
+
+.stateTile:active {
+  transform: scale(.985);
+}
+
+.stateTile:focus-visible {
+  outline: 2px solid #245a43;
+  outline-offset: 2px;
+}
+
+.stateTileActive {
+  border-color: rgba(36,90,67,.6);
+  background: rgba(244,239,229,.82);
+  box-shadow: 0 12px 30px rgba(28,45,35,.1);
+}
+
+.tileLabel {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: #6b716b;
+}
+
+.tileValue {
+  margin-top: 10px;
+  font-size: 20px;
+  line-height: 1.08;
+  font-weight: 650;
+  color: #202922;
+}
+
+.tileDetail {
+  margin-top: 7px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #70756f;
+}
+
+.reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 260ms var(--interaction-ease),
+    opacity 200ms ease;
+}
+
+.revealOpen {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.revealInner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.surface {
+  border: 1px solid #d6cec0;
+  border-radius: 18px;
+  background: rgba(255,255,255,.86);
+  box-shadow: 0 1px 0 rgba(255,255,255,.5) inset;
+}
+
+.primarySurface {
+  border-color: rgba(36,90,67,.22);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.92), rgba(250,247,239,.9));
+}
+
+.actionButton {
+  transition:
+    transform 180ms var(--interaction-ease),
+    box-shadow 180ms var(--interaction-ease),
+    background-color 180ms var(--interaction-ease);
+}
+
+.actionButton:hover {
+  transform: translateY(-1px);
+}
+
+.actionButton:active {
+  transform: scale(.985);
+}
+
+.disclosure {
+  border-top: 1px solid #d6cec0;
+}
+
+.disclosureSummary {
+  display: flex;
+  min-height: 54px;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  list-style: none;
+  color: #202922;
+}
+
+.disclosureSummary::-webkit-details-marker {
+  display: none;
+}
+
+.chevron {
+  transition: transform 220ms var(--interaction-ease);
+}
+
+details[open] > .disclosureSummary .chevron {
+  transform: rotate(180deg);
+}
+
+@media (max-width: 900px) {
+  .stateGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .stateGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stateTile {
+    min-height: 94px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stateTile,
+  .actionButton,
+  .reveal,
+  .chevron {
+    transition: none !important;
+  }
+
+  .stateTile:hover,
+  .stateTile:active,
+  .actionButton:hover,
+  .actionButton:active {
+    transform: none !important;
+  }
+}
+
+.editorEnter {
+  animation: editorEnter 240ms var(--interaction-ease) both;
+}
+
+@keyframes editorEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editorEnter {
+    animation: none !important;
+  }
+}

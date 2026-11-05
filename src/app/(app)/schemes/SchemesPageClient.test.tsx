@@ -9,7 +9,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { upsertSupportProfileFactAction } from "@/app/actions/support-profile";
-import { SupportsPageClient } from "./SupportsPageClient";
+import { SchemesPageClient } from "./SchemesPageClient";
 import type { SupportProfile } from "@/domain/support-profile";
 import { FarmProvider } from "@/store/farm-store";
 
@@ -40,11 +40,11 @@ const profile: SupportProfile = {
 // farm row for the server action to persist a fact against — every save
 // attempt could only ever fail. `isDemoMode` disables these controls
 // instead of inviting an attempt that can never succeed.
-describe("SupportsPageClient — isDemoMode", () => {
+describe("SchemesPageClient — isDemoMode", () => {
   it("disables the gap's Save control and never calls the real server action in demo mode", () => {
     render(
       <FarmProvider>
-        <SupportsPageClient profile={profile} assessments={[]} schemeNames={{}} isDemoMode />
+        <SchemesPageClient profile={profile} assessments={[]} schemeNames={{}} isDemoMode />
       </FarmProvider>,
     );
     const saveButton = screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
@@ -56,7 +56,7 @@ describe("SupportsPageClient — isDemoMode", () => {
   it("leaves the gap's date input active (not demo-disabled) outside demo mode", () => {
     render(
       <FarmProvider>
-        <SupportsPageClient profile={profile} assessments={[]} schemeNames={{}} isDemoMode={false} />
+        <SchemesPageClient profile={profile} assessments={[]} schemeNames={{}} isDemoMode={false} />
       </FarmProvider>,
     );
     expect(screen.queryByText(/demo mode/i)).toBeNull();

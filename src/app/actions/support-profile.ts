@@ -10,7 +10,7 @@
  * `getFarmForCurrentUser()`, the same "never trust client-supplied farm
  * ownership" discipline `decisions.ts`'s own actions already establish.
  * A signed-out session, or one with no farm yet, gets an honest empty
- * result rather than throwing — `/supports` (still reachable pre-
+ * result rather than throwing — `/schemes` (still reachable pre-
  * onboarding in demo/mock mode) can render its "known from your farm"
  * section from mock data alone in that case.
  *
@@ -48,6 +48,6 @@ export async function upsertSupportProfileFactAction(key: SupportProfileFactKey,
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("No farm found for the current user.");
   const fact = await upsertSupportProfileFact(farm.id, key, value);
-  revalidatePath("/supports");
+  revalidatePath("/schemes");
   return fact;
 }

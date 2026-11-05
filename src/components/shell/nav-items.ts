@@ -87,7 +87,7 @@ export const moreNavItems: NavItem[] = [
   { href: "/fields", label: "Fields", icon: Map },
   { href: "/soil", label: "Soil", icon: Sprout },
   { href: "/spreading", label: "Spreading", icon: Tractor },
-  { href: "/supports", label: "Supports", icon: HandCoins },
+  { href: "/schemes", label: "Schemes", icon: HandCoins },
   { href: "/quotes", label: "Market", icon: Store },
   { href: "/market-prices", label: "Market Prices", icon: LineChart },
   { href: "/reports", label: "Reports", icon: ClipboardList },

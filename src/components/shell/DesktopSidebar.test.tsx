@@ -36,15 +36,15 @@ describe("DesktopSidebar (Farm Spatial V2 Phase 02B)", () => {
     for (const item of moreNavItems) {
       expect(within(group).getByRole("link", { name: item.label }).getAttribute("href")).toBe(item.href);
     }
-    for (const href of ["/fields", "/supports", "/soil", "/spreading", "/quotes"]) {
+    for (const href of ["/fields", "/schemes", "/soil", "/spreading", "/quotes"]) {
       expect(within(group).getAllByRole("link").map((a) => a.getAttribute("href"))).toContain(href);
     }
   });
 
   it("names the current legacy destination on the closed More control", () => {
-    pathname.current = "/supports";
+    pathname.current = "/schemes";
     render(<DesktopSidebar />);
-    expect(screen.getByRole("button", { name: /more · supports/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /more · schemes/i })).toBeTruthy();
   });
 
   it("shows the Fields companion under Farm rather than repeating it on More", () => {

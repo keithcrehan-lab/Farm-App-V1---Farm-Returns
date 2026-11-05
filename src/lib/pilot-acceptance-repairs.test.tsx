@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Pilot acceptance repairs (signed-in walkthrough, 2026-10-24): unknown live weight never shown as 0 kg; Supports
+ * Pilot acceptance repairs (signed-in walkthrough, 2026-10-24): unknown live weight never shown as 0 kg; Schemes
  * never shows internal tooling wording; Records names a decision's field; Plan shows readable material names. (The
  * headcount-only group link is covered in `src/server/cattle-real/one-cattle-product.test.tsx`.)
  */
@@ -18,7 +18,7 @@ import { listSchemeVersions } from "@/domain/scheme-registry";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
 import type { Prompt } from "@/orchestration/prompt";
 import { FarmProvider } from "@/store/farm-store";
-import { SupportsPageClient } from "@/app/(app)/supports/SupportsPageClient";
+import { SchemesPageClient } from "@/app/(app)/schemes/SchemesPageClient";
 import { ActivityTimelineCard } from "@/components/next/ActivityTimelineCard";
 import { decisionFieldLabel } from "@/components/next/DecisionHistoryCard";
 import { PromptListRow } from "@/components/next/PromptCard";
@@ -70,7 +70,7 @@ describe("Defect 2 — live weight: UNKNOWN is never 0 kg", () => {
   });
 });
 
-describe("Polish 1 — Supports shows no internal tooling wording", () => {
+describe("Polish 1 — Schemes shows no internal tooling wording", () => {
   const profile: SupportProfile = {
     farmId: "farm-1",
     version: "support-profile-v1",
@@ -92,7 +92,7 @@ describe("Polish 1 — Supports shows no internal tooling wording", () => {
     const names = Object.fromEntries(versions.map((v) => [v.schemeId, v.name]));
     render(
       <FarmProvider>
-        <SupportsPageClient profile={profile} assessments={assessments} schemeNames={names} isDemoMode={false} />
+        <SchemesPageClient profile={profile} assessments={assessments} schemeNames={names} isDemoMode={false} />
       </FarmProvider>,
     );
     for (const name of Object.values(names)) {

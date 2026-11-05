@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Farm Return Next — Supports Intelligence + Farm Strategy phase, Supports
+ * Farm Return Next — Schemes Intelligence + Farm Strategy phase, Supports
  * home screen. `SUPPORTS_STRATEGY_CONTRACT.md` §11/§12/§13 — calm light
  * visual language, contextual cards, progressive disclosure, real
  * evidence states; explicitly not a dense KPI grid or a grant-directory
@@ -256,7 +256,7 @@ function AssessmentCard({ assessment, schemeName }: { assessment: EligibilityAss
   );
 }
 
-export function SupportsPageClient({
+export function SchemesPageClient({
   profile,
   assessments,
   schemeNames,
@@ -291,7 +291,7 @@ export function SupportsPageClient({
   if (!profile) {
     return (
       <>
-        <PageHeader title="Supports" subtitle="What may apply to your farm, based on what Farm Return already knows." />
+        <PageHeader title="Schemes" subtitle="What may apply to your farm, based on what Farm Return already knows." />
         <Card>
           <p className="text-sm text-fr-ink-600">Farm Return couldn&apos;t find your farm yet — this usually resolves itself once onboarding is complete. Nothing here is invented in the meantime.</p>
         </Card>
@@ -300,7 +300,7 @@ export function SupportsPageClient({
   }
 
   const askAIContext: AskAIContext = {
-    screen: "Supports",
+    screen: "Schemes",
     facts: {
       County: profile.derived.countyLocation ?? "Unknown",
       "Total mapped area": `${profile.derived.totalMappedAreaHa.toFixed(2)} ha`,
@@ -311,7 +311,7 @@ export function SupportsPageClient({
 
   return (
     <>
-      <PageHeader title="Supports" subtitle="What may apply to your farm, based on what Farm Return already knows." />
+      <PageHeader title="Schemes" subtitle="What may apply to your farm, based on what Farm Return already knows." />
 
       <div className="flex flex-col gap-6">
         <section>

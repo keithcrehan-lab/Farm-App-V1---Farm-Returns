@@ -207,7 +207,7 @@ describe("Primary navigation (Farm + Fields redesign)", () => {
   it("keeps every earlier screen under More, without duplicating a primary item", () => {
     const moreHrefs = moreNavItems.map((i) => i.href);
     // `/nutrients` left navigation in 17b5a83; `/fertiliser-plan` is now primary.
-    for (const href of ["/what-matters", "/fields", "/soil", "/supports", "/quotes", "/market-prices", "/spreading", "/reports", "/settings"]) {
+    for (const href of ["/what-matters", "/fields", "/soil", "/schemes", "/quotes", "/market-prices", "/spreading", "/reports", "/settings"]) {
       expect(moreHrefs).toContain(href);
     }
     for (const item of primaryNavItems) expect(moreHrefs).not.toContain(item.href);

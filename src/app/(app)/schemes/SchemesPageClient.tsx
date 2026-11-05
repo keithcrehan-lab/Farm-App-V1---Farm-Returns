@@ -21,6 +21,8 @@ import type { SupportProfile, SupportProfileFactKey } from "@/domain/support-pro
 import type { EligibilityAssessment, EligibilityState } from "@/domain/scheme-eligibility";
 import { upsertSupportProfileFactAction } from "@/app/actions/support-profile";
 import { farmerTextList, farmerWhyThisState } from "@/lib/scheme-farmer-text";
+import type { Scep2026View } from "@/domain/schemes/scep-2026";
+import { Scep2026Card } from "./Scep2026Card";
 
 const STATE_TONE: Record<EligibilityState, StatusTone> = {
   ELIGIBLE: "good",
@@ -260,6 +262,8 @@ export function SchemesPageClient({
   profile,
   assessments,
   schemeNames,
+  scep2026 = null,
+  sourcePinnedUnavailable = false,
   factsUnavailable = false,
   isDemoMode = false,
 }: {
@@ -270,6 +274,10 @@ export function SchemesPageClient({
   profile: SupportProfile | null;
   assessments: EligibilityAssessment[];
   schemeNames: Record<string, string>;
+  /** First source-pinned scheme migrated to the database-backed engine. */
+  scep2026?: Scep2026View | null;
+  /** Distinct from "no relevant scheme": the repository/evidence read failed. */
+  sourcePinnedUnavailable?: boolean;
   /** True when reading this farm's own `support_profile_facts` failed
    * for a real, unexpected reason (not just the expected "migration not
    * applied yet" case) — Codex audit MEDIUM (round 1, 2026-09-04): render
@@ -305,6 +313,7 @@ export function SchemesPageClient({
       County: profile.derived.countyLocation ?? "Unknown",
       "Total mapped area": `${profile.derived.totalMappedAreaHa.toFixed(2)} ha`,
       "Total livestock units": `${profile.derived.totalLivestockUnits.toFixed(2)} LU`,
+      ...(scep2026 ? { "SCEP 2026": scep2026.stateLabel } : {}),
       ...Object.fromEntries(assessments.map((a) => [a.schemeId, STATE_LABEL[a.state]])),
     },
   };
@@ -314,6 +323,22 @@ export function SchemesPageClient({
       <PageHeader title="Schemes" subtitle="What may apply to your farm, based on what Farm Return already knows." />
 
       <div className="flex flex-col gap-6">
+        {scep2026 ? (
+          <section>
+            <FarmSectionHeading>Your 2026 scheme</FarmSectionHeading>
+            <Scep2026Card view={scep2026} />
+          </section>
+        ) : sourcePinnedUnavailable ? (
+          <section>
+            <FarmSectionHeading>Your 2026 scheme</FarmSectionHeading>
+            <Card>
+              <p className="text-sm text-fr-ink-600">
+                The source-pinned scheme record is temporarily unavailable. Farm Return is withholding the assessment rather than replacing missing scheme evidence with assumptions.
+              </p>
+            </Card>
+          </section>
+        ) : null}
+
         <section>
           <FarmSectionHeading>Known from your farm</FarmSectionHeading>
           <Card>

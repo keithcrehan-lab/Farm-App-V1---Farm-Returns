@@ -7,6 +7,9 @@ import { mockFarm, mockFields, mockLivestockGroups } from "@/data/mock-farm";
 import { buildSupportProfile, nowAsSupportProfileAssessedAt } from "@/domain/support-profile";
 import { assessAllSchemes } from "@/domain/scheme-eligibility";
 import { listSchemeVersions } from "@/domain/scheme-registry";
+import { listStoredSchemeDefinitions } from "@/lib/farm-data/schemes";
+import { listSchemeFactAssertionsForFarm } from "@/lib/farm-data/scheme-facts";
+import { buildScep2026View, type Scep2026View } from "@/domain/schemes/scep-2026";
 import { SchemesPageClient } from "./SchemesPageClient";
 
 /** Postgres SQLSTATE `undefined_table` — same disclosed-until-applied
@@ -113,7 +116,61 @@ export default async function SchemesPage() {
   // withheld; `SchemesPageClient` renders one shared "temporarily
   // unavailable" state for both the gaps list and the assessments list
   // in that case, never a misleading "more information required".
-  const assessments = factsUnavailable ? [] : assessAllSchemes(profile, schemeVersions, nowAsSupportProfileAssessedAt());
+  const assessedAt = nowAsSupportProfileAssessedAt();
+  const assessments = factsUnavailable
+    ? []
+    : assessAllSchemes(profile, schemeVersions, assessedAt);
 
-  return <SchemesPageClient profile={profile} assessments={assessments} schemeNames={schemeNames} factsUnavailable={factsUnavailable} />;
+  let scep2026: Scep2026View | null = null;
+  let sourcePinnedUnavailable = false;
+
+  if (factsUnavailable) {
+    // The first database-backed SCEP assessment reuses the existing BISS
+    // fact. If that store failed to read, withholding SCEP is safer than
+    // pretending BISS is merely missing.
+    sourcePinnedUnavailable = true;
+  } else {
+    try {
+      const definitions = await listStoredSchemeDefinitions();
+      const scepDefinition =
+        definitions.find(
+          (definition) =>
+            definition.version.schemeKey === "scep" &&
+            definition.version.schemeYear === 2026 &&
+            definition.version.rulesVersion === "scep-2026-v1",
+        ) ?? null;
+
+      if (scepDefinition) {
+        const schemeFacts = await listSchemeFactAssertionsForFarm(
+          farm.id,
+          scepDefinition.version.id,
+        );
+        scep2026 = buildScep2026View({
+          definition: scepDefinition,
+          profile,
+          assertions: schemeFacts,
+          nowIso: assessedAt,
+        });
+      } else {
+        sourcePinnedUnavailable = true;
+      }
+    } catch (error) {
+      console.error(
+        "[schemes] source-pinned SCEP 2026 read/evaluation failed:",
+        error,
+      );
+      sourcePinnedUnavailable = true;
+    }
+  }
+
+  return (
+    <SchemesPageClient
+      profile={profile}
+      assessments={assessments}
+      schemeNames={schemeNames}
+      scep2026={scep2026}
+      sourcePinnedUnavailable={sourcePinnedUnavailable}
+      factsUnavailable={factsUnavailable}
+    />
+  );
 }

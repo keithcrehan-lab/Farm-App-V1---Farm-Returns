@@ -1,0 +1,80 @@
+.root {
+  --interaction-ease: cubic-bezier(.2,.82,.2,1);
+}
+
+.surface {
+  border: 1px solid var(--fr-v2-cream-rule, #d6cec0);
+  border-radius: 18px;
+  background: rgba(255,255,255,.86);
+  box-shadow: 0 1px 0 rgba(255,255,255,.5) inset;
+}
+
+.trigger {
+  transition:
+    transform 240ms var(--interaction-ease),
+    border-color 240ms var(--interaction-ease),
+    box-shadow 240ms var(--interaction-ease);
+}
+
+.trigger:hover {
+  transform: translateY(-1px);
+  border-color: rgba(36,90,67,.38);
+  box-shadow: 0 10px 24px rgba(28,45,35,.08);
+}
+
+.trigger:active {
+  transform: scale(.99);
+}
+
+.trigger:focus-visible,
+.actionButton:focus-visible {
+  outline: 2px solid #245a43;
+  outline-offset: 2px;
+}
+
+.actionButton {
+  transition:
+    transform 180ms var(--interaction-ease),
+    background-color 180ms var(--interaction-ease);
+}
+
+.actionButton:hover {
+  transform: translateY(-1px);
+}
+
+.actionButton:active {
+  transform: scale(.985);
+}
+
+.enter {
+  animation: enter 240ms var(--interaction-ease) both;
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger,
+  .actionButton {
+    transition: none !important;
+  }
+
+  .trigger:hover,
+  .trigger:active,
+  .actionButton:hover,
+  .actionButton:active {
+    transform: none !important;
+  }
+
+  .enter {
+    animation: none !important;
+  }
+}

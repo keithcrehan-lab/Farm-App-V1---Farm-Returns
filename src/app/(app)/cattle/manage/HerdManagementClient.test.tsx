@@ -107,7 +107,7 @@ describe("Add cattle (/cattle/manage) — an admin entry point, not a second gro
 
   it("adding an individual animal remains available", () => {
     renderAddCattle();
-    expect(screen.getByText("Add an animal")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add individual animal/ })).toBeTruthy();
   });
 
   it("offers no movement, weight, housing or production-goal editing", () => {

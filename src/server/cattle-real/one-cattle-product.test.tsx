@@ -365,25 +365,102 @@ describe("Pilot P3 — capability preserved, one store", () => {
     for (const id of [A1, x.id, y.id, z.id]) expect(realAnimalView(e, id)).not.toBeNull();
     expect(new Set([A1, x.id, y.id, z.id]).size).toBe(4);
   });
+});
 
-  it("the add-animal card saves through the action, refreshes from the server and links the new animal's Cattle page", async () => {
+describe("Add individual animal (Cattle → Add cattle)", () => {
+  /** Farm A's groups as the page reads them, with Sucklers made a suckler-cow group so its category is distinguishable from Bullocks (steer). */
+  async function farmGroups() {
+    rows("livestock_groups").find((r) => r.id === G_HEAD)!.category = "suckler_cow";
+    return listLivestockGroupsForFarm(FARM_A);
+  }
+  const added = (tag: string) => rows("livestock_individuals").find((r) => r.tag_number === tag);
+
+  it("opens from a single action row and Cancel closes it cleanly, discarding the draft", () => {
     render(<AddAnimalCard farmId={FARM_A} groups={[]} />);
-    fireEvent.click(screen.getByRole("button", { name: /Add an individual animal/ }));
-    fireEvent.change(screen.getByLabelText("Tag number"), { target: { value: "IE 55" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save animal" }));
-    const link = await screen.findByRole("link", { name: /Open it in Cattle/ });
-    const row = rows("livestock_individuals").find((r) => r.tag_number === "IE 55")!;
-    expect(row.farm_id).toBe(FARM_A);
-    expect(link).toHaveAttribute("href", `/cattle/animals/${row.id}`);
-    expect(refresh).toHaveBeenCalled();
+    const trigger = screen.getByRole("button", { name: /Add individual animal/ });
+    expect(trigger).toHaveTextContent(/weights, age and breed/);
+    fireEvent.click(trigger);
+    expect(screen.getByRole("heading", { name: "Add individual animal" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Tag number/), { target: { value: "IE 77" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("button", { name: "Save animal" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Add individual animal/ }));
+    expect(screen.getByLabelText(/Tag number/)).toHaveValue("");
+    expect(db.writes).toBe(0);
   });
 
-  it("the add-animal card shows a refusal and adds nothing", async () => {
+  it("every control has a visible label, and DOB and tag stay optional", async () => {
+    render(<AddAnimalCard farmId={FARM_A} groups={await farmGroups()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Add individual animal/ }));
+    for (const name of ["Group", "Animal type", /Tag number/, /Date of birth/, /Breed/]) expect(screen.getByLabelText(name)).toBeVisible();
+    expect(screen.getByRole("group", { name: "Sex" })).toBeInTheDocument();
+    for (const name of ["Unrecorded", "Female", "Male"]) expect(screen.getByRole("radio", { name })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Tag number/)).not.toBeRequired();
+    expect(screen.getByLabelText(/Date of birth/)).not.toBeRequired();
+    expect(screen.getByText("Group & animal type")).toBeVisible();
+    expect(screen.getByText("Animal identity")).toBeVisible();
+  });
+
+  it("choosing a group shows its category as inherited (no second classification) and the save carries the group's category", async () => {
+    render(<AddAnimalCard farmId={FARM_A} groups={await farmGroups()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Add individual animal/ }));
+    fireEvent.change(screen.getByLabelText("Animal type"), { target: { value: "bull" } });
+    fireEvent.change(screen.getByLabelText("Group"), { target: { value: G_HEAD } });
+    const inherited = screen.getByRole("group", { name: "Animal type" });
+    expect(inherited).toHaveTextContent("Suckler cow");
+    expect(inherited).toHaveTextContent("From Sucklers");
+    expect(screen.queryByRole("combobox", { name: "Animal type" })).toBeNull();
+    fireEvent.change(screen.getByLabelText(/Tag number/), { target: { value: "IE 61" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save animal" }));
+    await screen.findByRole("link", { name: /Open animal/ });
+    expect(added("IE 61")).toMatchObject({ farm_id: FARM_A, group_id: G_HEAD, category: "suckler_cow" });
+  });
+
+  it("an ungrouped animal has its category chosen by the farmer", async () => {
+    render(<AddAnimalCard farmId={FARM_A} groups={await farmGroups()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Add individual animal/ }));
+    fireEvent.change(screen.getByLabelText("Group"), { target: { value: G_A } });
+    fireEvent.change(screen.getByLabelText("Group"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Animal type"), { target: { value: "heifer" } });
+    fireEvent.change(screen.getByLabelText(/Tag number/), { target: { value: "IE 62" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Female" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save animal" }));
+    await screen.findByRole("link", { name: /Open animal/ });
+    expect(added("IE 62")).toMatchObject({ group_id: null, category: "heifer", sex: "female" });
+  });
+
+  it("with no groups the group control says so plainly and the animal is recorded ungrouped", () => {
+    render(<AddAnimalCard farmId={FARM_A} groups={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Add individual animal/ }));
+    expect(screen.getByRole("group", { name: "Group" })).toHaveTextContent("No groups yet — record as ungrouped");
+    expect(screen.queryByRole("combobox", { name: "Group" })).toBeNull();
+    expect(screen.getByLabelText("Animal type")).toBeInTheDocument();
+  });
+
+  it("saves through the action, refreshes from the server, then offers Open animal and Add another animal", async () => {
+    render(<AddAnimalCard farmId={FARM_A} groups={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Add individual animal/ }));
+    fireEvent.change(screen.getByLabelText(/Tag number/), { target: { value: "IE 55" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save animal" }));
+    const link = await screen.findByRole("link", { name: /Open animal/ });
+    const row = added("IE 55")!;
+    expect(row.farm_id).toBe(FARM_A);
+    expect(link).toHaveAttribute("href", `/cattle/animals/${row.id}`);
+    expect(screen.getByRole("status")).toHaveTextContent("IE 55 saved");
+    expect(screen.queryByRole("button", { name: "Save animal" })).toBeNull();
+    expect(refresh).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Add another animal" }));
+    expect(screen.getByLabelText(/Tag number/)).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Save animal" })).toBeInTheDocument();
+  });
+
+  it("a refusal shows the error and adds nothing", async () => {
     db.currentFarm = null;
     render(<AddAnimalCard farmId={FARM_A} groups={[]} />);
-    fireEvent.click(screen.getByRole("button", { name: /Add an individual animal/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add individual animal/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save animal" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/couldn't be saved. Nothing was added/));
+    expect(screen.queryByRole("link", { name: /Open animal/ })).toBeNull();
     expect(refresh).not.toHaveBeenCalled();
     expect(db.writes).toBe(0);
   });

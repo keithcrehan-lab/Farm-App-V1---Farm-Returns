@@ -189,10 +189,10 @@ describe("FarmObjectRail", () => {
 });
 
 describe("Primary navigation (Farm + Fields redesign)", () => {
-  it("is Farm · Fertiliser · Inputs Market · Plan · Cattle · Grass · Housing · Finance · Records, with Farm on the map-led screen", () => {
+  it("is Farm · Fertiliser · Inputs Market · Plan · Cattle · Grass · Housing · Finance · Records · Schemes, with Farm on the map-led screen", () => {
     // Inputs Market sits immediately after Fertiliser as the commercial action layer for calculated farm requirements.
-    expect(primaryNavItems.map((i) => i.label)).toEqual(["Farm", "Fertiliser", "Inputs Market", "Plan", "Cattle", "Grass", "Housing", "Finance", "Records"]);
-    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/fertiliser-plan", "/inputs-market", "/plan", "/cattle", "/grass", "/housing", "/finance", "/records"]);
+    expect(primaryNavItems.map((i) => i.label)).toEqual(["Farm", "Fertiliser", "Inputs Market", "Plan", "Cattle", "Grass", "Housing", "Finance", "Records", "Schemes"]);
+    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/fertiliser-plan", "/inputs-market", "/plan", "/cattle", "/grass", "/housing", "/finance", "/records", "/schemes"]);
   });
 
   it("has no placeholder destinations", () => {
@@ -207,15 +207,15 @@ describe("Primary navigation (Farm + Fields redesign)", () => {
   it("keeps every earlier screen under More, without duplicating a primary item", () => {
     const moreHrefs = moreNavItems.map((i) => i.href);
     // `/nutrients` left navigation in 17b5a83; `/fertiliser-plan` is now primary.
-    for (const href of ["/what-matters", "/fields", "/soil", "/schemes", "/quotes", "/market-prices", "/spreading", "/reports", "/settings"]) {
+    for (const href of ["/what-matters", "/fields", "/soil", "/quotes", "/market-prices", "/spreading", "/reports", "/settings"]) {
       expect(moreHrefs).toContain(href);
     }
     for (const item of primaryNavItems) expect(moreHrefs).not.toContain(item.href);
   });
 
-  it("mobile keeps four primary slots plus More, and More leads with Fertiliser, Inputs Market, Grass, Housing and Finance so no destination is lost", () => {
+  it("mobile keeps four primary slots plus More, and More leads with the remaining first-level destinations including Schemes", () => {
     expect(mobileNavItems.map((i) => i.label)).toEqual(["Farm", "Plan", "Cattle", "Records"]);
-    expect(mobileMoreNavItems.slice(0, 6).map((i) => i.label)).toEqual(["Fertiliser", "Inputs Market", "Grass", "Housing", "Finance", "What Matters"]);
+    expect(mobileMoreNavItems.slice(0, 6).map((i) => i.label)).toEqual(["Fertiliser", "Inputs Market", "Grass", "Housing", "Finance", "Schemes"]);
     const reachable = new Set([...mobileNavItems, ...mobileMoreNavItems].map((i) => i.href));
     for (const item of [...primaryNavItems, ...moreNavItems]) expect(reachable).toContain(item.href);
   });

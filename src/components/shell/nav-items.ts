@@ -46,7 +46,7 @@ export function isNavItemActive(item: NavItem, pathname: string): boolean {
  * Farm + Fields redesign (2026-10-27,
  * `docs/design/farm-fields-high-fidelity-reference.md` "Global shell
  * direction"): the primary navigation is
- * Farm · Fertiliser · Plan · Cattle · Grass · Inputs · Housing · Finance · Records, plus More.
+ * Farm · Fertiliser · Inputs · Plan · Cattle · Grass · Housing · Finance · Records · Schemes, plus More.
  * Fertiliser was promoted to first-level for the initial product launch so
  * the first commercial workflow is never hidden behind More.
  *
@@ -74,6 +74,7 @@ export const primaryNavItems: NavItem[] = [
   { href: "/housing", label: "Housing", icon: Warehouse },
   { href: "/finance", label: "Finance", icon: BarChart3 },
   { href: "/records", label: "Records", icon: Folder },
+  { href: "/schemes", label: "Schemes", icon: HandCoins },
 ];
 
 /** Mobile keeps five slots: these four primary destinations plus More.
@@ -87,7 +88,6 @@ export const moreNavItems: NavItem[] = [
   { href: "/fields", label: "Fields", icon: Map },
   { href: "/soil", label: "Soil", icon: Sprout },
   { href: "/spreading", label: "Spreading", icon: Tractor },
-  { href: "/schemes", label: "Schemes", icon: HandCoins },
   { href: "/quotes", label: "Market", icon: Store },
   { href: "/market-prices", label: "Market Prices", icon: LineChart },
   { href: "/reports", label: "Reports", icon: ClipboardList },

@@ -19,6 +19,7 @@ describe("DesktopSidebar (Farm Spatial V2 Phase 02B)", () => {
     for (const item of primaryNavItems) expect(within(nav).getByText(item.label)).toBeTruthy();
     expect(within(nav).getByRole("link", { name: "Farm" }).getAttribute("aria-current")).toBe("page");
     expect(within(nav).getByRole("link", { name: "Fertiliser" }).getAttribute("href")).toBe("/fertiliser-plan");
+    expect(within(nav).getByRole("link", { name: "Schemes" }).getAttribute("href")).toBe("/schemes");
   });
 
   it("keeps legacy destinations behind one collapsed More control, not a permanent list", () => {
@@ -36,15 +37,17 @@ describe("DesktopSidebar (Farm Spatial V2 Phase 02B)", () => {
     for (const item of moreNavItems) {
       expect(within(group).getByRole("link", { name: item.label }).getAttribute("href")).toBe(item.href);
     }
-    for (const href of ["/fields", "/schemes", "/soil", "/spreading", "/quotes"]) {
+    for (const href of ["/fields", "/soil", "/spreading", "/quotes"]) {
       expect(within(group).getAllByRole("link").map((a) => a.getAttribute("href"))).toContain(href);
     }
   });
 
-  it("names the current legacy destination on the closed More control", () => {
+  it("shows Schemes as a first-level destination and marks it current", () => {
     pathname.current = "/schemes";
     render(<DesktopSidebar />);
-    expect(screen.getByRole("button", { name: /more · schemes/i })).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(within(nav).getByRole("link", { name: "Schemes" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("button", { name: /^more$/i })).toBeTruthy();
   });
 
   it("shows the Fields companion under Farm rather than repeating it on More", () => {

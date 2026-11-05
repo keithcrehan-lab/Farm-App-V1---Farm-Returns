@@ -100,11 +100,11 @@ describe("Cattle home — the group object", () => {
   it("shows the real headcount, group count and the group as one strong object", () => {
     render(<RealHerdScreen view={realHerdView(evaluated())} />);
     expect(screen.getByRole("heading", { level: 1, name: "Cattle" })).toBeInTheDocument();
-    expect(document.querySelector("[data-herd-headline]")).toHaveTextContent("20 head · 1 group");
+    expect(document.querySelector("[data-herd-headline]")).toHaveTextContent("1 head · 1 group");
     const g = objectOf(G_WEAN);
     expect(within(g).getByRole("heading", { name: "Weanlings" })).toBeInTheDocument();
-    expect(within(g).getByText("20")).toBeInTheDocument();
-    expect(within(g).getByText("19 head held as group count · 1 animal recorded individually")).toBeInTheDocument();
+    expect(within(g).getByText("1", { selector: "strong" })).toBeInTheDocument();
+    expect(within(g).getByText("1 animal recorded individually")).toBeInTheDocument();
   });
 
   it("states individual records and the latest real weight with its date", () => {
@@ -138,7 +138,7 @@ describe("Cattle home — the group object", () => {
     render(<RealHerdScreen view={realHerdView(e)} />);
     const g = objectOf(G_WEAN);
     expect(within(g).getByText("1 animal needs weighing")).toBeInTheDocument();
-    expect(within(g).getByText("18 head held as group count · 2 animals recorded individually")).toBeInTheDocument();
+    expect(within(g).getByText("2 animals recorded individually")).toBeInTheDocument();
     expect(within(g).getByText("Latest individual weight")).toBeInTheDocument();
   });
 
@@ -166,19 +166,20 @@ describe("Cattle home — the group object", () => {
 });
 
 describe("Cattle home — unknown is never zero", () => {
-  it("an unreadable headcount gives no herd total and no '0 head' — the individual records are said as such", () => {
+  it("individual membership remains the group size even when the legacy stored headcount is unreadable", () => {
     render(<RealHerdScreen view={realHerdView(evaluated(weanlings({ head: null })))} />);
-    expect(document.querySelector("[data-herd-headline]")).toHaveTextContent("1 animal recorded individually · 1 group");
-    expect(screen.getByText(/no herd total is shown/)).toBeInTheDocument();
-    expect(within(objectOf(G_WEAN)).getByText("Group headcount can't be read · 1 animal recorded individually")).toBeInTheDocument();
+    expect(document.querySelector("[data-herd-headline]")).toHaveTextContent("1 head · 1 group");
+    expect(within(objectOf(G_WEAN)).getByText("1 animal recorded individually")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/no herd total is shown/i);
     expect(document.body.textContent).not.toMatch(UNSUPPORTED_CLAIM);
   });
 
-  it("a headcount below the individual records is a disagreement, not a size", () => {
+  it("individual membership overrides a smaller legacy stored headcount", () => {
     const e = evaluated({ ...weanlings({ head: 1 }), animals: [animal(A_TEST, G_WEAN, { tag_number: "test" }), animal(A_NEW, G_WEAN, { tag_number: "new" })] });
     render(<RealHerdScreen view={realHerdView(e)} />);
-    expect(within(objectOf(G_WEAN)).getByText("The group's headcount is 1; 2 are recorded individually.")).toBeInTheDocument();
-    expect(screen.getByText(/no herd total is shown/)).toBeInTheDocument();
+    expect(within(objectOf(G_WEAN)).getByText("2 animals recorded individually")).toBeInTheDocument();
+    expect(document.querySelector("[data-herd-headline]")).toHaveTextContent("2 head · 1 group");
+    expect(document.body.textContent).not.toMatch(/group.?s headcount is 1/i);
   });
 
   it("a headcount-only group shows its head and is not checked for work — never '0 animals' or 'no open work'", () => {
@@ -188,7 +189,7 @@ describe("Cattle home — unknown is never zero", () => {
     expect(within(g).getByText("40 head recorded for the group · individual animals not recorded")).toBeInTheDocument();
     expect(within(g).getByText("Not checked")).toBeInTheDocument();
     expect(within(g).queryByText(/No open/)).toBeNull();
-    expect(document.querySelector("[data-herd-headline]")).toHaveTextContent("60 head · 2 groups");
+    expect(document.querySelector("[data-herd-headline]")).toHaveTextContent("41 head · 2 groups");
   });
 
   it("a farm with no cattle recorded says so — not '0 head'", () => {
@@ -202,7 +203,7 @@ describe("Group page — the group stays the working object", () => {
   it("dark group header with the real headcount, then the individual animal linked by database id", () => {
     render(<RealGroupScreen view={realHerdView(evaluated())} groupRef={G_WEAN} />);
     expect(screen.getByRole("heading", { level: 1, name: "Weanlings" })).toBeInTheDocument();
-    expect(screen.getByText("1 of 20 head is recorded individually.")).toBeInTheDocument();
+    expect(screen.getByText("1 animal is recorded in this group.")).toBeInTheDocument();
     const animals = screen.getByRole("region", { name: "Individual animals" });
     const row = within(animals).getByRole("link", { name: /test/ });
     expect(row).toHaveAttribute("href", `/cattle/animals/${A_TEST}`);

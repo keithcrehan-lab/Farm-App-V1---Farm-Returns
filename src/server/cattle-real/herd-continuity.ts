@@ -167,18 +167,17 @@ function animalOf(row: AnimalRowVM, words: Words): ContinuityAnimalVM {
 /** The headline, composition line and whether the recorded headcount is a usable total for the group. */
 function measureOf(f: RealGroupFact): { headline: ContinuityMeasure; composition: string; head: number | null } {
   const n = f.individuals;
-  const recorded = plural(n, "animal recorded individually", "animals recorded individually");
-  if (f.headcount === null) {
-    return n === 0
-      ? { headline: { value: "—", unit: "headcount can't be read" }, composition: "Individual animals not recorded · headcount can't be read", head: null }
-      : { headline: { value: String(n), unit: n === 1 ? "animal recorded" : "animals recorded" }, composition: `Group headcount can't be read · ${recorded}`, head: null };
+  if (n > 0) {
+    return {
+      headline: { value: String(n), unit: "head" },
+      composition: `${plural(n, "animal", "animals")} recorded individually`,
+      head: n,
+    };
   }
-  const h = f.headcount;
-  if (n === 0) return { headline: { value: String(h), unit: "head" }, composition: `${h} head recorded for the group · individual animals not recorded`, head: h };
-  if (h === n) return { headline: { value: String(h), unit: "head" }, composition: `All ${plural(n, "head")} recorded individually`, head: h };
-  if (h > n) return { headline: { value: String(h), unit: "head" }, composition: `${h - n} head held as group count · ${recorded}`, head: h };
-  // Fewer head than individual rows: the records disagree; neither figure is chosen as the group's size.
-  return { headline: { value: String(n), unit: n === 1 ? "animal recorded" : "animals recorded" }, composition: `The group's headcount is ${h}; ${n} ${n === 1 ? "is" : "are"} recorded individually.`, head: null };
+  if (f.headcount === null) {
+    return { headline: { value: "—", unit: "headcount can't be read" }, composition: "Individual animals not recorded · headcount can't be read", head: null };
+  }
+  return { headline: { value: String(f.headcount), unit: "head" }, composition: `${f.headcount} head recorded for the group · individual animals not recorded`, head: f.headcount };
 }
 
 function latestOf(outputs: CattleOutputs, members: readonly AnimalRowVM[]): ContinuityLatestWeight {
@@ -265,14 +264,13 @@ function groupOf(f: RealGroupFact, g: GroupVM | undefined, outputs: CattleOutput
       : g.workCounts.state === "EMPTY"
         ? { label: words.noOpen, detail: words.otherWork, tone: "neutral" }
         : { label: g.workCounts.display.label, detail: g.workCounts.display.detail ?? words.otherWork, tone: g.workCounts.display.tone };
-  const of = f.headcount !== null && f.headcount >= f.individuals ? ` of ${f.headcount} head` : "";
   return {
     ...base,
     composition: scope.unresolvedNote ? `${composition} · ${scope.unresolvedNote}` : composition,
     latestWeight: latest,
     work,
     context: details(contextOf(f, locationOf(outputs, rows, scope.locationLabel), latest)),
-    membersIntro: `${f.individuals}${of} ${f.individuals === 1 ? "is" : "are"} recorded individually.`,
+    membersIntro: `${f.individuals} ${f.individuals === 1 ? "animal is" : "animals are"} recorded in this group.`,
     members: scope.members.state === "ITEMS" ? listingOf(rows.map((r) => animalOf(r, words)), EMPTY_DISPLAY.GROUP_ANIMALS) : scope.members,
     unresolved: details(scope.unresolved.map((r) => animalOf(r, words))),
   };

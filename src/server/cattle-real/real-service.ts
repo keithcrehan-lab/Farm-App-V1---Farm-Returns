@@ -252,7 +252,14 @@ export function evaluateRealCattle(input: RealRecordsInput, viewpoint: CattleVie
       farmId: input.farmId,
       outputs: { viewpoint, ledgers, snapshots, groups, weights: contract.ok ? contract.contract : null, performance, goals, health, recommendations, plan, jobs },
       records,
-      sourceGroups: input.groups.map((group) => ({ ...group })),
+      sourceGroups: input.groups.map((group) => {
+        const fact = records.groupFacts.find((candidate) => candidate.groupRef === group.id);
+        if (!fact || fact.individuals === 0 || fact.headcount === null) return { ...group };
+        return {
+          ...group,
+          count: { ...group.count, value: fact.headcount, status: "verified", source: "Individual animal records" },
+        };
+      }),
       unreadable,
     },
   };

@@ -6,16 +6,58 @@ import type { LivestockCategory, LivestockGoal, LivestockGroup } from "@/domain/
 import { rowToLivestockGroup } from "./mappers";
 import type { LivestockGroupRow } from "./row-types";
 
+const INDIVIDUAL_MEMBERSHIP_PAGE_SIZE = 1000;
+
+type IndividualMembershipRow = { id: string; group_id: string | null; created_at: string };
+
+async function individualMembershipCountsForFarm(farmId: string): Promise<Map<string, number>> {
+  const supabase = await createClient();
+  const rows: IndividualMembershipRow[] = [];
+  let expected: number | null = null;
+
+  for (;;) {
+    const from = rows.length;
+    const { data, error, count } = await supabase
+      .from("livestock_individuals")
+      .select("id,group_id,created_at", { count: "exact" })
+      .eq("farm_id", farmId)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + INDIVIDUAL_MEMBERSHIP_PAGE_SIZE - 1);
+    if (error) throw error;
+    if (typeof count !== "number") throw new Error("livestock_individuals: no row count");
+    expected ??= count;
+    const page = (data ?? []) as IndividualMembershipRow[];
+    rows.push(...page);
+    if (rows.length >= expected) break;
+    if (page.length === 0) throw new Error(`livestock_individuals: ${rows.length} of ${expected} rows`);
+  }
+
+  if (rows.length !== expected) throw new Error(`livestock_individuals: ${rows.length} rows, ${expected} counted`);
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (row.group_id === null) continue;
+    counts.set(row.group_id, (counts.get(row.group_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export async function listLivestockGroupsForFarm(farmId: string): Promise<LivestockGroup[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("livestock_groups")
-    .select("*")
-    .eq("farm_id", farmId)
-    .order("created_at", { ascending: true });
+  const [{ data, error }, individualCounts] = await Promise.all([
+    supabase.from("livestock_groups").select("*").eq("farm_id", farmId).order("created_at", { ascending: true }),
+    individualMembershipCountsForFarm(farmId),
+  ]);
   if (error) throw error;
 
-  return (data as LivestockGroupRow[]).map(rowToLivestockGroup);
+  return (data as LivestockGroupRow[]).map(rowToLivestockGroup).map((group) => {
+    const individualCount = individualCounts.get(group.id) ?? 0;
+    if (individualCount === 0) return group;
+    return {
+      ...group,
+      count: { ...group.count, value: individualCount, status: "verified", source: "Individual animal records" },
+    };
+  });
 }
 
 /**

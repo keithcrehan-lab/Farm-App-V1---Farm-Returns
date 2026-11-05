@@ -95,6 +95,7 @@ import { revalidatePath } from "next/cache";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { listIndividualAnimalsForFarm, listWeightObservationsForFarm } from "@/lib/farm-data/individual-animals";
+import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { addIndividualAnimalAction, addLivestockGroupAction, addWeightObservationAction, updateLivestockGroupAction } from "@/app/actions/farm";
 import { recordRealCattleWeight } from "@/app/(app)/cattle/real-actions";
 import ManageHerdPage from "@/app/(app)/cattle/manage/page";
@@ -246,7 +247,7 @@ describe("Group workspace — Edit group details (the group's own record only)",
     expect(groupRecordEditOf(await herd(), G_HEAD)).toMatchObject({ name: "Suckler cows", breed: "Limousin", storedHeadcount: 42, headcountEditable: true });
   });
 
-  it("a group with individual animals can't edit headcount: it is derived, and a differing stored count is shown, never overwritten", async () => {
+  it("a group with individual animals can't edit headcount: membership is authoritative and the legacy stored count stays hidden", async () => {
     groupRow(G_A).count = { value: 3, status: "verified", source: "x" };
     renderGroup(await herd(), G_A);
     fireEvent.click(screen.getByRole("button", { name: "Edit group details" }));
@@ -254,7 +255,7 @@ describe("Group workspace — Edit group details (the group's own record only)",
     const head = document.querySelector('[data-group-editor-fact="headcount"]') as HTMLElement;
     expect(head).toHaveTextContent("1 animal recorded");
     expect(head).toHaveTextContent("Headcount comes from the animals recorded in this group.");
-    expect(head).toHaveTextContent("The group's headcount is 3; 1 is recorded individually.");
+    expect(head).not.toHaveTextContent("3");
     fireEvent.change(editor().getByLabelText("Breed"), { target: { value: "Charolais" } });
     fireEvent.click(editor().getByRole("button", { name: "Save group details" }));
     await waitFor(() => expect(refresh).toHaveBeenCalled());
@@ -313,6 +314,16 @@ describe("Pilot P3 — capability preserved, one store", () => {
     expect(row).toMatchObject({ label: "Suckler cows", count: { value: 42, status: "verified", source: "Owner" } });
     const view = realHerdView(await herd());
     expect(view.extras.headcountGroups[0]).toMatchObject({ name: "Suckler cows", summary: "42 head recorded for the group · individual animals not recorded" });
+  });
+
+  it("individual membership overrides the legacy group count at the shared farm-data boundary", async () => {
+    rows("livestock_groups").find((row) => row.id === G_A)!.count = { value: 20, status: "verified", source: "legacy" };
+    const groups = await listLivestockGroupsForFarm(FARM_A);
+    const bullocks = groups.find((group) => group.id === G_A)!;
+    const sucklers = groups.find((group) => group.id === G_HEAD)!;
+    expect(bullocks.count).toMatchObject({ value: 1, status: "verified", source: "Individual animal records" });
+    expect(sucklers.count.value).toBe(40);
+    expect(rows("livestock_groups").find((row) => row.id === G_A)!.count).toMatchObject({ value: 20, source: "legacy" });
   });
 
   it("10/13/16: an animal added in Manage herd appears on Cattle by its database id, in its group and in the shared list", async () => {

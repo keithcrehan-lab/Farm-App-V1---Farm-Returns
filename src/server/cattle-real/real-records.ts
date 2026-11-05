@@ -135,10 +135,7 @@ export function realCattleRecords(input: RealRecordsInput): RealRecordsResult {
     const n = individuals.get(g.id) ?? 0;
     const head = headcountOf(g);
     if (n === 0) headcountGroups.push({ groupRef: g.id, name: g.label, headcount: head });
-    else {
-      scopedGroupRefs.push(g.id);
-      if (head !== null && head !== n) headcountNotes[g.id] = `The group's headcount is ${head}; ${n} ${n === 1 ? "is" : "are"} recorded individually.`;
-    }
+    else scopedGroupRefs.push(g.id);
   }
 
   return {
@@ -150,7 +147,16 @@ export function realCattleRecords(input: RealRecordsInput): RealRecordsResult {
       headcountGroups,
       headcountNotes,
       ungroupedAnimalIds: animals.filter((a) => a.group_id === null).map((a) => a.id),
-      groupFacts: groups.map((g) => ({ groupRef: g.id, name: g.label, headcount: headcountOf(g), individuals: individuals.get(g.id) ?? 0, goal: g.goal ?? null })),
+      groupFacts: groups.map((g) => {
+        const individualCount = individuals.get(g.id) ?? 0;
+        return {
+          groupRef: g.id,
+          name: g.label,
+          headcount: individualCount > 0 ? individualCount : headcountOf(g),
+          individuals: individualCount,
+          goal: g.goal ?? null,
+        };
+      }),
       directory: {
         tagScheme: REAL_TAG_SCHEME,
         groupLabels: Object.fromEntries(groups.map((g) => [g.id, g.label])),

@@ -1,8 +1,8 @@
 /**
  * The group workspace's "Edit group details" — only what the `livestock_groups` row owns: name, breed, and the
  * headcount while no animal is recorded individually. Read from the same evaluation the group page already loads
- * (`loadRealCattle`); nothing is computed afresh. Where animals are recorded individually the headcount is theirs,
- * and a stored group count that disagrees is shown (`records.headcountNotes`), never overwritten.
+ * (`loadRealCattle`); nothing is computed afresh. Where animals are recorded individually the headcount is theirs.
+ * The legacy stored group count is deliberately ignored and never surfaced.
  */
 
 import type { LivestockCategory } from "@/domain/types";
@@ -24,13 +24,13 @@ export interface GroupRecordEdit {
   name: string;
   breed: string | null;
   categoryLabel: string;
-  /** The group record's stored headcount; `null` when none is recorded. */
+  /** Effective headcount: individual membership when present, otherwise the stored group count. */
   storedHeadcount: number | null;
   /** Individually recorded animals in the group. */
   individuals: number;
   /** The headcount is the group record's own fact only while no animal is recorded individually. */
   headcountEditable: boolean;
-  /** The stored headcount disagrees with the individual records (neither figure is changed). */
+  /** Retained for component compatibility; legacy stored-count discrepancies are no longer surfaced. */
   headcountNote: string | null;
 }
 
@@ -47,6 +47,6 @@ export function groupRecordEditOf(e: RealEvaluation, groupRef: string): GroupRec
     storedHeadcount: fact.headcount,
     individuals: fact.individuals,
     headcountEditable: fact.individuals === 0,
-    headcountNote: e.records.headcountNotes[groupRef] ?? null,
+    headcountNote: null,
   };
 }

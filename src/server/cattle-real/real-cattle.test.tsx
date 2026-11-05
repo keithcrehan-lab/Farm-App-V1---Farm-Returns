@@ -245,7 +245,7 @@ describe("Pilot P1 — real records through the frozen cattle stack", () => {
     expect(extras.headcountNotes).toEqual([]);
     const more = farmA();
     more.groups[0] = group(G_BULLOCKS, FARM_A, "Bullocks", 25);
-    expect(realHerdView(evaluated(more)).extras.headcountNotes).toEqual([{ groupRef: G_BULLOCKS, text: "The group's headcount is 25; 3 are recorded individually." }]);
+    expect(realHerdView(evaluated(more)).extras.headcountNotes).toEqual([]);
   });
 
   it("10/12: no SYNTH id, demonstration label, fixture price, cost, target or programme reaches the real view", () => {

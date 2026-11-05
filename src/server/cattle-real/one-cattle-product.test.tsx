@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Pilot Integration P3 — one cattle product (DECISIONS D14). Cattle is the one destination; the former Livestock
- * screen's management lives at Cattle → Manage herd and writes through the existing livestock actions, now
+ * screen's management lives at Cattle → Add cattle (new groups/animals) and each group's workspace (corrections), and writes through the existing livestock actions, now
  * server-authorised; `/livestock` redirects there. Both the management writes and the Cattle reads use the same
  * `livestock_*` rows: the in-memory PostgREST below enforces the owner RLS policies (rows of the signed-in user's farm
  * only), the primary key and the same-farm triggers, and the repository code runs unmodified on top of it.
@@ -31,6 +31,7 @@ vi.mock("@/lib/supabase/server", () => {
     let range: [number, number] | null = null;
     let insertRow: Row | null = null;
     let patch: Row | null = null;
+    let remove = false;
     let single = false;
     let maybe = false;
     let wantCount = false;
@@ -48,6 +49,11 @@ vi.mock("@/lib/supabase/server", () => {
         return { data: { ...stored }, error: null };
       }
       let rows = visible(table).filter((r) => filters.every(([c, v]) => r[c] === v));
+      if (remove) {
+        db.tables[table] = (db.tables[table] ?? []).filter((r) => !rows.includes(r));
+        if (rows.length > 0) db.writes += 1;
+        return { data: null, error: null };
+      }
       if (patch) {
         // RLS `using`: another farm's row is invisible, so the update matches nothing.
         for (const r of rows) Object.assign(r, patch);
@@ -63,6 +69,7 @@ vi.mock("@/lib/supabase/server", () => {
       select: (_c?: string, o?: { count?: string }) => ((wantCount = o?.count === "exact"), q),
       insert: (row: Row) => ((insertRow = row), q),
       update: (row: Row) => ((patch = row), q),
+      delete: () => ((remove = true), q),
       eq: (c: string, v: unknown) => (filters.push([c, v]), q),
       order: () => q,
       range: (a: number, b: number) => ((range = [a, b]), q),
@@ -81,7 +88,8 @@ vi.mock("@/lib/farm-data/farms", () => ({
 vi.mock("@/lib/supabase/env", () => ({ isSupabaseConfigured: vi.fn(() => true), requireSupabaseEnv: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const refresh = vi.hoisted(() => vi.fn());
-vi.mock("next/navigation", async (importOriginal) => ({ ...(await importOriginal<typeof import("next/navigation")>()), useRouter: () => ({ refresh }) }));
+const push = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", async (importOriginal) => ({ ...(await importOriginal<typeof import("next/navigation")>()), useRouter: () => ({ refresh, push }) }));
 
 import { revalidatePath } from "next/cache";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
@@ -96,7 +104,10 @@ import { AddAnimalCard } from "@/components/farm/AddAnimalCard";
 import { RealGroupScreen, RealHerdScreen } from "@/components/cattle/HerdScreens";
 import { CattleUnavailable } from "@/components/cattle/CattleUnavailable";
 import { desktopNavItems, mobileNavItems, moreNavItems, primaryNavItems } from "@/components/shell/nav-items";
-import { REAL_UNAVAILABLE, loadRealCattle, realAnimalView, realGroupRefs, realHerdView } from "./real-service";
+import { FarmProvider } from "@/store/farm-store";
+import { REAL_UNAVAILABLE, loadRealCattle, realAnimalView, realGroupRefs, realHerdView, type RealEvaluation } from "./real-service";
+import { groupRecordEditOf } from "./group-record-edit";
+import { GroupDetailsEditor } from "@/components/farm/GroupDetailsEditor";
 
 const FARM_A = "f0000000-0000-4000-8000-00000000000a";
 const FARM_B = "f0000000-0000-4000-8000-00000000000b";
@@ -124,6 +135,14 @@ async function herd() {
   if (r.state !== "OK") throw new Error(r.state);
   return r.evaluation;
 }
+/** The group page as the route renders it, inside the real-mode store (writes go through the livestock actions). */
+function renderGroup(e: RealEvaluation, groupRef: string) {
+  return render(
+    <FarmProvider remote initialState={{ farm: { id: FARM_A, name: "Farm A", ownerName: "Owner" } as never, fields: [], livestockGroups: e.sourceGroups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
+      <RealGroupScreen view={realHerdView(e)} groupRef={groupRef} editor={<GroupDetailsEditor record={groupRecordEditOf(e, groupRef)!} />} />
+    </FarmProvider>,
+  );
+}
 const newGroup = (label: string) => ({ label, category: "steer" as const, count: 6, system: "grazing" as const, farmerName: "Owner" });
 const rows = (t: string) => db.tables[t];
 
@@ -132,6 +151,7 @@ beforeEach(() => {
   vi.mocked(isSupabaseConfigured).mockReturnValue(true);
   vi.mocked(revalidatePath).mockClear();
   refresh.mockClear();
+  push.mockClear();
 });
 afterEach(() => {
   cleanup();
@@ -144,7 +164,7 @@ describe("Pilot P3 — navigation", () => {
     expect([...primaryNavItems, ...moreNavItems].filter((i) => i.href.startsWith("/cattle")).map((i) => [i.href, i.label])).toEqual([["/cattle", "Cattle"]]);
   });
 
-  it("3: /livestock always redirects to Cattle → Manage herd (the same answer in demo mode)", () => {
+  it("3: /livestock always redirects to Cattle → Add cattle (the same answer in demo mode)", () => {
     for (const configured of [true, false]) {
       vi.mocked(isSupabaseConfigured).mockReturnValue(configured);
       let digest = "";
@@ -157,24 +177,26 @@ describe("Pilot P3 — navigation", () => {
     }
   });
 
-  it("4: Manage herd renders and never redirects (no loop), signed in or in demo mode", async () => {
-    const real = await ManageHerdPage({ searchParams: Promise.resolve({}) });
+  it("4: Add cattle renders and never redirects (no loop), signed in or in demo mode", async () => {
+    const real = await ManageHerdPage();
     expect(isValidElement(real) && real.type).toBe(HerdManagementClient);
     vi.mocked(isSupabaseConfigured).mockReturnValue(false);
-    const demo = await ManageHerdPage({ searchParams: Promise.resolve({}) });
+    const demo = await ManageHerdPage();
     expect(isValidElement(demo) && demo.type).toBe(CattleUnavailable);
   });
 
-  it("the real herd and group screens link to Manage herd", async () => {
-    const view = realHerdView(await herd());
+  it("the herd screen links to Add cattle; a group screen edits itself and never links back to a Manage herd group list", async () => {
+    const e = await herd();
+    const view = realHerdView(e);
     render(<RealHerdScreen view={view} />);
-    expect(screen.getByRole("link", { name: /Manage herd: add or edit groups and animals/ })).toHaveAttribute("href", "/cattle/manage");
+    expect(screen.getByRole("link", { name: /Add cattle: a new group or an individual animal/ })).toHaveAttribute("href", "/cattle/manage");
     cleanup();
-    render(<RealGroupScreen view={view} groupRef={G_A} />);
-    expect(screen.getByRole("link", { name: /Edit this group in Manage herd/ })).toHaveAttribute("href", "/cattle/manage?tab=Groups");
-    cleanup();
-    render(<RealGroupScreen view={view} groupRef={G_HEAD} />);
-    expect(screen.getByRole("link", { name: /Edit this group in Manage herd/ })).toHaveAttribute("href", "/cattle/manage?tab=Groups");
+    for (const groupRef of [G_A, G_HEAD]) {
+      renderGroup(e, groupRef);
+      expect(screen.getByRole("button", { name: "Edit group details" })).toBeInTheDocument();
+      expect(document.querySelector('a[href^="/cattle/manage"]')).toBeNull();
+      cleanup();
+    }
   });
 
   it("a headcount-only group (no individual animals) is a link to its own page by database id, and that id resolves", async () => {
@@ -191,14 +213,79 @@ describe("Pilot P3 — navigation", () => {
     expect(screen.getByText("40 head recorded for the group · individual animals not recorded")).toBeInTheDocument();
   });
 
-  it("Manage herd opens on the Groups tab only when asked; anything else is the overview", async () => {
-    const tabOf = async (tab: unknown) => {
-      const el = await ManageHerdPage({ searchParams: Promise.resolve({ tab: tab as string }) });
-      return isValidElement<{ initialTab: string }>(el) ? el.props.initialTab : null;
-    };
-    expect(await tabOf("Groups")).toBe("Groups");
-    expect(await tabOf("Housing")).toBe("Overview");
-    expect(await tabOf(undefined)).toBe("Overview");
+  it("an old /cattle/manage?tab=Groups link renders the same Add cattle screen — the Groups screen is gone", async () => {
+    // The page takes no query at all: whatever Next passes, it renders the admin screen.
+    const page = ManageHerdPage as unknown as (props: { searchParams: Promise<Record<string, string>> }) => ReturnType<typeof ManageHerdPage>;
+    const el = await page({ searchParams: Promise.resolve({ tab: "Groups" }) });
+    expect(isValidElement(el) && el.type).toBe(HerdManagementClient);
+    render(<FarmProvider>{el}</FarmProvider>);
+    expect(screen.getAllByRole("heading", { name: "Add cattle", level: 1 }).length).toBeGreaterThan(0);
+    for (const tab of ["Overview", "Groups", "Housing"]) {
+      expect(screen.queryByRole("button", { name: tab })).toBeNull();
+      expect(screen.queryByRole("link", { name: tab })).toBeNull();
+    }
+  });
+});
+
+describe("Group workspace — Edit group details (the group's own record only)", () => {
+  const editor = () => within(screen.getByRole("region", { name: "Edit group details" }));
+  const groupRow = (id: string) => rows("livestock_groups").find((r) => r.id === id)!;
+
+  it("a headcount-only group corrects its name, breed and headcount through the canonical action, then refreshes", async () => {
+    renderGroup(await herd(), G_HEAD);
+    fireEvent.click(screen.getByRole("button", { name: "Edit group details" }));
+    fireEvent.change(editor().getByLabelText("Group name"), { target: { value: "Suckler cows" } });
+    fireEvent.change(editor().getByLabelText("Breed"), { target: { value: "Limousin" } });
+    fireEvent.change(editor().getByLabelText(/^Headcount/), { target: { value: "42" } });
+    fireEvent.click(editor().getByRole("button", { name: "Save group details" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(groupRow(G_HEAD)).toMatchObject({ label: "Suckler cows", breed: "Limousin", count: { value: 42, status: "verified", source: "Owner" }, system: "grazing", avg_weight_kg: null, goal: null, housing_id: null });
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/cattle", "layout");
+    // The saved record is what the page now reads.
+    expect(realGroupRefs(await herd()).has(G_HEAD)).toBe(true);
+    expect(groupRecordEditOf(await herd(), G_HEAD)).toMatchObject({ name: "Suckler cows", breed: "Limousin", storedHeadcount: 42, headcountEditable: true });
+  });
+
+  it("a group with individual animals can't edit headcount: it is derived, and a differing stored count is shown, never overwritten", async () => {
+    groupRow(G_A).count = { value: 3, status: "verified", source: "x" };
+    renderGroup(await herd(), G_A);
+    fireEvent.click(screen.getByRole("button", { name: "Edit group details" }));
+    expect(editor().queryByLabelText(/^Headcount/)).toBeNull();
+    const head = document.querySelector('[data-group-editor-fact="headcount"]') as HTMLElement;
+    expect(head).toHaveTextContent("1 animal recorded");
+    expect(head).toHaveTextContent("Headcount comes from the animals recorded in this group.");
+    expect(head).toHaveTextContent("The group's headcount is 3; 1 is recorded individually.");
+    fireEvent.change(editor().getByLabelText("Breed"), { target: { value: "Charolais" } });
+    fireEvent.click(editor().getByRole("button", { name: "Save group details" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(groupRow(G_A)).toMatchObject({ label: "Bullocks", breed: "Charolais", count: { value: 3, status: "verified", source: "x" } });
+  });
+
+  it("edits only name, breed and (headcount-only) headcount — category is read-only; no weight, system, housing or goal input", async () => {
+    renderGroup(await herd(), G_HEAD);
+    fireEvent.click(screen.getByRole("button", { name: "Edit group details" }));
+    const inputs = [...screen.getByRole("region", { name: "Edit group details" }).querySelectorAll("input, select, textarea")];
+    expect(inputs.map((i) => i.closest("label")?.querySelector("span")?.textContent)).toEqual(["Group name", "Breed", "Headcount"]);
+    expect(document.querySelector('[data-group-editor-fact="category"]')).toHaveTextContent("Steer");
+    for (const word of [/weight/i, /system/i, /housing/i, /goal/i]) expect(editor().queryByLabelText(word)).toBeNull();
+  });
+
+  it("delete stays available with an explicit confirmation and the full warning; it deletes through the canonical action and returns to Cattle", async () => {
+    renderGroup(await herd(), G_HEAD);
+    fireEvent.click(screen.getByRole("button", { name: "Edit group details" }));
+    fireEvent.click(editor().getByRole("button", { name: "Delete group" }));
+    const warning = document.querySelector("[data-group-editor-delete]") as HTMLElement;
+    expect(warning).toHaveTextContent(/deletes the field movements recorded for it/);
+    expect(warning).toHaveTextContent(/fall back to the farm-level stocking rate in the fertiliser plan/);
+    expect(warning).toHaveTextContent(/become ungrouped/);
+    expect(warning).toHaveTextContent(/cannot be undone/);
+    fireEvent.click(within(warning).getByRole("button", { name: "Keep group" }));
+    expect(document.querySelector("[data-group-editor-delete]")).toBeNull();
+    expect(rows("livestock_groups").some((r) => r.id === G_HEAD)).toBe(true);
+    fireEvent.click(editor().getByRole("button", { name: "Delete group" }));
+    fireEvent.click(within(document.querySelector("[data-group-editor-delete]") as HTMLElement).getByRole("button", { name: "Delete group permanently" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/cattle"));
+    expect(rows("livestock_groups").some((r) => r.id === G_HEAD)).toBe(false);
   });
 });
 
@@ -253,9 +340,9 @@ describe("Pilot P3 — capability preserved, one store", () => {
     expect(await listWeightObservationsForFarm(FARM_A)).toEqual([{ id: requestId, animalId: A1, weightKg: 455, observedDate: "2026-10-01", source: "Farmer entered" }]);
   });
 
-  it("15: reading Cattle and opening Manage herd write nothing — there is no copy or sync step", async () => {
+  it("15: reading Cattle and opening Add cattle write nothing — there is no copy or sync step", async () => {
     await herd();
-    await ManageHerdPage({ searchParams: Promise.resolve({}) });
+    await ManageHerdPage();
     expect(db.writes).toBe(0);
   });
 
@@ -307,7 +394,7 @@ describe("Pilot P3 — security (the farm is the server's)", () => {
     await expect(addLivestockGroupAction(FARM_B, newGroup("Planted"))).rejects.toThrow(refused);
     await expect(addIndividualAnimalAction(FARM_B, { category: "steer" })).rejects.toThrow(refused);
     expect(db.writes).toBe(0);
-    const el = await ManageHerdPage({ searchParams: Promise.resolve({}) });
+    const el = await ManageHerdPage();
     expect(isValidElement<{ farmId: string }>(el) && el.props.farmId).toBe(FARM_A);
   });
 
@@ -333,10 +420,10 @@ describe("Pilot P3 — security (the farm is the server's)", () => {
 });
 
 describe("Pilot P3 — demo stays separate", () => {
-  it("22: demo mode's Manage herd says there is nothing to manage and reads no farm", async () => {
+  it("22: demo mode's Add cattle says there is nothing to manage and reads no farm", async () => {
     vi.mocked(isSupabaseConfigured).mockReturnValue(false);
     vi.mocked(getFarmForCurrentUser).mockClear();
-    const el = await ManageHerdPage({ searchParams: Promise.resolve({}) });
+    const el = await ManageHerdPage();
     render(el);
     expect(screen.getByText(REAL_UNAVAILABLE.MANAGE_DEMO.title)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Back to Cattle/ })).toHaveAttribute("href", "/cattle");

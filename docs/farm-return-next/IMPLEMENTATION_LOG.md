@@ -872,3 +872,25 @@ name, category and count; `system` takes the existing `"grazing"` baseline as an
 default (schema requires it). Limitation: a headcount-only group's average weight can no longer be
 set anywhere until a group-level weighing workflow exists. No migration, no frozen contract change,
 no new evidence. Independent Codex audit not run.
+
+## Group corrections move into the group workspace; Manage herd becomes Add cattle (2026-11-05)
+
+`/cattle/manage` is now an admin entry point only ("Add cattle"): Add new group (name, category,
+count — the `system` baseline stays implementation-only) and Add an animal, with copy saying existing
+groups are opened from Cattle and an "Open herd" link. The Overview/Groups/Housing tabs, the group
+card list and the whole Groups editor are removed; the page ignores any query, so an old
+`?tab=Groups` link renders the same admin screen. `manage-herd-view.ts` (+ test) is deleted — its
+read-only context duplicated the group workspace. `/cattle/groups/<id>` replaces its "Edit group" link
+(to `/cattle/manage?tab=Groups`) with "Edit group details" (`src/components/farm/GroupDetailsEditor.tsx`,
+passed into `RealGroupScreen` as an `editor` slot so the cattle component-boundary guards still hold):
+name, breed, and headcount only while zero animals are recorded individually (otherwise the
+individual count is shown, with `records.headcountNotes`' stored-count discrepancy, never
+overwritten). Category is read-only. Facts come from the evaluation the route already loads
+(`src/server/cattle-real/group-record-edit.ts`, pure). Writes use the store's existing
+`updateLivestockGroup`/`deleteLivestockGroup` → `updateLivestockGroupAction`/`deleteLivestockGroupAction`;
+both now return a `Promise<boolean>` resolved when the write persists (additive — other callers still
+ignore it), so the editor refreshes the route only after a successful save. Delete group (explicit
+confirmation, same warning) moved into the editor and returns to `/cattle`. The herd screen's link is
+relabelled "Add cattle". No migration; no frozen cattle engine or contract touched. Unused after this:
+`LivestockHeroCard`/`LivestockGroupCard` (pre-existing components, left in place). Independent Codex
+audit not run.

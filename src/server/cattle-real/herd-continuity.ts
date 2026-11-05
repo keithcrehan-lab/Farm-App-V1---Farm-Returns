@@ -127,7 +127,7 @@ const WORK_FAMILIES: readonly { capability: keyof ContinuityCapabilities; noun: 
 const joinWords = (xs: readonly string[]) => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} or ${xs[xs.length - 1]}`);
 const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-/** The group goal as Manage herd names it (`HerdManagementClient`). */
+/** The older group-record goal's names (as the former Livestock / Manage herd screens labelled it). */
 const GOAL_LABEL: Readonly<Record<LivestockGoal, string>> = { maintain: "Maintain", grow: "Grow", breed: "Breed", sell_store: "Sell as store", finish_slaughter: "Finish to slaughter" };
 
 export const CONTINUITY_COPY = {

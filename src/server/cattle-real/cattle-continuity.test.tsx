@@ -26,6 +26,7 @@ import { EMPTY_CATTLE_DEMO_SESSION } from "@/components/cattle/session/demo-sess
 import { demoHerdView } from "@/server/cattle-demo/demo-service";
 import { evaluateRealCattle, realHerdView, type RealEvaluation } from "./real-service";
 import CattlePage from "@/app/(app)/cattle/page";
+import { FarmProvider } from "@/store/farm-store";
 import CattleGroupPage from "@/app/(app)/cattle/groups/[groupRef]/page";
 import CattleAnimalPage from "@/app/(app)/cattle/animals/[tag]/page";
 
@@ -114,14 +115,14 @@ describe("Cattle home — the group object", () => {
     expect(within(g).getByText("kg · 25 Oct")).toBeInTheDocument();
   });
 
-  it("the whole object is entered by one link to the group's database id; Manage herd stays secondary and correct", () => {
+  it("the whole object is entered by one link to the group's database id; Add cattle stays secondary and correct", () => {
     render(<RealHerdScreen view={realHerdView(evaluated())} />);
     const g = objectOf(G_WEAN);
     const links = within(g).getAllByRole("link");
     expect(links).toHaveLength(1);
     expect(links[0]).toHaveAccessibleName("Open Weanlings");
     expect(links[0]).toHaveAttribute("href", `/cattle/groups/${G_WEAN}`);
-    expect(screen.getByRole("link", { name: /Manage herd/ })).toHaveAttribute("href", "/cattle/manage");
+    expect(screen.getByRole("link", { name: /Add cattle/ })).toHaveAttribute("href", "/cattle/manage");
   });
 
   it("says precisely what work was checked: no open weighing work, other work not inferred — never 'nothing needs attention'", () => {
@@ -208,7 +209,7 @@ describe("Group page — the group stays the working object", () => {
     expect(within(row).getByText("601 kg")).toBeInTheDocument();
     expect(within(row).getByText(/^25 Oct/)).toBeInTheDocument();
     expect(within(row).getByText("No open weighing work")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Edit this group in Manage herd" })).toHaveAttribute("href", "/cattle/manage?tab=Groups");
+    expect(document.querySelector('a[href^="/cattle/manage"]')).toBeNull();
     expect(screen.getByRole("link", { name: "← Cattle" })).toHaveAttribute("href", "/cattle");
   });
 
@@ -226,7 +227,8 @@ describe("Group page — the group stays the working object", () => {
     const groupHref = within(objectOf(G_WEAN)).getByRole("link").getAttribute("href")!;
     cleanup();
     const groupRef = decodeURIComponent(groupHref.split("/").pop()!);
-    render(await CattleGroupPage({ params: Promise.resolve({ groupRef }), searchParams: Promise.resolve({}) }));
+    // The (app) layout's FarmProvider sits above every route (the group's "Edit group details" writes through it).
+    render(<FarmProvider>{await CattleGroupPage({ params: Promise.resolve({ groupRef }), searchParams: Promise.resolve({}) })}</FarmProvider>);
     const animalHref = screen.getByRole("link", { name: /test/ }).getAttribute("href")!;
     expect(animalHref).toBe(`/cattle/animals/${A_TEST}`);
     cleanup();

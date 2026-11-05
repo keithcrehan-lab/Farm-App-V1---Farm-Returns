@@ -555,7 +555,7 @@ export async function addWeightObservationAction(
 }
 
 /*
- * Pilot Integration P3 (DECISIONS D14) — the livestock writes reached from Cattle → Manage herd. The farm is the
+ * Pilot Integration P3 (DECISIONS D14) — the livestock writes reached from Cattle → Add cattle and the group workspace. The farm is the
  * signed-in user's own, resolved here; a farm id sent by the browser is only accepted when it is that same farm, and
  * a group must be one of that farm's. The refusal never says whether another farm's record exists. RLS and the
  * same-farm triggers still sit underneath.
@@ -573,7 +573,7 @@ async function requireFarmGroup(farmId: string, groupId: string) {
   if (!groups.some((g) => g.id === groupId)) throw new Error(LIVESTOCK_NOT_FOUND);
 }
 
-/** One herd: Cattle (and the Manage herd page under it) and the legacy `/livestock` path read the same rows. */
+/** One herd: Cattle (and the Add cattle page under it) and the legacy `/livestock` path read the same rows. */
 function revalidateCattle() {
   revalidatePath("/cattle", "layout");
   revalidatePath("/livestock");

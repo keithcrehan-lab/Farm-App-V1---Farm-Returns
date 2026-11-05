@@ -14,7 +14,7 @@
  */
 
 import Link from "next/link";
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import type { RealHerdView } from "@/server/cattle-real/real-service";
 import { CattleGroupWorkspace } from "./CattleGroupWorkspace";
 import type { CattleContinuityVM, ContinuityAnimalVM, ContinuityGroupVM } from "@/server/cattle-real/herd-continuity";
@@ -34,8 +34,8 @@ const REAL_LINKS = {
   animal: (animalId: string) => `/cattle/animals/${encodeURIComponent(animalId)}`,
 } as const;
 
-/** Pilot Integration P3 (D14) — where the signed-in farm's groups and animals are added and edited. */
-const REAL_MANAGE = { herd: "/cattle/manage", groups: "/cattle/manage?tab=Groups" } as const;
+/** Pilot Integration P3 (D14) — where new groups and animals are added; existing groups are edited in their workspace. */
+const REAL_MANAGE = { herd: "/cattle/manage" } as const;
 
 const workTone = (tone: DisplayTone) => (tone === "neutral" || tone === "good" ? "" : TONE_TEXT[tone]);
 
@@ -208,8 +208,8 @@ export function RealHerdScreen({ view }: { view: RealHerdView }) {
             <div className={s.quietLabel}>Living herd</div>
             <p className="mt-1 text-[14px] text-[var(--cc-muted)]">{c.intro}</p>
           </div>
-          <Link href={REAL_MANAGE.herd} className={s.manage} aria-label="Manage herd: add or edit groups and animals">
-            Manage herd
+          <Link href={REAL_MANAGE.herd} className={s.manage} aria-label="Add cattle: a new group or an individual animal">
+            Add cattle
           </Link>
         </div>
 
@@ -265,8 +265,9 @@ export function RealHerdScreen({ view }: { view: RealHerdView }) {
 /**
  * Pilot Integration P1 — one of the signed-in farmer's groups. The route has already checked the group is this
  * farm's. A group with no individually recorded animal shows its headcount (or why it can't) — never "0 animals".
+ * `editor` is the route's "Edit group details" control for the group's own record, shown in the group's workspace.
  */
-export function RealGroupScreen({ view, groupRef }: { view: RealHerdView; groupRef: string }) {
+export function RealGroupScreen({ view, groupRef, editor }: { view: RealHerdView; groupRef: string; editor?: ReactNode }) {
   const c = view.continuity;
   const g = c.groups.state === "ITEMS" ? c.groups.items.find((x) => x.groupRef === groupRef) : undefined;
   if (!g) {
@@ -282,13 +283,11 @@ export function RealGroupScreen({ view, groupRef }: { view: RealHerdView; groupR
   return (
     <div className={`${s.root} -mx-4 -mt-4 min-h-screen pb-10 lg:mx-0 lg:mt-0`} data-farm-workspace data-cattle-mode="REAL">
       <div className="px-4 pb-8 pt-3 lg:px-8 lg:pt-5">
-        <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <Link href={REAL_LINKS.herd} className={s.back}>
             ← Cattle
           </Link>
-          <Link href={REAL_MANAGE.groups} className={s.manage} aria-label="Edit this group in Manage herd">
-            Edit group
-          </Link>
+          {editor}
         </div>
 
         <section className={s.groupHeader} aria-labelledby="group-title">

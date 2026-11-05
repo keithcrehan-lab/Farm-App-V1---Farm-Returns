@@ -28,6 +28,7 @@ import CattlePage from "@/app/(app)/cattle/page";
 import CattleAnimalPage from "@/app/(app)/cattle/animals/[tag]/page";
 import CattleAnimalPlanPage from "@/app/(app)/cattle/animals/[tag]/plan/page";
 import CattleGroupPage from "@/app/(app)/cattle/groups/[groupRef]/page";
+import { FarmProvider } from "@/store/farm-store";
 
 // ---------------------------------------------------------------------------
 // Real-shaped rows (two farms)
@@ -388,7 +389,7 @@ describe("Pilot P1 — real screens", () => {
 
   it("15: the real group route lists members by uuid (two with the same tag link to different animals)", async () => {
     const page = await CattleGroupPage({ params: Promise.resolve({ groupRef: G_BULLOCKS }), searchParams: Promise.resolve({}) });
-    render(page);
+    render(<FarmProvider>{page}</FarmProvider>); // the (app) layout's provider, above every route
     const hrefs = [...document.querySelectorAll("a[href^='/cattle/animals/']")].map((a) => a.getAttribute("href"));
     expect(hrefs.sort()).toEqual([A1, A2, A3].map((id) => `/cattle/animals/${id}`).sort());
     expect(screen.getAllByText("IE 372 1234")).toHaveLength(2);
@@ -452,6 +453,6 @@ describe("Pilot P1 — real screens", () => {
 
   it("the real herd screen component renders without the demonstration session provider", () => {
     render(<RealHerdScreen view={realHerdView(evaluated())} />);
-    expect(screen.getByText(/Record a weight on an animal's page; add or change groups and animals in Manage herd/)).toBeInTheDocument();
+    expect(screen.getByText(/Record a weight on an animal's page; add groups and animals in Add cattle; correct a group in its own workspace/)).toBeInTheDocument();
   });
 });

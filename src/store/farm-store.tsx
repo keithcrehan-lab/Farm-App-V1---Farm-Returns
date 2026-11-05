@@ -381,7 +381,9 @@ interface FarmActions {
   addLivestockGroup: (input: AddLivestockGroupInput) => Promise<LivestockGroup>;
   /** Real Mode Completion Phase 26 — editability; a farmer correcting a
    * group's count/weight/label/system/goal/housing after creation. */
-  deleteLivestockGroup: (groupId: string) => void;
+  /** Resolves once persisted (`true`) or failed (`false`, surfaced as a sync failure); callers may ignore it. */
+  deleteLivestockGroup: (groupId: string) => Promise<boolean>;
+  /** Same resolution as `deleteLivestockGroup`. */
   updateLivestockGroup: (
     groupId: string,
     patch: {
@@ -394,7 +396,7 @@ interface FarmActions {
       housingId?: string | null;
     },
     farmerName: string,
-  ) => void;
+  ) => Promise<boolean>;
   /** Real Farm V1 Phase 11 — until this action existed, Housing was
    * entirely `mock-farm.ts` seed data with no way for a real farmer to
    * ever add a shed. Same real-id caveat as `addField`/`addLivestockGroup`. */
@@ -617,24 +619,29 @@ export function FarmProvider({
   // the current function instead, updated every render, exactly the
   // pattern React's own docs use for "call the latest version of this
   // callback from inside itself".
-  const persistRemoteRef = useRef<(label: string, work: () => Promise<unknown>) => void>(() => {});
+  const persistRemoteRef = useRef<(label: string, work: () => Promise<unknown>) => Promise<boolean>>(async () => false);
 
+  // Resolves `true` once the write is persisted (`false` on failure, already surfaced as a retryable sync failure)
+  // — callers that must re-read server state after the write (e.g. the group workspace's editor) await it; the rest
+  // stay fire-and-forget. Mock mode resolves `true` immediately (nothing remote to wait for).
   const persistRemote = useCallback(
-    <T,>(label: string, work: () => Promise<T>) => {
-      if (!remote) return;
+    <T,>(label: string, work: () => Promise<T>): Promise<boolean> => {
+      if (!remote) return Promise.resolve(true);
       setPendingCount((c) => c + 1);
-      work()
+      return work()
         .then(() => {
           setSyncedWriteCount((c) => c + 1);
           setSyncFailures((fails) => fails.filter((f) => f.label !== label));
+          return true;
         })
         .catch((error: unknown) => {
           console.error(`[farm-store] real-mode write failed (${label}):`, error);
           const message = error instanceof Error ? error.message : String(error);
           setSyncFailures((fails) => [
             ...fails.filter((f) => f.label !== label),
-            { id: `${label}-${Date.now()}`, label, message, retry: () => persistRemoteRef.current(label, work) },
+            { id: `${label}-${Date.now()}`, label, message, retry: () => void persistRemoteRef.current(label, work) },
           ]);
+          return false;
         })
         .finally(() => setPendingCount((c) => Math.max(0, c - 1)));
     },
@@ -1088,7 +1095,7 @@ export function FarmProvider({
           livestockGroups: s.livestockGroups.filter((group) => group.id !== groupId),
           housing: s.housing.map((housing) => ({ ...housing, linkedGroupIds: housing.linkedGroupIds.filter((id) => id !== groupId) })),
         }));
-        persistRemote("deleteLivestockGroup", () => deleteLivestockGroupAction(groupId));
+        return persistRemote("deleteLivestockGroup", () => deleteLivestockGroupAction(groupId));
       },
 
       updateLivestockGroup(groupId, patch, farmerName) {
@@ -1108,7 +1115,7 @@ export function FarmProvider({
             };
           }),
         }));
-        persistRemote("updateLivestockGroup", () => updateLivestockGroupAction(groupId, { ...patch, farmerName }));
+        return persistRemote("updateLivestockGroup", () => updateLivestockGroupAction(groupId, { ...patch, farmerName }));
       },
 
       async addHousing(input) {

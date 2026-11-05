@@ -58,7 +58,7 @@ export function requestViewpoint(now: Date): CattleViewpoint {
 
 /** Real-mode explanations of the parts Farm Return keeps no record of (screen copy decided here, not in components). */
 export const REAL_NOTES = {
-  readOnly: "Your farm's own records. Record a weight on an animal's page; add or change groups and animals in Manage herd.",
+  readOnly: "Your farm's own records. Record a weight on an animal's page; add groups and animals in Add cattle; correct a group in its own workspace.",
   method: "Farm Return doesn't record how a weight was taken, so each shows its method as not recorded.",
   health: "Health and medicine records aren't kept in Farm Return yet, so withdrawal and treatment status are unknown here.",
   costs: "Animal costs aren't kept in Farm Return yet, so this animal's costs are unknown — not €0.",
@@ -114,17 +114,17 @@ export const REAL_MODE_ACTION_REGISTRY: CandidateActionRegistry = {
 
 /** Real-mode unavailable screens (copy decided here; `CattleUnavailable` only renders it). */
 export const REAL_UNAVAILABLE = {
-  NO_FARM: { title: "No farm is set up for this account yet.", detail: "Finish setting up your farm, then add your cattle in Manage herd.", link: { href: "/onboarding", label: "Set up your farm →" } },
+  NO_FARM: { title: "No farm is set up for this account yet.", detail: "Finish setting up your farm, then add your cattle from Cattle.", link: { href: "/onboarding", label: "Set up your farm →" } },
   UNAVAILABLE: {
     title: "Your cattle records couldn't be read just now.",
     detail: "Nothing is shown in their place: no example animals, estimates or figures. Try again shortly.",
     link: { href: "/cattle", label: "Try again →" },
   },
   PLAN: { title: "The animal plan isn't available for your farm yet.", detail: REAL_NOTES.plan, link: { href: "/cattle", label: "Back to Cattle →" } },
-  /** Pilot P3: Manage herd writes to a farm's own records, so the demonstration has none. */
+  /** Pilot P3: Add cattle (`/cattle/manage`) writes to a farm's own records, so the demonstration has none. */
   MANAGE_DEMO: {
-    title: "Managing groups and animals saves to your farm's own records.",
-    detail: "This demonstration herd can't be changed here. Sign in to add or edit your groups and animals.",
+    title: "Adding groups and animals saves to your farm's own records.",
+    detail: "This demonstration herd can't be changed here. Sign in to add your groups and animals.",
     link: { href: "/cattle", label: "Back to Cattle →" },
   },
 } as const;

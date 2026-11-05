@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Pilot Integration P3 — "Add an animal" on Cattle → Manage herd. The form (and its fields) is the one the former
+ * Pilot Integration P3 — "Add an animal" on Cattle → Add cattle (`/cattle/manage`). The form (and its fields) is the one the former
  * Livestock screen's individual-animals card used (Real Mode Completion Phase 12), unchanged: every field but the
  * category is optional, as `livestock_individuals` treats it. It writes through the existing
  * `addIndividualAnimalAction`, which resolves the farm server-side (DECISIONS D14).

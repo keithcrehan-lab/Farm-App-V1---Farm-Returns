@@ -5,6 +5,8 @@ import { EMPTY_CATTLE_DEMO_SESSION } from "@/components/cattle/session/demo-sess
 import { demoHerdView, isCattleDemoMode } from "@/server/cattle-demo/demo-service";
 import { REAL_UNAVAILABLE, loadRealCattle, realGroupRefs, realHerdView } from "@/server/cattle-real/real-service";
 import { loadCattleOperationalView } from "@/server/cattle-real/operational-view";
+import { groupRecordEditOf } from "@/server/cattle-real/group-record-edit";
+import { GroupDetailsEditor } from "@/components/farm/GroupDetailsEditor";
 import { scenarioOf } from "../../scenario";
 
 export default async function CattleGroupPage({ params, searchParams }: { params: Promise<{ groupRef: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -16,7 +18,10 @@ export default async function CattleGroupPage({ params, searchParams }: { params
     if (!realGroupRefs(real.evaluation).has(groupRef)) notFound();
     const asOfDate = real.evaluation.outputs.viewpoint.effectiveAt.slice(0, 10);
     const operational = await loadCattleOperationalView(real.evaluation.farmId, real.evaluation.sourceGroups, asOfDate);
-    return <RealGroupScreen view={realHerdView(real.evaluation, operational)} groupRef={groupRef} />;
+    const record = groupRecordEditOf(real.evaluation, groupRef);
+    // Keyed by the saved record so a refresh after saving re-opens the control on the new values.
+    const editor = record ? <GroupDetailsEditor key={`${record.name}|${record.breed}|${record.storedHeadcount}`} record={record} /> : null;
+    return <RealGroupScreen view={realHerdView(real.evaluation, operational)} groupRef={groupRef} editor={editor} />;
   }
   const scenario = scenarioOf((await searchParams).scenario);
   return <GroupScreen initial={demoHerdView(EMPTY_CATTLE_DEMO_SESSION, scenario)} groupRef={groupRef} scenario={scenario} />;

@@ -852,3 +852,23 @@ write only supplied columns). Inputs Market's feed need uses the same plan (over
 model fallback → gap) and opens on Feed via `?category=feed`. Additive migration
 `20261104200000_cattle_group_nutrition_context.sql` — NOT applied to any database. No frozen cattle
 contract changed. Evidence register: "Goal-first cattle nutrition plan". Independent Codex audit not run.
+
+## Manage herd: object-first groups, no double entry (2026-11-05)
+
+`/cattle/manage` Groups now edits only facts the `livestock_groups` row owns: name, breed, and the
+headcount while the group has zero individually recorded animals (with ≥1 the individual count is
+shown, not editable, and a stored-count disagreement is surfaced, neither figure overwritten).
+Category is read-only (the update path doesn't support it). Average weight, current system, housing
+link and finishing goal are no longer editable here; stored values are untouched (saves send only
+label/breed/count). Each group opens to Group details / Current state / Production. Read-only
+context comes from a new server loader `src/server/cattle-real/manage-herd-view.ts`, which reuses
+`loadRealCattle` (individual counts, latest individual weighing) and `loadCattleOperationalView`
+(open grazing session → current field; `cattle_group_production_plans` target + required ADG via
+`deriveCattleGroupProductionPlanMetrics`), failing closed per source. Without an open session the
+stored `system`/shed is shown labelled as the older group record, not a move. Live weight shows the
+recorded group average labelled as such (no new averaging of individual weights). Move group /
+weights / production CTAs open `/cattle/groups/<id>`; Housing opens `/housing`. Add group asks only
+name, category and count; `system` takes the existing `"grazing"` baseline as an implementation
+default (schema requires it). Limitation: a headcount-only group's average weight can no longer be
+set anywhere until a group-level weighing workflow exists. No migration, no frozen contract change,
+no new evidence. Independent Codex audit not run.

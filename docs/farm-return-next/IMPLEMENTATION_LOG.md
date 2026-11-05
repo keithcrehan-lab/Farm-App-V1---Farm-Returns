@@ -894,3 +894,28 @@ confirmation, same warning) moved into the editor and returns to `/cattle`. The 
 relabelled "Add cattle". No migration; no frozen cattle engine or contract touched. Unused after this:
 `LivestockHeroCard`/`LivestockGroupCard` (pre-existing components, left in place). Independent Codex
 audit not run.
+
+## Cattle repair: management state, liveweight authority, identity corrections, advisory v2 (2026-11-05)
+
+- **Management state.** New "Move to housing" on the group workspace (`moveLivestockGroupToHousingAction`) through the
+  security-invoker RPC `record_group_housing_move`: it closes the open grazing session at the housing date and sets
+  `system = 'housed'` + `housing_id` in one transaction (repeat into the same shed = unchanged). The field move is
+  unchanged and still clears housing. `updateLivestockGroupAction` now refuses `system`/`housingId`, so the two moves
+  are the only writers. The workspace shows one location (field OR shed; both = an explicit conflict).
+- **Liveweight.** Individually recorded groups take their current weight from the animals' C4 latest weights
+  (`group-liveweight.ts`, `realGroupLiveweights`) with coverage; partial coverage is a labelled covered mean and is
+  never used for feed sizing, grass demand or required gain (fail closed). `avg_weight_kg` is never rewritten;
+  headcount-only groups keep it. Inputs Market feed resolves liveweight the same way (feed unavailable if it can't).
+- **Identity corrections.** "Edit animal details" (DOB, sex, breed; tag unchanged) appends to
+  `livestock_individual_identity_corrections`; `real-records.ts` turns each into a C1 assertion superseding the
+  previous one (bitemporal history kept, weights untouched). Farm-scoped action `correctRealAnimalDetails`.
+- **Goal.** Optional on Add group; chosen/cleared in Override / edit production target (`goal` on the plan save).
+  Category stays immutable (field sessions snapshot it); Edit group details explains the replacement workflow.
+- **Advisory v2.** Feasible paths → evidence applicability → recommendation/ranking. The DairyBeef 500 housed
+  grass-silage guideline applies only to housed groups not confirmed on another diet; grazing gets "current evidence
+  doesn't cover cattle at grass". Steers/heifers/stores/bulls without a goal show unranked paths. Readiness blocks
+  only on animal type + production system; age and liveweight are evidence (confidence, trajectory). R4 fixed
+  (weight wording owned by the VM).
+- **Migration** `20261105120000_cattle_housing_move_and_identity_corrections.sql` (additive) is NOT applied to any
+  database: until it is applied to Farm Return V1 Dev, the real cattle read (which now reads the corrections table)
+  fails closed as unavailable and the housing move can't save. No frozen C0–C9 engine changed. Codex audit not run.

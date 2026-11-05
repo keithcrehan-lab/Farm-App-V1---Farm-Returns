@@ -7,6 +7,7 @@ import type { DisplayState } from "./display-states";
 import type { FieldVM, MetricVM } from "./animal-profile";
 import { sealGroupNutritionContext, type GroupNutritionContext } from "./nutrition-plan-view";
 import { buildProductionAdvisoryVM, PRODUCTION_ADVISORY_UNAVAILABLE, type GroupAnimalFacts, type ProductionAdvisoryVM } from "./production-advisory";
+import { groupLiveweightOf, groupLiveweightWords, usableGroupMeanKg, type GroupLiveweight } from "./group-liveweight";
 
 const ds = (code: string, label: string, detail: string | null = null): DisplayState => ({
   code,
@@ -18,7 +19,9 @@ const ds = (code: string, label: string, detail: string | null = null): DisplayS
 const OPS = {
   unavailable: ds("CATTLE_OPS:UNAVAILABLE", "Operational cattle data couldn't be read", "Group movement and production-plan context are unavailable right now."),
   fieldsEmpty: ds("CATTLE_OPS:FIELDS_EMPTY", "No active fields", "Map an active field before recording a cattle movement."),
-  locationMissing: ds("CATTLE_OPS:LOCATION_MISSING", "Field movement not recorded", "Record a group movement to link this group to a field and Grass."),
+  housingEmpty: ds("CATTLE_OPS:HOUSING_EMPTY", "No sheds recorded", "Add a shed in Housing before moving cattle into housing."),
+  locationMissing: ds("CATTLE_OPS:LOCATION_MISSING", "Location not recorded", "Record a move to a field or a shed to set where this group is."),
+  locationConflict: ds("CATTLE_OPS:LOCATION_CONFLICT", "Field and shed both recorded", "An open field session and housing are both recorded. Record where the group is now; the move closes the other."),
   weightMissing: ds("CATTLE_OPS:WEIGHT_MISSING", "Group average not recorded", "A group average liveweight is needed for group-level demand and target economics."),
   headMissing: ds("CATTLE_OPS:HEAD_MISSING", "Head count not recorded", "A head count is needed to size the group's feed requirement."),
   grassMissing: ds("CATTLE_OPS:GRASS_DEMAND_MISSING", "Grass demand unresolved", "A valid beef group average weight and headcount are needed."),
@@ -36,10 +39,20 @@ export interface CattleGroupOperationsVM {
   locationDetail: string;
   fieldChoices: Listing<CattleOperationalFieldChoiceVM>;
   defaultFieldId: string;
+  /** Sheds the group can be moved into (the farm's housing records). */
+  housingChoices: Listing<CattleOperationalFieldChoiceVM>;
+  defaultHousingId: string;
+  /** The current management location's label for the move form ("Move to another field", …). */
+  moveToFieldLabel: string;
+  moveToHousingLabel: string;
   goalLabel: string;
+  /** Why the farmer's own target is secondary (no target is derived without validated trajectory evidence). */
+  productionTargetNote: string;
   planButtonLabel: string;
   headCount: MetricVM;
   currentWeight: MetricVM;
+  /** Coverage and provenance of the current weight, always present (never a component-written fallback). */
+  currentWeightDetail: string;
   grassDemand: MetricVM;
   /** Goal-first nutrition plan context — read only by `buildGroupNutritionVM`. */
   nutrition: SealedInput<GroupNutritionContext>;
@@ -66,13 +79,18 @@ export interface CattleOperationsInputGroup {
   category: LivestockCategory;
   goal?: LivestockGoal;
   system?: "grazing" | "housed";
+  /** The shed recorded on the group (only meaningful while housed). */
+  currentHousing?: { id: string; name: string };
   /** Group record facts read by the production advisory (never re-asked). */
   sex?: "male" | "female" | "mixed";
   breed?: string;
   avgAgeMonths?: number;
   headCount?: number;
+  /** The group record's own stored average (used only while no animal is recorded individually). */
   averageWeightKg?: number;
   averageWeightSource?: string;
+  /** The resolved current liveweight with coverage; derived from `animalFacts` and the stored average when absent. */
+  liveweight?: GroupLiveweight;
   currentField?: { id: string; name: string; since: string };
   productionPlan?: CattleGroupProductionPlan;
   productionMetrics: CattleGroupProductionPlanMetrics;
@@ -82,8 +100,13 @@ export interface CattleOperationsInputGroup {
 export interface CattleOperationsInput {
   state: "OK" | "UNAVAILABLE";
   fields: readonly { id: string; name: string }[];
+  /** The farm's sheds; absent = none recorded. */
+  housing?: readonly { id: string; name: string }[];
   groups: readonly CattleOperationsInputGroup[];
 }
+
+const PRODUCTION_TARGET_NOTE =
+  "Secondary to the recommendation above: your own goal, target weight and date drive the feeding plan below. Farm Return doesn't derive a target for you, because it holds no validated trajectory evidence.";
 
 const unknownMetric = (label: string, state: DisplayState, caption: string | null = null): MetricVM => ({
   label,
@@ -118,20 +141,69 @@ function dateDistanceLabel(since: string, asOfDate: string): string {
   return `Since ${formatDayMonth(since)} · ${days} grazing day${days === 1 ? "" : "s"}`;
 }
 
+interface Placement {
+  location: FieldVM;
+  detail: string;
+  overview: string;
+  /** The production system as the advisory may use it (unresolved on a conflict). */
+  system: "grazing" | "housed" | undefined;
+  conflict: boolean;
+}
+
+const placed = (value: string): FieldVM => ({ label: "Current location", value, state: { code: "CATTLE_OPS:LOCATION_KNOWN", label: "Recorded", tone: "neutral", detail: null } });
+
+/** One authoritative current location: a field (open grazing session) OR a shed — a group recorded in both is a conflict. */
+function placementOf(group: CattleOperationsInputGroup, asOfDate: string): Placement {
+  if (group.currentField && group.system === "housed") {
+    return { location: { label: "Current location", value: null, state: OPS.locationConflict }, detail: OPS.locationConflict.detail ?? OPS.locationConflict.label, overview: OPS.locationConflict.label, system: undefined, conflict: true };
+  }
+  if (group.currentField) {
+    return {
+      location: placed(group.currentField.name),
+      detail: dateDistanceLabel(group.currentField.since, asOfDate),
+      overview: `${group.currentField.name} · grazing since ${formatDayMonth(group.currentField.since)}`,
+      system: "grazing",
+      conflict: false,
+    };
+  }
+  if (group.system === "housed") {
+    const shed = group.currentHousing?.name;
+    return {
+      location: placed(shed ? `Housed · ${shed}` : "Housed"),
+      detail: shed ? "Housed. Moving the group to a field closes housing and starts a dated grazing session." : "Housed, but the shed isn't recorded. Record a move into housing to set the shed.",
+      overview: shed ? `Housed · ${shed}` : "Housed · shed not recorded",
+      system: "housed",
+      conflict: false,
+    };
+  }
+  return {
+    location: { label: "Current location", value: null, state: OPS.locationMissing },
+    detail: OPS.locationMissing.detail ?? OPS.locationMissing.label,
+    overview: OPS.locationMissing.label,
+    system: group.system,
+    conflict: false,
+  };
+}
+
 function groupVM(
   group: CattleOperationsInputGroup,
   fields: Listing<CattleOperationalFieldChoiceVM>,
   defaultFieldId: string,
+  housing: Listing<CattleOperationalFieldChoiceVM>,
+  defaultHousingId: string,
   asOfDate: string,
   animals: GroupAnimalFacts | undefined,
 ): CattleGroupOperationsVM {
-  const location: FieldVM = group.currentField
-    ? { label: "Current location", value: group.currentField.name, state: { code: "CATTLE_OPS:LOCATION_KNOWN", label: "Recorded", tone: "neutral", detail: null } }
-    : { label: "Current location", value: null, state: OPS.locationMissing };
-
-  const currentWeight = group.averageWeightKg === undefined
-    ? unknownMetric("Current avg weight", OPS.weightMissing)
-    : knownMetric("Current avg weight", formatKgNumber(group.averageWeightKg), "kg", group.averageWeightSource ?? "Recorded group average");
+  const placement = placementOf(group, asOfDate);
+  const liveweight =
+    group.liveweight ??
+    groupLiveweightOf(animals, group.averageWeightKg !== undefined ? { kg: group.averageWeightKg, source: group.averageWeightSource ?? "Recorded group average" } : undefined);
+  const weightWords = groupLiveweightWords(liveweight);
+  const usableWeightKg = usableGroupMeanKg(liveweight);
+  const currentWeight: MetricVM =
+    weightWords.value === null
+      ? unknownMetric("Current avg weight", { code: `CATTLE_OPS:WEIGHT_${liveweight.state}`, label: weightWords.stateLabel, tone: "unknown", detail: weightWords.detail })
+      : knownMetric("Current avg weight", weightWords.value, "kg", weightWords.detail);
 
   const grassDemand =
     group.grazingDemand?.status === "resolved"
@@ -140,19 +212,23 @@ function groupVM(
 
   return {
     groupRef: group.groupId,
-    overviewLocationLine: group.currentField
-      ? `${group.currentField.name} · grazing since ${formatDayMonth(group.currentField.since)}`
-      : OPS.locationMissing.label,
-    location,
-    locationDetail: group.currentField ? dateDistanceLabel(group.currentField.since, asOfDate) : OPS.locationMissing.detail ?? OPS.locationMissing.label,
+    overviewLocationLine: placement.overview,
+    location: placement.location,
+    locationDetail: placement.detail,
     fieldChoices: fields,
     defaultFieldId: group.currentField?.id ?? defaultFieldId,
+    housingChoices: housing,
+    defaultHousingId: group.currentHousing?.id ?? defaultHousingId,
+    moveToFieldLabel: placement.system === "grazing" && !placement.conflict ? "Move to another field" : "Move to a field",
+    moveToHousingLabel: placement.system === "housed" && !placement.conflict ? "Move to another shed" : "Move to housing",
     goalLabel: goalLabel(group.goal),
+    productionTargetNote: PRODUCTION_TARGET_NOTE,
     planButtonLabel: group.productionPlan ? "Save plan" : "Save production plan",
     headCount: group.headCount === undefined
       ? unknownMetric("Head", OPS.headMissing)
       : knownMetric("Head", String(group.headCount), "head"),
     currentWeight,
+    currentWeightDetail: weightWords.detail,
     grassDemand,
     nutrition: sealGroupNutritionContext({
       state: "OK",
@@ -160,20 +236,19 @@ function groupVM(
       ...(group.goal ? { goal: group.goal } : {}),
       ...(group.system ? { system: group.system } : {}),
       ...(group.headCount !== undefined ? { headCount: group.headCount } : {}),
-      ...(group.averageWeightKg !== undefined ? { averageWeightKg: group.averageWeightKg } : {}),
+      ...(usableWeightKg !== undefined ? { averageWeightKg: usableWeightKg } : {}),
       ...(group.productionPlan ? { plan: group.productionPlan } : {}),
     }),
     advisory: buildProductionAdvisoryVM({
       category: group.category,
       ...(group.goal ? { goal: group.goal } : {}),
-      ...(group.system ? { system: group.system } : {}),
+      ...(placement.system ? { system: placement.system } : {}),
+      ...(placement.conflict ? { locationConflict: true } : {}),
       ...(group.sex ? { groupSex: group.sex } : {}),
       ...(group.breed ? { groupBreed: group.breed } : {}),
       ...(group.avgAgeMonths !== undefined ? { groupAvgAgeMonths: group.avgAgeMonths } : {}),
-      ...(group.averageWeightKg !== undefined ? { groupAverageWeightKg: group.averageWeightKg } : {}),
-      ...(group.averageWeightSource ? { groupAverageWeightSource: group.averageWeightSource } : {}),
+      liveweight,
       ...(animals ? { animals } : {}),
-      currentFieldRecorded: group.currentField !== undefined,
       ...(group.productionPlan
         ? {
             plan: {
@@ -224,8 +299,12 @@ export function buildCattleOperationsVM(
   const fieldChoices = listingOf(fieldItems, OPS.fieldsEmpty);
   // first-item: active fields preserve the farm store's owner order; this is only the move form's initial selection, never an inferred cattle location.
   const defaultFieldId = fieldItems[0]?.id ?? "";
-  const occupied = new Set(input.groups.flatMap((group) => group.currentField ? [group.currentField.id] : [])).size;
-  const groups = input.groups.map((group) => groupVM(group, fieldChoices, defaultFieldId, asOfDate, animalFacts[group.groupId]));
+  const housingItems = (input.housing ?? []).map((shed) => ({ id: shed.id, label: shed.name }));
+  const housingChoices = listingOf(housingItems, OPS.housingEmpty);
+  // first-item: the farm's sheds in their stored order; only the housing form's initial selection.
+  const defaultHousingId = housingItems[0]?.id ?? "";
+  const occupied = new Set(input.groups.flatMap((group) => group.currentField && group.system !== "housed" ? [group.currentField.id] : [])).size;
+  const groups = input.groups.map((group) => groupVM(group, fieldChoices, defaultFieldId, housingChoices, defaultHousingId, asOfDate, animalFacts[group.groupId]));
   return {
     fieldsOccupied: knownMetric("Fields occupied", String(occupied), "current"),
     groups: listingOf(groups, { code: "CATTLE_OPS:GROUPS_EMPTY", label: "No cattle groups", tone: "unknown", detail: "Create a cattle group before adding a production plan." }),
@@ -240,10 +319,16 @@ function unavailableGroupVM(groupRef: string): CattleGroupOperationsVM {
     locationDetail: OPS.unavailable.detail ?? OPS.unavailable.label,
     fieldChoices: unavailableListing(OPS.unavailable),
     defaultFieldId: "",
+    housingChoices: unavailableListing(OPS.unavailable),
+    defaultHousingId: "",
+    moveToFieldLabel: "Move to a field",
+    moveToHousingLabel: "Move to housing",
     goalLabel: OPS.unavailable.label,
+    productionTargetNote: PRODUCTION_TARGET_NOTE,
     planButtonLabel: "Production plan unavailable",
     headCount: unknownMetric("Head", OPS.unavailable),
     currentWeight: unknownMetric("Current avg weight", OPS.unavailable),
+    currentWeightDetail: OPS.unavailable.detail ?? OPS.unavailable.label,
     grassDemand: unknownMetric("Grass demand", OPS.unavailable),
     nutrition: sealGroupNutritionContext({ state: "UNAVAILABLE" }),
     advisory: PRODUCTION_ADVISORY_UNAVAILABLE,
@@ -284,6 +369,12 @@ export function cattleMovementResultMessage(result: { status: string; reasonCode
   return result.status === "saved"
     ? "Movement recorded. Grass and fertiliser context will use the new field."
     : `Movement wasn't saved: ${reasonText(result.reasonCode)}.`;
+}
+
+export function cattleHousingMoveResultMessage(result: { status: string; reasonCode?: string }): string {
+  if (result.status === "saved") return "Moved into housing. Any open grazing session was closed on that date; Grass and fertiliser context no longer count this group on a field.";
+  if (result.status === "unchanged") return "The group is already recorded in that shed. Nothing was changed.";
+  return `Move to housing wasn't saved: ${reasonText(result.reasonCode)}.`;
 }
 
 export function cattlePlanResultMessage(result: { status: string; reasonCode?: string }): string {

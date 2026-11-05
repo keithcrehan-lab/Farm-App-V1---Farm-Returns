@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
-import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
+import { listLivestockGroupsForFarm, updateLivestockGroup } from "@/lib/farm-data/livestock";
+import type { LivestockGoal } from "@/domain/types";
 import { saveCattleGroupProductionPlan, type SaveCattleGroupProductionPlanInput } from "@/lib/farm-data/cattle-group-production-plans";
 import type { CattleFeedingSituation, SilageQualityBasis } from "@/domain/cattle-group-production-plan";
 import { silageColumnsFor } from "@/domain/cattle-nutrition-plan";
@@ -10,6 +11,7 @@ import { silageColumnsFor } from "@/domain/cattle-nutrition-plan";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const FEEDING_SITUATIONS: readonly string[] = ["housed_grass_silage", "at_grass", "other_diet"];
+const GOALS: readonly string[] = ["maintain", "grow", "breed", "sell_store", "finish_slaughter"];
 
 function validOptionalNumber(value: number | null | undefined): boolean {
   return value === null || value === undefined || (Number.isFinite(value) && value >= 0);
@@ -63,8 +65,14 @@ export type SaveCattleGroupProductionPlanResult =
   | { status: "saved" }
   | { status: "rejected"; reasonCode: string };
 
+/**
+ * Saves the group's production target and feeding context. `goal` (optional) is the group's own goal — owned by
+ * `livestock_groups.goal`, set here because the production target editor is where the farmer chooses it; `null`
+ * clears it, absent leaves it unchanged. It is validated with everything else before anything is written.
+ */
 export async function saveCattleGroupProductionPlanAction(input: {
   groupId: string;
+  goal?: LivestockGoal | null;
   targetKg?: number | null;
   targetDate?: string | null;
   dietLabel?: string | null;
@@ -112,10 +120,16 @@ export async function saveCattleGroupProductionPlanAction(input: {
   if (input.feedingSituation !== undefined && input.feedingSituation !== null && !FEEDING_SITUATIONS.includes(input.feedingSituation)) {
     return { status: "rejected", reasonCode: "FEEDING_SITUATION_INVALID" };
   }
+  if (input.goal !== undefined && input.goal !== null && !GOALS.includes(input.goal)) {
+    return { status: "rejected", reasonCode: "GOAL_INVALID" };
+  }
   const silage = silageColumnsFor(input, new Date().toISOString().slice(0, 10));
   if (!silage.ok) return { status: "rejected", reasonCode: silage.reasonCode };
   Object.assign(p, silage.columns, input.feedingSituation !== undefined ? { feedingSituation: input.feedingSituation } : {});
 
+  if (input.goal !== undefined && (input.goal ?? undefined) !== group.goal) {
+    await updateLivestockGroup(group.id, { goal: input.goal, farmerName: farm.ownerName.trim() || "Farmer" });
+  }
   await saveCattleGroupProductionPlan(farm.id, group.id, p);
   revalidatePath("/cattle");
   revalidatePath(`/cattle/groups/${group.id}`);

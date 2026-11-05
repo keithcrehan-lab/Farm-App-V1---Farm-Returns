@@ -126,7 +126,8 @@ export interface UpdateLivestockGroupInput {
   avgWeightKg?: number;
   breed?: string;
   system?: "grazing" | "housed";
-  goal?: LivestockGoal;
+  /** `null` clears the goal. */
+  goal?: LivestockGoal | null;
   housingId?: string | null;
   farmerName: string;
 }

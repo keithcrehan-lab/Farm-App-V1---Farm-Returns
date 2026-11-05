@@ -8,11 +8,17 @@
  * defaulted. Not mapped (no structured meaning): `category`, `goal_status`,
  * `notes`, the free-text weight `source`, and a group's housing (a group's
  * shed is not an animal's location).
+ *
+ * Identity corrections (`livestock_individual_identity_corrections`) are
+ * append-only: each becomes a NEW C1 assertion that supersedes the animal's
+ * previous live assertion of the same kind, received at the correction's own
+ * time (C1 is bitemporal — the original row's value stays in the history as
+ * what was known before the correction; nothing is rewritten).
  */
 
 import type { LivestockGoal, LivestockGroup } from "@/domain/types";
 import type { CattleDirectory } from "@/domain/cattle/presentation";
-import type { LivestockIndividualRow, WeightObservationRow } from "@/lib/farm-data/row-types";
+import type { IdentityCorrectionRow, LivestockIndividualRow, WeightObservationRow } from "@/lib/farm-data/row-types";
 
 type Rec = Record<string, unknown>;
 
@@ -26,6 +32,8 @@ export interface RealRecordsInput {
   groups: LivestockGroup[];
   animals: LivestockIndividualRow[];
   weights: WeightObservationRow[];
+  /** Append-only identity corrections; absent = none held. */
+  corrections?: IdentityCorrectionRow[];
 }
 
 export interface RealHeadcountGroup {
@@ -82,7 +90,39 @@ const headcountOf = (g: LivestockGroup): number | null => {
 
 const provenance = (receivedAt: string, rowId: string) => ({ sourceCategory: "FARMER", sourceSystem: REAL_SOURCE_SYSTEM, sourceRecordRef: rowId, receivedAt });
 
-function assertionsOf(a: LivestockIndividualRow): Rec[] {
+const CORRECTED_KIND = { date_of_birth: "DATE_OF_BIRTH", sex: "SEX", breed: "BREED" } as const;
+const BASE_ID_SUFFIX = { DATE_OF_BIRTH: "dob", SEX: "sex", BREED: "breed" } as const;
+
+function identityValue(fact: IdentityCorrectionRow["fact"] | "date_of_birth", value: string): unknown {
+  if (fact === "sex") return value === "male" ? "MALE" : value === "female" ? "FEMALE" : value;
+  if (fact === "breed") return { codeSystem: null, code: null, label: value, components: [] };
+  return value;
+}
+
+/** Corrections in the order they were recorded (ties by id): each supersedes the one before it. */
+export function orderedCorrections(corrections: readonly IdentityCorrectionRow[]): IdentityCorrectionRow[] {
+  return [...corrections].sort((x, y) => {
+    const dx = Date.parse(x.recorded_at);
+    const dy = Date.parse(y.recorded_at);
+    if (dx !== dy) return dx - dy;
+    return x.id < y.id ? -1 : x.id > y.id ? 1 : 0;
+  });
+}
+
+/** The animal's current identity facts: the latest correction of each fact, otherwise the original row. */
+export function effectiveIdentityOf(a: Pick<LivestockIndividualRow, "id" | "date_of_birth" | "sex" | "breed">, corrections: readonly IdentityCorrectionRow[]): { dateOfBirth: string | null; sex: "male" | "female" | null; breed: string | null } {
+  let dateOfBirth = a.date_of_birth;
+  let sex = a.sex;
+  let breed = a.breed;
+  for (const c of orderedCorrections(corrections.filter((x) => x.animal_id === a.id))) {
+    if (c.fact === "date_of_birth") dateOfBirth = c.value;
+    else if (c.fact === "sex" && (c.value === "male" || c.value === "female")) sex = c.value;
+    else if (c.fact === "breed") breed = c.value;
+  }
+  return { dateOfBirth, sex, breed };
+}
+
+function assertionsOf(a: LivestockIndividualRow, corrections: readonly IdentityCorrectionRow[]): Rec[] {
   const id = a.id;
   const at = instantOf(a.created_at);
   const prov = provenance(at, id);
@@ -93,6 +133,27 @@ function assertionsOf(a: LivestockIndividualRow): Rec[] {
   if (a.breed !== null) out.push({ assertionId: `${id}:breed`, animalId: id, kind: "BREED", value: { codeSystem: null, code: null, label: a.breed, components: [] }, provenance: prov });
   // D4: the application never reassigns an animal, so the stored group holds from the row's creation.
   if (a.group_id !== null) out.push({ assertionId: `${id}:group`, animalId: id, kind: "MANAGEMENT_GROUP", value: a.group_id, validFrom: at, provenance: prov });
+
+  // Append-only corrections: each supersedes the previous live assertion of its kind (C1 correction chain).
+  const live: Partial<Record<string, string>> = {};
+  for (const kind of Object.values(CORRECTED_KIND)) {
+    if (out.some((x) => x.assertionId === `${id}:${BASE_ID_SUFFIX[kind]}`)) live[kind] = `${id}:${BASE_ID_SUFFIX[kind]}`;
+  }
+  for (const c of orderedCorrections(corrections)) {
+    const kind = CORRECTED_KIND[c.fact];
+    if (!kind) continue;
+    const assertionId = `${id}:${BASE_ID_SUFFIX[kind]}:${c.id}`;
+    const previous = live[kind];
+    out.push({
+      assertionId,
+      animalId: id,
+      kind,
+      value: identityValue(c.fact, c.value),
+      ...(previous ? { supersedes: [previous] } : {}),
+      provenance: provenance(instantOf(c.recorded_at), c.id),
+    });
+    live[kind] = assertionId;
+  }
   return out;
 }
 
@@ -120,11 +181,14 @@ function weightOf(w: WeightObservationRow): Rec {
  */
 export function realCattleRecords(input: RealRecordsInput): RealRecordsResult {
   const { farmId, groups, animals, weights } = input;
-  if (groups.some((g) => g.farmId !== farmId) || animals.some((a) => a.farm_id !== farmId) || weights.some((w) => w.farm_id !== farmId)) return { ok: false, reason: "FOREIGN_ROW" };
+  const corrections = input.corrections ?? [];
+  if (groups.some((g) => g.farmId !== farmId) || animals.some((a) => a.farm_id !== farmId) || weights.some((w) => w.farm_id !== farmId) || corrections.some((c) => c.farm_id !== farmId)) return { ok: false, reason: "FOREIGN_ROW" };
   const groupIds = new Set(groups.map((g) => g.id));
   if (animals.some((a) => a.group_id !== null && !groupIds.has(a.group_id))) return { ok: false, reason: "UNKNOWN_GROUP" };
   const animalIds = new Set(animals.map((a) => a.id));
-  if (weights.some((w) => !animalIds.has(w.animal_id))) return { ok: false, reason: "UNKNOWN_ANIMAL" };
+  if (weights.some((w) => !animalIds.has(w.animal_id)) || corrections.some((c) => !animalIds.has(c.animal_id))) return { ok: false, reason: "UNKNOWN_ANIMAL" };
+  const correctionsByAnimal = new Map<string, IdentityCorrectionRow[]>();
+  for (const c of corrections) correctionsByAnimal.set(c.animal_id, [...(correctionsByAnimal.get(c.animal_id) ?? []), c]);
 
   const individuals = new Map<string, number>();
   for (const a of animals) if (a.group_id !== null) individuals.set(a.group_id, (individuals.get(a.group_id) ?? 0) + 1);
@@ -141,7 +205,7 @@ export function realCattleRecords(input: RealRecordsInput): RealRecordsResult {
   return {
     ok: true,
     records: {
-      assertions: animals.map((a) => ({ animalId: a.id, inputs: assertionsOf(a) })),
+      assertions: animals.map((a) => ({ animalId: a.id, inputs: assertionsOf(a, correctionsByAnimal.get(a.id) ?? []) })),
       weights: weights.map(weightOf),
       scopedGroupRefs,
       headcountGroups,

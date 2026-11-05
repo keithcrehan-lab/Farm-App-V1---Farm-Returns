@@ -17,9 +17,11 @@ import { AddAnimalCard } from "@/components/farm/AddAnimalCard";
 import { BackLink } from "@/components/cattle/ui";
 import { useFarmActions, useLivestockGroups } from "@/store/farm-store";
 import { GROUP_CATEGORY_LABEL } from "@/server/cattle-real/group-record-edit";
-import type { LivestockCategory } from "@/domain/types";
+import type { LivestockCategory, LivestockGoal } from "@/domain/types";
+import { LIVESTOCK_GOAL_LABEL } from "@/domain/cattle/presentation";
 
 const CATEGORY_OPTIONS = Object.keys(GROUP_CATEGORY_LABEL) as LivestockCategory[];
+const GOAL_OPTIONS = Object.keys(LIVESTOCK_GOAL_LABEL) as LivestockGoal[];
 
 /**
  * Not farmer-entered: `livestock_groups.system` is required by the schema and the create action, so a new group takes
@@ -37,6 +39,8 @@ export function HerdManagementClient({ farmId }: { farmId: string }) {
   const [newLabel, setNewLabel] = useState("");
   const [newCategory, setNewCategory] = useState<LivestockCategory>("suckler_cow");
   const [newCount, setNewCount] = useState("");
+  /** Optional: "" = decide later (the group workspace shows the feasible paths unranked until a goal is chosen). */
+  const [newGoal, setNewGoal] = useState<LivestockGoal | "">("");
 
   async function handleAddGroup(e: FormEvent) {
     e.preventDefault();
@@ -49,10 +53,12 @@ export function HerdManagementClient({ farmId }: { farmId: string }) {
       category: newCategory,
       count,
       system: NEW_GROUP_BASELINE_SYSTEM,
+      ...(newGoal !== "" ? { goal: newGoal } : {}),
     });
     setNewLabel("");
     setNewCategory("suckler_cow");
     setNewCount("");
+    setNewGoal("");
     setAddOpen(false);
     router.refresh();
   }
@@ -127,8 +133,23 @@ export function HerdManagementClient({ farmId }: { farmId: string }) {
                   />
                 </label>
               </div>
+              <label className="block">
+                <span className="mb-1 block text-xs text-fr-ink-600">Production goal (optional)</span>
+                <select
+                  value={newGoal}
+                  onChange={(e) => setNewGoal(e.target.value as LivestockGoal | "")}
+                  className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                >
+                  <option value="">Decide later</option>
+                  {GOAL_OPTIONS.map((g) => (
+                    <option key={g} value={g}>
+                      {LIVESTOCK_GOAL_LABEL[g]}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <p className="text-xs text-fr-ink-400">
-                Count is confirmed by you. After adding, open the group from Cattle to record moves, weighings and the production goal.
+                Count is confirmed by you. Category can&apos;t be changed after adding. The goal can be changed later in the group&apos;s production target; until one is chosen, the group shows its feasible paths unranked. After adding, open the group from Cattle to record moves and weighings.
               </p>
               <button
                 type="submit"

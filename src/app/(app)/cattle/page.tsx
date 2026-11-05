@@ -2,7 +2,7 @@ import { CattleUnavailable } from "@/components/cattle/CattleUnavailable";
 import { HerdScreen, RealHerdScreen } from "@/components/cattle/HerdScreens";
 import { EMPTY_CATTLE_DEMO_SESSION } from "@/components/cattle/session/demo-session";
 import { demoHerdView, isCattleDemoMode } from "@/server/cattle-demo/demo-service";
-import { REAL_UNAVAILABLE, loadRealCattle, realHerdView } from "@/server/cattle-real/real-service";
+import { REAL_UNAVAILABLE, loadRealCattle, realGroupLiveweights, realHerdView } from "@/server/cattle-real/real-service";
 import { loadCattleOperationalView } from "@/server/cattle-real/operational-view";
 import { scenarioOf } from "./scenario";
 
@@ -14,7 +14,7 @@ export default async function CattlePage({ searchParams }: { searchParams: Promi
     const real = await loadRealCattle();
     if (real.state !== "OK") return <CattleUnavailable {...REAL_UNAVAILABLE[real.state]} />;
     const asOfDate = real.evaluation.outputs.viewpoint.effectiveAt.slice(0, 10);
-    const operational = await loadCattleOperationalView(real.evaluation.farmId, real.evaluation.sourceGroups, asOfDate);
+    const operational = await loadCattleOperationalView(real.evaluation.farmId, real.evaluation.sourceGroups, asOfDate, realGroupLiveweights(real.evaluation));
     return <RealHerdScreen view={realHerdView(real.evaluation, operational)} />;
   }
   const scenario = scenarioOf((await searchParams).scenario);

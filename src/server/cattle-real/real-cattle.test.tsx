@@ -22,7 +22,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { RealAnimalProfileScreen } from "@/components/cattle/AnimalProfileScreen";
 import { RealGroupScreen, RealHerdScreen } from "@/components/cattle/HerdScreens";
 import { CattleDemoSessionProvider } from "@/components/cattle/session/CattleDemoSessionProvider";
-import { evaluateRealCattle, loadRealCattle, realAnimalView, realHerdView, type RealEvaluation } from "./real-service";
+import { evaluateRealCattle, loadRealCattle, realAnimalView, realGroupLiveweights, realHerdView, type RealEvaluation } from "./real-service";
 import { REAL_TAG_SCHEME, realCattleRecords } from "./real-records";
 import CattlePage from "@/app/(app)/cattle/page";
 import CattleAnimalPage from "@/app/(app)/cattle/animals/[tag]/page";
@@ -95,6 +95,7 @@ function farmA() {
       animal(A5, FARM_A, null, { tag_number: "IE 372 9999", sex: "female", breed: "Angus" }),
     ],
     weights: [weight(A1, FARM_A, "2026-07-01", 402), weight(A1, FARM_A, "2026-08-01", 433), weight(A1, FARM_A, "2026-09-01", 464), weight(A2, FARM_A, "2026-09-10", 455), weight(A4, FARM_A, "2026-09-20", 380)],
+    corrections: [],
   };
 }
 function farmB() {
@@ -279,6 +280,23 @@ describe("Pilot P1 — real records through the frozen cattle stack", () => {
 // ---------------------------------------------------------------------------
 // Tenant isolation
 // ---------------------------------------------------------------------------
+
+describe("Group liveweight from individual records (no double entry)", () => {
+  it("individually recorded groups take their weight from the animals' C4 latest weights, with coverage; headcount-only groups keep the stored average", () => {
+    const e = evaluated({
+      ...farmA(),
+      groups: farmA().groups.map((g) => (g.id === G_SUCKLERS ? { ...g, avgWeightKg: { value: 650, status: "estimated" as const, source: "Farm Return assumption" } } : { ...g, avgWeightKg: { value: 999, status: "estimated" as const, source: "Farm Return assumption" } })),
+    });
+    const lw = realGroupLiveweights(e);
+    // Bullocks: A1 (464, latest) and A2 (455) weighed, A3 not — a partial covered mean, never the group's 999.
+    expect(lw[G_BULLOCKS]).toMatchObject({ state: "INDIVIDUAL_PARTIAL", weighed: 2, members: 3, coveredMeanKg: 459.5 });
+    // Heifers: A4 is the only member and is weighed.
+    expect(lw[G_HEIFERS]).toMatchObject({ state: "INDIVIDUAL_FULL", meanKg: 380, weighed: 1, members: 1 });
+    // Sucklers have no individual records: the group record's own average.
+    expect(lw[G_SUCKLERS]).toEqual({ state: "GROUP_RECORD", kg: 650, source: "Farm Return assumption" });
+    expect(e.sourceGroups.find((g) => g.id === G_BULLOCKS)?.avgWeightKg?.value).toBe(999);
+  });
+});
 
 describe("Pilot P1 — tenant isolation", () => {
   it("13: farm A's evaluation cannot open farm B's animal or group (same answer as an unknown id)", () => {

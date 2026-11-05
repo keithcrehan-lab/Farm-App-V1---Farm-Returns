@@ -9,7 +9,10 @@
  *    always equals the Fertiliser workspace and the RFQ prefill.
  *  - Feed: the farm's livestock groups and the cattle production plans,
  *    through `loadCattleOperationalView` (the same plan metrics the Cattle
- *    workspace shows).
+ *    workspace shows), with each group's current liveweight resolved from
+ *    the cattle evaluation exactly as the Cattle workspace resolves it
+ *    (`realGroupLiveweights`). If that evaluation can't run, feed fails
+ *    closed rather than fall back to a stale stored group average.
  *
  * Each category fails independently: a feed read failure never hides the
  * fertiliser need, and vice versa. Farm identity is resolved server-side
@@ -18,6 +21,7 @@
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { loadCattleOperationalView } from "@/server/cattle-real/operational-view";
+import { loadRealCattle, realGroupLiveweights } from "@/server/cattle-real/real-service";
 import { getFertiliserPlanOverviewAction } from "./fertiliser-plan-overview";
 import {
   INPUTS_MARKET_VERSION,
@@ -80,8 +84,9 @@ export async function getInputsMarketViewAction(planningSeason?: string): Promis
 
 async function loadFeedGroups(farmId: string, asOfDate: string): Promise<{ ok: true; groups: FeedGroupInput[] } | { ok: false }> {
   try {
-    const groups = await listLivestockGroupsForFarm(farmId);
-    const operational = await loadCattleOperationalView(farmId, groups, asOfDate);
+    const [groups, real] = await Promise.all([listLivestockGroupsForFarm(farmId), loadRealCattle()]);
+    if (real.state !== "OK" || real.evaluation.farmId !== farmId) return { ok: false };
+    const operational = await loadCattleOperationalView(farmId, groups, asOfDate, realGroupLiveweights(real.evaluation));
     if (operational.state !== "OK") return { ok: false };
     const byId = new Map(operational.groups.map((view) => [view.groupId, view]));
     return {

@@ -35,8 +35,10 @@ import {
   type HerdVM,
   buildCattleOperationsVM,
   groupAnimalFactsOf,
+  groupLiveweightOf,
   type CattleOperationsVM,
   type GroupAnimalFacts,
+  type GroupLiveweight,
 } from "@/domain/cattle/presentation";
 import type { CattleOperationalView } from "./operational-view";
 import { readCattleSourceForCurrentFarm } from "@/lib/farm-data/cattle-source";
@@ -278,12 +280,7 @@ export function realHerdView(e: RealEvaluation, operational?: CattleOperationalV
   // A group whose every animal record was refused is listed with that reason (its animals are in `unreadable`).
   const unreadableGroups = records.scopedGroupRefs.filter((g) => !evaluated.has(g)).map((groupRef) => ({ groupRef, name: records.directory.groupLabels[groupRef] ?? "Unnamed group", summary: "Animal records can't be read" }));
   const notes = { readOnly: REAL_NOTES.readOnly, method: REAL_NOTES.method, work: REAL_NOTES.work };
-  // Production advisory: members' recorded facts per group. A group with individual records that weren't evaluated is
-  // UNAVAILABLE (its animals can't be read), never "no animals".
-  const animalFacts: Record<string, GroupAnimalFacts> = {
-    ...Object.fromEntries(records.scopedGroupRefs.map((groupRef) => [groupRef, { state: "UNAVAILABLE" } as const])),
-    ...groupAnimalFactsOf(outputs, herd),
-  };
+  const animalFacts = realGroupAnimalFacts(e, herd);
   return {
     herd,
     operations: buildCattleOperationsVM(operational, outputs.viewpoint.effectiveAt.slice(0, 10), animalFacts),
@@ -303,6 +300,33 @@ export function realHerdView(e: RealEvaluation, operational?: CattleOperationalV
       unreadable: details(e.unreadable.map((u) => ({ animalId: u.animalId, label: `${u.tag ?? "Untagged animal"}: record can't be read` }))),
     },
   };
+}
+
+/**
+ * Per group: its individually recorded members' facts (C1 snapshots, C4 latest weights), read from the evaluation.
+ * A group with individual records that weren't evaluated is UNAVAILABLE (its animals can't be read), never "no
+ * animals". Groups with no individual record are absent.
+ */
+export function realGroupAnimalFacts(e: RealEvaluation, herd: HerdVM = buildHerd(e.outputs, e.records.directory)): Record<string, GroupAnimalFacts> {
+  return {
+    ...Object.fromEntries(e.records.scopedGroupRefs.map((groupRef) => [groupRef, { state: "UNAVAILABLE" } as const])),
+    ...groupAnimalFactsOf(e.outputs, herd),
+  };
+}
+
+/**
+ * Per group: the current liveweight with coverage. Individually recorded animals own it (their C4 latest weights);
+ * the stored group average is used only for a group with no animal recorded individually. Nothing is written back.
+ */
+export function realGroupLiveweights(e: RealEvaluation): Record<string, GroupLiveweight> {
+  const facts = realGroupAnimalFacts(e);
+  return Object.fromEntries(
+    e.sourceGroups.map((g) => {
+      const kg = g.avgWeightKg?.value;
+      const stored = typeof kg === "number" && Number.isFinite(kg) && g.avgWeightKg ? { kg, source: g.avgWeightKg.source } : undefined;
+      return [g.id, groupLiveweightOf(facts[g.id], stored)];
+    }),
+  );
 }
 
 /** The farm's group ids a group route may open (evaluated groups and groups without individual records). */

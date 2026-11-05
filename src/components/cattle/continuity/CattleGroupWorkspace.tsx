@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, CalendarDays, Check, ChevronDown, CircleDollarSign, Compass, HeartPulse, MapPin, MoveRight, Scale, Wheat } from "lucide-react";
-import { moveLivestockGroupToFieldAction } from "@/app/actions/grazing-field-movements";
+import { ArrowUpRight, CalendarDays, Check, ChevronDown, CircleDollarSign, Compass, HeartPulse, Home, MapPin, MoveRight, Scale, Wheat } from "lucide-react";
+import { moveLivestockGroupToFieldAction, moveLivestockGroupToHousingAction } from "@/app/actions/grazing-field-movements";
 import { saveCattleGroupProductionPlanAction } from "@/app/actions/cattle-group-production-plan";
 import {
   buildGroupNutritionVM,
+  cattleHousingMoveResultMessage,
   cattleMovementResultMessage,
   cattlePlanResultMessage,
   nutritionDraftOf,
@@ -15,6 +16,7 @@ import {
   nutritionFormOptions,
   type AdvisoryActionVM,
   type AdvisoryItemVM,
+  type AdvisoryPathVM,
   type AdvisoryStatusVM,
   type CattleGroupOperationsVM,
   type Details,
@@ -92,6 +94,25 @@ function StateTile({
   );
 }
 
+function AdvisoryPaths({ paths }: { paths: Details<AdvisoryPathVM> }) {
+  return (
+    <ul className="divide-y divide-fr-v2-rule border-y border-fr-v2-rule">
+      {paths.map((path) => (
+        <li key={path.code} className="grid gap-1.5 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start" data-advisory-path={path.code}>
+          <div className="min-w-0">
+            <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-fr-v2-charcoal">
+              {path.label}
+              {path.marker ? <span className="rounded-full border border-fr-v2-forest/30 px-2 py-0.5 text-[10px] font-semibold text-fr-v2-forest">{path.marker}</span> : null}
+            </p>
+            <p className="mt-0.5 text-[11px] leading-snug text-fr-v2-muted">{path.detail}</p>
+          </div>
+          <span className={`justify-self-start rounded-full border px-3 py-1 text-[11px] font-semibold ${STATUS_TONE[path.tone]}`}>{path.status}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function StatusChip({ status }: { status: AdvisoryStatusVM }) {
   return <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${STATUS_TONE[status.tone]}`}>{status.label}</span>;
 }
@@ -148,10 +169,11 @@ export function CattleGroupWorkspace({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [activeState, setActiveState] = useState<StatePanel>(null);
-  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState<"field" | "housing" | null>(null);
   const [editPlanOpen, setEditPlanOpen] = useState(false);
   const [fieldId, setFieldId] = useState(vm.defaultFieldId);
   const [movedOn, setMovedOn] = useState(asOfDate);
+  const [housingId, setHousingId] = useState(vm.defaultHousingId);
   const [message, setMessage] = useState<string | null>(null);
 
   const [draft, setDraft] = useState<NutritionDraft>(() => nutritionDraftOf(vm.nutrition));
@@ -174,7 +196,22 @@ export function CattleGroupWorkspace({
       const result = await moveLivestockGroupToFieldAction({ livestockGroupId: vm.groupRef, fieldId, movedOn });
       setMessage(cattleMovementResultMessage(result));
       if (result.status === "saved") {
-        setMoveOpen(false);
+        setMoveOpen(null);
+        setActiveState(null);
+        router.refresh();
+      }
+    });
+  }
+
+  async function moveToHousing(e: FormEvent) {
+    e.preventDefault();
+    if (housingId === "") return;
+    setMessage(null);
+    startTransition(async () => {
+      const result = await moveLivestockGroupToHousingAction({ livestockGroupId: vm.groupRef, housingId, housedOn: movedOn });
+      setMessage(cattleHousingMoveResultMessage(result));
+      if (result.status === "saved" || result.status === "unchanged") {
+        setMoveOpen(null);
         setActiveState(null);
         router.refresh();
       }
@@ -200,10 +237,11 @@ export function CattleGroupWorkspace({
   }
 
   const canChooseField = vm.fieldChoices.state === "ITEMS";
+  const canChooseHousing = vm.housingChoices.state === "ITEMS";
   const productionValue = nutrition.targetWeight.value ? metricLine(nutrition.targetWeight) : vm.goalLabel;
   const productionDetail = nutrition.requiredAdg.value ? `${metricLine(nutrition.requiredAdg)} required` : nutrition.requiredAdg.state.label;
   const feedingValue = nutrition.concentrate.value ? metricLine(nutrition.concentrate) : nutrition.status.label;
-  const weightDetail = vm.currentWeight.caption ?? vm.currentWeight.state.detail ?? "Live weight used by the production plan";
+  const weightDetail = vm.currentWeightDetail;
 
   return (
     <div className={`mt-6 space-y-4 ${styles.workspace}`} data-cattle-group-workspace={vm.groupRef}>
@@ -261,19 +299,32 @@ export function CattleGroupWorkspace({
                   <p className="mt-2 font-display text-[27px] leading-tight text-fr-v2-charcoal">{vm.location.value ?? vm.location.state.label}</p>
                   <p className="mt-1 max-w-xl text-xs leading-relaxed text-fr-v2-muted">{vm.locationDetail}</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setMoveOpen((open) => !open)}
-                  disabled={!canChooseField}
-                  className={`${styles.actionButton} inline-flex min-h-11 items-center gap-2 rounded-full bg-fr-v2-forest px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40`}
-                >
-                  <MoveRight className="size-4" />
-                  Move cattle
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    aria-expanded={moveOpen === "field"}
+                    onClick={() => setMoveOpen((open) => (open === "field" ? null : "field"))}
+                    disabled={!canChooseField}
+                    className={`${styles.actionButton} inline-flex min-h-11 items-center gap-2 rounded-full bg-fr-v2-forest px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40`}
+                  >
+                    <MoveRight className="size-4" />
+                    {vm.moveToFieldLabel}
+                  </button>
+                  <button
+                    type="button"
+                    aria-expanded={moveOpen === "housing"}
+                    onClick={() => setMoveOpen((open) => (open === "housing" ? null : "housing"))}
+                    disabled={!canChooseHousing}
+                    className={`${styles.actionButton} inline-flex min-h-11 items-center gap-2 rounded-full border border-fr-v2-forest px-5 text-sm font-semibold text-fr-v2-forest disabled:cursor-not-allowed disabled:opacity-40`}
+                  >
+                    <Home className="size-4" />
+                    {vm.moveToHousingLabel}
+                  </button>
+                </div>
               </div>
 
-              {moveOpen && vm.fieldChoices.state === "ITEMS" ? (
-                <form onSubmit={moveGroup} className="mt-5 grid gap-3 border-t border-fr-v2-rule pt-4 sm:grid-cols-[1fr_180px_auto]">
+              {moveOpen === "field" && vm.fieldChoices.state === "ITEMS" ? (
+                <form onSubmit={moveGroup} className="mt-5 grid gap-3 border-t border-fr-v2-rule pt-4 sm:grid-cols-[1fr_180px_auto]" data-move-form="field">
                   <label className="text-xs text-fr-v2-muted">
                     Destination field
                     <select value={fieldId} onChange={(e) => setFieldId(e.target.value)} className="mt-1 block min-h-11 w-full rounded-[10px] border border-fr-v2-rule bg-white px-3 text-sm text-fr-v2-charcoal">
@@ -286,10 +337,34 @@ export function CattleGroupWorkspace({
                   </label>
                   <button disabled={pending || fieldId === ""} className={`${styles.actionButton} mt-auto min-h-11 rounded-full border border-fr-v2-forest px-5 text-sm font-semibold text-fr-v2-forest disabled:opacity-40`}>Record move</button>
                 </form>
-              ) : vm.fieldChoices.state !== "ITEMS" ? (
+              ) : null}
+
+              {moveOpen === "housing" && vm.housingChoices.state === "ITEMS" ? (
+                <form onSubmit={moveToHousing} className="mt-5 grid gap-3 border-t border-fr-v2-rule pt-4 sm:grid-cols-[1fr_180px_auto]" data-move-form="housing">
+                  <label className="text-xs text-fr-v2-muted">
+                    Shed
+                    <select value={housingId} onChange={(e) => setHousingId(e.target.value)} className="mt-1 block min-h-11 w-full rounded-[10px] border border-fr-v2-rule bg-white px-3 text-sm text-fr-v2-charcoal">
+                      {vm.housingChoices.items.map((shed) => <option key={shed.id} value={shed.id}>{shed.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-xs text-fr-v2-muted">
+                    Housed on
+                    <input type="date" value={movedOn} max={asOfDate} onChange={(e) => setMovedOn(e.target.value)} className="mt-1 block min-h-11 w-full rounded-[10px] border border-fr-v2-rule px-3 text-sm text-fr-v2-charcoal" />
+                  </label>
+                  <button disabled={pending || housingId === ""} className={`${styles.actionButton} mt-auto min-h-11 rounded-full border border-fr-v2-forest px-5 text-sm font-semibold text-fr-v2-forest disabled:opacity-40`}>Record housing</button>
+                </form>
+              ) : null}
+
+              {vm.fieldChoices.state !== "ITEMS" ? (
                 <div className="mt-4 border-t border-fr-v2-rule pt-4 text-xs text-fr-v2-muted">
                   <p className="font-semibold text-fr-v2-charcoal">{vm.fieldChoices.display.label}</p>
                   {vm.fieldChoices.display.detail ? <p className="mt-1">{vm.fieldChoices.display.detail}</p> : null}
+                </div>
+              ) : null}
+              {vm.housingChoices.state !== "ITEMS" ? (
+                <div className="mt-4 border-t border-fr-v2-rule pt-4 text-xs text-fr-v2-muted">
+                  <p className="font-semibold text-fr-v2-charcoal">{vm.housingChoices.display.label}</p>
+                  {vm.housingChoices.display.detail ? <p className="mt-1">{vm.housingChoices.display.detail}</p> : null}
                 </div>
               ) : null}
             </section>
@@ -376,6 +451,13 @@ export function CattleGroupWorkspace({
           </div>
         ) : null}
 
+        {advisory.paths.length > 0 ? (
+          <div className="mt-5" data-advisory-paths>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-muted">Feasible paths and evidence</p>
+            <AdvisoryPaths paths={advisory.paths} />
+          </div>
+        ) : null}
+
         {advisory.reasons.length > 0 ? (
           <div className="mt-5" data-advisory-reasons>
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-muted">Why this path</p>
@@ -389,13 +471,14 @@ export function CattleGroupWorkspace({
 
         {advisory.improve.length > 0 ? (
           <div className="mt-5" data-advisory-improve>
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-muted">What would raise confidence</p>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-muted">{advisory.improveTitle}</p>
             <AdvisoryChecklist items={advisory.improve} onOpenEditor={openEditor} onOpenLocation={openLocation} />
           </div>
         ) : null}
 
         <div className="mt-5 space-y-2 border-l-[3px] border-fr-v2-rule pl-3 text-[11px] leading-relaxed text-fr-v2-muted">
           <p data-advisory-alternatives>{advisory.alternatives}</p>
+          <p data-advisory-trajectory>{advisory.trajectory}</p>
           <p data-advisory-action-note>{advisory.actionNote}</p>
         </div>
 
@@ -406,7 +489,7 @@ export function CattleGroupWorkspace({
           </summary>
           <div className="space-y-4 pb-4">
             <dl className="divide-y divide-fr-v2-rule border-y border-fr-v2-rule">
-              {advisory.core.map((item) => (
+              {[...advisory.core, ...advisory.evidenceFacts].map((item) => (
                 <div key={item.code} className="grid grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)] gap-3 py-2.5">
                   <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fr-v2-muted">{item.label}</dt>
                   <dd className={`text-sm ${item.met ? "text-fr-v2-charcoal" : "text-fr-v2-clay"}`}>{item.value}</dd>
@@ -435,7 +518,7 @@ export function CattleGroupWorkspace({
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-gold">Your production target</p>
             <h2 className="mt-1 font-display text-[24px] leading-tight text-fr-v2-charcoal">{vm.goalLabel}</h2>
-            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-fr-v2-muted">Your own target weight and date drive the feeding plan below. Set them to override or refine the recommendation.</p>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-fr-v2-muted">{vm.productionTargetNote}</p>
           </div>
           <button
             type="button"
@@ -460,6 +543,7 @@ export function CattleGroupWorkspace({
           <div className={styles.editorEnter}>
             <form id="production-plan-editor" onSubmit={savePlan} className="mt-5 border-t border-fr-v2-rule pt-5">
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <PlanSelect label="Group goal" value={draft.goal} onChange={set("goal")} options={options.goal} />
                 <PlanInput label="Target weight (kg)" value={draft.targetKg} onChange={set("targetKg")} kind="numeric" />
                 <PlanInput label="Target date" value={draft.targetDate} onChange={set("targetDate")} kind="date" />
                 <PlanSelect label="Feeding situation" value={draft.feedingSituation} onChange={set("feedingSituation")} options={options.feeding} />

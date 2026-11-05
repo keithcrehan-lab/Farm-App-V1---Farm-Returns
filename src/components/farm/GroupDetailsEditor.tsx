@@ -8,7 +8,7 @@
  * page is refreshed once the write has persisted so the workspace shows the saved record. It is a form (it parses typed
  * input), so it lives with the other farm forms and reaches the cattle group screen as its `editor` slot.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useFarm, useFarmActions } from "@/store/farm-store";
 import type { GroupRecordEdit } from "@/server/cattle-real/group-record-edit";
@@ -18,6 +18,8 @@ const input = "w-full rounded-[10px] border border-[var(--cc-rule)] bg-white px-
 const fieldLabel = "mb-1 block text-xs text-[var(--cc-muted)]";
 const readValue = "py-2.5 text-base font-semibold text-[var(--cc-ink)]";
 const hint = "block text-[11px] text-[var(--cc-muted)]";
+
+export const EDIT_GROUP_DETAILS_ID = "edit-group-details";
 
 export function GroupDetailsEditor({ record }: { record: GroupRecordEdit }) {
   const farm = useFarm();
@@ -30,6 +32,17 @@ export function GroupDetailsEditor({ record }: { record: GroupRecordEdit }) {
   const [name, setName] = useState(record.name);
   const [breed, setBreed] = useState(record.breed ?? "");
   const [count, setCount] = useState(record.storedHeadcount === null ? "" : String(record.storedHeadcount));
+
+  // The production recommendation's "Add the breed in Edit group details" links to #edit-group-details.
+  useEffect(() => {
+    const openOnHash = () => {
+      if (window.location.hash === `#${EDIT_GROUP_DETAILS_ID}`) queueMicrotask(start);
+    };
+    openOnHash();
+    window.addEventListener("hashchange", openOnHash);
+    return () => window.removeEventListener("hashchange", openOnHash);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function start() {
     setName(record.name);
@@ -74,21 +87,21 @@ export function GroupDetailsEditor({ record }: { record: GroupRecordEdit }) {
 
   if (!open) {
     return (
-      <button type="button" onClick={start} className={s.manage}>
+      <button type="button" id={EDIT_GROUP_DETAILS_ID} onClick={start} className={s.manage}>
         Edit group details
       </button>
     );
   }
 
   return (
-    <section aria-label="Edit group details" className={`${s.aboutPanel} mt-3 w-full p-4`} data-group-editor={record.groupId}>
+    <section id={EDIT_GROUP_DETAILS_ID} aria-label="Edit group details" className={`${s.aboutPanel} mt-3 w-full p-4`} data-group-editor={record.groupId}>
       <div className="flex items-center justify-between gap-3">
         <h2 className={s.quietLabel}>Edit group details</h2>
         <button type="button" onClick={() => setOpen(false)} className="text-sm font-medium text-[var(--cc-muted)]">
           Cancel
         </button>
       </div>
-      <p className="mt-1 text-[13px] text-[var(--cc-muted)]">Corrects the group record. Moves, weighings, housing and the production goal are recorded in their own workflows.</p>
+      <p className="mt-1 text-[13px] text-[var(--cc-muted)]">Corrects the group record. Moves to a field or a shed and weighings are recorded in their own workflows; the production goal is set in Override / edit production target.</p>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <label className="block">
@@ -118,7 +131,9 @@ export function GroupDetailsEditor({ record }: { record: GroupRecordEdit }) {
         <div data-group-editor-fact="category">
           <span className={fieldLabel}>Category</span>
           <p className={readValue}>{record.categoryLabel}</p>
-          <span className={hint}>Set when the group was added.</span>
+          <span className={hint} data-group-editor-category-note>
+            Fixed once the group is added: field movements keep the category they were recorded with, so it isn&apos;t rewritten here. If it&apos;s wrong, add a new group with the right category in Add cattle and record the cattle there; a group with no animals recorded individually can then be deleted below.
+          </span>
         </div>
       </div>
 

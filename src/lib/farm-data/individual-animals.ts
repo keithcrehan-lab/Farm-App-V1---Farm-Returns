@@ -15,7 +15,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { IndividualAnimal, LivestockCategory, WeightObservation } from "@/domain/types";
 import { rowToIndividualAnimal, rowToWeightObservation } from "./mappers";
-import type { LivestockIndividualRow, WeightObservationRow } from "./row-types";
+import type { IdentityCorrectionRow, LivestockIndividualRow, WeightObservationRow } from "./row-types";
 
 export async function listIndividualAnimalsForFarm(farmId: string): Promise<IndividualAnimal[]> {
   const supabase = await createClient();
@@ -190,4 +190,42 @@ export async function addWeightObservationIdempotent(input: {
     return { state: "REPLAYED", observation: existing };
   }
   return { state: "CONFLICT" };
+}
+
+export type IdentityFact = IdentityCorrectionRow["fact"];
+
+/**
+ * Appends identity corrections (date of birth, sex, breed) for one animal in ONE insert statement, so a multi-fact
+ * correction is saved whole or not at all. Append-only: the original `livestock_individuals` row and earlier
+ * corrections are never rewritten — the cattle ledger reads each correction as a new assertion superseding the
+ * earlier one. Same-farm integrity is enforced underneath by RLS and the table's `before insert` trigger; the caller
+ * (the server action) has already checked the animal is the signed-in farm's.
+ */
+export async function addIdentityCorrections(input: {
+  farmId: string;
+  animalId: string;
+  corrections: readonly { fact: IdentityFact; value: string }[];
+  source: string;
+}): Promise<IdentityCorrectionRow[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("livestock_individual_identity_corrections")
+    .insert(input.corrections.map((c) => ({ farm_id: input.farmId, animal_id: input.animalId, fact: c.fact, value: c.value, source: input.source })))
+    .select("*");
+  if (error) throw error;
+  return (data ?? []) as IdentityCorrectionRow[];
+}
+
+/** Farm-scoped corrections of one animal, oldest first (the edit path reads the current effective values from them). */
+export async function listIdentityCorrectionsForAnimal(farmId: string, animalId: string): Promise<IdentityCorrectionRow[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("livestock_individual_identity_corrections")
+    .select("*")
+    .eq("farm_id", farmId)
+    .eq("animal_id", animalId)
+    .order("recorded_at", { ascending: true })
+    .order("id", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as IdentityCorrectionRow[];
 }

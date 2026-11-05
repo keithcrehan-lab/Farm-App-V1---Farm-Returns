@@ -18,7 +18,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import type { AnimalProfileVM, WeightChartVM } from "@/domain/cattle/presentation";
 import type { RealAnimalView } from "@/server/cattle-real/real-service";
 import type { HistoryFamily, LivingRecordVM } from "@/server/cattle-real/living-record";
@@ -43,7 +43,8 @@ const LENS_IDS = new Set<string>(LENSES.map((l) => l.id));
 
 const chartIds = (c: WeightChartVM) => (c.state === "CHART" || c.state === "NOT_CHARTABLE" ? c.points.flatMap((x) => x.recordIds) : []);
 
-export function RealAnimalProfileScreen({ view }: { view: RealAnimalView }) {
+/** `editor`: the record's own "Edit animal details" correction (a farm form, passed in as a slot by the route). */
+export function RealAnimalProfileScreen({ view, editor }: { view: RealAnimalView; editor?: ReactNode }) {
   const p = view.profile;
   const r = view.record;
   const router = useRouter();
@@ -142,6 +143,7 @@ export function RealAnimalProfileScreen({ view }: { view: RealAnimalView }) {
         </div>
 
         <Masthead p={p} r={r} tag={tag} weightKey={weightKey} onRecordWeight={openSheet} saved={saved} justSaved={justSaved} refreshing={refreshing} />
+        {editor}
 
         <div role="tablist" aria-label="Animal record chapters" className={`${styles.chapterbar} sticky top-0 z-20 grid grid-flow-col auto-cols-[minmax(124px,1fr)] overflow-x-auto lg:auto-cols-fr`}>
           {LENSES.map((l, i) => (

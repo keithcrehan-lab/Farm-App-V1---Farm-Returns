@@ -518,7 +518,16 @@ export async function deleteLivestockGroupAction(groupId: string): Promise<void>
   revalidatePath("/fertiliser-plan");
 }
 
+/**
+ * A group's management location (grazing system / shed) is changed ONLY by the movement workflows
+ * (`moveLivestockGroupToFieldAction`, `moveLivestockGroupToHousingAction`), which close or open the dated grazing
+ * session in the same transaction. A generic record edit that set `system` or `housingId` would leave a field session
+ * and a shed recorded at once, so it is refused here.
+ */
 export async function updateLivestockGroupAction(groupId: string, input: UpdateLivestockGroupInput): Promise<LivestockGroup> {
+  if (input.system !== undefined || input.housingId !== undefined) {
+    throw new Error("A group's grazing/housed state is changed only by recording a move to a field or a shed.");
+  }
   const farm = await currentFarmForLivestock();
   await requireFarmGroup(farm.id, groupId);
   const group = await updateLivestockGroup(groupId, input);

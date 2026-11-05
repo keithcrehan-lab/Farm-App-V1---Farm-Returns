@@ -187,6 +187,22 @@ export interface LivestockIndividualRow {
   updated_at: string;
 }
 
+/**
+ * One append-only correction of an animal's identity fact
+ * (`20261105120000_cattle_housing_move_and_identity_corrections.sql`). The
+ * original `livestock_individuals` row is never rewritten.
+ */
+export interface IdentityCorrectionRow {
+  id: string;
+  farm_id: string;
+  animal_id: string;
+  fact: "date_of_birth" | "sex" | "breed";
+  value: string;
+  source: string;
+  recorded_by: string;
+  recorded_at: string;
+}
+
 export interface WeightObservationRow {
   id: string;
   farm_id: string;

@@ -56,8 +56,22 @@ export function sealGroupNutritionContext(context: GroupNutritionContext): Seale
   return seal(context);
 }
 
+/** The group goal's farmer-facing labels (the goal is owned by the group record; the editor sets it). */
+export const LIVESTOCK_GOAL_LABEL: Readonly<Record<LivestockGoal, string>> = {
+  finish_slaughter: "Finish to slaughter",
+  sell_store: "Sell as store",
+  grow: "Grow",
+  maintain: "Maintain",
+  breed: "Breed",
+};
+
+const GOAL_VALUES = Object.keys(LIVESTOCK_GOAL_LABEL) as LivestockGoal[];
+const isGoal = (v: string): v is LivestockGoal => (GOAL_VALUES as string[]).includes(v);
+
 /** The goal-first form, as typed. */
 export interface NutritionDraft {
+  /** The group goal ("" = not chosen). */
+  goal: string;
   targetKg: string;
   targetDate: string;
   feedingSituation: string;
@@ -78,6 +92,7 @@ export function nutritionDraftOf(sealed: SealedInput<GroupNutritionContext>): Nu
   const p = c.state === "OK" ? c.plan : undefined;
   const lab = p?.silageQualityBasis === "lab_analysis";
   return {
+    goal: c.state === "OK" && c.goal ? c.goal : "",
     targetKg: str(p?.targetWeightKg),
     targetDate: p?.targetDate ?? "",
     feedingSituation: p?.feedingSituation ?? "",
@@ -121,6 +136,8 @@ function draftSilageColumns(d: NutritionDraft) {
 }
 
 export interface NutritionSaveInput {
+  /** The group goal; `null` = not chosen (cleared). */
+  goal: LivestockGoal | null;
   targetKg: number | null;
   targetDate: string | null;
   feedingSituation: FeedingSituation | null;
@@ -152,6 +169,7 @@ export function nutritionDraftToSaveInput(d: NutritionDraft, asOfDate: string): 
   return {
     ok: true,
     input: {
+      goal: isGoal(d.goal) ? d.goal : null,
       targetKg: target.value,
       targetDate: d.targetDate.trim() === "" ? null : d.targetDate.trim(),
       feedingSituation: isFeeding(d.feedingSituation) ? d.feedingSituation : null,
@@ -174,6 +192,7 @@ export interface OptionVM {
 }
 
 export interface NutritionFormOptionsVM {
+  goal: Details<OptionVM>;
   feeding: Details<OptionVM>;
   silageBasis: Details<OptionVM>;
   scenarioDmd: Details<OptionVM>;
@@ -183,6 +202,7 @@ export function nutritionFormOptions(sealed: SealedInput<GroupNutritionContext>)
   const c = unseal(sealed);
   const housed = c.state === "OK" && c.system === "housed";
   return {
+    goal: details([{ value: "", label: "Not chosen yet" }, ...GOAL_VALUES.map((value) => ({ value, label: LIVESTOCK_GOAL_LABEL[value] }))]),
     feeding: details([
       { value: "", label: housed ? "Housed — grass silage assumed" : "Choose feeding situation" },
       ...FEEDING_VALUES.map((value) => ({ value, label: FEEDING_SITUATION_LABEL[value] })),
@@ -385,9 +405,11 @@ export function buildGroupNutritionVM(sealed: SealedInput<GroupNutritionContext>
   const overrideKg = num(draft.overrideConcentrateKg, NUMERIC_FIELDS.PLAN_AMOUNT).value;
   const overridePrice = num(draft.overridePriceEurT, NUMERIC_FIELDS.PLAN_AMOUNT).value;
   const item = INPUT_MARKET_CATALOGUE.find((candidate) => candidate.id === BEEF_CONCENTRATE_ITEM_ID);
+  // The editor's goal (initialised from the group record) drives the live preview.
+  const goal = isGoal(draft.goal) ? draft.goal : undefined;
   const plan = buildCattleNutritionPlan({
     category: c.category,
-    ...(c.goal ? { goal: c.goal } : {}),
+    ...(goal ? { goal } : {}),
     ...(c.headCount !== undefined ? { headCount: c.headCount } : {}),
     metrics,
     asOfDate,

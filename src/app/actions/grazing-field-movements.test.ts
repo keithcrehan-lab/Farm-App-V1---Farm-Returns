@@ -5,6 +5,14 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
 vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/housing", () => ({ listHousingForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/cattle-management-state", async () => {
+  class HousingMoveRejectedError extends Error {
+    readonly code: string;
+    constructor(code: string) { super(code); this.code = code; }
+  }
+  return { HousingMoveRejectedError, recordGroupHousingMove: vi.fn() };
+});
 vi.mock("@/lib/farm-data/grazing-field-sessions", async () => {
   class GrazingMoveRejectedError extends Error {
     readonly code: string;
@@ -22,7 +30,9 @@ import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { GrazingMoveRejectedError, listGrazingFieldSessionsForFarm, recordGrazingFieldMove } from "@/lib/farm-data/grazing-field-sessions";
-import { loadGrazingMovementContextAction, moveLivestockGroupToFieldAction } from "./grazing-field-movements";
+import { listHousingForFarm } from "@/lib/farm-data/housing";
+import { HousingMoveRejectedError, recordGroupHousingMove } from "@/lib/farm-data/cattle-management-state";
+import { loadGrazingMovementContextAction, moveLivestockGroupToFieldAction, moveLivestockGroupToHousingAction } from "./grazing-field-movements";
 
 const FARM = { id: "farm-1", ownerName: "Keith" } as Awaited<ReturnType<typeof getFarmForCurrentUser>>;
 const FIELD_A = { id: "field-a", farmId: "farm-1", name: "Home", areaHa: 5, centroid: [-8, 53], fertility: {}, history: [] } as Awaited<ReturnType<typeof listFieldsForFarm>>[number];
@@ -32,12 +42,15 @@ const GROUP = {
   count: tracked(20, "verified", "Keith"), system: "grazing" as const, value: tracked(0, "estimated", "Farm Return"),
 };
 
+const SHED = { id: "shed-1", farmId: "farm-1", shedName: "Slatted shed", shedType: "slatted", linkedGroupIds: [], housingPeriod: { start: "2026-11-01", end: "2027-03-31" } } as unknown as Awaited<ReturnType<typeof listHousingForFarm>>[number];
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getFarmForCurrentUser).mockResolvedValue(FARM);
   vi.mocked(listFieldsForFarm).mockResolvedValue([FIELD_A, FIELD_B]);
   vi.mocked(listLivestockGroupsForFarm).mockResolvedValue([GROUP]);
   vi.mocked(listGrazingFieldSessionsForFarm).mockResolvedValue([]);
+  vi.mocked(listHousingForFarm).mockResolvedValue([SHED]);
 });
 
 describe("grazing field movement actions", () => {
@@ -73,11 +86,58 @@ describe("grazing field movement actions", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/grass");
     expect(revalidatePath).toHaveBeenCalledWith("/fertiliser-plan");
     expect(revalidatePath).toHaveBeenCalledWith("/today/field/field-a");
+    // housing → grazing: the move clears housing, so Housing is revalidated too.
+    expect(revalidatePath).toHaveBeenCalledWith("/housing");
   });
 
   it("surfaces a database movement rejection as a stable reason code", async () => {
     vi.mocked(recordGrazingFieldMove).mockRejectedValue(new GrazingMoveRejectedError("MOVE_NOT_AFTER_CURRENT_START"));
     await expect(moveLivestockGroupToFieldAction({ livestockGroupId: "group-1", fieldId: "field-a", movedOn: "2026-05-02" }))
       .resolves.toEqual({ status: "rejected", reasonCode: "MOVE_NOT_AFTER_CURRENT_START" });
+  });
+});
+
+describe("housing movement action (grazing → housed)", () => {
+  const move = (o: Partial<{ livestockGroupId: string; housingId: string; housedOn: string }> = {}) =>
+    moveLivestockGroupToHousingAction({ livestockGroupId: "group-1", housingId: "shed-1", housedOn: "2026-11-03", ...o });
+
+  it("records the move with farmer provenance, closes the open grazing session and revalidates every surface", async () => {
+    vi.mocked(recordGroupHousingMove).mockResolvedValue({ closedSessionId: "session-1", closedFieldId: "field-b", changed: true });
+    expect(await move()).toEqual({ status: "saved", closedSessionId: "session-1" });
+    expect(recordGroupHousingMove).toHaveBeenCalledWith({ livestockGroupId: "group-1", housingId: "shed-1", housedAt: "2026-11-03T00:00:00.000Z", source: "Keith" });
+    for (const path of ["/cattle", "/cattle/groups/group-1", "/housing", "/grass", "/fields", "/fertiliser-plan", "/today/field/field-b"]) {
+      expect(revalidatePath).toHaveBeenCalledWith(path);
+    }
+  });
+
+  it("a group with no open session is housed without a field to revalidate", async () => {
+    vi.mocked(recordGroupHousingMove).mockResolvedValue({ closedSessionId: null, closedFieldId: null, changed: true });
+    expect(await move()).toEqual({ status: "saved", closedSessionId: null });
+    expect(vi.mocked(revalidatePath).mock.calls.some(([p]) => String(p).startsWith("/today/field/"))).toBe(false);
+  });
+
+  it("the same state again (already in that shed) is unchanged and revalidates nothing", async () => {
+    vi.mocked(recordGroupHousingMove).mockResolvedValue({ closedSessionId: null, closedFieldId: null, changed: false });
+    expect(await move()).toEqual({ status: "unchanged" });
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("refuses another farm's (or an unknown) group or shed before any write", async () => {
+    expect(await move({ livestockGroupId: "other-group" })).toEqual({ status: "rejected", reasonCode: "GROUP_NOT_FOUND" });
+    expect(await move({ housingId: "other-farm-shed" })).toEqual({ status: "rejected", reasonCode: "HOUSING_NOT_FOUND" });
+    expect(recordGroupHousingMove).not.toHaveBeenCalled();
+  });
+
+  it("refuses an invalid date and a signed-out request", async () => {
+    expect(await move({ housedOn: "03/11/2026" })).toEqual({ status: "rejected", reasonCode: "INVALID_MOVE_DATE" });
+    vi.mocked(getFarmForCurrentUser).mockResolvedValue(null);
+    expect(await move()).toEqual({ status: "rejected", reasonCode: "NO_FARM" });
+    expect(recordGroupHousingMove).not.toHaveBeenCalled();
+  });
+
+  it("a housing date not after the open session's start is the database's stable rejection (history preserved)", async () => {
+    vi.mocked(recordGroupHousingMove).mockRejectedValue(new HousingMoveRejectedError("MOVE_NOT_AFTER_CURRENT_START"));
+    expect(await move()).toEqual({ status: "rejected", reasonCode: "MOVE_NOT_AFTER_CURRENT_START" });
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 });

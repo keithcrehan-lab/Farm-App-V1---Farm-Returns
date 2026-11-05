@@ -10,6 +10,8 @@ import {
   listGrazingFieldSessionsForFarm,
   recordGrazingFieldMove,
 } from "@/lib/farm-data/grazing-field-sessions";
+import { listHousingForFarm } from "@/lib/farm-data/housing";
+import { HousingMoveRejectedError, recordGroupHousingMove } from "@/lib/farm-data/cattle-management-state";
 
 export interface GrazingMovementGroupView {
   id: string;
@@ -75,6 +77,16 @@ export async function loadGrazingMovementContextAction(fieldId: string): Promise
   };
 }
 
+/** Every surface that reads a group's current field or shed. */
+function revalidateManagementState(groupId: string, fieldIds: readonly string[]) {
+  revalidatePath("/cattle");
+  revalidatePath(`/cattle/groups/${groupId}`);
+  revalidatePath("/fields");
+  revalidatePath("/grass");
+  revalidatePath("/fertiliser-plan");
+  for (const fieldId of fieldIds) revalidatePath(`/today/field/${fieldId}`);
+}
+
 export type MoveLivestockGroupToFieldResult =
   | { status: "saved"; sessionId: string }
   | { status: "rejected"; reasonCode: string };
@@ -105,15 +117,58 @@ export async function moveLivestockGroupToFieldAction(input: {
       source: farm.ownerName.trim() || "Farmer",
     });
 
-    revalidatePath("/cattle");
-    revalidatePath(`/cattle/groups/${group.id}`);
-    revalidatePath("/fields");
-    revalidatePath("/grass");
-    revalidatePath("/fertiliser-plan");
-    revalidatePath(`/today/field/${field.id}`);
+    revalidateManagementState(group.id, [field.id]);
+    // The move also clears any housing the group had.
+    revalidatePath("/housing");
     return { status: "saved", sessionId: session.id };
   } catch (error) {
     if (error instanceof GrazingMoveRejectedError) {
+      return { status: "rejected", reasonCode: error.code };
+    }
+    throw error;
+  }
+}
+
+export type MoveLivestockGroupToHousingResult =
+  | { status: "saved"; closedSessionId: string | null }
+  /** Already in that shed with no open field session: nothing was written. */
+  | { status: "unchanged" }
+  | { status: "rejected"; reasonCode: string };
+
+/**
+ * The housing counterpart of `moveLivestockGroupToFieldAction`: the group goes into one of the farm's sheds on
+ * `housedOn`, its open grazing session (if any) is closed on that date, and the group becomes housed — atomically
+ * (`record_group_housing_move`). The farm is resolved server-side; the group and the shed must both be that farm's
+ * (checked here and again in the database). Closed grazing sessions are never rewritten or deleted.
+ */
+export async function moveLivestockGroupToHousingAction(input: {
+  livestockGroupId: string;
+  housingId: string;
+  housedOn: string;
+}): Promise<MoveLivestockGroupToHousingResult> {
+  if (!validDate(input.housedOn)) return { status: "rejected", reasonCode: "INVALID_MOVE_DATE" };
+  const farm = await getFarmForCurrentUser();
+  if (!farm) return { status: "rejected", reasonCode: "NO_FARM" };
+
+  const [groups, housing] = await Promise.all([listLivestockGroupsForFarm(farm.id), listHousingForFarm(farm.id)]);
+  const group = groups.find((candidate) => candidate.id === input.livestockGroupId);
+  if (!group) return { status: "rejected", reasonCode: "GROUP_NOT_FOUND" };
+  const shed = housing.find((candidate) => candidate.id === input.housingId);
+  if (!shed) return { status: "rejected", reasonCode: "HOUSING_NOT_FOUND" };
+
+  try {
+    const result = await recordGroupHousingMove({
+      livestockGroupId: group.id,
+      housingId: shed.id,
+      housedAt: `${input.housedOn}T00:00:00.000Z`,
+      source: farm.ownerName.trim() || "Farmer",
+    });
+    if (!result.changed) return { status: "unchanged" };
+    revalidateManagementState(group.id, result.closedFieldId ? [result.closedFieldId] : []);
+    revalidatePath("/housing");
+    return { status: "saved", closedSessionId: result.closedSessionId };
+  } catch (error) {
+    if (error instanceof HousingMoveRejectedError) {
       return { status: "rejected", reasonCode: error.code };
     }
     throw error;

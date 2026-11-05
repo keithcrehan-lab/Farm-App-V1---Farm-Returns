@@ -22,6 +22,7 @@ export * from "./operations-view";
 export * from "./plan-timeline";
 export * from "./plan-view";
 export * from "./production-advisory";
+export * from "./group-liveweight";
 export * from "./timeline";
 export * from "./view-state";
 export * from "./weight-view";

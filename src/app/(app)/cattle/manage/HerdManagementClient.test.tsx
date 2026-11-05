@@ -34,7 +34,13 @@ beforeEach(() => window.localStorage.clear());
 afterEach(() => { cleanup(); window.localStorage.clear(); refresh.mockClear(); });
 
 function GroupLabels() {
-  return <output data-testid="store-groups">{useLivestockGroups().map((g) => g.label).join("|")}</output>;
+  const groups = useLivestockGroups();
+  return (
+    <>
+      <output data-testid="store-groups">{groups.map((g) => g.label).join("|")}</output>
+      <output data-testid="store-goals">{groups.map((g) => g.goal ?? "-").join("|")}</output>
+    </>
+  );
 }
 
 function renderAddCattle() {
@@ -68,7 +74,7 @@ describe("Add cattle (/cattle/manage) — an admin entry point, not a second gro
     expect(screen.getByRole("link", { name: "Open herd" }).getAttribute("href")).toBe("/cattle");
   });
 
-  it("the add-group form asks only for name, category and count", async () => {
+  it("the add-group form asks for name, category, count and an optional goal (decide later by default)", async () => {
     renderAddCattle();
     fireEvent.click(screen.getByRole("button", { name: /add new group/i }));
     const form = screen.getByRole("button", { name: /^add group$/i }).closest("form") as HTMLFormElement;
@@ -76,13 +82,27 @@ describe("Add cattle (/cattle/manage) — an admin entry point, not a second gro
     expect(view.queryByText(/weight/i)).toBeNull();
     expect(view.queryByText(/^system$/i)).toBeNull();
     expect(view.queryByText(/housing/i)).toBeNull();
-    expect([...form.querySelectorAll("input, select")].map((el) => el.closest("label")?.querySelector("span")?.textContent)).toEqual(["Group name", "Category", "Count"]);
+    expect([...form.querySelectorAll("input, select")].map((el) => el.closest("label")?.querySelector("span")?.textContent)).toEqual(["Group name", "Category", "Count", "Production goal (optional)"]);
+    expect(view.getByLabelText("Production goal (optional)")).toHaveProperty("value", "");
 
     fireEvent.change(view.getByPlaceholderText(/spring calves/i), { target: { value: "Spring calves" } });
     fireEvent.change(view.getByPlaceholderText("e.g. 12"), { target: { value: "12" } });
     fireEvent.submit(form);
     await waitFor(() => expect(screen.getByTestId("store-groups").textContent).toBe("Weanlings|Spring calves"));
+    expect(screen.getByTestId("store-goals").textContent).toBe("finish_slaughter|-");
     expect(refresh).toHaveBeenCalled();
+  });
+
+  it("a goal chosen when adding the group is saved with it", async () => {
+    renderAddCattle();
+    fireEvent.click(screen.getByRole("button", { name: /add new group/i }));
+    const form = screen.getByRole("button", { name: /^add group$/i }).closest("form") as HTMLFormElement;
+    const view = within(form);
+    fireEvent.change(view.getByPlaceholderText(/spring calves/i), { target: { value: "Bullocks" } });
+    fireEvent.change(view.getByPlaceholderText("e.g. 12"), { target: { value: "8" } });
+    fireEvent.change(view.getByLabelText("Production goal (optional)"), { target: { value: "sell_store" } });
+    fireEvent.submit(form);
+    await waitFor(() => expect(screen.getByTestId("store-goals").textContent).toBe("finish_slaughter|sell_store"));
   });
 
   it("adding an individual animal remains available", () => {

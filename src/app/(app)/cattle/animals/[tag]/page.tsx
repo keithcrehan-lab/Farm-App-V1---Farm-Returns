@@ -4,6 +4,9 @@ import { CattleUnavailable } from "@/components/cattle/CattleUnavailable";
 import { EMPTY_CATTLE_DEMO_SESSION } from "@/components/cattle/session/demo-session";
 import { demoAnimalView, isCattleDemoMode } from "@/server/cattle-demo/demo-service";
 import { REAL_UNAVAILABLE, loadRealCattle, realAnimalView } from "@/server/cattle-real/real-service";
+import { animalDetailsEditOf } from "@/server/cattle-real/animal-details";
+import { irelandCalendarDate } from "@/server/cattle-real/record-weight";
+import { AnimalDetailsEditor } from "@/components/farm/AnimalDetailsEditor";
 import { scenarioOf } from "../../scenario";
 
 /** The segment is the demo animal's tag in demonstration mode, and the animal's database id in real mode (D2). */
@@ -15,7 +18,10 @@ export default async function CattleAnimalPage({ params, searchParams }: { param
     // Looked up only among this farm's animals: another farm's id and an unknown id are the same not-found.
     const view = realAnimalView(real.evaluation, segment);
     if (view === null) notFound();
-    return <RealAnimalProfileScreen view={view} />;
+    const details = animalDetailsEditOf(real.evaluation, segment, irelandCalendarDate(new Date(real.evaluation.outputs.viewpoint.effectiveAt)));
+    // Keyed by the saved values so a refresh after saving re-opens the control on the corrected record.
+    const editor = details ? <AnimalDetailsEditor key={`${details.dateOfBirth}|${details.sex}|${details.breed}`} record={details} /> : null;
+    return <RealAnimalProfileScreen view={view} editor={editor} />;
   }
   const scenario = scenarioOf((await searchParams).scenario);
   const view = demoAnimalView(EMPTY_CATTLE_DEMO_SESSION, segment, scenario);

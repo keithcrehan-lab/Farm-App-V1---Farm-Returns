@@ -21,6 +21,7 @@ export * from "./nutrition-plan-view";
 export * from "./operations-view";
 export * from "./plan-timeline";
 export * from "./plan-view";
+export * from "./production-advisory";
 export * from "./timeline";
 export * from "./view-state";
 export * from "./weight-view";

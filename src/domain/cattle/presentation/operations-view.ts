@@ -6,6 +6,7 @@ import { listingOf, unavailableListing, type Listing, type SealedInput } from ".
 import type { DisplayState } from "./display-states";
 import type { FieldVM, MetricVM } from "./animal-profile";
 import { sealGroupNutritionContext, type GroupNutritionContext } from "./nutrition-plan-view";
+import { buildProductionAdvisoryVM, PRODUCTION_ADVISORY_UNAVAILABLE, type GroupAnimalFacts, type ProductionAdvisoryVM } from "./production-advisory";
 
 const ds = (code: string, label: string, detail: string | null = null): DisplayState => ({
   code,
@@ -42,6 +43,8 @@ export interface CattleGroupOperationsVM {
   grassDemand: MetricVM;
   /** Goal-first nutrition plan context — read only by `buildGroupNutritionVM`. */
   nutrition: SealedInput<GroupNutritionContext>;
+  /** Production recommendation: readiness, confidence and economics (`production-advisory.ts`). */
+  advisory: ProductionAdvisoryVM;
   returnOnGain: {
     title: string;
     subtitle: string;
@@ -63,6 +66,10 @@ export interface CattleOperationsInputGroup {
   category: LivestockCategory;
   goal?: LivestockGoal;
   system?: "grazing" | "housed";
+  /** Group record facts read by the production advisory (never re-asked). */
+  sex?: "male" | "female" | "mixed";
+  breed?: string;
+  avgAgeMonths?: number;
   headCount?: number;
   averageWeightKg?: number;
   averageWeightSource?: string;
@@ -111,7 +118,13 @@ function dateDistanceLabel(since: string, asOfDate: string): string {
   return `Since ${formatDayMonth(since)} · ${days} grazing day${days === 1 ? "" : "s"}`;
 }
 
-function groupVM(group: CattleOperationsInputGroup, fields: Listing<CattleOperationalFieldChoiceVM>, defaultFieldId: string, asOfDate: string): CattleGroupOperationsVM {
+function groupVM(
+  group: CattleOperationsInputGroup,
+  fields: Listing<CattleOperationalFieldChoiceVM>,
+  defaultFieldId: string,
+  asOfDate: string,
+  animals: GroupAnimalFacts | undefined,
+): CattleGroupOperationsVM {
   const location: FieldVM = group.currentField
     ? { label: "Current location", value: group.currentField.name, state: { code: "CATTLE_OPS:LOCATION_KNOWN", label: "Recorded", tone: "neutral", detail: null } }
     : { label: "Current location", value: null, state: OPS.locationMissing };
@@ -150,6 +163,28 @@ function groupVM(group: CattleOperationsInputGroup, fields: Listing<CattleOperat
       ...(group.averageWeightKg !== undefined ? { averageWeightKg: group.averageWeightKg } : {}),
       ...(group.productionPlan ? { plan: group.productionPlan } : {}),
     }),
+    advisory: buildProductionAdvisoryVM({
+      category: group.category,
+      ...(group.goal ? { goal: group.goal } : {}),
+      ...(group.system ? { system: group.system } : {}),
+      ...(group.sex ? { groupSex: group.sex } : {}),
+      ...(group.breed ? { groupBreed: group.breed } : {}),
+      ...(group.avgAgeMonths !== undefined ? { groupAvgAgeMonths: group.avgAgeMonths } : {}),
+      ...(group.averageWeightKg !== undefined ? { groupAverageWeightKg: group.averageWeightKg } : {}),
+      ...(group.averageWeightSource ? { groupAverageWeightSource: group.averageWeightSource } : {}),
+      ...(animals ? { animals } : {}),
+      currentFieldRecorded: group.currentField !== undefined,
+      ...(group.productionPlan
+        ? {
+            plan: {
+              ...(group.productionPlan.feedingSituation ? { feedingSituation: group.productionPlan.feedingSituation } : {}),
+              ...(group.productionPlan.silageQualityBasis ? { silageQualityBasis: group.productionPlan.silageQualityBasis } : {}),
+              ...(group.productionPlan.concentratePriceEurT !== undefined ? { concentratePriceEurT: group.productionPlan.concentratePriceEurT } : {}),
+            },
+          }
+        : {}),
+      asOfDate,
+    }),
     returnOnGain: {
       title: "Return on gain",
       subtitle: "Cost of the next kg versus the value created by that kg.",
@@ -170,7 +205,15 @@ function groupVM(group: CattleOperationsInputGroup, fields: Listing<CattleOperat
   };
 }
 
-export function buildCattleOperationsVM(input: CattleOperationsInput | undefined, asOfDate: string): CattleOperationsVM {
+/**
+ * `animalFacts`: per group, its individually recorded members' facts
+ * (`groupAnimalFactsOf`) — read by the production advisory only.
+ */
+export function buildCattleOperationsVM(
+  input: CattleOperationsInput | undefined,
+  asOfDate: string,
+  animalFacts: Readonly<Record<string, GroupAnimalFacts>> = {},
+): CattleOperationsVM {
   if (!input || input.state !== "OK") {
     return {
       fieldsOccupied: unknownMetric("Fields occupied", OPS.unavailable),
@@ -182,7 +225,7 @@ export function buildCattleOperationsVM(input: CattleOperationsInput | undefined
   // first-item: active fields preserve the farm store's owner order; this is only the move form's initial selection, never an inferred cattle location.
   const defaultFieldId = fieldItems[0]?.id ?? "";
   const occupied = new Set(input.groups.flatMap((group) => group.currentField ? [group.currentField.id] : [])).size;
-  const groups = input.groups.map((group) => groupVM(group, fieldChoices, defaultFieldId, asOfDate));
+  const groups = input.groups.map((group) => groupVM(group, fieldChoices, defaultFieldId, asOfDate, animalFacts[group.groupId]));
   return {
     fieldsOccupied: knownMetric("Fields occupied", String(occupied), "current"),
     groups: listingOf(groups, { code: "CATTLE_OPS:GROUPS_EMPTY", label: "No cattle groups", tone: "unknown", detail: "Create a cattle group before adding a production plan." }),
@@ -203,6 +246,7 @@ function unavailableGroupVM(groupRef: string): CattleGroupOperationsVM {
     currentWeight: unknownMetric("Current avg weight", OPS.unavailable),
     grassDemand: unknownMetric("Grass demand", OPS.unavailable),
     nutrition: sealGroupNutritionContext({ state: "UNAVAILABLE" }),
+    advisory: PRODUCTION_ADVISORY_UNAVAILABLE,
     returnOnGain: {
       title: "Return on gain",
       subtitle: "Cost of the next kg versus the value created by that kg.",

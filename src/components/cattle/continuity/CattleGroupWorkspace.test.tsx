@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import {
   buildCattleOperationsVM,
   cattleGroupOperationsFor,
+  type GroupAnimalFacts,
 } from "@/domain/cattle/presentation";
 import { deriveCattleGroupProductionPlanMetrics, type CattleGroupProductionPlan } from "@/domain/cattle-group-production-plan";
 import type { LivestockCategory, LivestockGoal } from "@/domain/types";
@@ -32,6 +33,8 @@ function renderWorkspace(o: {
   goal?: LivestockGoal;
   system?: "grazing" | "housed";
   weight?: number;
+  avgAgeMonths?: number;
+  animals?: GroupAnimalFacts;
 } = {}) {
   const weight = o.weight ?? 300;
   const metrics = deriveCattleGroupProductionPlanMetrics({ plan: o.plan, currentWeightKg: weight, headCount: 20, asOfDate: AS_OF });
@@ -43,6 +46,7 @@ function renderWorkspace(o: {
       category: o.category ?? "weanling",
       goal: o.goal ?? "grow",
       system: o.system ?? "housed",
+      ...(o.avgAgeMonths !== undefined ? { avgAgeMonths: o.avgAgeMonths } : {}),
       headCount: 20,
       averageWeightKg: weight,
       averageWeightSource: "Individual animal records",
@@ -63,7 +67,7 @@ function renderWorkspace(o: {
         evidence: [],
       },
     }],
-  }, AS_OF);
+  }, AS_OF, o.animals ? { "group-1": o.animals } : {});
   return render(
     <CattleGroupWorkspace
       vm={cattleGroupOperationsFor(operations, "group-1")}
@@ -93,14 +97,14 @@ describe("CattleGroupWorkspace — interaction-first group state", () => {
     expect(screen.getByRole("button", { name: /Current location/i })).toHaveTextContent("P. Collins");
     expect(screen.getByRole("button", { name: /^Production target/i })).toHaveTextContent("360");
     expect(screen.getByRole("button", { name: /^Feeding/i })).toHaveTextContent("1.2");
-    const edit = screen.getByRole("button", { name: "Edit production target" });
+    const edit = screen.getByRole("button", { name: "Override / edit production target" });
     expect(edit).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByLabelText("Target weight (kg)")).toBeNull();
   });
 
   it("reveals production inputs only when the farmer enters edit mode", () => {
     renderWorkspace({ plan: labPlan });
-    fireEvent.click(screen.getByRole("button", { name: "Edit production target" }));
+    fireEvent.click(screen.getByRole("button", { name: "Override / edit production target" }));
     expect(screen.getByRole("button", { name: "Close editor" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByLabelText("Target weight (kg)")).toHaveValue("360");
     expect(screen.getByLabelText("Target date")).toHaveValue("2027-02-12");
@@ -114,7 +118,7 @@ describe("CattleGroupWorkspace — interaction-first group state", () => {
   it("saves the goal and silage context through the existing action and returns to read state", async () => {
     save.mockResolvedValue({ status: "saved" });
     renderWorkspace({ plan: labPlan });
-    fireEvent.click(screen.getByRole("button", { name: "Edit production target" }));
+    fireEvent.click(screen.getByRole("button", { name: "Override / edit production target" }));
     fireEvent.click(screen.getByRole("button", { name: "Save plan" }));
     await vi.waitFor(() => expect(save).toHaveBeenCalled());
     expect(save.mock.calls[0][0]).toMatchObject({
@@ -162,7 +166,7 @@ describe("CattleGroupWorkspace — interaction-first group state", () => {
   it("asks for missing evidence rather than inventing a ration", () => {
     renderWorkspace();
     expect(feedingPlan().getAllByText("More information required").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "Edit production target" }));
+    fireEvent.click(screen.getByRole("button", { name: "Override / edit production target" }));
     fireEvent.change(screen.getByLabelText("Target weight (kg)"), { target: { value: "360" } });
     fireEvent.change(screen.getByLabelText("Target date"), { target: { value: "2027-02-12" } });
     expect(screen.getAllByText("0.60").length).toBeGreaterThan(0);
@@ -191,7 +195,7 @@ describe("CattleGroupWorkspace — interaction-first group state", () => {
     expect(card.getByText("Farmer/advisor override")).toBeInTheDocument();
     expect(card.getByText(/The Teagasc guideline is shown alongside for comparison/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Concentrate kg/head/day")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Edit production target" }));
+    fireEvent.click(screen.getByRole("button", { name: "Override / edit production target" }));
     const advanced = screen.getByText(/farmer \/ advisor override/i).closest("details") as HTMLDetailsElement;
     expect(advanced.open).toBe(true);
     expect(screen.getByLabelText("Concentrate kg/head/day")).toBeInTheDocument();
@@ -202,5 +206,69 @@ describe("CattleGroupWorkspace — interaction-first group state", () => {
     expect(css).toMatch(/prefers-reduced-motion:\s*reduce/);
     expect(css).toMatch(/transition:\s*none\s*!important/);
     expect(css).toMatch(/animation:\s*none\s*!important/);
+  });
+});
+
+const advisory = () => within(document.querySelector("[data-production-advisory]") as HTMLElement);
+
+describe("CattleGroupWorkspace — production recommendation", () => {
+  it("incomplete core facts: no path is shown, only the exact missing items with their actions", () => {
+    renderWorkspace({ plan: labPlan });
+    const card = advisory();
+    expect(document.querySelector("[data-production-advisory]")).toHaveAttribute("data-production-advisory", "ALMOST_READY");
+    expect(card.getByRole("heading", { name: "Almost ready" })).toBeInTheDocument();
+    const required = within(document.querySelector("[data-advisory-required]") as HTMLElement);
+    expect(required.getByText("Age")).toBeInTheDocument();
+    expect(required.getByText("Age isn't held for this group")).toBeInTheDocument();
+    expect(required.queryByText("Current liveweight")).toBeNull();
+    expect(required.getByRole("link", { name: /Add the animals with their dates of birth/ })).toHaveAttribute("href", "/cattle/manage");
+    expect(card.queryByText(/kg\/day/)).toBeNull();
+    expect(card.queryByRole("button", { name: /Use recommended plan/i })).toBeNull();
+  });
+
+  it("ready core facts: shows the path, readiness, confidence, reasons, improvements, economics and alternatives", () => {
+    renderWorkspace({ plan: labPlan, avgAgeMonths: 8 });
+    const card = advisory();
+    expect(card.getByRole("heading", { name: "Grow on as weanlings at about 0.6 kg/day this winter" })).toBeInTheDocument();
+    expect(card.getAllByText("Ready").length).toBeGreaterThan(0);
+    expect(card.getAllByText("Low confidence").length).toBeGreaterThan(0);
+    const improve = within(document.querySelector("[data-advisory-improve]") as HTMLElement);
+    expect(improve.getByText("Breed / type")).toBeInTheDocument();
+    expect(improve.getByText("Weight history (realised gain)")).toBeInTheDocument();
+    expect(within(document.querySelector("[data-advisory-reasons]") as HTMLElement).getByText(/Age: 8 months average/)).toBeInTheDocument();
+    // Economics are labelled as limited / not ready and do not block the biological path.
+    expect(within(document.querySelector("[data-advisory-economics]") as HTMLElement).getByText(/^Economics (limited|not ready)$/)).toBeInTheDocument();
+    expect(card.getByText(/Alternatives aren't ranked yet/)).toBeInTheDocument();
+    expect(card.getByText(/^Advisory only/)).toBeInTheDocument();
+    expect(card.queryByRole("button", { name: /Use recommended plan/i })).toBeNull();
+  });
+
+  it("reads age and liveweight from the individual animal records", () => {
+    renderWorkspace({
+      plan: labPlan,
+      animals: { state: "KNOWN", animals: [{ dateOfBirth: "2026-03-01", sex: "FEMALE", breedKnown: true, latestWeightKg: 310, latestWeighedAt: "2026-10-30T10:00:00Z", weighings: 1 }] },
+    });
+    const card = advisory();
+    expect(card.getByRole("heading", { name: /Grow on as weanlings/ })).toBeInTheDocument();
+    expect(card.getByText("Age: 8 months · from 1 date of birth.")).toBeInTheDocument();
+  });
+
+  it("an improvement action opens the existing override editor", () => {
+    renderWorkspace({ plan: { ...labPlan, silageQualityBasis: undefined, silageDmdPct: undefined, silageCpPct: undefined, silageAnalysisDate: undefined }, avgAgeMonths: 8 });
+    expect(screen.queryByLabelText("Target weight (kg)")).toBeNull();
+    fireEvent.click(advisory().getByRole("button", { name: "Add the silage lab analysis" }));
+    expect(screen.getByLabelText("Target weight (kg)")).toHaveValue("360");
+  });
+
+  it("keeps the manual target editor as the override path and saves through the existing action", async () => {
+    save.mockResolvedValue({ status: "saved" });
+    renderWorkspace({ plan: labPlan, avgAgeMonths: 8 });
+    const override = screen.getByRole("button", { name: "Override / edit production target" });
+    expect(override).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(override);
+    fireEvent.change(screen.getByLabelText("Target weight (kg)"), { target: { value: "380" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save plan" }));
+    await vi.waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0][0]).toMatchObject({ groupId: "group-1", targetKg: 380, targetDate: "2027-02-12", silageQualityBasis: "lab_analysis" });
   });
 });

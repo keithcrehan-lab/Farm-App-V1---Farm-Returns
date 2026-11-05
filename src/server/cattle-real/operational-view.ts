@@ -15,6 +15,9 @@ export interface CattleOperationalGroupView {
   category: LivestockGroup["category"];
   system: LivestockGroup["system"];
   goal?: LivestockGroup["goal"];
+  sex?: LivestockGroup["sex"];
+  breed?: string;
+  avgAgeMonths?: number;
   headCount?: number;
   averageWeightKg?: number;
   averageWeightSource?: string;
@@ -76,6 +79,9 @@ export async function loadCattleOperationalView(
           category: group.category,
           system: group.system,
           ...(group.goal ? { goal: group.goal } : {}),
+          ...(group.sex ? { sex: group.sex } : {}),
+          ...(group.breed?.trim() ? { breed: group.breed.trim() } : {}),
+          ...(group.avgAgeMonths !== undefined && Number.isFinite(group.avgAgeMonths) ? { avgAgeMonths: group.avgAgeMonths } : {}),
           ...(headCount !== undefined ? { headCount } : {}),
           ...(averageWeightKg !== undefined && group.avgWeightKg
             ? { averageWeightKg, averageWeightSource: group.avgWeightKg.source }

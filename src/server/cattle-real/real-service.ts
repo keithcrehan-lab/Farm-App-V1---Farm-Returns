@@ -34,7 +34,9 @@ import {
   type Details,
   type HerdVM,
   buildCattleOperationsVM,
+  groupAnimalFactsOf,
   type CattleOperationsVM,
+  type GroupAnimalFacts,
 } from "@/domain/cattle/presentation";
 import type { CattleOperationalView } from "./operational-view";
 import { readCattleSourceForCurrentFarm } from "@/lib/farm-data/cattle-source";
@@ -276,9 +278,15 @@ export function realHerdView(e: RealEvaluation, operational?: CattleOperationalV
   // A group whose every animal record was refused is listed with that reason (its animals are in `unreadable`).
   const unreadableGroups = records.scopedGroupRefs.filter((g) => !evaluated.has(g)).map((groupRef) => ({ groupRef, name: records.directory.groupLabels[groupRef] ?? "Unnamed group", summary: "Animal records can't be read" }));
   const notes = { readOnly: REAL_NOTES.readOnly, method: REAL_NOTES.method, work: REAL_NOTES.work };
+  // Production advisory: members' recorded facts per group. A group with individual records that weren't evaluated is
+  // UNAVAILABLE (its animals can't be read), never "no animals".
+  const animalFacts: Record<string, GroupAnimalFacts> = {
+    ...Object.fromEntries(records.scopedGroupRefs.map((groupRef) => [groupRef, { state: "UNAVAILABLE" } as const])),
+    ...groupAnimalFactsOf(outputs, herd),
+  };
   return {
     herd,
-    operations: buildCattleOperationsVM(operational, outputs.viewpoint.effectiveAt.slice(0, 10)),
+    operations: buildCattleOperationsVM(operational, outputs.viewpoint.effectiveAt.slice(0, 10), animalFacts),
     continuity: cattleContinuityOf(herd, outputs, records, ungrouped, REAL_MODE_CAPABILITIES, notes),
     extras: {
       notes,

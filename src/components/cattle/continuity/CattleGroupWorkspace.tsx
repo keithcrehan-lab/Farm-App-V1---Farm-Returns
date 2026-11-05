@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, CalendarDays, ChevronDown, CircleDollarSign, HeartPulse, MapPin, MoveRight, Scale, Wheat } from "lucide-react";
+import { ArrowUpRight, CalendarDays, Check, ChevronDown, CircleDollarSign, Compass, HeartPulse, MapPin, MoveRight, Scale, Wheat } from "lucide-react";
 import { moveLivestockGroupToFieldAction } from "@/app/actions/grazing-field-movements";
 import { saveCattleGroupProductionPlanAction } from "@/app/actions/cattle-group-production-plan";
 import {
@@ -13,6 +13,9 @@ import {
   nutritionDraftOf,
   nutritionDraftToSaveInput,
   nutritionFormOptions,
+  type AdvisoryActionVM,
+  type AdvisoryItemVM,
+  type AdvisoryStatusVM,
   type CattleGroupOperationsVM,
   type Details,
   type DisplayTone,
@@ -89,6 +92,48 @@ function StateTile({
   );
 }
 
+function StatusChip({ status }: { status: AdvisoryStatusVM }) {
+  return <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${STATUS_TONE[status.tone]}`}>{status.label}</span>;
+}
+
+function AdvisoryAction({ action, onOpenEditor, onOpenLocation }: { action: AdvisoryActionVM; onOpenEditor: () => void; onOpenLocation: () => void }) {
+  const actionClass = `${styles.actionButton} inline-flex min-h-9 items-center gap-1 rounded-full border border-fr-v2-forest px-3.5 text-xs font-semibold text-fr-v2-forest`;
+  if (action.kind === "LINK") {
+    return action.href.startsWith("#") ? (
+      <a href={action.href} className={actionClass}>{action.label}</a>
+    ) : (
+      <Link href={action.href} className={actionClass}>{action.label} <ArrowUpRight className="size-3" /></Link>
+    );
+  }
+  if (action.kind === "OPEN_EDITOR") return <button type="button" onClick={onOpenEditor} className={actionClass}>{action.label}</button>;
+  if (action.kind === "OPEN_LOCATION") return <button type="button" onClick={onOpenLocation} className={actionClass}>{action.label}</button>;
+  return <p className="text-[11px] leading-snug text-fr-v2-muted">{action.label}</p>;
+}
+
+function AdvisoryChecklist({
+  items,
+  onOpenEditor,
+  onOpenLocation,
+}: {
+  items: Details<AdvisoryItemVM>;
+  onOpenEditor: () => void;
+  onOpenLocation: () => void;
+}) {
+  return (
+    <ul className="divide-y divide-fr-v2-rule border-y border-fr-v2-rule">
+      {items.map((item) => (
+        <li key={item.code} className="grid gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center" data-advisory-item={item.code}>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-fr-v2-charcoal">{item.label}</p>
+            <p className="mt-0.5 text-[11px] leading-snug text-fr-v2-muted">{item.value}</p>
+          </div>
+          <AdvisoryAction action={item.action} onOpenEditor={onOpenEditor} onOpenLocation={onOpenLocation} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function CattleGroupWorkspace({
   vm,
   asOfDate,
@@ -117,6 +162,9 @@ export function CattleGroupWorkspace({
   const toggleState = (next: Exclude<StatePanel, null>) => {
     setActiveState((current) => (current === next ? null : next));
   };
+  const advisory = vm.advisory;
+  const openEditor = () => setEditPlanOpen(true);
+  const openLocation = () => setActiveState("location");
 
   async function moveGroup(e: FormEvent) {
     e.preventDefault();
@@ -267,7 +315,7 @@ export function CattleGroupWorkspace({
               </div>
               <p className="mt-3 text-[11px] text-fr-v2-muted">{nutrition.stageLine}</p>
               <button type="button" onClick={() => setEditPlanOpen(true)} className={`${styles.actionButton} mt-4 min-h-11 rounded-full border border-fr-v2-forest px-5 text-sm font-semibold text-fr-v2-forest`}>
-                {vm.planButtonLabel === "Save plan" ? "Edit production target" : vm.planButtonLabel}
+                {vm.planButtonLabel === "Save plan" ? "Override / edit production target" : vm.planButtonLabel}
               </button>
             </section>
           ) : null}
@@ -290,12 +338,104 @@ export function CattleGroupWorkspace({
         </div>
       </div>
 
-      <section className={`${styles.surface} ${styles.primarySurface} p-5`} data-production-plan>
+      <section className={`${styles.surface} ${styles.primarySurface} p-5`} aria-labelledby="production-recommendation-title" data-production-advisory={advisory.state}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-fr-v2-gold"><Compass className="size-4" /><p className="text-[10px] font-semibold uppercase tracking-[0.13em]">Production recommendation</p></div>
+            <h2 id="production-recommendation-title" className="mt-1 font-display text-[29px] leading-tight text-fr-v2-charcoal">{advisory.title}</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-fr-v2-charcoal">{advisory.summary}</p>
+          </div>
+          <div className="flex flex-wrap gap-2" aria-label="Recommendation status">
+            <StatusChip status={advisory.readiness} />
+            <StatusChip status={advisory.confidence} />
+          </div>
+        </div>
+
+        <dl className="mt-4 grid gap-x-5 gap-y-3 border-t border-fr-v2-rule pt-4 text-xs sm:grid-cols-3">
+          <div>
+            <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-fr-v2-muted">Readiness</dt>
+            <dd className="mt-1 font-semibold text-fr-v2-charcoal">{advisory.readiness.label}</dd>
+            <dd className="mt-0.5 leading-snug text-fr-v2-muted">{advisory.readiness.detail}</dd>
+          </div>
+          <div>
+            <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-fr-v2-muted">Confidence</dt>
+            <dd className="mt-1 font-semibold text-fr-v2-charcoal">{advisory.confidence.label}</dd>
+            <dd className="mt-0.5 leading-snug text-fr-v2-muted">{advisory.confidence.detail}</dd>
+          </div>
+          <div data-advisory-economics>
+            <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-fr-v2-muted">Economics</dt>
+            <dd className="mt-1 font-semibold text-fr-v2-charcoal">{advisory.economics.label}</dd>
+            <dd className="mt-0.5 leading-snug text-fr-v2-muted">{advisory.economics.detail}</dd>
+          </div>
+        </dl>
+
+        {advisory.required.length > 0 ? (
+          <div className="mt-5" data-advisory-required>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-clay">Needed before Farm Return can recommend</p>
+            <AdvisoryChecklist items={advisory.required} onOpenEditor={openEditor} onOpenLocation={openLocation} />
+          </div>
+        ) : null}
+
+        {advisory.reasons.length > 0 ? (
+          <div className="mt-5" data-advisory-reasons>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-muted">Why this path</p>
+            <ul className="space-y-1.5 text-xs leading-relaxed text-fr-v2-charcoal">
+              {advisory.reasons.map((reason) => (
+                <li key={reason} className="flex gap-2"><Check className="mt-0.5 size-3.5 shrink-0 text-fr-v2-forest" /><span>{reason}</span></li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {advisory.improve.length > 0 ? (
+          <div className="mt-5" data-advisory-improve>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-muted">What would raise confidence</p>
+            <AdvisoryChecklist items={advisory.improve} onOpenEditor={openEditor} onOpenLocation={openLocation} />
+          </div>
+        ) : null}
+
+        <div className="mt-5 space-y-2 border-l-[3px] border-fr-v2-rule pl-3 text-[11px] leading-relaxed text-fr-v2-muted">
+          <p data-advisory-alternatives>{advisory.alternatives}</p>
+          <p data-advisory-action-note>{advisory.actionNote}</p>
+        </div>
+
+        <details className={`${styles.disclosure} mt-3`}>
+          <summary className={styles.disclosureSummary}>
+            <span className="text-sm font-semibold text-fr-v2-forest">Core facts and evidence</span>
+            <ChevronDown className={`${styles.chevron} size-4 text-fr-v2-muted`} />
+          </summary>
+          <div className="space-y-4 pb-4">
+            <dl className="divide-y divide-fr-v2-rule border-y border-fr-v2-rule">
+              {advisory.core.map((item) => (
+                <div key={item.code} className="grid grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)] gap-3 py-2.5">
+                  <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fr-v2-muted">{item.label}</dt>
+                  <dd className={`text-sm ${item.met ? "text-fr-v2-charcoal" : "text-fr-v2-clay"}`}>{item.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="grid gap-5 text-xs leading-relaxed text-fr-v2-charcoal md:grid-cols-2">
+              <div className="space-y-2">
+                {advisory.limitations.map((line) => <p key={line} className="border-l-2 border-fr-v2-rule pl-3">{line}</p>)}
+              </div>
+              <ul className="space-y-3">
+                {advisory.evidence.map((source) => (
+                  <li key={source.url}>
+                    <a href={source.url} target="_blank" rel="noreferrer" className="font-semibold text-fr-v2-forest hover:underline">{source.title}</a>
+                    <p className="text-[10.5px] text-fr-v2-muted">{source.meta}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section className={`${styles.surface} p-5`} data-production-plan>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-gold">Production & feeding</p>
-            <h2 className="mt-1 font-display text-[29px] leading-tight text-fr-v2-charcoal">{vm.goalLabel}</h2>
-            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-fr-v2-muted">The outcome first. Edit the target only when you want to change the plan.</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-gold">Your production target</p>
+            <h2 className="mt-1 font-display text-[24px] leading-tight text-fr-v2-charcoal">{vm.goalLabel}</h2>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-fr-v2-muted">Your own target weight and date drive the feeding plan below. Set them to override or refine the recommendation.</p>
           </div>
           <button
             type="button"
@@ -304,10 +444,9 @@ export function CattleGroupWorkspace({
             onClick={() => setEditPlanOpen((open) => !open)}
             className={`${styles.actionButton} min-h-11 rounded-full border border-fr-v2-rule bg-white px-5 text-sm font-semibold text-fr-v2-forest`}
           >
-            {editPlanOpen ? "Close editor" : "Edit production target"}
+            {editPlanOpen ? "Close editor" : "Override / edit production target"}
           </button>
         </div>
-
         <div className="mt-5 grid grid-cols-2 gap-x-3 gap-y-5 lg:grid-cols-5">
           <SmallMetric metric={vm.headCount} />
           <SmallMetric metric={vm.currentWeight} />

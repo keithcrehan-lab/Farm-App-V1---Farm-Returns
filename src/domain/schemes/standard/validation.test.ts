@@ -1136,6 +1136,99 @@ describe("malformed diagnostics", () => {
       }
     }
   });
+
+  describe("sparse arrays", () => {
+    const sparseForms = (items: unknown[]): [string, unknown[]][] => {
+      const leading = new Array<unknown>(items.length + 1);
+      items.forEach((item, index) => { leading[index + 1] = item; });
+      const trailing = [...items];
+      trailing.length += 1;
+      return [
+        ["only a hole", new Array<unknown>(1)],
+        ["a leading hole", leading],
+        ["a trailing hole", trailing],
+      ];
+    };
+
+    const withDefinition = (set: (value: StoredSchemeDefinition) => void) => {
+      const value = definition();
+      set(value);
+      return validateSchemeSeedPacket({ ...sealPacket(), definition: value }, sealPack(), sha256);
+    };
+
+    it.each(sparseForms(definition().sources))("rejects stored sources with %s", (_label, sparse) => {
+      expect(
+        codes(withDefinition((value) => { value.sources = sparse as StoredSchemeDefinition["sources"]; })),
+      ).toContain("SEED_DEFINITION_MALFORMED");
+    });
+
+    it.each(sparseForms(definition().rules))("rejects stored rules with %s", (_label, sparse) => {
+      expect(
+        codes(withDefinition((value) => { value.rules = sparse as StoredSchemeDefinition["rules"]; })),
+      ).toContain("SEED_DEFINITION_MALFORMED");
+    });
+
+    it.each(sparseForms(definition().rules[0].inputs))("rejects stored rule inputs with %s", (_label, sparse) => {
+      expect(
+        codes(withDefinition((value) => {
+          value.rules[0].inputs = sparse as StoredSchemeDefinition["rules"][number]["inputs"];
+        })),
+      ).toContain("SEED_DEFINITION_MALFORMED");
+    });
+
+    it.each(sparseForms(["SYNTH difference"]))("rejects prior version differences with %s", (_label, sparse) => {
+      const packet = {
+        ...sealPacket(),
+        priorStoredVersion: { rulesVersion: "synth-prior", differences: sparse },
+      };
+      expect(codes(validateSchemeSeedPacket(packet, sealPack(), sha256))).toContain("SEED_PRIOR_VERSION_INVALID");
+    });
+
+    it.each(sparseForms(["dairy"]))("rejects stored enterprise relevance with %s", (_label, sparse) => {
+      expect(
+        codes(withDefinition((value) => { value.version.enterpriseRelevance = sparse as string[]; })),
+      ).toContain("SEED_ROW_FIELD_INVALID");
+    });
+
+    it.each(sparseForms([row()]))("rejects frozen coverage rows with %s", (_label, sparse) => {
+      expect(codes(validateRegisterCoverage([], sparse as RequirementRegisterRow[]))).toEqual(["MALFORMED"]);
+    });
+
+    it.each(sparseForms([{ key: "synth.fact", owner: "farm_profile" }]))(
+      "rejects a frozen coverage row's data keys with %s",
+      (_label, sparse) => {
+        const frozen = row({ dataKeys: sparse as RequirementRegisterRow["dataKeys"] });
+        expect(codes(validateRegisterCoverage([], [frozen]))).toEqual(["MALFORMED"]);
+      },
+    );
+
+    // A hole must be found by a check of its own, not only by the fingerprint
+    // that any change to a sealed input would break.
+    const contentCodes = (issues: { code: string }[]) =>
+      codes(issues).filter((code) => !code.includes("FINGERPRINT"));
+
+    function valueAt(value: unknown, path: (string | number)[]): unknown {
+      return path.reduce<unknown>((parent, key) => (parent as Record<string | number, unknown>)[key], value);
+    }
+
+    it.each(validators.slice(0, 4))("the %s validator rejects a hole in every array", (_label, valid, validate) => {
+      const arrayPaths = pathsOf(valid).filter(
+        (path) => path.length > 0 && Array.isArray(valueAt(valid, path)),
+      );
+      expect(arrayPaths.length).toBeGreaterThan(0);
+
+      for (const path of arrayPaths) {
+        for (const [form, sparse] of sparseForms(valueAt(valid, path) as unknown[])) {
+          const position = `${path.join(".")} with ${form}`;
+          let issues: { code: string }[] = [];
+          expect(() => {
+            issues = validate(replacedAt(valid, path, sparse));
+          }, position).not.toThrow();
+          expect(contentCodes(issues), position).not.toEqual([]);
+        }
+      }
+    });
+  });
 });
 
 describe("seed packet document", () => {

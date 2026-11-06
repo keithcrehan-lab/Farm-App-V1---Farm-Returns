@@ -115,6 +115,18 @@ function isRecord(value: unknown): value is UnknownRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/** Array every() and some() skip holes, which later traversal dereferences.
+ * for...of visits each position, a hole as undefined. */
+function everyPosition(
+  items: readonly unknown[],
+  check: (item: unknown) => boolean,
+): boolean {
+  for (const item of items) {
+    if (!check(item)) return false;
+  }
+  return true;
+}
+
 function isText(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
@@ -879,6 +891,19 @@ export function validateSchemeContentPack(
   return issues;
 }
 
+function isFrozenRowsShape(rows: unknown): boolean {
+  return (
+    Array.isArray(rows) &&
+    everyPosition(
+      rows,
+      (row) =>
+        isRecord(row) &&
+        Array.isArray(row.dataKeys) &&
+        everyPosition(row.dataKeys, isRecord),
+    )
+  );
+}
+
 /**
  * Coverage is the P2 record of each frozen row's final status. A missing or
  * unknown row fails: the register is the whole set of rules, and a rule it
@@ -890,6 +915,9 @@ export function validateRegisterCoverage(
 ): SchemeStandardIssue[] {
   if (!Array.isArray(input)) {
     return [{ code: "MALFORMED", detail: "coverage must be an array." }];
+  }
+  if (!isFrozenRowsShape(rows)) {
+    return [{ code: "MALFORMED", detail: "The frozen rows must be register rows." }];
   }
 
   const issues: SchemeStandardIssue[] = [];
@@ -991,13 +1019,14 @@ function isDefinitionShape(value: unknown): value is StoredSchemeDefinition {
     isRecord(value) &&
     isRecord(value.version) &&
     Array.isArray(value.sources) &&
-    value.sources.every(isRecord) &&
+    everyPosition(value.sources, isRecord) &&
     Array.isArray(value.rules) &&
-    value.rules.every(
+    everyPosition(
+      value.rules,
       (rule) =>
         isRecord(rule) &&
         Array.isArray(rule.inputs) &&
-        rule.inputs.every(isRecord),
+        everyPosition(rule.inputs, isRecord),
     )
   );
 }
@@ -1119,7 +1148,7 @@ const STORED_VERSION_FIELDS: Record<keyof StoredSchemeVersion, StoredFieldCheck>
   lateApplicationClose: nullable(isTimestamp),
   publicationState: oneOf(STORED_PUBLICATION_STATES),
   v1Enabled: isBoolean,
-  enterpriseRelevance: (value) => Array.isArray(value) && value.every(isText),
+  enterpriseRelevance: (value) => Array.isArray(value) && everyPosition(value, isText),
   supportType: isNullableText,
   recurrenceType: isNullableText,
   requiresAdviser: isBoolean,
@@ -1187,7 +1216,7 @@ function isStorableValue(value: unknown): boolean {
   if (typeof value === "string") return isStorableString(value);
   if (typeof value === "number") return Number.isFinite(value);
   if (Array.isArray(value)) {
-    return Array.from(value).every(isStorableValue);
+    return everyPosition(value, isStorableValue);
   }
   if (typeof value !== "object") return false;
   const prototype: unknown = Object.getPrototypeOf(value);
@@ -1544,7 +1573,7 @@ export function validateSchemeSeedPacket(
       prior.rulesVersion !== pack.pin.rulesVersion &&
       Array.isArray(prior.differences) &&
       prior.differences.length > 0 &&
-      prior.differences.every(isText);
+      everyPosition(prior.differences, isText);
     if (!valid) {
       issues.push({
         code: "SEED_PRIOR_VERSION_INVALID",

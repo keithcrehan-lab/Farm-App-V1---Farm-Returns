@@ -26,14 +26,44 @@
       "predecessor": null,
       "brief": ".agent/campaigns/schemes-adviser-v1/S0_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/SCHEMES_ARCHITECTURE_V1.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/SCHEMES_ARCHITECTURE_V1.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c0_implementation_standard",
-      "scope_guard": ["docs/product/schemes/standard", "src/domain/schemes/standard"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md"]
+      "scope_guard": [
+        "docs/product/schemes/standard",
+        "src/domain/schemes/standard"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
+      "authorised_amendments": [
+        {
+          "path": "src/app/(app)/what-matters/what-matters.test.tsx",
+          "baseline_blob": "5c7b02eccfbd7ca38b5ab165ef96cd06e0a54239",
+          "result_blob": "6767fca4912c0656e751f26687183a0ddfe89b89",
+          "amendment_sha256": "d942147ab4cfebc184f01ade67779a1d967051141ced54d80373cac745989519",
+          "authorisation": "User authorised continuation on 2026-11-06 after review of the pre-existing full-gate navigation test failure; test-only expectation update to match the already-committed primary Schemes navigation."
+        },
+        {
+          "path": "src/app/actions/farm-slurry-allocation.test.ts",
+          "baseline_blob": "6a4430780104295e63186e11df629ec3cf6a32a4",
+          "result_blob": "ad4b7d91a456392fee20d52ad9de4c4e5d1a1a80",
+          "amendment_sha256": "61f0429d5b27584e2834d6209f4523496747e7c0e56394bb8cf482f8c6aaa3b8",
+          "authorisation": "User authorised continuation on 2026-11-06 after review of the pre-existing full-gate slurry fixture failure; test-only Supabase mock update for the already-required livestock_individuals read path."
+        }
+      ]
     },
     {
       "id": "S1",
@@ -44,14 +74,30 @@
       "predecessor": "S0",
       "brief": ".agent/campaigns/schemes-adviser-v1/S1_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c1_scep_register",
-      "scope_guard": ["docs/product/schemes/scep-2026", "src/domain/schemes/scep-2026-register"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "docs/evidence/schemes/scep-2026*"]
+      "scope_guard": [
+        "docs/product/schemes/scep-2026",
+        "src/domain/schemes/scep-2026-register"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "docs/evidence/schemes/scep-2026*"
+      ]
     },
     {
       "id": "S2",
@@ -62,14 +108,60 @@
       "predecessor": "S1",
       "brief": ".agent/campaigns/schemes-adviser-v1/S2_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/product/schemes/scep-2026/REQUIREMENT_REGISTER.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/product/schemes/scep-2026/REQUIREMENT_REGISTER.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c2_scep_deterministic",
-      "scope_guard": ["docs/product/schemes/scep-2026-implementation", "src/domain/schemes/scep-2026-engine"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "src/domain/schemes/scep-2026.ts", "src/domain/schemes/scep-2026.test.ts", "src/domain/schemes/scep-2026-source-integrity.test.ts", "src/domain/schemes/contracts.ts", "src/domain/schemes/data-keys.ts", "src/domain/schemes/data-snapshot.ts", "src/domain/schemes/data-snapshot.test.ts", "src/domain/schemes/eligibility.ts", "src/domain/schemes/eligibility.test.ts", "src/domain/schemes/facts.ts", "src/domain/schemes/facts.test.ts", "src/domain/schemes/payment.ts", "src/domain/schemes/payment.test.ts", "src/domain/schemes/readiness.ts", "src/domain/schemes/readiness.test.ts", "src/domain/schemes/requirements.ts", "src/domain/schemes/routing.ts", "src/domain/schemes/routing.test.ts", "src/domain/schemes/rule-evaluation.ts", "src/domain/schemes/rule-evaluation.test.ts", "src/domain/schemes/validation.ts", "src/domain/schemes/validation.test.ts", "src/domain/schemes/window-state.ts", "src/domain/schemes/window-state.test.ts", "src/lib/farm-data/scheme-facts.ts", "src/lib/farm-data/schemes.ts", "src/app/actions/schemes.ts", "src/app/(app)/schemes/page.tsx", "src/app/(app)/schemes/Scep2026Card.tsx", "src/app/(app)/schemes/Scep2026Card.test.tsx"]
+      "scope_guard": [
+        "docs/product/schemes/scep-2026-implementation",
+        "src/domain/schemes/scep-2026-engine"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "src/domain/schemes/scep-2026.ts",
+        "src/domain/schemes/scep-2026.test.ts",
+        "src/domain/schemes/scep-2026-source-integrity.test.ts",
+        "src/domain/schemes/contracts.ts",
+        "src/domain/schemes/data-keys.ts",
+        "src/domain/schemes/data-snapshot.ts",
+        "src/domain/schemes/data-snapshot.test.ts",
+        "src/domain/schemes/eligibility.ts",
+        "src/domain/schemes/eligibility.test.ts",
+        "src/domain/schemes/facts.ts",
+        "src/domain/schemes/facts.test.ts",
+        "src/domain/schemes/payment.ts",
+        "src/domain/schemes/payment.test.ts",
+        "src/domain/schemes/readiness.ts",
+        "src/domain/schemes/readiness.test.ts",
+        "src/domain/schemes/requirements.ts",
+        "src/domain/schemes/routing.ts",
+        "src/domain/schemes/routing.test.ts",
+        "src/domain/schemes/rule-evaluation.ts",
+        "src/domain/schemes/rule-evaluation.test.ts",
+        "src/domain/schemes/validation.ts",
+        "src/domain/schemes/validation.test.ts",
+        "src/domain/schemes/window-state.ts",
+        "src/domain/schemes/window-state.test.ts",
+        "src/lib/farm-data/scheme-facts.ts",
+        "src/lib/farm-data/schemes.ts",
+        "src/app/actions/schemes.ts",
+        "src/app/(app)/schemes/page.tsx",
+        "src/app/(app)/schemes/Scep2026Card.tsx",
+        "src/app/(app)/schemes/Scep2026Card.test.tsx"
+      ]
     },
     {
       "id": "S3P1",
@@ -80,14 +172,47 @@
       "predecessor": "S2",
       "brief": ".agent/campaigns/schemes-adviser-v1/S3P1_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes", "ui"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/PRODUCT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/product/schemes/scep-2026/REQUIREMENT_REGISTER.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes",
+        "ui"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/PRODUCT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/product/schemes/scep-2026/REQUIREMENT_REGISTER.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c3_adviser_experience",
-      "scope_guard": ["docs/product/schemes/adviser-experience", "src/app/(app)/schemes/[schemeKey]", "src/components/schemes", "src/domain/schemes/detail", "src/domain/schemes/scheme-view-registry.ts", "src/domain/schemes/scheme-view-registry.test.ts"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "src/domain/schemes/routing.ts", "src/domain/schemes/routing.test.ts", "src/app/(app)/schemes/page.tsx", "src/app/(app)/schemes/SchemesPageClient.tsx", "src/app/(app)/schemes/SchemesPageClient.test.tsx", "src/app/(app)/schemes/Scep2026Card.tsx", "src/app/(app)/schemes/Scep2026Card.test.tsx", "src/app/(app)/settings/*", "src/app/(app)/fields/*", "src/app/(app)/soil/*", "src/app/(app)/livestock/*", "src/app/(app)/cattle/*"]
+      "scope_guard": [
+        "docs/product/schemes/adviser-experience",
+        "src/app/(app)/schemes/[schemeKey]",
+        "src/components/schemes",
+        "src/domain/schemes/detail",
+        "src/domain/schemes/scheme-view-registry.ts",
+        "src/domain/schemes/scheme-view-registry.test.ts"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "src/domain/schemes/routing.ts",
+        "src/domain/schemes/routing.test.ts",
+        "src/app/(app)/schemes/page.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.test.tsx",
+        "src/app/(app)/schemes/Scep2026Card.tsx",
+        "src/app/(app)/schemes/Scep2026Card.test.tsx",
+        "src/app/(app)/settings/*",
+        "src/app/(app)/fields/*",
+        "src/app/(app)/soil/*",
+        "src/app/(app)/livestock/*",
+        "src/app/(app)/cattle/*"
+      ]
     },
     {
       "id": "S3P2",
@@ -98,14 +223,33 @@
       "predecessor": "S3P1",
       "brief": ".agent/campaigns/schemes-adviser-v1/S3P2_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes", "ui"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/PRODUCT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes",
+        "ui"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/PRODUCT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c4_ai_adviser_contract",
-      "scope_guard": ["docs/product/schemes/adviser-ai", "src/domain/schemes/adviser", "src/lib/schemes/adviser"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "src/app/actions/schemes.ts", "src/app/(app)/schemes/[[]schemeKey]/*"]
+      "scope_guard": [
+        "docs/product/schemes/adviser-ai",
+        "src/domain/schemes/adviser",
+        "src/lib/schemes/adviser"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "src/app/actions/schemes.ts",
+        "src/app/(app)/schemes/[[]schemeKey]/*"
+      ]
     },
     {
       "id": "S4P1",
@@ -116,14 +260,30 @@
       "predecessor": "S3P2",
       "brief": ".agent/campaigns/schemes-adviser-v1/S4P1_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c5_biss_register",
-      "scope_guard": ["docs/product/schemes/biss", "src/domain/schemes/biss-register"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "docs/evidence/schemes/biss/*"]
+      "scope_guard": [
+        "docs/product/schemes/biss",
+        "src/domain/schemes/biss-register"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "docs/evidence/schemes/biss/*"
+      ]
     },
     {
       "id": "S4P2",
@@ -134,14 +294,41 @@
       "predecessor": "S4P1",
       "brief": ".agent/campaigns/schemes-adviser-v1/S4P2_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/product/schemes/biss/REQUIREMENT_REGISTER.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/product/schemes/biss/REQUIREMENT_REGISTER.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c6_biss_implementation",
-      "scope_guard": ["docs/product/schemes/biss-implementation", "src/domain/schemes/biss"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "src/domain/schemes/data-keys.ts", "src/domain/schemes/facts.ts", "src/domain/schemes/facts.test.ts", "src/domain/schemes/scheme-view-registry.ts", "src/domain/schemes/scheme-view-registry.test.ts", "src/lib/farm-data/scheme-facts.ts", "src/lib/farm-data/schemes.ts", "src/app/actions/schemes.ts", "src/app/(app)/schemes/page.tsx", "src/app/(app)/schemes/SchemesPageClient.tsx", "src/app/(app)/schemes/SchemesPageClient.test.tsx"]
+      "scope_guard": [
+        "docs/product/schemes/biss-implementation",
+        "src/domain/schemes/biss"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "src/domain/schemes/data-keys.ts",
+        "src/domain/schemes/facts.ts",
+        "src/domain/schemes/facts.test.ts",
+        "src/domain/schemes/scheme-view-registry.ts",
+        "src/domain/schemes/scheme-view-registry.test.ts",
+        "src/lib/farm-data/scheme-facts.ts",
+        "src/lib/farm-data/schemes.ts",
+        "src/app/actions/schemes.ts",
+        "src/app/(app)/schemes/page.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.test.tsx"
+      ]
     },
     {
       "id": "S5P1",
@@ -152,14 +339,30 @@
       "predecessor": "S4P2",
       "brief": ".agent/campaigns/schemes-adviser-v1/S5P1_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c7_criss_register",
-      "scope_guard": ["docs/product/schemes/criss", "src/domain/schemes/criss-register"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "docs/evidence/schemes/criss/*"]
+      "scope_guard": [
+        "docs/product/schemes/criss",
+        "src/domain/schemes/criss-register"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "docs/evidence/schemes/criss/*"
+      ]
     },
     {
       "id": "S5P2",
@@ -170,14 +373,39 @@
       "predecessor": "S5P1",
       "brief": ".agent/campaigns/schemes-adviser-v1/S5P2_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/product/schemes/criss/REQUIREMENT_REGISTER.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/product/schemes/criss/REQUIREMENT_REGISTER.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c8_criss_implementation",
-      "scope_guard": ["docs/product/schemes/criss-implementation", "src/domain/schemes/criss"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "src/domain/schemes/data-keys.ts", "src/domain/schemes/facts.ts", "src/domain/schemes/facts.test.ts", "src/domain/schemes/scheme-view-registry.ts", "src/domain/schemes/scheme-view-registry.test.ts", "src/lib/farm-data/scheme-facts.ts", "src/lib/farm-data/schemes.ts", "src/app/actions/schemes.ts", "src/app/(app)/schemes/page.tsx"]
+      "scope_guard": [
+        "docs/product/schemes/criss-implementation",
+        "src/domain/schemes/criss"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "src/domain/schemes/data-keys.ts",
+        "src/domain/schemes/facts.ts",
+        "src/domain/schemes/facts.test.ts",
+        "src/domain/schemes/scheme-view-registry.ts",
+        "src/domain/schemes/scheme-view-registry.test.ts",
+        "src/lib/farm-data/scheme-facts.ts",
+        "src/lib/farm-data/schemes.ts",
+        "src/app/actions/schemes.ts",
+        "src/app/(app)/schemes/page.tsx"
+      ]
     },
     {
       "id": "S6P1",
@@ -188,14 +416,30 @@
       "predecessor": "S5P2",
       "brief": ".agent/campaigns/schemes-adviser-v1/S6P1_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c9_eco_scheme_register",
-      "scope_guard": ["docs/product/schemes/eco-scheme", "src/domain/schemes/eco-scheme-register"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "docs/evidence/schemes/eco-scheme/*"]
+      "scope_guard": [
+        "docs/product/schemes/eco-scheme",
+        "src/domain/schemes/eco-scheme-register"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "docs/evidence/schemes/eco-scheme/*"
+      ]
     },
     {
       "id": "S6P2",
@@ -206,14 +450,39 @@
       "predecessor": "S6P1",
       "brief": ".agent/campaigns/schemes-adviser-v1/S6P2_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/product/schemes/eco-scheme/REQUIREMENT_REGISTER.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/product/schemes/eco-scheme/REQUIREMENT_REGISTER.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c10_eco_scheme_implementation",
-      "scope_guard": ["docs/product/schemes/eco-scheme-implementation", "src/domain/schemes/eco-scheme"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "src/domain/schemes/data-keys.ts", "src/domain/schemes/facts.ts", "src/domain/schemes/facts.test.ts", "src/domain/schemes/scheme-view-registry.ts", "src/domain/schemes/scheme-view-registry.test.ts", "src/lib/farm-data/scheme-facts.ts", "src/lib/farm-data/schemes.ts", "src/app/actions/schemes.ts", "src/app/(app)/schemes/page.tsx"]
+      "scope_guard": [
+        "docs/product/schemes/eco-scheme-implementation",
+        "src/domain/schemes/eco-scheme"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "src/domain/schemes/data-keys.ts",
+        "src/domain/schemes/facts.ts",
+        "src/domain/schemes/facts.test.ts",
+        "src/domain/schemes/scheme-view-registry.ts",
+        "src/domain/schemes/scheme-view-registry.test.ts",
+        "src/lib/farm-data/scheme-facts.ts",
+        "src/lib/farm-data/schemes.ts",
+        "src/app/actions/schemes.ts",
+        "src/app/(app)/schemes/page.tsx"
+      ]
     },
     {
       "id": "S7P1",
@@ -224,14 +493,30 @@
       "predecessor": "S6P2",
       "brief": ".agent/campaigns/schemes-adviser-v1/S7P1_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c11_anc_register",
-      "scope_guard": ["docs/product/schemes/anc", "src/domain/schemes/anc-register"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "docs/evidence/schemes/anc/*"]
+      "scope_guard": [
+        "docs/product/schemes/anc",
+        "src/domain/schemes/anc-register"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "docs/evidence/schemes/anc/*"
+      ]
     },
     {
       "id": "S7P2",
@@ -242,14 +527,41 @@
       "predecessor": "S7P1",
       "brief": ".agent/campaigns/schemes-adviser-v1/S7P2_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/product/schemes/anc/REQUIREMENT_REGISTER.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/product/schemes/anc/REQUIREMENT_REGISTER.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c12_anc_implementation",
-      "scope_guard": ["docs/product/schemes/anc-implementation", "src/domain/schemes/anc"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "src/domain/schemes/data-keys.ts", "src/domain/schemes/facts.ts", "src/domain/schemes/facts.test.ts", "src/domain/schemes/scheme-view-registry.ts", "src/domain/schemes/scheme-view-registry.test.ts", "src/lib/farm-data/scheme-facts.ts", "src/lib/farm-data/schemes.ts", "src/app/actions/schemes.ts", "src/app/(app)/schemes/page.tsx", "src/app/(app)/schemes/SchemesPageClient.tsx", "src/app/(app)/schemes/SchemesPageClient.test.tsx"]
+      "scope_guard": [
+        "docs/product/schemes/anc-implementation",
+        "src/domain/schemes/anc"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "src/domain/schemes/data-keys.ts",
+        "src/domain/schemes/facts.ts",
+        "src/domain/schemes/facts.test.ts",
+        "src/domain/schemes/scheme-view-registry.ts",
+        "src/domain/schemes/scheme-view-registry.test.ts",
+        "src/lib/farm-data/scheme-facts.ts",
+        "src/lib/farm-data/schemes.ts",
+        "src/app/actions/schemes.ts",
+        "src/app/(app)/schemes/page.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.test.tsx"
+      ]
     },
     {
       "id": "S8P1",
@@ -260,14 +572,30 @@
       "predecessor": "S7P2",
       "brief": ".agent/campaigns/schemes-adviser-v1/S8P1_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c13_tams3_register",
-      "scope_guard": ["docs/product/schemes/tams3", "src/domain/schemes/tams3-register"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "docs/evidence/schemes/tams3/*"]
+      "scope_guard": [
+        "docs/product/schemes/tams3",
+        "src/domain/schemes/tams3-register"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "docs/evidence/schemes/tams3/*"
+      ]
     },
     {
       "id": "S8P2",
@@ -278,14 +606,41 @@
       "predecessor": "S8P1",
       "brief": ".agent/campaigns/schemes-adviser-v1/S8P2_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/product/schemes/tams3/REQUIREMENT_REGISTER.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/product/schemes/tams3/REQUIREMENT_REGISTER.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c14_tams3_implementation",
-      "scope_guard": ["docs/product/schemes/tams3-implementation", "src/domain/schemes/tams3"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "src/domain/schemes/data-keys.ts", "src/domain/schemes/facts.ts", "src/domain/schemes/facts.test.ts", "src/domain/schemes/scheme-view-registry.ts", "src/domain/schemes/scheme-view-registry.test.ts", "src/lib/farm-data/scheme-facts.ts", "src/lib/farm-data/schemes.ts", "src/app/actions/schemes.ts", "src/app/(app)/schemes/page.tsx", "src/app/(app)/schemes/SchemesPageClient.tsx", "src/app/(app)/schemes/SchemesPageClient.test.tsx"]
+      "scope_guard": [
+        "docs/product/schemes/tams3-implementation",
+        "src/domain/schemes/tams3"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "src/domain/schemes/data-keys.ts",
+        "src/domain/schemes/facts.ts",
+        "src/domain/schemes/facts.test.ts",
+        "src/domain/schemes/scheme-view-registry.ts",
+        "src/domain/schemes/scheme-view-registry.test.ts",
+        "src/lib/farm-data/scheme-facts.ts",
+        "src/lib/farm-data/schemes.ts",
+        "src/app/actions/schemes.ts",
+        "src/app/(app)/schemes/page.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.test.tsx"
+      ]
     },
     {
       "id": "S9P1",
@@ -296,14 +651,30 @@
       "predecessor": "S8P2",
       "brief": ".agent/campaigns/schemes-adviser-v1/S9P1_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c15_acres_register",
-      "scope_guard": ["docs/product/schemes/acres", "src/domain/schemes/acres-register"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "docs/evidence/schemes/acres/*"]
+      "scope_guard": [
+        "docs/product/schemes/acres",
+        "src/domain/schemes/acres-register"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "docs/evidence/schemes/acres/*"
+      ]
     },
     {
       "id": "S9P2",
@@ -314,14 +685,39 @@
       "predecessor": "S9P1",
       "brief": ".agent/campaigns/schemes-adviser-v1/S9P2_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/product/schemes/acres/REQUIREMENT_REGISTER.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/product/schemes/acres/REQUIREMENT_REGISTER.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c16_acres_implementation",
-      "scope_guard": ["docs/product/schemes/acres-implementation", "src/domain/schemes/acres"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "src/domain/schemes/data-keys.ts", "src/domain/schemes/facts.ts", "src/domain/schemes/facts.test.ts", "src/domain/schemes/scheme-view-registry.ts", "src/domain/schemes/scheme-view-registry.test.ts", "src/lib/farm-data/scheme-facts.ts", "src/lib/farm-data/schemes.ts", "src/app/actions/schemes.ts", "src/app/(app)/schemes/page.tsx"]
+      "scope_guard": [
+        "docs/product/schemes/acres-implementation",
+        "src/domain/schemes/acres"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "src/domain/schemes/data-keys.ts",
+        "src/domain/schemes/facts.ts",
+        "src/domain/schemes/facts.test.ts",
+        "src/domain/schemes/scheme-view-registry.ts",
+        "src/domain/schemes/scheme-view-registry.test.ts",
+        "src/lib/farm-data/scheme-facts.ts",
+        "src/lib/farm-data/schemes.ts",
+        "src/app/actions/schemes.ts",
+        "src/app/(app)/schemes/page.tsx"
+      ]
     },
     {
       "id": "S10P1",
@@ -332,14 +728,30 @@
       "predecessor": "S9P2",
       "brief": ".agent/campaigns/schemes-adviser-v1/S10P1_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c17_young_farmer_register",
-      "scope_guard": ["docs/product/schemes/young-farmer", "src/domain/schemes/young-farmer-register"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "docs/evidence/schemes/young-farmer/*"]
+      "scope_guard": [
+        "docs/product/schemes/young-farmer",
+        "src/domain/schemes/young-farmer-register"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "docs/evidence/schemes/young-farmer/*"
+      ]
     },
     {
       "id": "S10P2",
@@ -350,14 +762,41 @@
       "predecessor": "S10P1",
       "brief": ".agent/campaigns/schemes-adviser-v1/S10P2_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/product/schemes/young-farmer/REQUIREMENT_REGISTER.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/product/schemes/young-farmer/REQUIREMENT_REGISTER.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c18_young_farmer_implementation",
-      "scope_guard": ["docs/product/schemes/young-farmer-implementation", "src/domain/schemes/young-farmer"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "docs/evidence-register.md", "src/domain/schemes/data-keys.ts", "src/domain/schemes/facts.ts", "src/domain/schemes/facts.test.ts", "src/domain/schemes/scheme-view-registry.ts", "src/domain/schemes/scheme-view-registry.test.ts", "src/lib/farm-data/scheme-facts.ts", "src/lib/farm-data/schemes.ts", "src/app/actions/schemes.ts", "src/app/(app)/schemes/page.tsx", "src/app/(app)/schemes/SchemesPageClient.tsx", "src/app/(app)/schemes/SchemesPageClient.test.tsx"]
+      "scope_guard": [
+        "docs/product/schemes/young-farmer-implementation",
+        "src/domain/schemes/young-farmer"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "docs/evidence-register.md",
+        "src/domain/schemes/data-keys.ts",
+        "src/domain/schemes/facts.ts",
+        "src/domain/schemes/facts.test.ts",
+        "src/domain/schemes/scheme-view-registry.ts",
+        "src/domain/schemes/scheme-view-registry.test.ts",
+        "src/lib/farm-data/scheme-facts.ts",
+        "src/lib/farm-data/schemes.ts",
+        "src/app/actions/schemes.ts",
+        "src/app/(app)/schemes/page.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.test.tsx"
+      ]
     },
     {
       "id": "S11P1",
@@ -368,14 +807,34 @@
       "predecessor": "S10P2",
       "brief": ".agent/campaigns/schemes-adviser-v1/S11P1_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes", "ui"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/PRODUCT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes",
+        "ui"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/PRODUCT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c19_dashboard_discovery",
-      "scope_guard": ["docs/product/schemes/portfolio", "src/domain/schemes/portfolio", "src/components/schemes-portfolio"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "src/app/(app)/schemes/page.tsx", "src/app/(app)/schemes/SchemesPageClient.tsx", "src/app/(app)/schemes/SchemesPageClient.test.tsx"]
+      "scope_guard": [
+        "docs/product/schemes/portfolio",
+        "src/domain/schemes/portfolio",
+        "src/components/schemes-portfolio"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "src/app/(app)/schemes/page.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.test.tsx"
+      ]
     },
     {
       "id": "S11P2",
@@ -386,14 +845,33 @@
       "predecessor": "S11P1",
       "brief": ".agent/campaigns/schemes-adviser-v1/S11P2_BRIEF.md",
       "brief_status": "READY",
-      "domains": ["schemes", "ui"],
-      "contracts": ["AGENTS.md", ".agent/AUDIT_RULES.md", ".agent/PRODUCT_RULES.md", ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md", ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md", "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md", "docs/farm-return-next/DOMAIN_CONTRACTS.md"],
+      "domains": [
+        "schemes",
+        "ui"
+      ],
+      "contracts": [
+        "AGENTS.md",
+        ".agent/AUDIT_RULES.md",
+        ".agent/PRODUCT_RULES.md",
+        ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+        ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+        "docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md",
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+      ],
       "verify": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
       "strict_freeze": true,
       "closure": "docs-commit",
       "build_state_key": "c20_cross_scheme_adviser",
-      "scope_guard": ["docs/product/schemes/seed-readiness", "src/domain/schemes/adviser-portfolio"],
-      "allowed_shared_paths": ["docs/farm-return-next/DOMAIN_CONTRACTS.md", "src/app/actions/schemes.ts", "src/app/(app)/schemes/SchemesPageClient.tsx", "src/app/(app)/schemes/SchemesPageClient.test.tsx"]
+      "scope_guard": [
+        "docs/product/schemes/seed-readiness",
+        "src/domain/schemes/adviser-portfolio"
+      ],
+      "allowed_shared_paths": [
+        "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+        "src/app/actions/schemes.ts",
+        "src/app/(app)/schemes/SchemesPageClient.tsx",
+        "src/app/(app)/schemes/SchemesPageClient.test.tsx"
+      ]
     }
   ]
 }

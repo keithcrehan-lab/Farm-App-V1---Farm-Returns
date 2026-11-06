@@ -828,6 +828,35 @@ describe("register coverage", () => {
       "REGISTER_ROW_DATA_KEY_OWNER_CONFLICT",
     );
   });
+
+  it("rejects duplicate frozen row ids before coverage lookup can overwrite one", () => {
+    const protectedRow = row({
+      status: "UNSUPPORTED",
+      reason: "SYNTH: no supported implementation",
+    });
+    const duplicate = row();
+    expect(codes(validateRegisterCoverage([implemented], [protectedRow, duplicate]))).toContain(
+      "REGISTER_ROW_DUPLICATE_ID",
+    );
+  });
+
+  it("rejects a frozen row missing required source provenance", () => {
+    const missingSource = {
+      ...row(),
+      source: undefined,
+    } as unknown as RequirementRegisterRow;
+    expect(codes(validateRegisterCoverage([implemented], [missingSource]))).toContain(
+      "REGISTER_ROW_NO_SOURCE",
+    );
+
+    const incompleteSource = {
+      ...row(),
+      source: { sourceId: "SYNTH-SOURCE-1" },
+    } as unknown as RequirementRegisterRow;
+    expect(codes(validateRegisterCoverage([implemented], [incompleteSource]))).toContain(
+      "REGISTER_ROW_SOURCE_INCOMPLETE",
+    );
+  });
 });
 
 describe("seed packet", () => {

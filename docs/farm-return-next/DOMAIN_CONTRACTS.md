@@ -5097,3 +5097,20 @@ Design, trust model and limitations: `docs/farm-return-next/SUPPLIER_PORTAL.md`.
 | `app/actions/supplier-portal.ts`, `app/actions/supplier-portal-operator.ts` | Membership / operator check first; references plus validated content only. |
 
 Reuse: `quote_requests` / revisions / delivery snapshots and `is_quote_operator_for_current_user()` unchanged; `getOperatorDemandInboxAction` supplies operator routing choices. No change to existing quote, farmer or operator modules. Migration not applied anywhere.
+
+## Schemes S0 — Scheme Implementation Standard and legacy migration contract (2026-11-05)
+
+Normative documents: `docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md` and `docs/product/schemes/standard/LEGACY_MIGRATION_CONTRACT.md`. This phase adds no scheme rule and changes no farmer-visible behaviour, existing module, schema or migration. All fixtures are `SYNTH-*`.
+
+| Module | Contract |
+|---|---|
+| `domain/schemes/standard/contracts.ts` | Types only: `SchemeVersionPin`, `SchemeSourceRecord`, `SchemeSourcePack`, `RequirementRegisterRow`, `RequirementRegister`, `SchemeContentPack`, `RequirementCoverageEntry`, `SchemeSeedPacket`, `SchemeStandardIssue`. Register status is `IMPLEMENTED`, `UNSUPPORTED` or `NOT_APPLICABLE`, plus `IMPLEMENTABLE` for a P1 row whose engine rule is not built; a seed packet's coverage accepts final statuses only. |
+| `domain/schemes/standard/validation.ts` | Pure, fail-closed, never throws on malformed input: `validateSchemeSourcePack`, `validateRequirementRegister`, `validateSchemeContentPack`, `validateRegisterCoverage`, `validateSchemeSeedPacket`, `parseSeedPacketDocument`, `sameSchemeVersionPin`; `computeSchemeContentPackFingerprint`, `computeSchemeSeedPacketFingerprint`; `assertSchemeContentPack`, `assertSchemeSeedPacket`. An empty issue list is the only pass. SHA-256 is injected and checked against a known answer. A seed packet loads a draft, disabled, unverified version only. |
+| `domain/schemes/standard/states.ts` | `SCHEME_ELIGIBILITY_STATES`, `SCHEME_DATA_STATE_PRECEDENCE`, `SCHEME_UNRESOLVED_RULE_PRECEDENCE`, `dominantUnresolvedRuleState`. Adds no state; `states.test.ts` checks the published precedence against `evaluateStoredSchemeRule`. |
+| `domain/schemes/standard/value-taxonomy.ts` | `SchemeValueType`, `SchemeValueClass`, `strongestPermittedSchemeValueClass`, `schemeValuesMaySum`. Incomparable types and different classes are never summable. |
+
+Reuse: `validateStoredSchemeDefinition`, `registeredSchemeDataKey`, `StoredSchemeDefinition`, `SchemeDataOwner` (`domain/schemes/`); `computeAssessmentFingerprint` (`assessment-integrity.ts`); `isValidCalendarDate` (`cattle/rule.ts`). All unchanged.
+
+Runtime never reads a content pack as a source of scheme content. `documents.test.ts` checks the legacy map against actual imports and exports; a new importer of a mapped legacy module outside a campaign-writable directory fails it.
+
+Known limits, assigned to engine phases by the Standard §5: `deriveSchemeEligibility` returns `LIKELY_ELIGIBLE` for an empty rule set, drops a rule with no evaluation from its rollup, and does not change the final state for a failed rule without `hardGate`. S0 cannot edit that module.

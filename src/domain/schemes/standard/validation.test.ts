@@ -1087,6 +1087,41 @@ describe("malformed diagnostics", () => {
     ).toContain("SEED_ROW_FIELD_INVALID");
   });
 
+  it.each([undefined, null, "BOGUS", "toString"])(
+    "rejects malformed frozen-row status %s without throwing",
+    (status) => {
+      const frozen = { ...row(), status } as unknown as RequirementRegisterRow;
+      let issues: { code: string }[] = [];
+      expect(() => {
+        issues = validateRegisterCoverage(sealPacket().coverage, [frozen]);
+      }).not.toThrow();
+      expect(codes(issues)).toContain("MALFORMED");
+    },
+  );
+
+  it("fails closed at every exported validator boundary when property access throws", () => {
+    const hostile = new Proxy({}, {
+      get() { throw new Error("hostile get"); },
+      ownKeys() { throw new Error("hostile ownKeys"); },
+      getOwnPropertyDescriptor() { throw new Error("hostile descriptor"); },
+    });
+    const cases: [string, () => { code: string }[], string][] = [
+      ["source pack", () => validateSchemeSourcePack(hostile), "MALFORMED"],
+      ["register", () => validateRequirementRegister(hostile, sourcePack()), "MALFORMED"],
+      ["content pack", () => validateSchemeContentPack(hostile, sha256), "MALFORMED"],
+      ["coverage input", () => validateRegisterCoverage(hostile, [row()]), "MALFORMED"],
+      ["coverage rows", () => validateRegisterCoverage([], [hostile as RequirementRegisterRow]), "MALFORMED"],
+      ["seed packet", () => validateSchemeSeedPacket(hostile, sealPack(), sha256), "MALFORMED"],
+      ["seed content pack", () => validateSchemeSeedPacket(sealPacket(), hostile, sha256), "SEED_CONTENT_PACK_INVALID"],
+    ];
+
+    for (const [label, run, expectedCode] of cases) {
+      let issues: { code: string }[] = [];
+      expect(() => { issues = run(); }, label).not.toThrow();
+      expect(codes(issues), label).toContain(expectedCode);
+    }
+  });
+
   // Every position in every validator's input, against every malformed shape.
   const MALFORMED_VALUES = ['{"toString":null}', '{"toString":null,"valueOf":null}', "[]", "12.5", "null", "true"];
 

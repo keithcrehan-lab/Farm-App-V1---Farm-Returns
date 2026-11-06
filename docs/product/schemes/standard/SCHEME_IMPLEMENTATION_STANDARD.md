@@ -45,6 +45,8 @@ Each row is one **atomic** requirement. If two conditions can pass or fail indep
 - `IMPLEMENTED`, `UNSUPPORTED` and `NOT_APPLICABLE` stay as they are, and the entry restates the row's `reason`, `engineRuleRef` and `testRef` exactly. Changing any of them needs a new register version. Only an `IMPLEMENTABLE` row gains these values from coverage;
 - an `IMPLEMENTED` row can read only registered data keys.
 
+**Validation boundary.** Every exported S0 validator is a runtime trust boundary, including `validateRegisterCoverage` even when a caller supplies values typed as register rows. Malformed persisted/runtime values — including unknown enum values, sparse arrays, malformed nested containers and property access that throws — return validation issues and do not escape as exceptions. Assertion helpers may throw only from the validation issues returned by that fail-closed boundary.
+
 **Unsupported or stop.** Per `CAMPAIGN.md`, "Requirement semantics": a clear source that Farm Return cannot evaluate is `UNSUPPORTED`. An absent, incomplete, ambiguous or conflicting source means Farm Return cannot establish what the requirement says, and the phase stops with the matching gate token. A row is never used to record a guess.
 
 **Citing sources.** Every row cites a source, including `UNSUPPORTED` and `NOT_APPLICABLE` rows. A row can cite only a source pinned to its own scheme version, and never a tier 4 source.

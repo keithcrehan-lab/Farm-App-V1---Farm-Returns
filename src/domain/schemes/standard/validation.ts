@@ -444,7 +444,7 @@ function validateCompleteness(
   }
 }
 
-export function validateSchemeSourcePack(input: unknown): SchemeStandardIssue[] {
+function validateSchemeSourcePackUnsafe(input: unknown): SchemeStandardIssue[] {
   if (!isRecord(input)) {
     return [{ code: "MALFORMED", detail: "A source pack must be an object." }];
   }
@@ -662,7 +662,7 @@ function validateRowSource(
   }
 }
 
-export function validateRequirementRegister(
+function validateRequirementRegisterUnsafe(
   input: unknown,
   sourcePack: unknown,
 ): SchemeStandardIssue[] {
@@ -805,7 +805,7 @@ function verifyFingerprint(
   }
 }
 
-export function validateSchemeContentPack(
+function validateSchemeContentPackUnsafe(
   input: unknown,
   hash: SchemeContentHash,
 ): SchemeStandardIssue[] {
@@ -891,15 +891,37 @@ export function validateSchemeContentPack(
   return issues;
 }
 
-function isFrozenRowsShape(rows: unknown): boolean {
+function isRequirementImplementationStatus(
+  value: unknown,
+): value is RequirementImplementationStatus {
+  return typeof value === "string" && Object.hasOwn(COVERAGE_TRANSITIONS, value);
+}
+
+/** Coverage is an exported runtime boundary: its frozen rows may have come
+ * back from storage or another module and must not be trusted merely because
+ * the TypeScript caller claims RequirementRegisterRow[]. Validate every field
+ * the coverage algorithm dereferences before it traverses or formats it. */
+function isFrozenRowsShape(rows: unknown): rows is readonly RequirementRegisterRow[] {
   return (
     Array.isArray(rows) &&
     everyPosition(
       rows,
       (row) =>
         isRecord(row) &&
+        isText(row.id) &&
+        isRequirementImplementationStatus(row.status) &&
         Array.isArray(row.dataKeys) &&
-        everyPosition(row.dataKeys, isRecord),
+        everyPosition(
+          row.dataKeys,
+          (dataKey) =>
+            isRecord(dataKey) &&
+            typeof dataKey.key === "string" &&
+            typeof dataKey.owner === "string" &&
+            Object.hasOwn(DATA_OWNERS, dataKey.owner),
+        ) &&
+        isNullableText(row.engineRuleRef) &&
+        isNullableText(row.testRef) &&
+        isNullableText(row.reason),
     )
   );
 }
@@ -909,7 +931,7 @@ function isFrozenRowsShape(rows: unknown): boolean {
  * unknown row fails: the register is the whole set of rules, and a rule it
  * does not hold is a stop, not an addition.
  */
-export function validateRegisterCoverage(
+function validateRegisterCoverageUnsafe(
   input: unknown,
   rows: readonly RequirementRegisterRow[],
 ): SchemeStandardIssue[] {
@@ -1531,7 +1553,7 @@ function validateSeedTraceability(
  * Validates a seed packet against the content pack it loads. An invalid
  * pack stops here: rows cannot be judged against an untrusted register.
  */
-export function validateSchemeSeedPacket(
+function validateSchemeSeedPacketUnsafe(
   input: unknown,
   contentPack: unknown,
   hash: SchemeContentHash,
@@ -1615,6 +1637,60 @@ export function validateSchemeSeedPacket(
     dataKey: textContext(issue.dataKey),
     ruleKey: textContext(issue.ruleKey),
   }));
+}
+
+/** Exported validators are hostile-input boundaries. They should return an
+ * issue for malformed runtime/persisted data rather than letting an unexpected
+ * dereference, getter or malformed container escape as an exception. */
+function failClosedValidator(
+  boundary: string,
+  validate: () => SchemeStandardIssue[],
+): SchemeStandardIssue[] {
+  try {
+    return validate();
+  } catch {
+    return [{
+      code: "MALFORMED",
+      detail: `${boundary} could not be validated because its runtime shape is malformed.`,
+    }];
+  }
+}
+
+export function validateSchemeSourcePack(input: unknown): SchemeStandardIssue[] {
+  return failClosedValidator("The source pack", () => validateSchemeSourcePackUnsafe(input));
+}
+
+export function validateRequirementRegister(
+  input: unknown,
+  sourcePack: unknown,
+): SchemeStandardIssue[] {
+  return failClosedValidator("The requirement register", () =>
+    validateRequirementRegisterUnsafe(input, sourcePack));
+}
+
+export function validateSchemeContentPack(
+  input: unknown,
+  hash: SchemeContentHash,
+): SchemeStandardIssue[] {
+  return failClosedValidator("The content pack", () =>
+    validateSchemeContentPackUnsafe(input, hash));
+}
+
+export function validateRegisterCoverage(
+  input: unknown,
+  rows: readonly RequirementRegisterRow[],
+): SchemeStandardIssue[] {
+  return failClosedValidator("Register coverage", () =>
+    validateRegisterCoverageUnsafe(input, rows));
+}
+
+export function validateSchemeSeedPacket(
+  input: unknown,
+  contentPack: unknown,
+  hash: SchemeContentHash,
+): SchemeStandardIssue[] {
+  return failClosedValidator("The seed packet", () =>
+    validateSchemeSeedPacketUnsafe(input, contentPack, hash));
 }
 
 /**

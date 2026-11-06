@@ -92,3 +92,28 @@ export async function upsertFieldProductionCycle(input: UpsertFieldProductionCyc
   if (error) throw error;
   return rowToCycle(data as FieldProductionCycleRow);
 }
+
+/** Creates the cycle only when that field and season has none, returning
+ * `null` otherwise. The conflict is decided by the database, so a cycle saved
+ * in the meantime can never be overwritten. */
+export async function insertFieldProductionCycleIfAbsent(input: UpsertFieldProductionCycleInput): Promise<FieldProductionCycle | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("field_production_cycles")
+    .upsert(
+      {
+        field_id: input.fieldId,
+        season: input.season,
+        crop_system: input.cropSystem,
+        status: input.status,
+        start_date: input.startDate ?? null,
+        end_date: input.endDate ?? null,
+        evidence: input.evidence,
+      },
+      { onConflict: "field_id,season", ignoreDuplicates: true },
+    )
+    .select("*")
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToCycle(data as FieldProductionCycleRow) : null;
+}

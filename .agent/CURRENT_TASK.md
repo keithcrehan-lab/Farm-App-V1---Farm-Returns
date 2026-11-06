@@ -1,57 +1,97 @@
-# Task: Schemes S0 - Implementation Standard and Migration Contract
+# Task: Farm Return 10x workflow integration v1
 
-Task ID: schemes-s0-implementation-standard-and-migration-contract-20261105
-Starting HEAD: 8e1e716e96584d45b42d45ac4cd791cfd90a6189
-Verify command: `npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint`
+Task ID: farm-return-10x-workflow-integration-v1-20261106
+Starting HEAD: 4746a0a0594d30e498ff6e7e30f066b41044e093
+Verify command: `npm run typecheck && npm run build`
 
-# Schemes S0 — Scheme Implementation Standard and Migration Contract
-
-Predecessor: none (builds on the Schemes foundation at `a5d049b`)
-Phase directories (new): `docs/product/schemes/standard/`, `src/domain/schemes/standard/`
-
-Binding: `.agent/campaigns/schemes-adviser-v1/CAMPAIGN.md` (invariants, common phase rules, gate-token discipline, audit focus) and `AUTONOMY.md`.
+# Farm Return 10x Workflow Integration V1
 
 ## Objective
-
-Establish the standard every later scheme phase is built and audited against, and the safe path away from the legacy registry. This phase adds no scheme business rules, and no farmer-visible behaviour changes.
+Apply the “detect → pre-fill → farmer confirms → propagate → remember” UX principle across the highest-value existing Farm Return workflows. Reuse the production capabilities already in the repository instead of creating parallel systems. This task is specifically about removing repeated navigation/data entry and making the existing field, GPS, production-cycle, grass, soil-sampling and job-session capabilities work together.
 
 ## Scope
+1. **Bulk field actions**
+   - Turn the existing Fields “Select multiple” mode into a useful action surface.
+   - Provide a safe bulk action to set the canonical field production-cycle crop/use for a selected season across selected fields.
+   - Provide a safe explicit “carry current settings forward” action for a future season across selected fields where a current production cycle exists.
+   - Use the canonical field-production-cycle actions/data layer; do not write legacy `plannedUse` as a competing source of truth.
+   - Preserve per-field provenance and existing evidence; only overwrite the crop/use fields the farmer explicitly confirms.
+   - Show selection count/area, target season, action summary and a confirmation step before saving.
+   - Partial failure must be reported per field; never claim the whole bulk action succeeded if it did not.
 
-Create these documents, at these exact paths (later phases name them as contracts):
+2. **Universal Field Mode**
+   - Extract/reuse the existing GPS-to-field capability (`findNearbyField`, current location providers) into a shared field-context UX.
+   - Surface a clear “Field mode” entry point from the main Farm/Today map and Fields.
+   - When location is available, suggest the likely mapped field and require farmer confirmation.
+   - Once confirmed, show only real quick actions that already have production routes/capabilities:
+     - Open field workspace.
+     - Record grass for this field.
+     - Start/review soil sampling for this field.
+     - Open this field’s nutrient/fertiliser work.
+     - If there is a real current actionable prompt/job for that field, open that existing action path.
+   - Do not fabricate cattle/EID actions or unsupported operations.
 
-- `docs/product/schemes/standard/SCHEME_IMPLEMENTATION_STANDARD.md`:
-  - **Requirement Register contract.** One row per atomic requirement. Fields: stable id; scheme and version; kind (eligibility condition, obligation, deadline, payment rule, cap, exception, exclusion, reduction, penalty, evidence requirement); source id, version and locator; exact source wording reference; applicability; data keys and owners; implementation status (`IMPLEMENTED`, `UNSUPPORTED`, `NOT_APPLICABLE` with reason); engine rule reference; test reference.
-  - **Source-pack contract.** Authority tier, publisher, title, URL, publication date, retrieval date, review record, SHA-256 fingerprint, archived location, the scheme year it governs, and what a completeness claim requires.
-  - **Data ownership.** Canonical owners, the scheme-owned facts rule, and conflict handling, consistent with `SCHEMES_ARCHITECTURE_V1.md` §2–§4.
-  - **Value taxonomy.** Recurring annual support, capital grant and other incomparable types; maximum, current and confirmed classes; what evidence each class needs; the rule that incomparable types are never summed.
-  - **Eligibility states.** The closed set, with precedence between unknown, missing, conflicting, unsupported and review-required, reconciled against the existing `src/domain/schemes/` states. Extend those states rather than creating a competing vocabulary.
-  - **AI trust boundary.** Inputs permitted, outputs permitted, and what AI may never decide.
-  - **Version and update process.** New source release → new version; superseded versions retained; how historical results keep the version used.
-  - **Content pack and seed packet format**, per `CAMPAIGN.md`.
-  - **Phase checklist** the P1 and P2 briefs apply.
-- `docs/product/schemes/standard/LEGACY_MIGRATION_CONTRACT.md`: a map of the legacy `scheme-registry.ts`/`scheme-eligibility.ts`/`support-opportunity.ts`/`support-profile.ts` exports and every current caller (including `src/app/(app)/schemes/page.tsx`, `SchemesPageClient.tsx`, `src/app/actions/support-profile.ts`, `src/lib/scheme-farmer-text.ts`, `src/domain/farm-strategy.ts`); the per-scheme cutover rule from `CAMPAIGN.md`; which phase cuts over each legacy seeded version (BISS S4P2, ANC S7P2, TAMS 3 general and YFCIS S8P2, National Reserve Young Farmer S10P2); what stays until a separately authorised removal task.
+3. **Guided Grass Walk**
+   - Add a guided walk mode to the existing Grass screen, reusing the existing persisted cover observations and GPS assistance.
+   - A farmer can start a walk, see progress (measured / remaining fields), record a reading, and advance to the next field without repeatedly choosing from the field dropdown.
+   - Prefer the live GPS-suggested field when confidence is sufficient; farmer still confirms.
+   - After a successful reading, advance to the next unmeasured field in the current walk.
+   - Preserve the existing normal single-reading workflow and all existing evidence/freshness semantics.
 
-Create `src/domain/schemes/standard/`: pure TypeScript contracts and validators for the Requirement Register, source pack, content pack and seed packet, with fail-closed validation. Reuse `src/domain/schemes/contracts.ts` and `validation.ts` rather than duplicating them. Append one section to `DOMAIN_CONTRACTS.md`.
+4. **Carry-forward / “only ask what changed”**
+   - Surface the repository’s existing future-season carry-forward behaviour as an explicit farmer workflow instead of making the farmer open every field.
+   - For next-season setup, show which selected fields can be carried forward, which already have a target-season cycle, and which have no current cycle to copy.
+   - Farmer confirmation creates/updates only the target-season cycle; current season remains untouched.
+   - Do not invent agronomic values or silently fill missing evidence.
+
+5. **Reuse existing soil sampling, offline job sessions and Confirm Actual**
+   - Do not duplicate these systems.
+   - Make them discoverable from Field Mode / field context where appropriate.
+   - Where Today already has a canonical prompt that can start a job session or Confirm Actual, keep that as the action owner and link to it rather than creating a second “complete operation” implementation.
+
+6. **Map/lens integration**
+   - Keep the existing Current / Grass / Nutrients / Conditions lens architecture.
+   - Field Mode and bulk actions should preserve the same field identity/selection mental model.
+   - Do not add a “Schemes” or other field lens unless the repository already has real field-level data to support it.
+
+7. **Small adjacent wins only where they reuse existing data contracts**
+   - Housing: if safe with existing storage, offer “Add another like this” to prefill structural shed details while never copying live fill/observation state.
+   - Records/Finance, document OCR, EID/RFID, generic field observations and broader offline support are out of scope unless a real durable production contract already exists in the repo. Do not add dead buttons, fake extraction, fake scanning, or local-only data that looks persisted.
 
 ## Out of scope
-
-- Any real scheme rule, threshold, date, rate or requirement. Fixtures use `SYNTH-*` content.
-- Deleting or changing legacy functionality, any UI change, any database or migration work.
-- Editing existing `src/domain/schemes/` modules. If the standard truly needs that, stop for scope.
+- No new scientific, regulatory or financial calculations.
+- No new migration or schema change.
+- No production deployment or push.
+- No modification of the Schemes adviser implementation files; that build is continuing separately.
+- No OCR/AI document extraction without an existing real service and persistence path.
+- No cattle EID/RFID integration without a real device/input contract.
+- No new map layer that implies unsupported data.
+- No duplicate offline architecture; reuse the existing outbox where it already applies.
 
 ## Acceptance criteria
-
-- Both documents exist at the exact paths and cover every item above.
-- Register, source-pack, content-pack and seed-packet validators reject: a row with no source; a source with no fingerprint or year; a source from another version; duplicate ids; an `UNSUPPORTED` row with no reason; a `NOT_APPLICABLE` row with no reason; a completeness claim with no review record.
-- The legacy map is checked against actual imports and is complete.
-- Existing behaviour is unchanged: all existing `schemes/` tests still pass unmodified.
+- Existing Fields multi-select no longer ends with “bulk planning isn’t available yet”; at least the canonical production-cycle bulk workflows above are usable end to end.
+- Bulk actions are farmer-confirmed, farm-scoped, provenance-safe and tested for mixed success / missing current cycle / existing target cycle.
+- Today and Fields expose Field Mode using the shared GPS-to-field logic and confirmed-field quick actions.
+- Field Mode never auto-claims a field when GPS confidence is insufficient.
+- Grass has a guided walk mode with real progress and next-field advancement after successful save.
+- Existing soil-sampling and job-session/Confirm Actual routes are reused, not reimplemented.
+- Future-season carry-forward is explicit, target-season-only and does not fabricate missing agronomic evidence.
+- Existing standard workflows remain available and unchanged when the new modes are not used.
+- Mobile-first accessibility: minimum existing tap-target conventions, labelled controls, keyboard-safe on desktop.
+- All touched behaviour has focused tests; no regression to existing Fields, Grass, Today, soil-sampling or production-cycle tests.
 
 ## Required tests
-
-- Table-driven validator tests: one positive control and one negative for each rejection above.
-- Version isolation: a register row cannot cite a source pinned to another version.
-- The verify command.
+- Focused Vitest for new bulk production-cycle actions/domain helpers.
+- Fields page tests covering selection → bulk action → confirmation → success/partial failure.
+- Shared Field Mode tests for GPS suggested, ambiguous/no suggestion, confirm, quick links.
+- Today and Fields integration tests for Field Mode entry point.
+- Grass tests for start walk, progress, GPS suggestion, save-and-advance, finish walk.
+- Existing soil-sample and job-session/Confirm Actual tests must continue to pass when affected.
+- Typecheck, scoped lint and Next build.
 
 ## STOP conditions
-
-Stop with `BUILD_RESULT: BLOCKED <reason>` if the standard cannot be made consistent with `SCHEMES_ARCHITECTURE_V1.md` or the frozen contracts without a product decision, or if any requirement here needs a migration, a frozen-contract change or a real scheme fact. Follow the gate-token discipline in `CAMPAIGN.md`.
+- A required workflow needs a database migration or destructive schema change.
+- A proposed quick action has no real production route/action behind it.
+- Carry-forward would require fabricating scientific/agronomic values rather than explicit farmer confirmation of existing recorded settings.
+- A change would require editing the active Schemes adviser implementation files.
+- A frozen/shared contract must change non-additively.

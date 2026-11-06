@@ -10,6 +10,8 @@ import { FieldWindChip } from "@/components/farm/FieldWindChip";
 import { FieldDrawer, ManageField } from "@/components/farm/FieldDrawer";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
 import { FieldScanModal } from "@/components/farm/FieldScanModal";
+import { BulkFieldActionSheet, type BulkFieldAction } from "@/components/farm/BulkFieldActionSheet";
+import { FieldModeSheet } from "@/components/farm/FieldModeSheet";
 import { FarmFieldDrawer } from "@/components/farm-spatial/FarmFieldDrawer";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
 import { useAllFieldsIncludingArchived, useFarm, useFarmActions, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
@@ -46,7 +48,8 @@ import type { MissingSlurryPlanningDetail } from "@/domain/what-matters-no-recom
  *   brings the same selected-field panel forward as Farm. Structural work
  *   (add, edit boundary, rename/change use, delete/restore) lives in an explicit
  *   Manage fields mode, and a Select multiple fields mode holds a
- *   selection without pretending bulk planning exists.
+ *   selection that the canonical production-cycle bulk actions work on.
+ *   Field mode (GPS suggests, the farmer confirms) opens from here too.
  * - Field workspace (`/fields?field=<id>`, optionally `&chapter=`): the
  *   real map as hero with the field's Overview / Nutrients / History.
  *   The id must resolve to a real active field, otherwise the companion
@@ -163,8 +166,12 @@ function FieldsCompanion({
   const selectedField = fields.find((f) => f.id === selectedFieldId);
   const mappedCount = fields.filter((f) => f.polygon).length;
   const farmAreaHa = calculateActiveFarmAreaHa(fields);
-  const multiFields = fields.filter((f) => multiIds.includes(f.id));
+  const multiFields = useMemo(() => fields.filter((f) => multiIds.includes(f.id)), [fields, multiIds]);
   const multiAreaHa = calculateActiveFarmAreaHa(multiFields);
+  const [bulkAction, setBulkAction] = useState<BulkFieldAction | null>(null);
+  const [fieldModeOpen, setFieldModeOpen] = useState(false);
+  const [fieldModePrompt, setFieldModePrompt] = useState<Prompt | undefined>(undefined);
+  const isRealMode = useIsRealMode();
 
   const selectedPlanResult = useFieldNutrientPlan(mode === "multi" ? undefined : selectedField);
   const lensView = selectedField ? farmFieldLensView("current", selectedField, { slurryAllocations }) : undefined;
@@ -278,20 +285,7 @@ function FieldsCompanion({
             <div className="relative px-2 pb-2 sm:px-3 lg:w-[400px] lg:px-9 lg:pb-8">
               {mode === "multi" ? (
                 <div className="pointer-events-auto bg-fr-v2-forest-deep/[0.96] px-5 py-4 text-white shadow-[0_18px_40px_rgba(0,0,0,0.32)]" data-multi-select-bar>
-                  <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-fr-v2-straw">Select multiple fields</p>
-                  <p className="mt-1 font-display text-[24px] leading-tight">
-                    {multiFields.length === 0 ? "Tap fields to select them" : `${multiFields.length} ${multiFields.length === 1 ? "field" : "fields"}`}
-                  </p>
-                  {multiAreaHa !== null ? <p className="mt-1 font-mono text-[12px] tabular-nums text-white/70">{formatNumber(multiAreaHa, 2)} ha selected</p> : null}
-                  <p className="mt-3 text-xs text-white/65">Bulk planning isn&apos;t available yet — open each field to plan it.</p>
-                  <p className="mt-3 flex gap-4">
-                    <button type="button" onClick={() => setMultiIds([])} className="min-h-10 text-xs font-semibold text-white/80 underline underline-offset-2">
-                      Clear
-                    </button>
-                    <button type="button" onClick={() => changeMode("multi")} className="min-h-10 text-xs font-semibold text-white underline underline-offset-2">
-                      Done
-                    </button>
-                  </p>
+                  <MultiSelectSummary count={multiFields.length} areaHa={multiAreaHa} onAction={setBulkAction} onClear={() => setMultiIds([])} onDone={() => changeMode("multi")} />
                 </div>
               ) : (
                 <FarmFieldDrawer field={selection ? selectedField : undefined} lensId="current" selection={selection} onClose={() => setSelectedFieldId(undefined)} />
@@ -344,7 +338,17 @@ function FieldsCompanion({
           >
             Manage fields
           </button>
+          <button type="button" onClick={() => setFieldModeOpen(true)} className="ml-auto min-h-11 text-xs font-semibold text-fr-v2-forest hover:text-fr-v2-graphite">
+            Field mode
+          </button>
         </div>
+
+        {/* The phone's list view hides the map and the bar over it. */}
+        {mode === "multi" ? (
+          <div className="bg-fr-v2-forest-deep px-4 py-4 text-white lg:hidden" data-multi-select-list>
+            <MultiSelectSummary count={multiFields.length} areaHa={multiAreaHa} onAction={setBulkAction} onClear={() => setMultiIds([])} onDone={() => changeMode("multi")} />
+          </div>
+        ) : null}
 
         {mode === "manage" ? (
           <div className="flex flex-col gap-2 bg-fr-v2-forest-deep px-4 py-4 text-white lg:px-7" data-manage-mode>
@@ -449,6 +453,28 @@ function FieldsCompanion({
 
       </aside>
 
+      <BulkFieldActionSheet action={bulkAction} fields={multiFields} onClose={() => setBulkAction(null)} />
+
+      <FieldModeSheet
+        open={fieldModeOpen}
+        onClose={() => setFieldModeOpen(false)}
+        fields={fields}
+        leadingPromptFor={leadingPromptFor}
+        onViewPrompt={setFieldModePrompt}
+        onConfirmField={(fieldId) => {
+          setMode("browse");
+          setMultiIds([]);
+          setSelectedFieldId(fieldId);
+        }}
+      />
+      <ExpandedPromptSheet
+        open={Boolean(fieldModePrompt)}
+        onClose={() => setFieldModePrompt(undefined)}
+        prompt={fieldModePrompt}
+        fieldName={fields.find((f) => f.id === fieldModePrompt?.fieldId)?.name}
+        canRecord={isRealMode}
+      />
+
       {scanOpen ? (
         <FieldScanModal
           farmName={farm.name}
@@ -487,6 +513,44 @@ function FieldsCompanion({
         />
       ) : null}
     </section>
+  );
+}
+
+function MultiSelectSummary({
+  count,
+  areaHa,
+  onAction,
+  onClear,
+  onDone,
+}: {
+  count: number;
+  areaHa: number | null;
+  onAction: (action: BulkFieldAction) => void;
+  onClear: () => void;
+  onDone: () => void;
+}) {
+  return (
+    <>
+      <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-fr-v2-straw">Select multiple fields</p>
+      <p className="mt-1 font-display text-[24px] leading-tight">{count === 0 ? "Tap fields to select them" : `${count} ${count === 1 ? "field" : "fields"}`}</p>
+      {areaHa !== null ? <p className="mt-1 font-mono text-[12px] tabular-nums text-white/70">{formatNumber(areaHa, 2)} ha selected</p> : null}
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button type="button" disabled={count === 0} onClick={() => onAction("set-crop")} className="min-h-11 bg-fr-v2-cream px-2 text-xs font-semibold text-fr-v2-forest-deep disabled:opacity-40">
+          Set crop / use
+        </button>
+        <button type="button" disabled={count === 0} onClick={() => onAction("carry-forward")} className="min-h-11 border border-white/25 px-2 text-xs font-semibold text-white disabled:opacity-40">
+          Carry forward
+        </button>
+      </div>
+      <p className="mt-3 flex gap-4">
+        <button type="button" onClick={onClear} className="min-h-10 text-xs font-semibold text-white/80 underline underline-offset-2">
+          Clear
+        </button>
+        <button type="button" onClick={onDone} className="min-h-10 text-xs font-semibold text-white underline underline-offset-2">
+          Done
+        </button>
+      </p>
+    </>
   );
 }
 

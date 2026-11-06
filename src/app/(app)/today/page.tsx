@@ -77,7 +77,9 @@ import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { FarmConditionsControl } from "@/components/farm-spatial/FarmConditionsControl";
 import { farmConditionsSummary, spreadingCalendarEntry, spreadingCalendarStatusLine } from "@/lib/farm-conditions-summary";
+import { MapPin } from "lucide-react";
 import { NearbyFieldCard } from "@/components/farm/NearbyFieldCard";
+import { FieldModeSheet } from "@/components/farm/FieldModeSheet";
 import { GpsActivityCandidateCard } from "@/components/farm/GpsActivityCandidateCard";
 import { useOneShotPosition } from "@/lib/location/use-one-shot-position";
 import { Sheet } from "@/components/ui/Sheet";
@@ -172,6 +174,7 @@ export default function TodayPage() {
   // ground, the drawer's close button or Escape all deselect.
   const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(undefined);
   const selectedField = fields.find((f) => f.id === selectedFieldId && f.polygon);
+  const [fieldModeOpen, setFieldModeOpen] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
   function toggleSelectedField(fieldId: string) {
@@ -741,6 +744,13 @@ export default function TodayPage() {
                   <div className="pointer-events-auto flex max-w-md flex-col gap-2">
                     <GpsActivityCandidateCard fields={fields} />
                     <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
+                    <button
+                      type="button"
+                      onClick={() => setFieldModeOpen(true)}
+                      className="flex min-h-11 items-center gap-2 self-start bg-fr-v2-forest-deep/90 px-3 text-xs font-semibold text-white backdrop-blur"
+                    >
+                      <MapPin className="size-3.5" aria-hidden /> Field mode
+                    </button>
                   </div>
                   <div className="pointer-events-auto">
                     {lens === "grass" && !grassLoadFailed ? (
@@ -894,6 +904,15 @@ export default function TodayPage() {
         onViewEvidence={(row: TodayOpportunityFieldRow) => {
           if (row.sourcePrompt) setOpenPrompt(row.sourcePrompt);
         }}
+      />
+
+      <FieldModeSheet
+        open={fieldModeOpen}
+        onClose={() => setFieldModeOpen(false)}
+        fields={fields}
+        leadingPromptFor={(fieldId) => selectPrimaryPrompt(allPrompts.filter((p) => p.fieldId === fieldId))}
+        onViewPrompt={setOpenPrompt}
+        onConfirmField={setSelectedFieldId}
       />
 
       <ExpandedPromptSheet

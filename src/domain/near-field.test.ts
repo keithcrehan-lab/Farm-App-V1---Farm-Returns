@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distanceToPolygonBoundaryKm, distanceToPolygonKm, findNearbyField, NEAR_FIELD_THRESHOLD_KM } from "./near-field";
+import { distanceToPolygonBoundaryKm, distanceToPolygonKm, findNearbyField, NEAR_FIELD_THRESHOLD_KM, suggestFieldFromPosition } from "./near-field";
 import { boundaryPolygonFromRing, computeBoundaryGeometry } from "./field-boundary";
 import { mockFields } from "@/data/mock-farm";
 import type { Field } from "./types";
@@ -153,5 +153,47 @@ describe("findNearbyField", () => {
     const unmapped = field({ id: "field-2", polygon: undefined });
     const inside = { latitude: 51.899, longitude: -8.4857, accuracyMeters: 20 };
     expect(findNearbyField([unmapped], inside)).toBeNull();
+  });
+});
+
+describe("suggestFieldFromPosition", () => {
+  // The neighbour shares the east edge of the one-hectare square.
+  const NEIGHBOUR = boundaryPolygonFromRing([
+    [-8.4851, 51.8985],
+    [-8.4839, 51.8985],
+    [-8.4839, 51.8994],
+    [-8.4851, 51.8994],
+    [-8.4851, 51.8985],
+  ]);
+  const neighbour = () => field({ id: "field-2", name: "Road Field", polygon: NEIGHBOUR });
+  const middle = { latitude: 51.89895, longitude: -8.4857 };
+
+  it("suggests nothing without a trustworthy fix", () => {
+    expect(suggestFieldFromPosition([field()], null)).toEqual({ status: "none" });
+    expect(suggestFieldFromPosition([field()], middle)).toEqual({ status: "none" });
+    expect(suggestFieldFromPosition([field()], { ...middle, accuracyMeters: 0 })).toEqual({ status: "none" });
+  });
+
+  it("suggests nothing when the worst-case distance is out of range", () => {
+    expect(suggestFieldFromPosition([field()], { latitude: 51.95, longitude: -8.4857, accuracyMeters: 10 })).toEqual({ status: "none" });
+  });
+
+  it("suggests the one field the fix can separate from its neighbour", () => {
+    const result = suggestFieldFromPosition([field(), neighbour()], { ...middle, accuracyMeters: 5 });
+    expect(result.status).toBe("suggested");
+    expect(result.status === "suggested" && result.field.id).toBe("field-1");
+  });
+
+  it("returns both fields when the accuracy radius can't separate them, and never names one", () => {
+    const nearHedge = { latitude: 51.89895, longitude: -8.48515, accuracyMeters: 30 };
+    const result = suggestFieldFromPosition([field(), neighbour()], nearHedge);
+    expect(result.status).toBe("ambiguous");
+    expect(result.status === "ambiguous" && result.candidates.map((candidate) => candidate.id).sort()).toEqual(["field-1", "field-2"]);
+  });
+
+  it("never offers an unmapped field as a candidate", () => {
+    const unmapped = field({ id: "field-3", polygon: undefined });
+    const result = suggestFieldFromPosition([field(), unmapped], { ...middle, accuracyMeters: 5 });
+    expect(result.status === "suggested" && result.field.id).toBe("field-1");
   });
 });

@@ -11,7 +11,8 @@ import { formatNumber } from "@/lib/format";
 import { useFarm, useFields } from "@/store/farm-store";
 import { createWebLocationTrackingProvider } from "@/lib/location/web-location-tracking-provider";
 import type { LocationPosition, LocationTrackingProvider } from "@/lib/location/location-tracking-provider";
-import { findNearbyField } from "@/domain/near-field";
+import { findNearbyField, suggestFieldFromPosition } from "@/domain/near-field";
+import { grassWalkProgress, moveGrassWalkTo, recordGrassWalkReading, skipGrassWalkField, startGrassWalk, type GrassWalk } from "@/lib/grass-walk";
 import {
   DEFAULT_GRASS_PRESENTATION_TARGETS,
   GRASS_COVER_METHODS,
@@ -141,7 +142,7 @@ function grazingDemandLabel(session: GrassOpenGrazingSessionView): string {
   }
 }
 
-export function GrassPageClient() {
+export function GrassPageClient({ initialFieldId }: { initialFieldId?: string }) {
   const farm = useFarm();
   const storeFields = useFields();
   const [data, setData] = useState<GrassManagementData | null>(null);
@@ -151,7 +152,10 @@ export function GrassPageClient() {
   const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>();
   const [confidenceOpen, setConfidenceOpen] = useState(false);
 
-  const [recordFieldId, setRecordFieldId] = useState("");
+  const [recordFieldId, setRecordFieldId] = useState(initialFieldId ?? "");
+  // Guided walk: `null` is the normal single-reading workflow.
+  const [walk, setWalk] = useState<GrassWalk | null>(null);
+  const walkStartedGpsRef = useRef(false);
   const [coverInput, setCoverInput] = useState("");
   const [method, setMethod] = useState<GrassCoverMethod>("plate_meter");
   const [coverObservedAt, setCoverObservedAt] = useState(() => toDateTimeLocal());
@@ -208,6 +212,12 @@ export function GrassPageClient() {
   }, []);
 
   const okData = data?.status === "ok" ? data : undefined;
+  // A link's field only counts once it's known to be an active field here.
+  const selectedRecordFieldId = okData?.fields.some((field) => field.id === recordFieldId) ? recordFieldId : "";
+  const linkedFieldReady = !loading && Boolean(initialFieldId && okData?.fields.some((field) => field.id === initialFieldId));
+  useEffect(() => {
+    if (linkedFieldReady) document.getElementById("record-grass")?.scrollIntoView?.({ block: "start" });
+  }, [linkedFieldReady]);
   const activeFieldIds = useMemo(() => new Set(okData?.fields.map((field) => field.id) ?? []), [okData?.fields]);
   const fields = useMemo(() => storeFields.filter((field) => activeFieldIds.has(field.id)), [storeFields, activeFieldIds]);
   const latestByField = useMemo(
@@ -316,6 +326,16 @@ export function GrassPageClient() {
     });
   }, [fields, livePosition]);
 
+  // The walk only trusts a live fix, and one the accuracy can separate from
+  // its neighbours. It suggests a field; the farmer still confirms by saving.
+  const walkGpsSuggestion = useMemo(() => {
+    if (!walk || tracking !== "tracking" || !livePosition) return null;
+    return suggestFieldFromPosition(fields, { latitude: livePosition.lat, longitude: livePosition.lng, accuracyMeters: livePosition.accuracyMeters });
+  }, [walk, tracking, livePosition, fields]);
+  const walkGpsFieldId = walkGpsSuggestion?.status === "suggested" ? walkGpsSuggestion.field.id : null;
+  const walkProgress = walk ? grassWalkProgress(walk) : null;
+  const walkOfferedFieldId = walk && walkGpsFieldId && walkGpsFieldId !== walk.currentFieldId && walkProgress?.remainingFieldIds.includes(walkGpsFieldId) ? walkGpsFieldId : null;
+
   const historyCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const observation of okData?.coverObservations ?? []) counts.set(observation.fieldId, (counts.get(observation.fieldId) ?? 0) + 1);
@@ -358,19 +378,38 @@ export function GrassPageClient() {
     setTracking("idle");
   }
 
+  function startWalk() {
+    setCoverError(null);
+    setCoverMessage(null);
+    setWalk(startGrassWalk(okData?.fields.map((field) => field.id) ?? []));
+    if (tracking !== "tracking" && tracking !== "starting") {
+      walkStartedGpsRef.current = true;
+      void startGps();
+    }
+  }
+
+  function finishWalk() {
+    if (walkProgress) setCoverMessage(`Walk finished: ${walkProgress.measured} of ${walkProgress.total} ${walkProgress.total === 1 ? "field" : "fields"} measured.`);
+    setCoverError(null);
+    setWalk(null);
+    if (walkStartedGpsRef.current) void stopGps();
+    walkStartedGpsRef.current = false;
+  }
+
   async function saveCover() {
     setCoverError(null);
     setCoverMessage(null);
     const observedAt = toIso(coverObservedAt);
     const cover = Number(coverInput);
-    if (!recordFieldId) { setCoverError("Choose the field this reading belongs to."); return; }
+    const fieldId = walk ? walk.currentFieldId : selectedRecordFieldId;
+    if (!fieldId) { setCoverError("Choose the field this reading belongs to."); return; }
     if (!observedAt) { setCoverError("Choose a valid observation date and time."); return; }
     if (!Number.isFinite(cover) || cover <= 0) { setCoverError("Enter the grass cover in kg DM/ha."); return; }
     setCoverSaving(true);
     try {
       const result = await recordGrassCoverObservationAction({
         id: globalThis.crypto.randomUUID(),
-        fieldId: recordFieldId,
+        fieldId,
         coverKgDmHa: cover,
         method,
         observedAt,
@@ -383,6 +422,7 @@ export function GrassPageClient() {
       setCoverMessage(`Recorded ${formatNumber(result.observation.coverKgDmHa, 0)} kg DM/ha for ${fieldNameById.get(result.observation.fieldId) ?? "field"}.`);
       setCoverInput("");
       setCoverObservedAt(toDateTimeLocal());
+      setWalk((current) => (current ? recordGrassWalkReading(current, fieldId, walkGpsFieldId) : current));
       await reload();
     } catch (error) {
       setCoverError(error instanceof Error ? error.message : "The reading could not be saved.");
@@ -620,12 +660,59 @@ export function GrassPageClient() {
         ) : null}
       </section>
 
-      <section className="mt-9 border-t border-fr-v2-cream-rule pt-7">
+      <section id="record-grass" className="mt-9 scroll-mt-4 border-t border-fr-v2-cream-rule pt-7">
         <div className="grid gap-8 xl:grid-cols-[1.1fr_.9fr]">
           <div>
             <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-fr-v2-muted">Field walk</p>
             <h2 className="mt-1 font-display text-[30px] leading-none text-fr-v2-graphite">Record grass</h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-fr-v2-muted">A field reading becomes the new ground truth. Farm Return keeps the method, time and GPS evidence separately; it does not average different methods behind your back.</p>
+
+            {walk && walkProgress ? (
+              <div className="mt-5 border-l-[3px] border-fr-v2-teal bg-fr-v2-cream px-4 py-4" data-grass-walk aria-label="Guided grass walk">
+                <div className="flex flex-wrap items-baseline justify-between gap-3">
+                  <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-fr-v2-muted">Guided walk</p>
+                  <p className="font-mono text-xs tabular-nums text-fr-v2-charcoal" data-grass-walk-progress aria-live="polite">{walkProgress.measured} of {walkProgress.total} measured · {walkProgress.remaining} remaining</p>
+                </div>
+                {walkProgress.complete ? (
+                  <p className="mt-2 font-display text-[24px] leading-tight text-fr-v2-graphite">Every field measured</p>
+                ) : walk.currentFieldId ? (
+                  <>
+                    <p className="mt-2 text-xs text-fr-v2-muted">Now measuring</p>
+                    <p className="font-display text-[24px] leading-tight text-fr-v2-graphite" data-grass-walk-current>{fieldNameById.get(walk.currentFieldId) ?? "Field"}</p>
+                  </>
+                ) : (
+                  <p className="mt-2 text-sm text-fr-v2-charcoal">All remaining fields are skipped. Choose one below or finish the walk.</p>
+                )}
+                {walkOfferedFieldId ? (
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-fr-v2-cream-rule pt-3">
+                    <p className="inline-flex items-center gap-2 text-sm text-fr-v2-charcoal"><MapPin className="size-4 text-fr-v2-teal" /> GPS suggests <strong>{fieldNameById.get(walkOfferedFieldId) ?? "Field"}</strong></p>
+                    <button type="button" onClick={() => setWalk(moveGrassWalkTo(walk, walkOfferedFieldId))} className="min-h-10 text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2">Measure this field</button>
+                  </div>
+                ) : null}
+                {walkGpsSuggestion?.status === "ambiguous" ? <p className="mt-3 border-t border-fr-v2-cream-rule pt-3 text-xs text-fr-v2-muted">GPS can&apos;t separate {walkGpsSuggestion.candidates.map((candidate) => candidate.name).join(" and ")}. Check the field name before saving.</p> : null}
+                {walkProgress.remainingFieldIds.some((id) => id !== walk.currentFieldId) ? (
+                  <div className="mt-3 border-t border-fr-v2-cream-rule pt-3">
+                    <p className="text-xs text-fr-v2-muted">Still to measure</p>
+                    <div className="mt-1 flex flex-wrap gap-x-4">
+                      {walkProgress.remainingFieldIds.filter((id) => id !== walk.currentFieldId).map((id) => (
+                        <button key={id} type="button" onClick={() => setWalk(moveGrassWalkTo(walk, id))} className="min-h-10 text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2">
+                          {fieldNameById.get(id) ?? "Field"}{walk.skippedIds.includes(id) ? " (skipped)" : ""}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                <div className="mt-3 flex flex-wrap gap-x-5 border-t border-fr-v2-cream-rule pt-2">
+                  {walk.currentFieldId ? <button type="button" onClick={() => setWalk(skipGrassWalkField(walk, walkGpsFieldId))} className="min-h-10 text-xs font-semibold text-fr-v2-muted underline underline-offset-2">Skip this field</button> : null}
+                  <button type="button" onClick={finishWalk} className="min-h-10 text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2">Finish walk</button>
+                </div>
+              </div>
+            ) : okData.fields.length > 0 ? (
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-y border-fr-v2-cream-rule py-3">
+                <p className="max-w-sm text-xs text-fr-v2-muted">Walking several fields? Go field to field without choosing each one from the list.</p>
+                <button type="button" onClick={startWalk} className="min-h-11 rounded-fr-v2-control border border-fr-v2-forest px-4 text-sm font-semibold text-fr-v2-forest">Start guided walk</button>
+              </div>
+            ) : null}
 
             <div className="mt-5 rounded-[18px] border border-fr-v2-cream-rule bg-fr-v2-cream p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -643,7 +730,7 @@ export function GrassPageClient() {
                 {tracking === "unsupported" ? <p>Live GPS is not available on this device/browser. Choose the field manually.</p> : null}
                 {tracking === "error" ? <p>GPS tracking was interrupted. Choose the field manually or try again.</p> : null}
               </div>
-              {gpsSuggestedField ? (
+              {walk ? null : gpsSuggestedField ? (
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-fr-v2-cream-rule pt-3">
                   <p className="inline-flex items-center gap-2 text-sm text-fr-v2-charcoal"><MapPin className="size-4 text-fr-v2-teal" /> GPS suggests <strong>{gpsSuggestedField.name}</strong></p>
                   <button type="button" onClick={() => setRecordFieldId(gpsSuggestedField.id)} className="text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2">Use suggested field</button>
@@ -652,12 +739,14 @@ export function GrassPageClient() {
             </div>
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <label className="text-xs font-semibold text-fr-v2-charcoal sm:col-span-2">Field
-                <select value={recordFieldId} onChange={(event) => setRecordFieldId(event.target.value)} className="mt-1 block min-h-11 w-full rounded-fr-v2-control border border-fr-v2-cream-rule bg-white px-3 text-sm font-normal">
-                  <option value="">Choose field</option>
-                  {okData.fields.map((field) => <option key={field.id} value={field.id}>{field.name}</option>)}
-                </select>
-              </label>
+              {walk ? null : (
+                <label className="text-xs font-semibold text-fr-v2-charcoal sm:col-span-2">Field
+                  <select value={selectedRecordFieldId} onChange={(event) => setRecordFieldId(event.target.value)} className="mt-1 block min-h-11 w-full rounded-fr-v2-control border border-fr-v2-cream-rule bg-white px-3 text-sm font-normal">
+                    <option value="">Choose field</option>
+                    {okData.fields.map((field) => <option key={field.id} value={field.id}>{field.name}</option>)}
+                  </select>
+                </label>
+              )}
               <label className="text-xs font-semibold text-fr-v2-charcoal">Cover (kg DM/ha)
                 <input type="number" min="1" max="10000" inputMode="decimal" value={coverInput} onChange={(event) => setCoverInput(event.target.value)} placeholder="e.g. 1450" className="mt-1 block min-h-11 w-full rounded-fr-v2-control border border-fr-v2-cream-rule bg-white px-3 font-mono text-sm font-normal" />
               </label>
@@ -672,7 +761,7 @@ export function GrassPageClient() {
             </div>
             {coverError ? <p className="mt-3 text-xs font-semibold text-fr-red-700">{coverError}</p> : null}
             {coverMessage ? <p className="mt-3 text-xs font-semibold text-fr-v2-forest">{coverMessage}</p> : null}
-            <button type="button" disabled={coverSaving} onClick={() => void saveCover()} className="mt-4 min-h-11 rounded-fr-v2-control bg-fr-v2-forest px-5 text-sm font-semibold text-white disabled:opacity-50">{coverSaving ? "Saving…" : "Record grass reading"}</button>
+            <button type="button" disabled={coverSaving || (walk !== null && !walk.currentFieldId)} onClick={() => void saveCover()} className="mt-4 min-h-11 rounded-fr-v2-control bg-fr-v2-forest px-5 text-sm font-semibold text-white disabled:opacity-50">{coverSaving ? "Saving…" : walk?.currentFieldId ? `Save reading for ${fieldNameById.get(walk.currentFieldId) ?? "field"}` : "Record grass reading"}</button>
           </div>
 
           <div>

@@ -11,6 +11,12 @@ import FieldsPage from "./page";
 // the I/O boundary only.
 vi.mock("@/app/actions/field-awareness", () => ({ getFieldAwarenessAction: vi.fn().mockResolvedValue(null) }));
 vi.mock("@/components/farm/FieldWindChip", () => ({ FieldWindChip: () => null }));
+const bulk = vi.hoisted(() => ({ preview: vi.fn(), setCrop: vi.fn(), carry: vi.fn() }));
+vi.mock("@/app/actions/bulk-production-cycles", () => ({
+  previewBulkProductionCyclesAction: bulk.preview,
+  setBulkFieldCropSystemAction: bulk.setCrop,
+  carryForwardFieldCyclesAction: bulk.carry,
+}));
 
 const search = vi.hoisted(() => ({ current: new URLSearchParams() }));
 const push = vi.hoisted(() => vi.fn());
@@ -195,7 +201,7 @@ describe("Fields companion (Farm + Fields redesign)", () => {
     expect(within(row(home.id)).getByRole("button", { name: /delete field/i })).toBeTruthy();
   });
 
-  it("Select multiple holds an explicit selection without pretending bulk planning exists, and clears on exit", () => {
+  it("Select multiple holds an explicit selection with real actions, and clears on exit", () => {
     renderFields();
     fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
     act(() => mapProps!.onSelectField!(home.id));
@@ -204,7 +210,9 @@ describe("Fields companion (Farm + Fields redesign)", () => {
     expect(mapProps!.selectedFieldId).toBeUndefined();
     const bar = document.querySelector("[data-multi-select-bar]") as HTMLElement;
     expect(bar.textContent).toContain("2 fields");
-    expect(bar.textContent).toMatch(/bulk planning isn't available yet/i);
+    expect(bar.textContent).not.toMatch(/isn't available yet/i);
+    expect(within(bar).getByRole("button", { name: "Set crop / use" })).toBeTruthy();
+    expect(within(bar).getByRole("button", { name: "Carry forward" })).toBeTruthy();
     act(() => mapProps!.onSelectField!(home.id));
     expect(mapProps!.highlightedFieldIds).toEqual([other.id]);
     fireEvent.click(within(bar).getByRole("button", { name: "Done" }));
@@ -301,6 +309,182 @@ describe("Fields companion (Farm + Fields redesign)", () => {
     await vi.waitFor(() => expect(push).toHaveBeenCalled());
     const destination = String(push.mock.calls.at(-1)?.[0] ?? "");
     expect(destination).toMatch(/^\/fields\?field=.+&chapter=nutrients$/);
+  });
+});
+
+describe("Fields bulk production-cycle actions", () => {
+  const thisSeason = String(new Date().getFullYear());
+  const nextSeason = String(Number(thisSeason) + 1);
+
+  function previewOf(rows: { fieldId: string; fieldName: string; currentCropSystem?: string; targetCropSystem?: string; carryForward: string }[], targetSeason: string) {
+    return { status: "ok", currentSeason: thisSeason, targetSeason, rows };
+  }
+
+  function openAction(name: "Set crop / use" | "Carry forward") {
+    fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
+    act(() => mapProps!.onSelectField!(home.id));
+    act(() => mapProps!.onSelectField!(other.id));
+    const bar = document.querySelector("[data-multi-select-bar]") as HTMLElement;
+    fireEvent.click(within(bar).getByRole("button", { name }));
+  }
+
+  function chooseCrop() {
+    fireEvent.change(screen.getByLabelText("Crop / use"), { target: { value: "GRASS_HAY" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review changes" }));
+  }
+
+  beforeEach(() => {
+    bulk.preview.mockReset();
+    bulk.setCrop.mockReset();
+    bulk.carry.mockReset();
+    bulk.preview.mockImplementation(async ({ targetSeason }: { targetSeason: string }) =>
+      previewOf(
+        [
+          { fieldId: home.id, fieldName: home.name, targetCropSystem: "GRASS_GRAZING", carryForward: "HAS_TARGET_CYCLE" },
+          { fieldId: other.id, fieldName: other.name, carryForward: "CAN_CARRY", currentCropSystem: "GRASS_HAY" },
+        ],
+        targetSeason,
+      ),
+    );
+  });
+
+  it("disables the actions until a field is selected", () => {
+    renderFields();
+    fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
+    const bar = document.querySelector("[data-multi-select-bar]") as HTMLElement;
+    expect((within(bar).getByRole("button", { name: "Set crop / use" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(bar).getByRole("button", { name: "Carry forward" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("offers the same actions in the phone's list view, where the map bar is hidden", () => {
+    renderFields();
+    fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
+    const list = document.querySelector("[data-multi-select-list]") as HTMLElement;
+    expect(within(list).getByRole("button", { name: "Carry forward" })).toBeTruthy();
+  });
+
+  it("goes from selection through confirmation to success, writing nothing before the farmer confirms", async () => {
+    bulk.setCrop.mockResolvedValue({
+      status: "completed",
+      season: thisSeason,
+      outcomes: [
+        { fieldId: home.id, fieldName: home.name, outcome: "saved", gateStatus: "READY_FOR_CALCULATION" },
+        { fieldId: other.id, fieldName: other.name, outcome: "saved", gateStatus: "READY_FOR_CALCULATION" },
+      ],
+    });
+    renderFields();
+    openAction("Set crop / use");
+    expect((screen.getByRole("button", { name: "Review changes" }) as HTMLButtonElement).disabled).toBe(true);
+    chooseCrop();
+
+    const summary = document.querySelector("[data-bulk-summary]") as HTMLElement;
+    expect(summary.textContent).toContain("2 fields");
+    expect(summary.textContent).toContain("ha");
+    expect(summary.textContent).toContain(`${thisSeason} season`);
+    const save = await screen.findByRole("button", { name: `Save 2 fields for ${thisSeason}` });
+    expect(bulk.setCrop).not.toHaveBeenCalled();
+
+    fireEvent.click(save);
+    await screen.findByText("All 2 fields saved.");
+    expect(bulk.setCrop).toHaveBeenCalledWith({ fieldIds: [home.id, other.id], season: thisSeason, cropSystem: "GRASS_HAY" });
+  });
+
+  it("reports a partial failure per field, never as a success, and retries only what failed", async () => {
+    bulk.setCrop.mockResolvedValueOnce({
+      status: "completed",
+      season: thisSeason,
+      outcomes: [
+        { fieldId: home.id, fieldName: home.name, outcome: "saved", gateStatus: "READY_FOR_CALCULATION" },
+        { fieldId: other.id, fieldName: other.name, outcome: "failed" },
+      ],
+    });
+    renderFields();
+    openAction("Set crop / use");
+    chooseCrop();
+    fireEvent.click(await screen.findByRole("button", { name: `Save 2 fields for ${thisSeason}` }));
+
+    const headline = await screen.findByRole("alert");
+    expect(headline.textContent).toBe("1 of 2 fields saved. 1 could not be saved.");
+    expect(screen.queryByText(/^All /)).toBeNull();
+    const failedRow = document.querySelector('[data-bulk-outcome="failed"]') as HTMLElement;
+    expect(failedRow.textContent).toContain(other.name);
+    expect(failedRow.textContent).toContain("Not saved");
+
+    bulk.setCrop.mockResolvedValueOnce({ status: "completed", season: thisSeason, outcomes: [{ fieldId: other.id, fieldName: other.name, outcome: "saved", gateStatus: "READY_FOR_CALCULATION" }] });
+    fireEvent.click(screen.getByRole("button", { name: "Try 1 field again" }));
+    await screen.findByText("All 2 fields saved.");
+    expect(bulk.setCrop).toHaveBeenLastCalledWith({ fieldIds: [other.id], season: thisSeason, cropSystem: "GRASS_HAY" });
+  });
+
+  it("carry-forward shows each field's position and leaves existing target cycles alone", async () => {
+    bulk.carry.mockResolvedValue({
+      status: "completed",
+      season: nextSeason,
+      outcomes: [
+        { fieldId: home.id, fieldName: home.name, outcome: "skipped_has_target" },
+        { fieldId: other.id, fieldName: other.name, outcome: "saved", gateStatus: "READY_FOR_CALCULATION" },
+      ],
+    });
+    renderFields();
+    openAction("Carry forward");
+
+    const save = await screen.findByRole("button", { name: `Carry 1 field forward to ${nextSeason}` });
+    expect((document.querySelector(`[data-bulk-row="${home.id}"]`) as HTMLElement).textContent).toContain(`Already has a ${nextSeason} cycle`);
+    expect((document.querySelector(`[data-bulk-row="${other.id}"]`) as HTMLElement).textContent).toContain("Can be carried forward");
+    expect(bulk.carry).not.toHaveBeenCalled();
+
+    fireEvent.click(save);
+    await screen.findByText("1 of 2 fields saved. The rest needed no change.");
+    expect(bulk.carry).toHaveBeenCalledWith({ fieldIds: [home.id, other.id], targetSeason: nextSeason });
+  });
+
+  it("won't let the farmer confirm a carry-forward with nothing to copy", async () => {
+    bulk.preview.mockResolvedValue(
+      previewOf(
+        [
+          { fieldId: home.id, fieldName: home.name, carryForward: "NO_CURRENT_CYCLE" },
+          { fieldId: other.id, fieldName: other.name, carryForward: "NO_CURRENT_CYCLE" },
+        ],
+        nextSeason,
+      ),
+    );
+    renderFields();
+    openAction("Carry forward");
+    await screen.findByText("None of these fields would change.");
+    expect((document.querySelector(`[data-bulk-row="${home.id}"]`) as HTMLElement).textContent).toContain(`No ${thisSeason} cycle to copy`);
+    expect((screen.getByRole("button", { name: /^Carry 0 fields forward/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("fails closed when the fields' cycles can't be checked", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    bulk.preview.mockRejectedValue(new Error("offline"));
+    renderFields();
+    openAction("Carry forward");
+    await screen.findByRole("alert");
+    expect((screen.getByRole("button", { name: /^Carry 0 fields forward/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("says so when the connection fails during a save, rather than claiming a result", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    bulk.setCrop.mockRejectedValue(new Error("offline"));
+    renderFields();
+    openAction("Set crop / use");
+    chooseCrop();
+    fireEvent.click(await screen.findByRole("button", { name: `Save 2 fields for ${thisSeason}` }));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/before Farm Return could confirm/);
+    expect(document.querySelector("[data-bulk-result]")).toBeNull();
+  });
+});
+
+describe("Field mode from Fields", () => {
+  it("opens from the list and carries the confirmed field to the map selection and quick actions", async () => {
+    renderFields();
+    fireEvent.click(screen.getByRole("button", { name: "Field mode" }));
+    expect(document.querySelector("[data-field-mode-choose]")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/choose a field/i), { target: { value: home.id } });
+    fireEvent.click(screen.getByRole("button", { name: "Use this field" }));
+    expect(mapProps!.selectedFieldId).toBe(home.id);
+    expect(screen.getByRole("link", { name: /record grass/i }).getAttribute("href")).toBe(`/grass?field=${home.id}`);
   });
 });
 

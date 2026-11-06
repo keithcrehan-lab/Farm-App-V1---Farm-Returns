@@ -184,3 +184,29 @@ export function findNearbyField(fields: readonly Field[], position: NearFieldPos
   // range, not just the nominal (possibly optimistic) distance.
   return nearest && nearest.km + accuracyKm <= thresholdKm ? nearest.field : null;
 }
+
+export type FieldSuggestion =
+  | { status: "suggested"; field: Field }
+  | { status: "ambiguous"; candidates: Field[] }
+  | { status: "none" };
+
+/**
+ * What a confirm-first workflow (Field Mode, the guided grass walk) may say
+ * about a position. Starts from `findNearbyField`'s own bound, then refuses
+ * to name one field when the fix can't separate it from a neighbour: a field
+ * is only suggested when, even at the worst of the fix's own accuracy radius,
+ * it stays closer than every other field in range. Otherwise the fields that
+ * can't be separated are returned for the farmer to choose between.
+ */
+export function suggestFieldFromPosition(fields: readonly Field[], position: NearFieldPosition | null, thresholdKm = NEAR_FIELD_THRESHOLD_KM): FieldSuggestion {
+  const nearest = findNearbyField(fields, position, thresholdKm);
+  if (!nearest?.polygon || !position) return { status: "none" };
+  const accuracyKm = position.accuracyMeters! / 1000;
+  const nearestKm = distanceToPolygonKm(position, nearest.polygon);
+
+  const inseparable = fields.filter((field) => {
+    if (field.id === nearest.id || !field.polygon) return false;
+    return distanceToPolygonKm(position, field.polygon) - nearestKm <= 2 * accuracyKm;
+  });
+  return inseparable.length === 0 ? { status: "suggested", field: nearest } : { status: "ambiguous", candidates: [nearest, ...inseparable] };
+}

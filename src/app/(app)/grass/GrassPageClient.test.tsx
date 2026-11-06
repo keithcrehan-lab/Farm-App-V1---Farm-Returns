@@ -25,16 +25,30 @@ vi.mock("@/app/actions/grass-management", () => ({
   recordGrassCoverObservationAction: (...args: unknown[]) => recordCover(...args),
   recordGrassGrowthObservationAction: (...args: unknown[]) => recordGrowth(...args),
 }));
-vi.mock("@/store/farm-store", () => ({ useFarm: () => farm, useFields: () => [field] }));
+const SECOND_FIELD_ID = "55555555-5555-4555-8555-555555555555";
+const secondField = {
+  id: SECOND_FIELD_ID,
+  farmId: FARM_ID,
+  name: "River Field",
+  areaHa: 6,
+  centroid: [-8.0095, 53.0105],
+  polygon: { type: "Polygon", coordinates: [[[-8.01,53.01],[-8.009,53.01],[-8.009,53.011],[-8.01,53.011],[-8.01,53.01]]] },
+  fertility: {},
+} as Field;
+let storeFields: Field[] = [field];
+vi.mock("@/store/farm-store", () => ({ useFarm: () => farm, useFields: () => storeFields }));
 vi.mock("@/components/farm/MapHero", () => ({
   MapHero: (props: { fields: Field[]; getStatusLabel?: (f: Field) => string | undefined; getTone: (f: Field) => string }) => (
     <div data-testid="grass-map">{props.fields.map((f) => <span key={f.id}>{f.name}:{props.getStatusLabel?.(f)}:{props.getTone(f)}</span>)}</div>
   ),
 }));
+let gpsFix: { lat: number; lng: number; accuracyMeters: number } | null = null;
 vi.mock("@/lib/location/web-location-tracking-provider", () => ({
   createWebLocationTrackingProvider: () => ({
-    getCapability: async () => ({ activeTrackingSupported: false, permissionState: "prompt" }),
-    startActiveTracking: async () => undefined,
+    getCapability: async () => ({ activeTrackingSupported: gpsFix !== null, permissionState: "prompt" }),
+    startActiveTracking: async (onPosition: (position: { lat: number; lng: number; accuracyMeters: number }) => void) => {
+      if (gpsFix) onPosition(gpsFix);
+    },
     stopActiveTracking: async () => undefined,
   }),
 }));
@@ -42,6 +56,130 @@ vi.mock("@/lib/location/web-location-tracking-provider", () => ({
 const empty = { status: "ok" as const, fields: [{ id: FIELD_ID, name: "Home Field", areaHa: 4 }], coverObservations: [], growthObservations: [], grazingSessions: [], openGrazingSessions: [] };
 
 function isoDaysAgo(days: number): string { return new Date(Date.now() - days * 86_400_000).toISOString(); }
+
+describe("GrassPageClient guided walk", () => {
+  const twoFields = { ...empty, fields: [{ id: FIELD_ID, name: "Home Field", areaHa: 4 }, { id: SECOND_FIELD_ID, name: "River Field", areaHa: 6 }] };
+  const saved = (fieldId: string, coverKgDmHa: number) => ({ status: "recorded", observation: { fieldId, coverKgDmHa } });
+  const progress = () => document.querySelector("[data-grass-walk-progress]")?.textContent;
+  const current = () => document.querySelector("[data-grass-walk-current]")?.textContent;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    storeFields = [field, secondField];
+    gpsFix = null;
+    getData.mockResolvedValue(twoFields);
+  });
+  afterEach(() => {
+    cleanup();
+    storeFields = [field];
+    gpsFix = null;
+  });
+
+  async function startWalk() {
+    render(<GrassPageClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Start guided walk" }));
+  }
+
+  async function saveReading(fieldName: string, cover: string) {
+    fireEvent.change(screen.getByPlaceholderText("e.g. 1450"), { target: { value: cover } });
+    fireEvent.click(screen.getByRole("button", { name: `Save reading for ${fieldName}` }));
+  }
+
+  it("starts a walk with real progress, without asking for the field from the dropdown", async () => {
+    await startWalk();
+    expect(progress()).toBe("0 of 2 measured · 2 remaining");
+    expect(current()).toBe("Home Field");
+    expect(screen.queryByRole("option", { name: "Choose field" })).toBeNull();
+  });
+
+  it("advances to the next unmeasured field only after a successful save", async () => {
+    recordCover.mockResolvedValue(saved(FIELD_ID, 1450));
+    await startWalk();
+    await saveReading("Home Field", "1450");
+    await waitFor(() => expect(current()).toBe("River Field"));
+    expect(progress()).toBe("1 of 2 measured · 1 remaining");
+    expect(recordCover).toHaveBeenCalledWith(expect.objectContaining({ fieldId: FIELD_ID, coverKgDmHa: 1450, method: "plate_meter" }));
+    expect((screen.getByPlaceholderText("e.g. 1450") as HTMLInputElement).value).toBe("");
+  });
+
+  it("stays on the field when the save is rejected or fails", async () => {
+    recordCover.mockResolvedValueOnce({ status: "rejected", reasonCode: "INVALID_COVER" });
+    await startWalk();
+    await saveReading("Home Field", "1450");
+    await screen.findByText("Enter a valid grass cover in kg DM/ha.");
+    expect(current()).toBe("Home Field");
+    expect(progress()).toBe("0 of 2 measured · 2 remaining");
+
+    recordCover.mockRejectedValueOnce(new Error("Connection lost"));
+    await saveReading("Home Field", "1450");
+    await screen.findByText("Connection lost");
+    expect(current()).toBe("Home Field");
+    expect(progress()).toBe("0 of 2 measured · 2 remaining");
+  });
+
+  it("suggests the live GPS field, and only moves when the farmer accepts", async () => {
+    gpsFix = { lat: 53.0105, lng: -8.0095, accuracyMeters: 5 };
+    await startWalk();
+    await screen.findByText("River Field", { selector: "strong" });
+    expect(current()).toBe("Home Field");
+    fireEvent.click(screen.getByRole("button", { name: "Measure this field" }));
+    expect(current()).toBe("River Field");
+    expect(recordCover).not.toHaveBeenCalled();
+  });
+
+  it("offers no GPS field from a fix that isn't accurate enough", async () => {
+    gpsFix = { lat: 53.0105, lng: -8.0095, accuracyMeters: 1000 };
+    await startWalk();
+    await screen.findByText(/Live fix/);
+    expect(screen.queryByRole("button", { name: "Measure this field" })).toBeNull();
+    expect(current()).toBe("Home Field");
+  });
+
+  it("can skip a field without counting it as measured, then come back to it", async () => {
+    await startWalk();
+    fireEvent.click(screen.getByRole("button", { name: "Skip this field" }));
+    expect(current()).toBe("River Field");
+    expect(progress()).toBe("0 of 2 measured · 2 remaining");
+    fireEvent.click(screen.getByRole("button", { name: "Home Field (skipped)" }));
+    expect(current()).toBe("Home Field");
+  });
+
+  it("finishes after the last field and returns to the normal workflow", async () => {
+    recordCover.mockResolvedValueOnce(saved(FIELD_ID, 1450));
+    await startWalk();
+    await saveReading("Home Field", "1450");
+    await waitFor(() => expect(current()).toBe("River Field"));
+    recordCover.mockResolvedValueOnce(saved(SECOND_FIELD_ID, 1600));
+    await saveReading("River Field", "1600");
+    await screen.findByText("Every field measured");
+    expect(progress()).toBe("2 of 2 measured · 0 remaining");
+
+    fireEvent.click(screen.getByRole("button", { name: "Finish walk" }));
+    await screen.findByText("Walk finished: 2 of 2 fields measured.");
+    expect(document.querySelector("[data-grass-walk]")).toBeNull();
+    expect(screen.getByRole("option", { name: "Choose field" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Record grass reading" })).toBeTruthy();
+  });
+
+  it("finishing early reports the true count", async () => {
+    await startWalk();
+    fireEvent.click(screen.getByRole("button", { name: "Finish walk" }));
+    await screen.findByText("Walk finished: 0 of 2 fields measured.");
+  });
+
+  it("opens with a linked field already chosen, and ignores one that isn't on this farm", async () => {
+    const linked = render(<GrassPageClient initialFieldId={SECOND_FIELD_ID} />);
+    expect(((await screen.findByRole("option", { name: "River Field" })) as HTMLOptionElement).selected).toBe(true);
+    linked.unmount();
+
+    render(<GrassPageClient initialFieldId="not-this-farm" />);
+    expect(((await screen.findByRole("option", { name: "Choose field" })) as HTMLOptionElement).selected).toBe(true);
+    fireEvent.change(screen.getByPlaceholderText("e.g. 1450"), { target: { value: "1450" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record grass reading" }));
+    await screen.findByText("Choose the field this reading belongs to.");
+    expect(recordCover).not.toHaveBeenCalled();
+  });
+});
 
 describe("GrassPageClient", () => {
   beforeEach(() => { vi.clearAllMocks(); getData.mockResolvedValue(empty); });

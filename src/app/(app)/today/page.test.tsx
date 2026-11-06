@@ -184,6 +184,24 @@ function renderTodayMap() {
   );
 }
 
+describe("TodayPage Field mode", () => {
+  it("opens from the map, claims no field by itself, and keeps a confirmed field selected on the map", async () => {
+    renderTodayMap();
+    fireEvent.click(screen.getByRole("button", { name: "Field mode" }));
+    expect(document.querySelector("[data-field-mode-choose]")).toBeTruthy();
+    expect(capturedMapHeroProps?.selectedFieldId).toBeUndefined();
+
+    await screen.findByText(/location isn't available/i);
+    expect(capturedMapHeroProps?.selectedFieldId).toBeUndefined();
+    fireEvent.change(screen.getByLabelText(/choose a field/i), { target: { value: "field-home" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use this field" }));
+
+    expect(capturedMapHeroProps?.selectedFieldId).toBe("field-home");
+    expect(screen.getByRole("link", { name: /record grass/i }).getAttribute("href")).toBe("/grass?field=field-home");
+    expect(screen.getByRole("link", { name: /soil sampling/i }).getAttribute("href")).toBe("/soil-sample/field-home");
+  });
+});
+
 describe("TodayPage", () => {
   it("computes and shows a real Prompt (or an honest empty state) after mount, never a fabricated placeholder", async () => {
     renderToday();

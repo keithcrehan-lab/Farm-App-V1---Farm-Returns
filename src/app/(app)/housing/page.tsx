@@ -88,6 +88,20 @@ export default function HousingPage() {
     setFillPctTouched(false);
   }
 
+  /** A new shed starting from this one's structure. Its name, fill level,
+   * animals and slurry evidence belong to the original and are never copied. */
+  function startLike(h: NonNullable<typeof housing>) {
+    setEditingId(null);
+    setShedName("");
+    setShedType(h.shedType);
+    setStart(h.housingPeriod.start);
+    setEnd(h.housingPeriod.end);
+    setCapacity(String(h.storageCapacityM3));
+    setFillPct("");
+    setFillPctTouched(false);
+    setAddOpen(true);
+  }
+
   function resetForm() {
     setShedName("");
     setStart("");
@@ -318,6 +332,13 @@ export default function HousingPage() {
                   className="flex min-h-11 items-center justify-center gap-2 self-start rounded-fr-control border border-fr-border px-4 text-sm font-semibold text-fr-green-700"
                 >
                   <Pencil className="size-4" /> Edit shed & fill
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startLike(housing)}
+                  className="flex min-h-11 items-center justify-center gap-2 self-start rounded-fr-control border border-fr-border px-4 text-sm font-semibold text-fr-green-700"
+                >
+                  <Plus className="size-4" /> Add another like this
                 </button>
               </div>
             </ProgressiveDisclosure>

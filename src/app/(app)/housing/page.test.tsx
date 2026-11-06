@@ -145,6 +145,38 @@ describe("HousingPage -- fill-level provenance (Codex audit CRITICAL, round 1 + 
   });
 });
 
+describe("HousingPage -- add another like this", () => {
+  function HousingProbe() {
+    const list = useHousingList();
+    return <p data-testid="housing-probe">{JSON.stringify(list)}</p>;
+  }
+
+  it("prefills the structure and never copies the name, fill level or linked animals", async () => {
+    const original = housing({ storageFillPct: 60, storageFillStatus: "farmer_recorded", linkedGroupIds: ["group-1"], shedType: "straw_bedded" });
+    render(
+      <FarmProvider initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [original], slurryAllocations: [], slurryCompositionRecords: [] }}>
+        <HousingProbe />
+        <HousingPage />
+      </FarmProvider>,
+    );
+    fireEvent.click(screen.getByText(/2 · shed & storage details/i));
+    fireEvent.click(screen.getByRole("button", { name: /add another like this/i }));
+
+    expect((screen.getByPlaceholderText(/e\.g\. Shed 1/i) as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText(/current fill/i) as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText(/slurry storage capacity/i) as HTMLInputElement).value).toBe("200");
+    expect((screen.getByLabelText(/housing period start/i) as HTMLInputElement).value).toBe("2026-11-01");
+
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\. Shed 1/i), { target: { value: "Second Shed" } });
+    fireEvent.click(screen.getByRole("button", { name: /^add shed$/i }));
+
+    await waitFor(() => expect(JSON.parse(screen.getByTestId("housing-probe").textContent!)).toHaveLength(2));
+    const [first, second] = JSON.parse(screen.getByTestId("housing-probe").textContent!) as Housing[];
+    expect(first).toMatchObject({ shedName: "Shed 1", storageFillPct: 60, storageFillStatus: "farmer_recorded" });
+    expect(second).toMatchObject({ shedName: "Second Shed", shedType: "straw_bedded", storageCapacityM3: 200, storageFillPct: 0, storageFillStatus: "estimated", linkedGroupIds: [] });
+  });
+});
+
 describe("HousingPage -- slurry composition (Slurry Evidence & Composition V1)", () => {
   it("shows the honest 'Estimated' state (Teagasc national-average DM%) when no composition record exists for this shed", () => {
     renderPage([housing()]);

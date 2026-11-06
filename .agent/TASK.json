@@ -1,29 +1,17 @@
 {
   "schema_version": 1,
-  "task_id": "schemes-s0-implementation-standard-and-migration-contract-20261105",
-  "title": "Schemes S0 - Implementation Standard and Migration Contract",
-  "base_sha": "8e1e716e96584d45b42d45ac4cd791cfd90a6189",
+  "task_id": "farm-return-10x-workflow-integration-v1-20261106",
+  "title": "Farm Return 10x workflow integration v1",
+  "base_sha": "4746a0a0594d30e498ff6e7e30f066b41044e093",
   "domains": [
     "ui",
-    "schemes"
+    "nutrients"
   ],
-  "expected_changed_files": [
-    ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
-    "src/domain/schemes",
-    "src/app/(app)/schemes/page.tsx",
-    "src/app/actions/support-profile.ts",
-    "src/lib/scheme-farmer-text.ts",
-    "src/domain/farm-strategy.ts",
-    "src/domain/schemes/contracts.ts"
-  ],
+  "expected_changed_files": [],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
-    ".agent/PRODUCT_RULES.md",
-    ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
-    ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
-    "docs/product/schemes/SCHEMES_ARCHITECTURE_V1.md",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+    ".agent/PRODUCT_RULES.md"
   ],
   "evidence": [
     "task brief",

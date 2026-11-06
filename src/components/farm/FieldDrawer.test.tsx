@@ -1244,21 +1244,28 @@ describe("FieldDrawer — field workspace chapters (Farm + Fields redesign)", ()
     ).toBe("true");
   });
 
-  it("archiving asks in place first (no browser dialog) and Split/Merge are honestly unavailable", () => {
-    renderDrawer(mockFields[0]);
+  it("deleting a field is deliberately hard to do by mistake and promises a 30-day restore window", () => {
+    const field = mockFields[0];
+    renderDrawer(field);
     fireEvent.click(screen.getByRole("button", { name: /manage field/i }));
-    expect(
-      screen.getByText(/split and merge are not available yet/i),
-    ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Archive field" }));
-    expect(screen.getByText(/archive .*\? its records are kept/i)).toBeTruthy();
-    // Consistent with the redesigned flow: archiving removes the field from
-    // the fertiliser plan and quotes (activeFields), not a legacy screen.
-    expect(
-      screen.getByText(/leaves the\s+fertiliser plan and quotes until restored/i),
-    ).toBeTruthy();
+    expect(screen.getByText(/split and merge are not available yet/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete field" }));
+    expect(screen.getByText(new RegExp(`delete ${field.name}\\?`, "i"))).toBeTruthy();
+    expect(screen.getByText(/restored for 30 days/i)).toBeTruthy();
+
+    const confirm = screen.getByRole("textbox");
+    const deleteButton = screen.getByRole("button", { name: "Delete field" });
+    expect((deleteButton as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(confirm, { target: { value: "wrong field" } });
+    expect((deleteButton as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(confirm, { target: { value: field.name } });
+    expect((deleteButton as HTMLButtonElement).disabled).toBe(false);
+
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.getByRole("button", { name: "Archive field" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete field" })).toBeTruthy();
   });
 });
 

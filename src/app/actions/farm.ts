@@ -197,13 +197,13 @@ export async function updateFieldDetailsAction(
 
 export async function archiveFieldAction(fieldId: string): Promise<Field> {
   const field = await archiveFieldRow(fieldId);
-  revalidatePath("/fields");
+  for (const path of ["/fields", "/today", "/fertiliser-plan", "/grass", "/quotes"]) revalidatePath(path);
   return field;
 }
 
 export async function restoreFieldAction(fieldId: string): Promise<Field> {
   const field = await restoreFieldRow(fieldId);
-  revalidatePath("/fields");
+  for (const path of ["/fields", "/today", "/fertiliser-plan", "/grass", "/quotes"]) revalidatePath(path);
   return field;
 }
 

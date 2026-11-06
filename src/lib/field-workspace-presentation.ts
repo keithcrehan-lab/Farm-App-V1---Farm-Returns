@@ -122,7 +122,7 @@ export function fieldHistoryEvents(field: Field): FieldHistoryEvent[] {
   });
 
   if (field.archivedAt) {
-    events.push({ id: "archive", kind: "archive", date: field.archivedAt, dateLabel: formatFieldDate(field.archivedAt) ?? "Date not recorded", title: "Field archived" });
+    events.push({ id: "archive", kind: "archive", date: field.archivedAt, dateLabel: formatFieldDate(field.archivedAt) ?? "Date not recorded", title: "Field deleted" });
   }
 
   // Newest first; anything without a recorded date keeps its order, last.

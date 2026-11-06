@@ -66,7 +66,7 @@ export function RecordsPageClient({
   const askAIContext = { screen: "Records", facts: { "Activity entries": String(entries.length) } };
   // Pilot acceptance repair: decisions name their field (an archived field keeps its name, marked archived).
   const allFields = useAllFieldsIncludingArchived();
-  const fieldNames = new Map(allFields.map((f) => [f.id, f.archivedAt ? `${f.name} (archived)` : f.name] as const));
+  const fieldNames = new Map(allFields.map((f) => [f.id, f.archivedAt ? `${f.name} (deleted)` : f.name] as const));
 
   return (
     <>

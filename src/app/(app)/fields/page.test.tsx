@@ -172,7 +172,7 @@ describe("Fields companion (Farm + Fields redesign)", () => {
     expect(screen.getByText(/split and merge are not available yet/i, { selector: "[data-manage-mode] p" })).toBeTruthy();
     // The selection carries into Manage fields, where its structural actions appear.
     expect(within(row(home.id)).getByRole("button", { name: /edit boundary/i })).toBeTruthy();
-    expect(within(row(home.id)).getByRole("button", { name: /archive field/i })).toBeTruthy();
+    expect(within(row(home.id)).getByRole("button", { name: /delete field/i })).toBeTruthy();
   });
 
   it("Select multiple holds an explicit selection without pretending bulk planning exists, and clears on exit", () => {
@@ -224,6 +224,31 @@ describe("Fields companion (Farm + Fields redesign)", () => {
     expect(screen.getByText("North Meadow")).toBeTruthy();
     expect(screen.getByText("Road Meadow")).toBeTruthy();
     await vi.waitFor(() => expect(screen.queryByRole("dialog", { name: "Scan fields" })).toBeNull());
+  });
+
+  it("deletes a field only after name confirmation and offers a 30-day restore from Manage fields", async () => {
+    renderFields();
+    const activeBefore = mapProps!.fields.length;
+    const field = mockFields.find((candidate) => !candidate.archivedAt)!;
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage fields" }));
+    const row = document.querySelector(`[data-field-row="${field.id}"]`) as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: new RegExp(field.name, "i") }));
+
+    fireEvent.click(within(row).getByRole("button", { name: "Delete field" }));
+    const confirmInput = within(row).getByRole("textbox");
+    const confirmDelete = within(row).getByRole("button", { name: "Delete field" });
+    expect((confirmDelete as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(confirmInput, { target: { value: field.name } });
+    fireEvent.click(confirmDelete);
+
+    await vi.waitFor(() => expect(mapProps!.fields.length).toBe(activeBefore - 1));
+    expect(screen.getByText("Recently deleted (1)")).toBeTruthy();
+    expect(screen.getByText(/30 days left to restore/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await vi.waitFor(() => expect(mapProps!.fields.length).toBe(activeBefore));
   });
 
   it("Add field stays boundary-first and opens the drawing map on the existing field area", () => {

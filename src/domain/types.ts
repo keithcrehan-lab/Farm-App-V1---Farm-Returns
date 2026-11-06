@@ -287,11 +287,12 @@ export interface Field {
   history: FieldSeasonRecord[];
   /** Thumbnail asset for field cards — Phase 1 uses static crops, not live tiles. */
   thumbnail?: string;
-  /** Real Farm V1 Phase 7 — soft delete ("Provenance is permanent": a
-   * field's soil tests/slurry allocations/history must survive, so this
-   * is a timestamp, not a hard DELETE). Absent/undefined means active.
-   * `useFields()` (farm-store.tsx) filters archived fields out by
-   * default everywhere else in the app reads from it. */
+  /** Soft-delete timestamp backing the farmer-facing Delete action.
+   * Soil tests, slurry allocations, grass observations and history survive
+   * because farm provenance must not disappear. The farmer can self-restore
+   * for 30 days (see `field-deletion.ts`); after that the active field stays
+   * deleted while its historical evidence remains retained. Absent/undefined
+   * means active. `useFields()` filters deleted fields out by default. */
   archivedAt?: string;
 }
 

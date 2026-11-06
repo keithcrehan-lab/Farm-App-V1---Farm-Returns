@@ -98,6 +98,7 @@ import {
 import { resolveSoilTestChain } from "@/domain/soil-test-history";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import type { NamedFieldScanSelection } from "@/domain/field-scan";
+import { canRestoreDeletedField } from "@/domain/field-deletion";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 import type { NewSlurryCompositionInput, SlurryComposition } from "@/domain/slurry-composition";
 import {
@@ -373,7 +374,9 @@ interface FarmActions {
     patch: { name?: string; plannedUse?: FieldUse; areaHa?: number },
     farmerName: string,
   ) => void;
-  /** Real Farm V1 Phase 7 — soft delete; see `Field.archivedAt`'s comment. */
+  /** User-facing Delete is a soft delete backed by `Field.archivedAt`.
+   * The field leaves active planning immediately; self-service restore is
+   * allowed for 30 days while historical/provenance records stay intact. */
   archiveField: (fieldId: string) => void;
   restoreField: (fieldId: string) => void;
   /** Applies a server-returned canonical field row (e.g. automatic public spatial evidence) without rewriting provenance on the client. */
@@ -931,6 +934,10 @@ export function FarmProvider({
       },
 
       restoreField(fieldId) {
+        const field = state.fields.find((candidate) => candidate.id === fieldId);
+        if (field?.archivedAt && !canRestoreDeletedField(field.archivedAt)) {
+          throw new Error("This field's 30-day restore window has expired.");
+        }
         setState((s) => ({
           ...s,
           fields: s.fields.map((f) => {

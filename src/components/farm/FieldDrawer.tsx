@@ -76,6 +76,7 @@ import {
   formatFieldDate,
   type FieldHistoryEvent,
 } from "@/lib/field-workspace-presentation";
+import { fieldRestoreWindow } from "@/domain/field-deletion";
 
 const FARMER_MATERIAL_LABEL: Record<SpreadingMaterial, string> = {
   chemical_fertiliser: "Chemical fertiliser",
@@ -184,7 +185,7 @@ const TEXT_LINK =
  * spreadable area) sit inside Nutrients beside the canonical nutrient plan
  * they feed; History is the dated evidence ledger.
  *
- * Structural changes (boundary, name/use, archive) sit behind an explicit
+ * Structural changes (boundary, name/use, delete/restore) sit behind an explicit
  * "Manage field" control, so reading the field never edits it.
  *
  * Every value is the persisted `Field`, a canonical store/engine export or
@@ -233,6 +234,7 @@ export function FieldDrawer({
     useState<FieldWorkspaceContext | null>(null);
   const [workspaceUnavailable, setWorkspaceUnavailable] = useState(false);
   const { restoreField } = useFarmActions();
+  const restoreWindow = field.archivedAt ? fieldRestoreWindow(field.archivedAt) : null;
 
   const refreshWorkspace = () => {
     setWorkspaceUnavailable(false);
@@ -295,16 +297,20 @@ export function FieldDrawer({
       {field.archivedAt ? (
         <div className="mt-5 flex items-center justify-between gap-4 border-l-[3px] border-fr-v2-clay bg-fr-v2-clay-tint/60 px-4 py-2.5 text-sm">
           <span className="text-fr-v2-charcoal">
-            Archived {formatFieldDate(field.archivedAt)} — left out of the
-            fertiliser plan, supplier quotes and other planning screens.
+            Deleted {formatFieldDate(field.archivedAt)} — left out of the fertiliser plan, supplier quotes and other planning screens.
+            {restoreWindow?.restorable
+              ? ` You can restore it for ${restoreWindow.daysRemaining} more ${restoreWindow.daysRemaining === 1 ? "day" : "days"}.`
+              : " The 30-day restore window has expired."}
           </span>
-          <button
-            type="button"
-            onClick={() => restoreField(field.id)}
-            className="shrink-0 text-xs font-semibold text-fr-v2-forest underline underline-offset-2"
-          >
-            Restore
-          </button>
+          {restoreWindow?.restorable ? (
+            <button
+              type="button"
+              onClick={() => restoreField(field.id)}
+              className="shrink-0 text-xs font-semibold text-fr-v2-forest underline underline-offset-2"
+            >
+              Restore
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -884,7 +890,8 @@ export function ManageField({
   }, [focusBoundary, field.id]);
   const [mappingOpen, setMappingOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [nameInput, setNameInput] = useState(field.name);
   const [areaInput, setAreaInput] = useState(String(field.areaHa));
   const { setFieldBoundary, updateFieldDetails, archiveField } =
@@ -901,7 +908,7 @@ export function ManageField({
       >
         Manage field
         <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-fr-v2-muted">
-          {open ? "Done" : "Boundary · name · archive"}
+          {open ? "Done" : "Boundary · name · delete"}
         </span>
       </button>
       {open ? (
@@ -998,39 +1005,53 @@ export function ManageField({
             </button>
           )}
 
-          {field.archivedAt ? null : confirmArchive ? (
-            <div className="flex items-center justify-between gap-3 border-l-[3px] border-fr-v2-clay pl-3 text-xs">
-              <span>
-                Archive {field.name}? Its records are kept, but it leaves the
-                fertiliser plan and quotes until restored.
-              </span>
-              <span className="flex shrink-0 gap-2">
+          {field.archivedAt ? null : deleteOpen ? (
+            <div className="border-l-[3px] border-fr-v2-clay bg-fr-v2-clay-tint/35 px-3 py-3 text-xs">
+              <p className="font-semibold text-fr-v2-charcoal">Delete {field.name}?</p>
+              <p className="mt-1.5 leading-relaxed text-fr-v2-muted">
+                This removes the field from maps, fertiliser plans and supplier quotes immediately. Its boundary, soil, fertiliser, slurry, grass and history records are kept, and the field can be restored for 30 days.
+              </p>
+              <label className="mt-3 block text-fr-v2-muted">
+                Type <span className="font-semibold text-fr-v2-charcoal">{field.name}</span> to confirm
+                <input
+                  value={deleteConfirmName}
+                  onChange={(event) => setDeleteConfirmName(event.target.value)}
+                  autoComplete="off"
+                  className="mt-1.5 min-h-10 w-full rounded-[4px] border border-fr-v2-clay/35 bg-white px-2.5 text-sm text-fr-v2-graphite focus-visible:outline-2 focus-visible:outline-fr-v2-clay"
+                />
+              </label>
+              <div className="mt-3 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setConfirmArchive(false)}
-                  className="min-h-10 px-2 font-semibold text-fr-v2-muted"
+                  onClick={() => {
+                    setDeleteOpen(false);
+                    setDeleteConfirmName("");
+                  }}
+                  className="min-h-10 px-3 font-semibold text-fr-v2-muted"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
+                  disabled={deleteConfirmName.trim() !== field.name}
                   onClick={() => {
                     archiveField(field.id);
-                    setConfirmArchive(false);
+                    setDeleteOpen(false);
+                    setDeleteConfirmName("");
                   }}
-                  className="min-h-10 px-2 font-semibold text-fr-v2-clay"
+                  className="min-h-10 bg-fr-v2-clay px-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-35"
                 >
-                  Archive
+                  Delete field
                 </button>
-              </span>
+              </div>
             </div>
           ) : (
             <button
               type="button"
-              onClick={() => setConfirmArchive(true)}
+              onClick={() => setDeleteOpen(true)}
               className="min-h-10 self-start text-xs font-semibold text-fr-v2-clay"
             >
-              Archive field
+              Delete field
             </button>
           )}
           <p className="text-xs text-fr-v2-muted">

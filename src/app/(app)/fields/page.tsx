@@ -30,6 +30,7 @@ import { farmFieldSelectionView } from "@/lib/farm-field-selection";
 import { formatFieldDate } from "@/lib/field-workspace-presentation";
 import type { Field } from "@/domain/types";
 import { fieldScanCentre, type NamedFieldScanSelection } from "@/domain/field-scan";
+import { fieldRestoreWindow } from "@/domain/field-deletion";
 import type { Prompt } from "@/orchestration/prompt";
 import type { MissingSlurryPlanningDetail } from "@/domain/what-matters-no-recommendation";
 
@@ -43,7 +44,7 @@ import type { MissingSlurryPlanningDetail } from "@/domain/what-matters-no-recom
  *   field list beside it on desktop, or a Map / List toggle on a phone.
  *   Selecting a field in the list or on the map is the same state and
  *   brings the same selected-field panel forward as Farm. Structural work
- *   (add, edit boundary, rename/change use, archive) lives in an explicit
+ *   (add, edit boundary, rename/change use, delete/restore) lives in an explicit
  *   Manage fields mode, and a Select multiple fields mode holds a
  *   selection without pretending bulk planning exists.
  * - Field workspace (`/fields?field=<id>`, optionally `&chapter=`): the
@@ -129,6 +130,9 @@ function FieldsCompanion({
   const fields = useFields();
   const allFields = useAllFieldsIncludingArchived();
   const archivedFields = allFields.filter((f) => f.archivedAt);
+  const recentlyDeletedFields = archivedFields
+    .map((field) => ({ field, restoreWindow: fieldRestoreWindow(field.archivedAt!) }))
+    .filter(({ restoreWindow }) => restoreWindow.restorable);
   const { addField, addScannedFields, restoreField } = useFarmActions();
   const farm = useFarm();
   const slurryAllocations = useSlurryAllocations();
@@ -345,7 +349,7 @@ function FieldsCompanion({
         {mode === "manage" ? (
           <div className="flex flex-col gap-2 bg-fr-v2-forest-deep px-4 py-4 text-white lg:px-7" data-manage-mode>
             <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-fr-v2-straw">Managing fields</p>
-            <p className="text-xs text-white/70">Select a field for its boundary, name and use, or archive. Split and merge are not available yet.</p>
+            <p className="text-xs text-white/70">Select a field to edit its boundary or name, or delete it with a 30-day restore safety window. Split and merge are not available yet.</p>
             <div className="mt-1 grid grid-cols-2 gap-2">
               <button type="button" onClick={() => setScanOpen(true)} className="flex min-h-11 items-center justify-center gap-2 bg-fr-v2-cream px-3 text-sm font-semibold text-fr-v2-forest-deep">
                 <ScanLine className="size-4" /> Scan fields
@@ -354,6 +358,28 @@ function FieldsCompanion({
                 <Plus className="size-4" /> Draw field
               </button>
             </div>
+          </div>
+        ) : null}
+
+        {mode === "manage" && recentlyDeletedFields.length > 0 ? (
+          <div className="border-b border-fr-v2-cream-rule bg-white/45 px-4 py-4 lg:px-7" data-deleted-fields>
+            <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-muted">Recently deleted ({recentlyDeletedFields.length})</p>
+            <p className="mt-1 text-xs leading-relaxed text-fr-v2-muted">Restore for 30 days with the mapped boundary and recorded field data intact.</p>
+            <ul className="mt-2 flex flex-col">
+              {recentlyDeletedFields.map(({ field, restoreWindow }) => (
+                <li key={field.id} className="flex min-h-14 items-center justify-between gap-3 border-t border-fr-v2-cream-rule py-2 text-sm">
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold text-fr-v2-graphite">{field.name}</span>
+                    <span className="mt-0.5 block font-mono text-[10px] text-fr-v2-muted">
+                      {restoreWindow.daysRemaining} {restoreWindow.daysRemaining === 1 ? "day" : "days"} left to restore
+                    </span>
+                  </span>
+                  <button type="button" onClick={() => restoreField(field.id)} className="min-h-10 shrink-0 px-2 text-xs font-semibold text-fr-v2-forest underline underline-offset-2">
+                    Restore
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
 
@@ -421,21 +447,6 @@ function FieldsCompanion({
           </div>
         ) : null}
 
-        {mode === "manage" && archivedFields.length > 0 ? (
-          <div className="mx-4 mt-6 lg:mx-7" data-archived-fields>
-            <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-fr-v2-muted">Archived fields ({archivedFields.length})</p>
-            <ul className="mt-2 flex flex-col">
-              {archivedFields.map((field) => (
-                <li key={field.id} className="flex min-h-11 items-center justify-between border-b border-fr-v2-cream-rule text-sm">
-                  <span>{field.name}</span>
-                  <button type="button" onClick={() => restoreField(field.id)} className="text-xs font-semibold text-fr-v2-forest">
-                    Restore
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
       </aside>
 
       {scanOpen ? (

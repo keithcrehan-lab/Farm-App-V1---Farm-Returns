@@ -13,6 +13,7 @@ import { tracked } from "@/domain/types";
 import { fieldToInsertRow, rowToField, type NewFieldInput } from "./mappers";
 import type { FieldRow } from "./row-types";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
+import { canRestoreDeletedField } from "@/domain/field-deletion";
 
 export function canApplyDerivedWaterEvidence(
   existing: Field["waterBufferContext"],
@@ -144,7 +145,12 @@ export async function archiveField(fieldId: string): Promise<Field> {
 }
 
 export async function restoreField(fieldId: string): Promise<Field> {
-  const supabase = await createClient();
+  const { supabase, field } = await fetchField(fieldId);
+  if (!field.archivedAt) return field;
+  if (!canRestoreDeletedField(field.archivedAt)) {
+    throw new Error("This field's 30-day restore window has expired.");
+  }
+
   const { data, error } = await supabase
     .from("fields")
     .update({ archived_at: null })

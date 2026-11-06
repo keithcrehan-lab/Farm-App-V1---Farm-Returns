@@ -108,12 +108,24 @@ function FieldsPageContent() {
     );
   }
 
-  return <FieldsCompanion leadingPromptFor={leadingPromptFor} />;
+  const addMode = searchParams.get("add");
+  return (
+    <FieldsCompanion
+      leadingPromptFor={leadingPromptFor}
+      initialAddMode={addMode === "scan" || addMode === "draw" ? addMode : undefined}
+    />
+  );
 }
 
 type CompanionMode = "browse" | "manage" | "multi";
 
-function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: string | undefined) => Prompt | undefined }) {
+function FieldsCompanion({
+  leadingPromptFor,
+  initialAddMode,
+}: {
+  leadingPromptFor: (fieldId: string | undefined) => Prompt | undefined;
+  initialAddMode?: "scan" | "draw";
+}) {
   const fields = useFields();
   const allFields = useAllFieldsIncludingArchived();
   const archivedFields = allFields.filter((f) => f.archivedAt);
@@ -132,8 +144,8 @@ function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: str
   // never accumulate a hidden selection.
   const [multiIds, setMultiIds] = useState<string[]>([]);
 
-  const [mappingOpen, setMappingOpen] = useState(false);
-  const [scanOpen, setScanOpen] = useState(false);
+  const [mappingOpen, setMappingOpen] = useState(initialAddMode === "draw");
+  const [scanOpen, setScanOpen] = useState(initialAddMode === "scan");
   const [pendingPolygon, setPendingPolygon] = useState<GeoJSON.Polygon | null>(null);
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -200,18 +212,27 @@ function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: str
             {mappedCount} of {fields.length} mapped{farmAreaHa !== null ? ` · ${formatNumber(farmAreaHa, 1)} ha` : ""}
           </p>
         </div>
-        <div role="group" aria-label="Fields view" className="flex shrink-0 border border-fr-v2-cream-rule">
-          {(["map", "list"] as const).map((view) => (
-            <button
-              key={view}
-              type="button"
-              aria-pressed={mobileView === view}
-              onClick={() => setMobileView(view)}
-              className={cn("min-h-11 px-4 text-sm font-semibold capitalize", mobileView === view ? "bg-fr-v2-forest-deep text-white" : "text-fr-v2-muted")}
-            >
-              {view}
-            </button>
-          ))}
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setScanOpen(true)}
+            className="flex min-h-11 items-center gap-1.5 bg-fr-v2-forest-deep px-3 text-xs font-semibold text-white"
+          >
+            <Plus className="size-3.5" /> Add field
+          </button>
+          <div role="group" aria-label="Fields view" className="flex border border-fr-v2-cream-rule">
+            {(["map", "list"] as const).map((view) => (
+              <button
+                key={view}
+                type="button"
+                aria-pressed={mobileView === view}
+                onClick={() => setMobileView(view)}
+                className={cn("min-h-11 px-3 text-sm font-semibold capitalize", mobileView === view ? "bg-fr-v2-forest-deep text-white" : "text-fr-v2-muted")}
+              >
+                {view}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -277,11 +298,23 @@ function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: str
       >
         <header className="hidden px-7 pb-5 pt-8 lg:block">
           <div className="flex items-start justify-between gap-3">
-            <h1 className="font-display text-[40px] leading-none tracking-[-0.02em]">Fields</h1>
+            <div>
+              <h1 className="font-display text-[40px] leading-none tracking-[-0.02em]">Fields</h1>
+              <p className="mt-2 font-mono text-[12px] tabular-nums text-fr-v2-muted">
+                {mappedCount} of {fields.length} mapped{farmAreaHa !== null ? ` · ${formatNumber(farmAreaHa, 1)} ha` : ""}
+              </p>
+            </div>
             <AskAIButton context={askAIContext} />
           </div>
-          <p className="mt-2 font-mono text-[12px] tabular-nums text-fr-v2-muted">
-            {mappedCount} of {fields.length} mapped{farmAreaHa !== null ? ` · ${formatNumber(farmAreaHa, 1)} ha` : ""}
+          <button
+            type="button"
+            onClick={() => setScanOpen(true)}
+            className="mt-5 flex min-h-11 w-full items-center justify-center gap-2 bg-fr-v2-forest-deep px-4 text-sm font-semibold text-white transition-colors hover:bg-fr-v2-forest"
+          >
+            <Plus className="size-4" /> Add another field
+          </button>
+          <p className="mt-2 text-xs leading-relaxed text-fr-v2-muted">
+            Scan nearby field boundaries and select one or several fields to add.
           </p>
         </header>
 
@@ -375,7 +408,7 @@ function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: str
         {mode !== "manage" && !pendingPolygon ? (
           <div className="mx-4 mt-4 flex items-center gap-5 lg:mx-7">
             <button type="button" onClick={() => setScanOpen(true)} className="flex min-h-11 items-center gap-2 text-sm font-semibold text-fr-v2-forest">
-              <ScanLine className="size-4" /> Scan fields
+              <Plus className="size-4" /> Add another field
             </button>
             <button type="button" onClick={() => setMappingOpen(true)} className="min-h-11 text-xs font-semibold text-fr-v2-muted underline underline-offset-2">
               Draw field
@@ -546,8 +579,14 @@ function FieldWorkspaceView({
                   {formatNumber(field.areaHa, 2)} ha{field.polygon ? ` · boundary ${drawn ? `drawn ${drawn}` : "drawn"}` : " · not mapped"}
                 </p>
               </div>
-              <div className="pointer-events-auto shrink-0">
+              <div className="pointer-events-auto flex shrink-0 flex-col items-end gap-2">
                 <AskAIButton context={askAIContext} />
+                <Link
+                  href="/fields?add=scan"
+                  className="flex min-h-10 items-center gap-1.5 bg-fr-v2-cream/95 px-3 text-xs font-semibold text-fr-v2-forest-deep shadow-sm backdrop-blur hover:bg-white"
+                >
+                  <Plus className="size-3.5" /> Add another field
+                </Link>
               </div>
             </div>
             <div className="flex justify-end p-4 lg:px-12 lg:pb-6">

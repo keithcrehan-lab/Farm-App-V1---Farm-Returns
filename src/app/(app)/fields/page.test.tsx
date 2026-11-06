@@ -174,6 +174,19 @@ describe("Fields companion (Farm + Fields redesign)", () => {
     expect(mapProps!.highlightedFieldIds).toBeUndefined();
   });
 
+  it("offers a clear Add another field button that opens the scan workflow", () => {
+    renderFields();
+    const addButtons = screen.getAllByRole("button", { name: "Add another field" });
+    expect(addButtons.length).toBeGreaterThan(0);
+    fireEvent.click(addButtons[0]);
+    expect(screen.getByRole("dialog", { name: "Scan fields" })).toBeTruthy();
+  });
+
+  it("the add=scan deep link opens the same scan workflow", () => {
+    renderFields("add=scan");
+    expect(screen.getByRole("dialog", { name: "Scan fields" })).toBeTruthy();
+  });
+
   it("Manage fields makes Scan fields primary, keeps Draw field, and bulk-adds selected public boundaries", async () => {
     renderFields();
     const before = mapProps!.fields.length;
@@ -223,6 +236,7 @@ describe("Field workspace (Farm + Fields redesign)", () => {
     const chapters = screen.getByRole("navigation", { name: "Field chapters" });
     expect(Array.from(chapters.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["Overview", "Nutrients", "History"]);
     expect(screen.getByRole("link", { name: /^fields$/i }).getAttribute("href")).toBe("/fields");
+    expect(screen.getByRole("link", { name: "Add another field" }).getAttribute("href")).toBe("/fields?add=scan");
   });
 
   it("an unknown id never opens a workspace", () => {

@@ -216,13 +216,43 @@ run_with_timeout() {
   return $rc
 }
 
+# Return success when a campaign checkpoint has enough blast radius to justify
+# the expensive whole-repository gate immediately. Ordinary phase-local product
+# edits are deliberately excluded: the campaign freeze stage runs the full gate
+# at the final strict-audited SHA.
+campaign_checkpoint_needs_full_gate() {
+  [[ "${AGENT_CAMPAIGN_FORCE_FULL_GATE:-}" == "1" ]] && return 0
+  local p
+  while IFS= read -r p; do
+    [[ -n "$p" ]] || continue
+    case "$p" in
+      scripts/agent-*|scripts/quality-gate.sh|scripts/tests/agent-*|\
+      package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|\
+      tsconfig*.json|next.config.*|eslint.config.*|vitest.config.*|\
+      supabase/*|*.sql|src/lib/farm-data/*)
+        return 0 ;;
+      src/domain/*)
+        # Top-level domain modules are shared contracts. Scheme-local and other
+        # nested domain implementations do not match this pattern.
+        [[ "$p" == src/domain/*/* ]] || return 0 ;;
+    esac
+  done < <({ git diff --name-only HEAD -- .; git ls-files --others --exclude-standard -- .; } | sort -u)
+  return 1
+}
+
 # Run the task's verify command ourselves: the builder's report is never
 # trusted. Records the result in STATE.md.
 #
 # Under scripts/agent-run (AGENT_RUN_STATE set) the verify command is followed
 # by the category verification plan instead of the whole gate, and a command
 # whose relevant files are unchanged since it passed in this run is reused
-# (scripts/agent-runstate.py verify). Standalone use is unchanged.
+# (scripts/agent-runstate.py verify).
+#
+# Under agent-campaign-run, build/fix checkpoints run the phase-targeted verify
+# only. The full repository gate is deferred to the campaign FREEZE stage after
+# the standard audit is clean and the strict audit has passed. High-blast-radius
+# checkpoint changes (or AGENT_CAMPAIGN_FORCE_FULL_GATE=1) still run it now.
+# Standalone use remains unchanged.
 run_verify() {
   local cmd log rc=0
   cmd="$(task_verify_cmd)"
@@ -236,14 +266,25 @@ run_verify() {
     fi
     return $rc
   fi
+  local deferred_full_gate=false
   log="$HISTORY_DIR/verify-$(stamp).log"
   note "verifying independently: $cmd"
   bash -c "$cmd" >"$log" 2>&1 || rc=$?
   if [[ $rc -eq 0 && "$cmd" != "scripts/quality-gate.sh" && "$cmd" != "./scripts/quality-gate.sh" ]]; then
-    bash scripts/quality-gate.sh >>"$log" 2>&1 || rc=$?
+    if [[ "${AGENT_CAMPAIGN_MODE:-}" == "1" ]] && ! campaign_checkpoint_needs_full_gate; then
+      deferred_full_gate=true
+      note "campaign checkpoint: targeted verification passed; full repository gate deferred to FREEZE"
+      printf '%s\n' "CAMPAIGN_VERIFY targeted-pass — full repository gate deferred to FREEZE" >>"$log"
+    else
+      bash scripts/quality-gate.sh >>"$log" 2>&1 || rc=$?
+    fi
   fi
   if [[ $rc -eq 0 ]]; then
-    state_set last_verify "PASS \`$cmd\` @ $(short HEAD)+wt $(now_utc)"
+    if $deferred_full_gate; then
+      state_set last_verify "PASS \`$cmd\` (campaign targeted verify; full suite deferred to FREEZE) @ $(short HEAD)+wt $(now_utc)"
+    else
+      state_set last_verify "PASS \`$cmd\` @ $(short HEAD)+wt $(now_utc)"
+    fi
   else
     tail -n 30 "$log" >&2
     state_set last_verify "FAIL (exit $rc) \`$cmd\` $(now_utc) — $log"

@@ -762,6 +762,9 @@ def main():
         text, default = args
         print(next((r for r in GATE_REASONS if r in text), default))
     elif cmd == 'verify': sys.exit(verify(*args))
+    elif cmd == 'category':
+        if len(args) != 1: raise ValueError('category requires exactly one path')
+        print(category(args[0]))
     elif cmd == 'plan':
         data = read_task()
         print(json.dumps(plan(delta_files(data['base_sha'], args[0] if args else None), data['base_sha'], False, data), indent=2))

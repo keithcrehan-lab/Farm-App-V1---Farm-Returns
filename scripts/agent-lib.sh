@@ -222,20 +222,18 @@ run_with_timeout() {
 # at the final strict-audited SHA.
 campaign_checkpoint_needs_full_gate() {
   [[ "${AGENT_CAMPAIGN_FORCE_FULL_GATE:-}" == "1" ]] && return 0
-  local p
+  local p category
   while IFS= read -r p; do
     [[ -n "$p" ]] || continue
+    # Harness changes remain an explicit immediate-gate exception even though
+    # tooling itself is category B in the general runner classifier.
     case "$p" in
-      scripts/agent-*|scripts/quality-gate.sh|scripts/tests/agent-*|\
-      package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|\
-      tsconfig*.json|next.config.*|eslint.config.*|vitest.config.*|\
-      supabase/*|*.sql|src/lib/farm-data/*)
-        return 0 ;;
-      src/domain/*)
-        # Top-level domain modules are shared contracts. Scheme-local and other
-        # nested domain implementations do not match this pattern.
-        [[ "$p" == src/domain/*/* ]] || return 0 ;;
+      scripts/agent-*|scripts/quality-gate.sh|scripts/tests/agent-*) return 0 ;;
     esac
+    # Reuse the runner's canonical blast-radius classifier instead of keeping a
+    # second partial list here. Unknown/classifier failures fail closed.
+    category="$(python3 scripts/agent-runstate.py category "$p" 2>/dev/null)" || return 0
+    [[ "$category" == "E" || "$category" == "F" ]] && return 0
   done < <({ git diff --name-only HEAD -- .; git ls-files --others --exclude-standard -- .; } | sort -u)
   return 1
 }

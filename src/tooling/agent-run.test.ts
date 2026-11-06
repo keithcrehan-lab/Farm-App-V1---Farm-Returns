@@ -26,7 +26,14 @@ function campaignVerifyPolicy(changedPath: string, extraEnv: Record<string, stri
   const root = mkdtempSync(path.join(tmpdir(), "agent-verify-policy-"));
   mkdirSync(path.join(root, "scripts"), { recursive: true });
   mkdirSync(path.join(root, ".agent/history"), { recursive: true });
+  mkdirSync(path.join(root, "docs/farm-return-next"), { recursive: true });
   copyFileSync(path.join(repoRoot, "scripts/agent-lib.sh"), path.join(root, "scripts/agent-lib.sh"));
+  copyFileSync(path.join(repoRoot, "scripts/agent-runstate.py"), path.join(root, "scripts/agent-runstate.py"));
+  copyFileSync(path.join(repoRoot, "scripts/agent-context.py"), path.join(root, "scripts/agent-context.py"));
+  copyFileSync(
+    path.join(repoRoot, "docs/farm-return-next/DOMAIN_CONTRACTS.md"),
+    path.join(root, "docs/farm-return-next/DOMAIN_CONTRACTS.md"),
+  );
   writeFileSync(path.join(root, "scripts/quality-gate.sh"), "#!/usr/bin/env bash\ntouch .full-gate-ran\n", { mode: 0o755 });
   writeFileSync(path.join(root, ".agent/CURRENT_TASK.md"), "# Task: Verify policy fixture\nStarting HEAD: auto\nVerify command: `true`\n");
   execFileSync("git", ["init", "-q"], { cwd: root });
@@ -67,7 +74,15 @@ describe("scripts/agent-run", () => {
     expect(local.gateRan).toBe(false);
     expect(local.state).toContain("full suite deferred to FREEZE");
 
-    for (const changedPath of ["src/lib/farm-data/shared.ts", "src/domain/types.ts", "package.json", "scripts/agent-helper"]) {
+    for (const changedPath of [
+      "src/lib/farm-data/shared.ts",
+      "src/domain/types.ts",
+      "src/proxy.ts",
+      "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+      "src/types/database.types.ts",
+      "package.json",
+      "scripts/agent-helper",
+    ]) {
       const highBlast = campaignVerifyPolicy(changedPath);
       expect(highBlast.run.status, `${changedPath}: ${highBlast.run.stdout}${highBlast.run.stderr}`).toBe(0);
       expect(highBlast.gateRan, changedPath).toBe(true);
@@ -76,7 +91,7 @@ describe("scripts/agent-run", () => {
     const forced = campaignVerifyPolicy("src/domain/schemes/local.ts", { AGENT_CAMPAIGN_FORCE_FULL_GATE: "1" });
     expect(forced.run.status, `${forced.run.stdout}${forced.run.stderr}`).toBe(0);
     expect(forced.gateRan).toBe(true);
-  });
+  }, 30_000);
 
   it("passes the harness boundary/usage tests (agent-context.test.py)", () => {
     // The worker may pass on an ignored SIGTERM; the timeout test needs the default disposition.

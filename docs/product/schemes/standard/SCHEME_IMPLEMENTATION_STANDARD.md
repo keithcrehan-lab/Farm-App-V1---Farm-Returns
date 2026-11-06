@@ -42,7 +42,7 @@ Each row is one **atomic** requirement. If two conditions can pass or fail indep
 
 - a row with no entry fails, and an entry for a row the register does not hold fails;
 - `IMPLEMENTABLE` may become `IMPLEMENTED` or `UNSUPPORTED`;
-- `IMPLEMENTED`, `UNSUPPORTED` and `NOT_APPLICABLE` stay as they are. Changing one needs a new register version;
+- `IMPLEMENTED`, `UNSUPPORTED` and `NOT_APPLICABLE` stay as they are, and the entry restates the row's `reason`, `engineRuleRef` and `testRef` exactly. Changing any of them needs a new register version. Only an `IMPLEMENTABLE` row gains these values from coverage;
 - an `IMPLEMENTED` row can read only registered data keys.
 
 **Unsupported or stop.** Per `CAMPAIGN.md`, "Requirement semantics": a clear source that Farm Return cannot evaluate is `UNSUPPORTED`. An absent, incomplete, ambiguous or conflicting source means Farm Return cannot establish what the requirement says, and the phase stops with the matching gate token. A row is never used to record a guess.
@@ -254,6 +254,7 @@ No campaign phase writes or applies a migration or changes the schema. See `CAMP
 
 - the content pack is itself valid and is the one named;
 - the rows pass `validateStoredSchemeDefinition`, and every row belongs to this version;
+- every row holds exactly its stored columns, each valid for the table: uuid ids, closed vocabularies, bounded text, booleans, real dates (`YYYY-MM-DD`) and UTC timestamps, windows in order, and no duplicate row id, key or rule input;
 - source rows match the pack's sources exactly, in both directions;
 - **the version is `draft`, with `v1Enabled` false and `verifiedAt` null.** Loaded content stays invisible, and suppresses no legacy result, until the post-load audit has passed and that audit's own authorised step publishes it;
 - every stored rule traces to a register row through `engineRuleRef`, cites that row's source, and reads the same facts;

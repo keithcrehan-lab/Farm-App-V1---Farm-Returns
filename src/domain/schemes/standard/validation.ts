@@ -1,8 +1,16 @@
 import { computeAssessmentFingerprint } from "../../assessment-integrity";
 import { isValidCalendarDate } from "../../cattle/rule";
-import type { SchemeDataOwner } from "../contracts";
+import { isValidIsoUtcDateTime } from "../../iso-datetime";
+import type { SchemeDataOwner, SchemeResolutionOwner } from "../contracts";
 import { registeredSchemeDataKey } from "../data-keys";
-import type { StoredSchemeDefinition, StoredSchemeSource } from "../repository";
+import type {
+  SchemePublicationState,
+  StoredSchemeDefinition,
+  StoredSchemeRule,
+  StoredSchemeRuleInput,
+  StoredSchemeSource,
+  StoredSchemeVersion,
+} from "../repository";
 import { validateStoredSchemeDefinition } from "../validation";
 import {
   SCHEME_CONTENT_PACK_FORMAT_VERSION,
@@ -36,9 +44,11 @@ export type SchemeContentHash = (input: string) => string;
 // CHECK constraints.
 const SCHEME_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{1,79}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MIN_SCHEME_YEAR = 2000;
 const MAX_SCHEME_YEAR = 2100;
 const MAX_RULES_VERSION_LENGTH = 120;
+const MAX_RULE_INPUT_PRIORITY = 10000;
 
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 
@@ -907,6 +917,18 @@ export function validateRegisterCoverage(
         `A frozen ${row.status} row cannot become ${status} without a new version.`,
       );
     }
+    // Only an unbuilt row gains references or a reason from coverage.
+    if (
+      row.status !== "IMPLEMENTABLE" &&
+      (entry.engineRuleRef !== row.engineRuleRef ||
+        entry.testRef !== row.testRef ||
+        entry.reason !== row.reason)
+    ) {
+      push(
+        "COVERAGE_FROZEN_ROW_DRIFT",
+        "A row frozen with a final status keeps its references and reason until a new version.",
+      );
+    }
     if (!isNullableText(entry.engineRuleRef) || !isNullableText(entry.testRef)) {
       push("COVERAGE_REFERENCE_INVALID", "References must each be text or null.");
     }
@@ -970,6 +992,257 @@ function isDefinitionShape(value: unknown): value is StoredSchemeDefinition {
   );
 }
 
+type StoredFieldCheck = (value: unknown) => boolean;
+
+const isUuid: StoredFieldCheck = (value) =>
+  typeof value === "string" && UUID_PATTERN.test(value);
+
+const isBoolean: StoredFieldCheck = (value) => typeof value === "boolean";
+
+const isTimestamp: StoredFieldCheck = (value) =>
+  typeof value === "string" && isValidIsoUtcDateTime(value);
+
+const isPriority: StoredFieldCheck = (value) =>
+  typeof value === "number" &&
+  Number.isInteger(value) &&
+  value >= 0 &&
+  value <= MAX_RULE_INPUT_PRIORITY;
+
+const textUpTo =
+  (max: number): StoredFieldCheck =>
+  (value) =>
+    isText(value) && value.trim().length <= max;
+
+const nullable =
+  (check: StoredFieldCheck): StoredFieldCheck =>
+  (value) =>
+    value === null || check(value);
+
+const oneOf =
+  (values: Record<string, true>): StoredFieldCheck =>
+  (value) =>
+    typeof value === "string" && Object.hasOwn(values, value);
+
+const STORED_CATEGORIES: Record<string, true> = {
+  direct_basic_support: true,
+  environmental_support: true,
+  young_new_farmer_support: true,
+  capital_investment_support: true,
+  livestock_support: true,
+  safety_support: true,
+  other: true,
+};
+
+const STORED_AUTHORITIES: Record<string, true> = {
+  DAFM: true,
+  EU_CAP: true,
+  OTHER_OFFICIAL: true,
+};
+
+const STORED_PUBLICATION_STATES: Record<SchemePublicationState, true> = {
+  draft: true,
+  verified: true,
+  superseded: true,
+};
+
+const STORED_AUTHORITY_TIERS: Record<StoredSchemeAuthorityTier, true> = {
+  statute: true,
+  dafm_official: true,
+  eu_official: true,
+  teagasc_technical: true,
+  authoritative_secondary: true,
+};
+
+const STORED_RULE_TYPES: Record<StoredSchemeRule["ruleType"], true> = {
+  relevance: true,
+  eligibility: true,
+  payment: true,
+  cap: true,
+  exclusion: true,
+  action_obligation: true,
+  evidence_obligation: true,
+  compatibility: true,
+  deadline: true,
+};
+
+const STORED_SUBJECT_SCOPES: Record<StoredSchemeRuleInput["subjectScope"], true> = {
+  farm: true,
+  field: true,
+  animal: true,
+  group: true,
+};
+
+const RESOLUTION_OWNERS: Record<SchemeResolutionOwner, true> = {
+  farmer: true,
+  adviser: true,
+  system: true,
+};
+
+// Column by column from the Schemes foundation migration's CHECK constraints.
+// Keyed by the row types, so a new column cannot be left unchecked.
+const STORED_VERSION_FIELDS: Record<keyof StoredSchemeVersion, StoredFieldCheck> = {
+  id: isUuid,
+  schemeKey: (value) => typeof value === "string" && SCHEME_KEY_PATTERN.test(value),
+  displayName: textUpTo(180),
+  category: oneOf(STORED_CATEGORIES),
+  authority: oneOf(STORED_AUTHORITIES),
+  schemeYear: isSchemeYear,
+  programmeGeneration: isNullableText,
+  rulesVersion: textUpTo(MAX_RULES_VERSION_LENGTH),
+  effectiveFrom: nullable(isCalendarDate),
+  effectiveTo: nullable(isCalendarDate),
+  applicationOpen: nullable(isTimestamp),
+  applicationClose: nullable(isTimestamp),
+  lateApplicationClose: nullable(isTimestamp),
+  publicationState: oneOf(STORED_PUBLICATION_STATES),
+  v1Enabled: isBoolean,
+  enterpriseRelevance: (value) => Array.isArray(value) && value.every(isText),
+  supportType: isNullableText,
+  recurrenceType: isNullableText,
+  requiresAdviser: isBoolean,
+  verifiedAt: nullable(isTimestamp),
+};
+
+const STORED_SOURCE_FIELDS: Record<keyof StoredSchemeSource, StoredFieldCheck> = {
+  id: isUuid,
+  schemeVersionId: isUuid,
+  sourceKey: textUpTo(120),
+  authorityTier: oneOf(STORED_AUTHORITY_TIERS),
+  publisher: textUpTo(180),
+  title: textUpTo(300),
+  url: (value) => isHttpUrl(value) && textUpTo(2000)(value),
+  publicationDate: nullable(isCalendarDate),
+  retrievedAt: nullable(isTimestamp),
+  lastVerifiedAt: nullable(isTimestamp),
+  contentFingerprintSha256: nullable(
+    (value) => typeof value === "string" && SHA256_PATTERN.test(value),
+  ),
+  archivedStoragePath: nullable(isArchiveLocation),
+};
+
+const STORED_RULE_FIELDS: Record<keyof StoredSchemeRule, StoredFieldCheck> = {
+  id: isUuid,
+  schemeVersionId: isUuid,
+  sourceId: isUuid,
+  ruleKey: textUpTo(160),
+  ruleType: oneOf(STORED_RULE_TYPES),
+  description: textUpTo(2000),
+  operator: textUpTo(80),
+  parameters: isRecord,
+  consequence: isRecord,
+  hardGate: isBoolean,
+  effectiveFrom: nullable(isTimestamp),
+  effectiveTo: nullable(isTimestamp),
+  inputs: Array.isArray,
+};
+
+const STORED_RULE_INPUT_FIELDS: Record<keyof StoredSchemeRuleInput, StoredFieldCheck> = {
+  ruleId: isUuid,
+  schemeVersionId: isUuid,
+  dataKey: textUpTo(200),
+  label: textUpTo(300),
+  owner: oneOf(DATA_OWNERS),
+  subjectScope: oneOf(STORED_SUBJECT_SCOPES),
+  required: isBoolean,
+  resolutionOwner: oneOf(RESOLUTION_OWNERS),
+  priority: isPriority,
+  routeKey: isNullableText,
+};
+
+function validateStoredRowFields(
+  table: string,
+  row: object,
+  fields: Record<string, StoredFieldCheck>,
+  context: Pick<SchemeStandardIssue, "sourceId" | "ruleKey" | "dataKey">,
+  issues: SchemeStandardIssue[],
+): void {
+  const values = row as UnknownRecord;
+  for (const [field, check] of Object.entries(fields)) {
+    if (!Object.hasOwn(values, field) || !check(values[field])) {
+      issues.push({
+        code: "SEED_ROW_FIELD_INVALID",
+        detail: `${table}.${field} is missing or invalid.`,
+        ...context,
+      });
+    }
+  }
+  for (const field of Object.keys(values)) {
+    if (!Object.hasOwn(fields, field)) {
+      issues.push({
+        code: "SEED_ROW_FIELD_INVALID",
+        detail: `${table}.${field} is not a stored column.`,
+        ...context,
+      });
+    }
+  }
+}
+
+/** True when both bounds are present and in the wrong order. A malformed
+ * bound is reported by its own field check. */
+function windowReversed(from: unknown, to: unknown): boolean {
+  return (
+    typeof from === "string" &&
+    typeof to === "string" &&
+    Date.parse(from) > Date.parse(to)
+  );
+}
+
+const textContext = (value: unknown) => (typeof value === "string" ? value : undefined);
+
+/** Every stored column, window and row key the tables would hold. The checks
+ * after this one compare rows; these ones judge each row on its own. */
+function validateStoredRows(
+  definition: StoredSchemeDefinition,
+  issues: SchemeStandardIssue[],
+): void {
+  const { version } = definition;
+  validateStoredRowFields("scheme_versions", version, STORED_VERSION_FIELDS, {}, issues);
+
+  const versionWindows: [string, unknown, unknown][] = [
+    ["effective", version.effectiveFrom, version.effectiveTo],
+    ["application", version.applicationOpen, version.applicationClose],
+    ["late application", version.applicationClose, version.lateApplicationClose],
+  ];
+  for (const [label, from, to] of versionWindows) {
+    if (windowReversed(from, to)) {
+      issues.push({ code: "SEED_ROW_FIELD_INVALID", detail: `The version's ${label} dates are out of order.` });
+    }
+  }
+
+  const seenSourceRowIds = new Set<unknown>();
+  for (const source of definition.sources) {
+    const sourceId = textContext(source.sourceKey);
+    validateStoredRowFields("scheme_sources", source, STORED_SOURCE_FIELDS, { sourceId }, issues);
+    if (seenSourceRowIds.has(source.id)) {
+      issues.push({ code: "SEED_DUPLICATE_KEY", detail: "Source row ids must be unique.", sourceId });
+    }
+    seenSourceRowIds.add(source.id);
+  }
+
+  const seenRuleRowIds = new Set<unknown>();
+  for (const rule of definition.rules) {
+    const ruleKey = textContext(rule.ruleKey);
+    validateStoredRowFields("scheme_rules", rule, STORED_RULE_FIELDS, { ruleKey }, issues);
+    if (windowReversed(rule.effectiveFrom, rule.effectiveTo)) {
+      issues.push({ code: "SEED_ROW_FIELD_INVALID", detail: "The rule's effective dates are out of order.", ruleKey });
+    }
+    if (seenRuleRowIds.has(rule.id)) {
+      issues.push({ code: "SEED_DUPLICATE_KEY", detail: "Rule row ids must be unique.", ruleKey });
+    }
+    seenRuleRowIds.add(rule.id);
+
+    const seenDataKeys = new Set<unknown>();
+    for (const ruleInput of rule.inputs) {
+      const dataKey = textContext(ruleInput.dataKey);
+      validateStoredRowFields("scheme_rule_inputs", ruleInput, STORED_RULE_INPUT_FIELDS, { ruleKey, dataKey }, issues);
+      if (seenDataKeys.has(ruleInput.dataKey)) {
+        issues.push({ code: "SEED_DUPLICATE_KEY", detail: "A rule can read a data key only once.", ruleKey, dataKey });
+      }
+      seenDataKeys.add(ruleInput.dataKey);
+    }
+  }
+}
+
 function storedSourceDiffers(
   stored: StoredSchemeSource,
   source: SchemeSourceRecord,
@@ -993,6 +1266,8 @@ function validateSeedDefinition(
   issues: SchemeStandardIssue[],
 ): void {
   const { version } = definition;
+
+  validateStoredRows(definition, issues);
 
   if (
     version.schemeKey !== pack.pin.schemeKey ||

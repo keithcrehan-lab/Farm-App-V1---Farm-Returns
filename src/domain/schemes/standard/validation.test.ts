@@ -37,6 +37,14 @@ const OTHER_YEAR_PIN: SchemeVersionPin = {
 };
 const REGISTERED_KEY = "cattle.animal.weight";
 
+// Stored row ids are uuid columns.
+const VERSION_ROW_ID = "00000000-0000-4000-8000-000000000001";
+const SOURCE_ROW_ID = "00000000-0000-4000-8000-000000000002";
+const SOURCE_ROW_ID_2 = "00000000-0000-4000-8000-000000000003";
+const RULE_ROW_ID = "00000000-0000-4000-8000-000000000004";
+const RULE_ROW_ID_2 = "00000000-0000-4000-8000-000000000005";
+const OTHER_VERSION_ROW_ID = "00000000-0000-4000-8000-000000000006";
+
 const REVIEW = {
   reviewer: "SYNTH-REVIEWER",
   reviewedOn: "2031-02-01",
@@ -120,7 +128,7 @@ function sealPack(
 function definition(): StoredSchemeDefinition {
   return {
     version: {
-      id: "SYNTH-VERSION-ID",
+      id: VERSION_ROW_ID,
       schemeKey: PIN.schemeKey,
       displayName: "SYNTH scheme",
       category: "other",
@@ -143,8 +151,8 @@ function definition(): StoredSchemeDefinition {
     },
     sources: [
       {
-        id: "SYNTH-SOURCE-ROW",
-        schemeVersionId: "SYNTH-VERSION-ID",
+        id: SOURCE_ROW_ID,
+        schemeVersionId: VERSION_ROW_ID,
         sourceKey: "SYNTH-SOURCE-1",
         authorityTier: "dafm_official",
         publisher: "SYNTH-PUBLISHER",
@@ -159,9 +167,9 @@ function definition(): StoredSchemeDefinition {
     ],
     rules: [
       {
-        id: "SYNTH-RULE-ROW",
-        schemeVersionId: "SYNTH-VERSION-ID",
-        sourceId: "SYNTH-SOURCE-ROW",
+        id: RULE_ROW_ID,
+        schemeVersionId: VERSION_ROW_ID,
+        sourceId: SOURCE_ROW_ID,
         ruleKey: "synth-rule-1",
         ruleType: "eligibility",
         description: "SYNTH rule",
@@ -173,8 +181,8 @@ function definition(): StoredSchemeDefinition {
         effectiveTo: null,
         inputs: [
           {
-            ruleId: "SYNTH-RULE-ROW",
-            schemeVersionId: "SYNTH-VERSION-ID",
+            ruleId: RULE_ROW_ID,
+            schemeVersionId: VERSION_ROW_ID,
             dataKey: REGISTERED_KEY,
             label: "SYNTH input",
             owner: "cattle",
@@ -635,6 +643,66 @@ describe("register coverage", () => {
     expect(codes(validateRegisterCoverage(entries, rows))).toContain(code);
   });
 
+  describe("frozen final-status rows", () => {
+    const frozenImplemented = row({
+      status: "IMPLEMENTED",
+      engineRuleRef: "synth-frozen-rule",
+      testRef: "synth-frozen.test.ts",
+    });
+    const frozenUnsupported = row({
+      status: "UNSUPPORTED",
+      reason: "SYNTH: no data feed",
+      engineRuleRef: "synth-frozen-rule",
+      testRef: "synth-frozen.test.ts",
+    });
+    const frozenNotApplicable = row({ status: "NOT_APPLICABLE", reason: "SYNTH: no such class" });
+    const entryFor = (frozen: RequirementRegisterRow) => ({
+      rowId: frozen.id,
+      status: frozen.status,
+      reason: frozen.reason,
+      engineRuleRef: frozen.engineRuleRef,
+      testRef: frozen.testRef,
+    });
+
+    it.each([
+      ["IMPLEMENTED", frozenImplemented],
+      ["UNSUPPORTED", frozenUnsupported],
+      ["NOT_APPLICABLE", frozenNotApplicable],
+    ])("accepts a %s row restated exactly", (_label, frozen) => {
+      expect(validateRegisterCoverage([entryFor(frozen)], [frozen])).toEqual([]);
+    });
+
+    it.each<[string, RequirementRegisterRow, object]>([
+      ["an implemented row's engine rule", frozenImplemented, { engineRuleRef: "synth-other-rule" }],
+      ["an implemented row's test", frozenImplemented, { testRef: "synth-other.test.ts" }],
+      ["an unsupported row's engine rule", frozenUnsupported, { engineRuleRef: "synth-other-rule" }],
+      ["an unsupported row's dropped test", frozenUnsupported, { testRef: null }],
+      ["an unsupported row's reason", frozenUnsupported, { reason: "SYNTH: another reason" }],
+      ["a not-applicable row's reason", frozenNotApplicable, { reason: "SYNTH: another reason" }],
+    ])("rejects replacing %s", (_label, frozen, change) => {
+      expect(
+        codes(validateRegisterCoverage([{ ...entryFor(frozen), ...change }], [frozen])),
+      ).toContain("COVERAGE_FROZEN_ROW_DRIFT");
+    });
+
+    it("rejects any field of any final-status row drifting", () => {
+      for (const frozen of [frozenImplemented, frozenUnsupported, frozenNotApplicable]) {
+        for (const field of ["reason", "engineRuleRef", "testRef"] as const) {
+          const entry = { ...entryFor(frozen), [field]: "SYNTH-DRIFTED" };
+          expect(codes(validateRegisterCoverage([entry], [frozen]))).toContain("COVERAGE_FROZEN_ROW_DRIFT");
+        }
+      }
+    });
+
+    it("still lets the allowed transitions from an unbuilt row assign references", () => {
+      const unbuilt = row();
+      expect(validateRegisterCoverage([implemented], [unbuilt])).toEqual([]);
+      expect(
+        validateRegisterCoverage([{ ...unsupported, rowId: unbuilt.id, engineRuleRef: "r", testRef: "t" }], [unbuilt]),
+      ).toEqual([]);
+    });
+  });
+
   it("rejects an implemented entry whose row reads an unregistered key", () => {
     const proposed = [row({ dataKeys: [{ key: "schemes.synth.2031.fact", owner: "schemes" }] })];
     expect(codes(validateRegisterCoverage([implemented], proposed))).toContain("COVERAGE_DATA_KEY_UNREGISTERED");
@@ -652,22 +720,147 @@ describe("seed packet", () => {
     ["a verified version", (d) => { d.version.publicationState = "verified"; d.version.verifiedAt = "2031-02-02T00:00:00.000Z"; }, "SEED_PUBLICATION_STATE_NOT_ALLOWED"],
     ["an enabled version", (d) => { d.version.v1Enabled = true; }, "SEED_PUBLICATION_STATE_NOT_ALLOWED"],
     ["another scheme year", (d) => { d.version.schemeYear = 2032; }, "SEED_OTHER_VERSION"],
-    ["a source row of another version", (d) => { d.sources[0].schemeVersionId = "SYNTH-OTHER"; }, "SEED_ROW_OTHER_VERSION"],
-    ["a rule of another version", (d) => { d.rules[0].schemeVersionId = "SYNTH-OTHER"; }, "SEED_ROW_OTHER_VERSION"],
-    ["an input of another version", (d) => { d.rules[0].inputs[0].schemeVersionId = "SYNTH-OTHER"; }, "SEED_ROW_OTHER_VERSION"],
+    ["a source row of another version", (d) => { d.sources[0].schemeVersionId = OTHER_VERSION_ROW_ID; }, "SEED_ROW_OTHER_VERSION"],
+    ["a rule of another version", (d) => { d.rules[0].schemeVersionId = OTHER_VERSION_ROW_ID; }, "SEED_ROW_OTHER_VERSION"],
+    ["an input of another version", (d) => { d.rules[0].inputs[0].schemeVersionId = OTHER_VERSION_ROW_ID; }, "SEED_ROW_OTHER_VERSION"],
     ["a source differing from the pack", (d) => { d.sources[0].contentFingerprintSha256 = "b".repeat(64); }, "SEED_SOURCE_MISMATCH"],
     ["a retrieval date differing from the pack", (d) => { d.sources[0].retrievedAt = "2031-01-16T00:00:00.000Z"; }, "SEED_SOURCE_MISMATCH"],
     ["a source not in the pack", (d) => { d.sources[0].sourceKey = "SYNTH-NOT-IN-PACK"; }, "SEED_SOURCE_NOT_IN_PACK"],
     ["a pack source with no row", (d) => { d.sources = []; }, "SEED_SOURCE_MISSING"],
-    ["a duplicate rule key", (d) => { d.rules.push({ ...d.rules[0], id: "SYNTH-RULE-2" }); }, "SEED_DUPLICATE_KEY"],
-    ["a rule with no register row", (d) => { d.rules.push({ ...d.rules[0], id: "SYNTH-RULE-2", ruleKey: "synth-unregistered", inputs: [] }); }, "SEED_RULE_NOT_IN_REGISTER"],
+    ["a duplicate rule key", (d) => { d.rules.push({ ...d.rules[0], id: RULE_ROW_ID_2 }); }, "SEED_DUPLICATE_KEY"],
+    ["a rule with no register row", (d) => { d.rules.push({ ...d.rules[0], id: RULE_ROW_ID_2, ruleKey: "synth-unregistered", inputs: [] }); }, "SEED_RULE_NOT_IN_REGISTER"],
     ["a cited rule the packet does not load", (d) => { d.rules[0].ruleKey = "synth-renamed"; }, "SEED_RULE_REFERENCE_UNRESOLVED"],
     ["a row's fact missing from its rule", (d) => { d.rules[0].inputs = []; }, "SEED_ROW_KEY_NOT_IN_RULE"],
     ["a rule reading a fact its row does not name", (d) => { d.rules[0].inputs.push({ ...d.rules[0].inputs[0], dataKey: "cattle.animal.date_of_birth" }); }, "SEED_RULE_INPUT_NOT_IN_REGISTER"],
-    ["a rule whose source is unresolved (shared validator)", (d) => { d.rules[0].sourceId = "SYNTH-NOPE"; }, "SEED_DEFINITION_INVALID"],
+    ["a rule whose source is unresolved (shared validator)", (d) => { d.rules[0].sourceId = OTHER_VERSION_ROW_ID; }, "SEED_DEFINITION_INVALID"],
     ["an unregistered rule input (shared validator)", (d) => { d.rules[0].inputs[0].dataKey = "random.freeform.answer"; }, "SEED_DEFINITION_INVALID"],
   ])("rejects %s", (_label, change, code) => {
     expect(codes(withDefinition(change))).toContain(code);
+  });
+
+  it("rejects coverage replacing the frozen register's implementation references", () => {
+    const frozen = row({
+      status: "IMPLEMENTED",
+      engineRuleRef: "synth-frozen-rule",
+      testRef: "synth-frozen.test.ts",
+    });
+    const pack = sealPack({ register: { pin: PIN, rows: [frozen] } });
+    const value = definition();
+    value.rules[0].ruleKey = "synth-frozen-rule";
+    const entry = {
+      rowId: frozen.id,
+      status: "IMPLEMENTED" as const,
+      reason: null,
+      engineRuleRef: "synth-frozen-rule",
+      testRef: "synth-frozen.test.ts",
+    };
+    const seal = (coverage: SchemeSeedPacket["coverage"]) =>
+      validateSchemeSeedPacket(sealPacket({ definition: value, coverage }, pack), pack, sha256);
+
+    expect(seal([entry])).toEqual([]);
+
+    const renamed = definition();
+    expect(
+      codes(validateSchemeSeedPacket(
+        sealPacket({ definition: renamed, coverage: [{ ...entry, engineRuleRef: "synth-rule-1", testRef: "synth-other.test.ts" }] }, pack),
+        pack,
+        sha256,
+      )),
+    ).toEqual(["COVERAGE_FROZEN_ROW_DRIFT"]);
+  });
+
+  describe("stored row fields", () => {
+    const input = (d: StoredSchemeDefinition) => d.rules[0].inputs[0];
+
+    it.each<[string, (value: StoredSchemeDefinition) => void]>([
+      ["a version id that is not a uuid", (d) => { d.version.id = "not-a-uuid"; d.sources[0].schemeVersionId = "not-a-uuid"; d.rules[0].schemeVersionId = "not-a-uuid"; input(d).schemeVersionId = "not-a-uuid"; }],
+      ["a blank display name", (d) => { d.version.displayName = " "; }],
+      ["an overlong display name", (d) => { d.version.displayName = "x".repeat(181); }],
+      ["an unknown category", (d) => { d.version.category = "guess"; }],
+      ["an unknown authority", (d) => { d.version.authority = "toString"; }],
+      ["an impossible effective date", (d) => { d.version.effectiveFrom = "2031-02-30"; }],
+      ["a timestamp as an effective date", (d) => { d.version.effectiveTo = "2031-02-01T00:00:00Z"; }],
+      ["an invalid application timestamp", (d) => { d.version.applicationOpen = "2031-01-01"; }],
+      ["an effective window ending before it starts", (d) => { d.version.effectiveFrom = "2031-02-01"; d.version.effectiveTo = "2031-01-01"; }],
+      ["an application window closing before it opens", (d) => { d.version.applicationOpen = "2031-02-01T00:00:00Z"; d.version.applicationClose = "2031-01-01T00:00:00Z"; }],
+      ["a late close before the close", (d) => { d.version.applicationClose = "2031-02-01T00:00:00Z"; d.version.lateApplicationClose = "2031-01-01T00:00:00Z"; }],
+      ["non-text enterprise relevance", (d) => { d.version.enterpriseRelevance = [1 as unknown as string]; }],
+      ["a non-boolean adviser flag", (d) => { d.version.requiresAdviser = "no" as unknown as boolean; }],
+      ["an invalid last-verified timestamp", (d) => { d.sources[0].lastVerifiedAt = "yesterday"; }],
+      ["an overlong source key", (d) => { d.sources[0].sourceKey = "x".repeat(121); }],
+      ["a duplicate source row id", (d) => { d.sources.push({ ...d.sources[0], sourceKey: "SYNTH-SOURCE-1-COPY" }); }],
+      ["an unknown rule type", (d) => { d.rules[0].ruleType = "guess" as never; }],
+      ["a blank rule description", (d) => { d.rules[0].description = ""; }],
+      ["a blank operator", (d) => { d.rules[0].operator = " "; }],
+      ["array parameters", (d) => { d.rules[0].parameters = [] as unknown as Record<string, unknown>; }],
+      ["a null consequence", (d) => { d.rules[0].consequence = null as unknown as Record<string, unknown>; }],
+      ["a non-boolean hard gate", (d) => { d.rules[0].hardGate = 1 as unknown as boolean; }],
+      ["an invalid rule timestamp", (d) => { d.rules[0].effectiveFrom = "2031-02-30T00:00:00Z"; }],
+      ["a rule window ending before it starts", (d) => { d.rules[0].effectiveFrom = "2031-02-01T00:00:00Z"; d.rules[0].effectiveTo = "2031-01-01T00:00:00Z"; }],
+      ["a blank input label", (d) => { input(d).label = " "; }],
+      ["an unknown subject scope", (d) => { input(d).subjectScope = "herd" as never; }],
+      ["a non-boolean required flag", (d) => { input(d).required = "yes" as unknown as boolean; }],
+      ["an unknown resolution owner", (d) => { input(d).resolutionOwner = "nobody" as never; }],
+      ["a fractional priority", (d) => { input(d).priority = 1.5; }],
+      ["a priority out of range", (d) => { input(d).priority = 10001; }],
+      ["a blank route key", (d) => { input(d).routeKey = " "; }],
+    ])("rejects %s", (_label, change) => {
+      expect(codes(withDefinition(change))).toEqual(
+        expect.arrayContaining([expect.stringMatching(/^SEED_(ROW_FIELD_INVALID|DUPLICATE_KEY)$/)]),
+      );
+    });
+
+    it("rejects a duplicate input, rule row id and version-scoped key", () => {
+      expect(codes(withDefinition((d) => { d.rules[0].inputs.push({ ...input(d) }); }))).toContain("SEED_DUPLICATE_KEY");
+      expect(
+        codes(withDefinition((d) => { d.rules.push({ ...d.rules[0], ruleKey: "synth-rule-2", inputs: [] }); })),
+      ).toContain("SEED_DUPLICATE_KEY");
+    });
+
+    // The whole set of stored columns, so a column added to a row type later
+    // cannot pass unchecked.
+    const rowsOf: [string, (d: StoredSchemeDefinition) => Record<string, unknown>][] = [
+      ["version", (d) => d.version as unknown as Record<string, unknown>],
+      ["source", (d) => d.sources[0] as unknown as Record<string, unknown>],
+      ["rule", (d) => d.rules[0] as unknown as Record<string, unknown>],
+      ["input", (d) => input(d) as unknown as Record<string, unknown>],
+    ];
+    const columnsOf = rowsOf.flatMap(([label, select]) =>
+      Object.keys(select(definition())).map((field) => [label, field, select] as const),
+    );
+    const rejected = ["SEED_ROW_FIELD_INVALID", "SEED_DEFINITION_MALFORMED"];
+
+    it.each(columnsOf)("rejects a %s row with %s missing", (_label, field, select) => {
+      const found = codes(withDefinition((d) => { delete select(d)[field]; }));
+      expect(found.some((code) => rejected.includes(code))).toBe(true);
+    });
+
+    it.each(columnsOf)("rejects a %s row with %s of the wrong type", (_label, field, select) => {
+      const found = codes(withDefinition((d) => { select(d)[field] = 12.5; }));
+      expect(found.some((code) => rejected.includes(code))).toBe(true);
+    });
+
+    it.each(rowsOf)("rejects a %s row with a column that does not exist", (_label, select) => {
+      expect(codes(withDefinition((d) => { select(d).synthExtra = null; }))).toContain("SEED_ROW_FIELD_INVALID");
+    });
+
+    it("accepts optional stored values at their valid edges", () => {
+      expect(
+        withDefinition((d) => {
+          d.version.effectiveFrom = "2031-01-01";
+          d.version.effectiveTo = "2031-01-01";
+          d.version.applicationOpen = "2031-01-01T00:00:00Z";
+          d.version.applicationClose = "2031-01-01T00:00:00.000Z";
+          d.version.lateApplicationClose = "2031-01-02T00:00:00Z";
+          d.version.enterpriseRelevance = ["SYNTH-enterprise"];
+          d.sources[0].lastVerifiedAt = "2031-01-16T00:00:00Z";
+          d.rules[0].effectiveFrom = "2031-01-01T00:00:00Z";
+          d.rules[0].effectiveTo = "2031-01-01T00:00:00Z";
+          input(d).priority = 0;
+          input(d).routeKey = "synth-route";
+        }),
+      ).toEqual([]);
+    });
   });
 
   it("rejects a rule citing a different source from its row", () => {
@@ -677,8 +870,8 @@ describe("seed packet", () => {
       }),
     });
     const value = definition();
-    value.sources.push({ ...value.sources[0], id: "SYNTH-SOURCE-ROW-2", sourceKey: "SYNTH-SOURCE-2", authorityTier: "authoritative_secondary" });
-    value.rules[0].sourceId = "SYNTH-SOURCE-ROW-2";
+    value.sources.push({ ...value.sources[0], id: SOURCE_ROW_ID_2, sourceKey: "SYNTH-SOURCE-2", authorityTier: "authoritative_secondary" });
+    value.rules[0].sourceId = SOURCE_ROW_ID_2;
     expect(
       codes(validateSchemeSeedPacket(sealPacket({ definition: value }, pack), pack, sha256)),
     ).toContain("SEED_RULE_SOURCE_MISMATCH");

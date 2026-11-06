@@ -66,16 +66,23 @@
         {
           "path": "scripts/agent-lib.sh",
           "baseline_blob": "3b265e637ab449f3c9ae784f21cb92f619a1bd3f",
-          "result_blob": "1af4d8083d891d9c5e2a5ada22f32a95f723a986",
-          "amendment_sha256": "0fc5727f6ca2895acf28b05c75e0fe41b139bde1139992cc57f4bfb4aa55118e",
-          "authorisation": "User explicitly authorised on 2026-11-06 replacing repeated full-repository gates during campaign repair loops with targeted verification, while retaining full-gate verification at freeze and immediate full gates for high-blast-radius changes."
+          "result_blob": "4e68e55d3d890322811519a680fd0340e1e0a8e1",
+          "amendment_sha256": "3e5226bdc5ab65b1bf6a8facce63518c013728ab0872cfd91263675d10d70953",
+          "authorisation": "User explicitly authorised on 2026-11-06 replacing repeated full-repository gates during campaign repair loops with targeted verification, while retaining full-gate verification at freeze and immediate full gates for high-blast-radius changes. Strict audit F008 then required the immediate-gate check to reuse the established shared-contract classifier; this updated result is that bounded correction."
         },
         {
           "path": "src/tooling/agent-run.test.ts",
           "baseline_blob": "5c7498df543667cddfea8a80364551911d211d12",
-          "result_blob": "baf31f69065d8a12240e0f518630b4178ece65b4",
-          "amendment_sha256": "abf9e425b3d9da598729412ced0447f8eb527ff810c69baff0b221196e60ed9a",
-          "authorisation": "User explicitly authorised on 2026-11-06 the tooling regression coverage for the new campaign verification policy: phase-local checkpoints defer the full suite to freeze; high-blast-radius changes still force it."
+          "result_blob": "0696870b357895b886459ae8f46ad095a0dc4b4c",
+          "amendment_sha256": "214fdc8da0cbb6ca89eeca45669387741adf519b81e70efbe389f0a856423668",
+          "authorisation": "User explicitly authorised on 2026-11-06 the tooling regression coverage for the faster campaign verification policy. Strict audit F008 required coverage for shared category-E paths; this updated result proves those paths still force the full gate while phase-local paths defer it."
+        },
+        {
+          "path": "scripts/agent-runstate.py",
+          "baseline_blob": "4e88f55c348d4df164ef034a227e01ce40c5fdd0",
+          "result_blob": "392db91bb3c90b1240064e4cb31754c4472d0038",
+          "amendment_sha256": "a0dbdf87549a6e14e34a9bf229235e9b8dd9ce5ae9b89ab3b300f9fc7043d433",
+          "authorisation": "User explicitly authorised continuation on 2026-11-06 after strict audit F008. This bounded tooling amendment exposes the existing deterministic path category classifier so campaign checkpoint verification reuses the canonical E/F blast-radius decision instead of maintaining a second partial list."
         }
       ]
     },

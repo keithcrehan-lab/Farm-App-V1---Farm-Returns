@@ -812,6 +812,40 @@ function verifyFingerprint(
   }
 }
 
+function validateRegisterCitedCompleteness(
+  sourcePack: unknown,
+  register: unknown,
+): SchemeStandardIssue[] {
+  if (!isRecord(sourcePack) || !isRecord(register)) return [];
+  const completeness = sourcePack.completeness;
+  if (!isRecord(completeness) || completeness.status !== "CLAIMED") return [];
+  if (!Array.isArray(completeness.coveredSourceIds) || !Array.isArray(register.rows)) return [];
+
+  const covered = new Set(
+    completeness.coveredSourceIds.filter((sourceId): sourceId is string => typeof sourceId === "string"),
+  );
+  const seen = new Set<string>();
+  const issues: SchemeStandardIssue[] = [];
+
+  for (const row of register.rows) {
+    if (!isRecord(row) || !isRecord(row.source) || typeof row.source.sourceId !== "string") continue;
+    const sourceId = row.source.sourceId;
+    if (seen.has(sourceId)) continue;
+    seen.add(sourceId);
+    if (!covered.has(sourceId)) {
+      issues.push({
+        code: "COMPLETENESS_REQUIRED_SOURCE_NOT_COVERED",
+        detail:
+          "A source cited by the requirement register must be covered by the completeness claim, including tier 3 evidence.",
+        rowId: typeof row.id === "string" ? row.id : undefined,
+        sourceId,
+      });
+    }
+  }
+
+  return issues;
+}
+
 function validateSchemeContentPackUnsafe(
   input: unknown,
   hash: SchemeContentHash,
@@ -824,6 +858,7 @@ function validateSchemeContentPackUnsafe(
   const issues: SchemeStandardIssue[] = [
     ...sourceIssues,
     ...validateRequirementRegisterUnsafe(input.register, input.sourcePack, true),
+    ...validateRegisterCitedCompleteness(input.sourcePack, input.register),
   ];
 
   if (input.formatVersion !== SCHEME_CONTENT_PACK_FORMAT_VERSION) {

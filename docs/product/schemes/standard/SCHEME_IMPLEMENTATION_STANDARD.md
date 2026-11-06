@@ -88,8 +88,9 @@ Each P1 phase also has a test that hashes each archived file and compares it wit
 
 1. a review record with scope `WHOLE_DOCUMENT_AGAINST_REGISTER`, saying who reviewed, when, and where the record is held in the repository;
 2. named covered sources, each resolving in the pack, with the review dated on or after their retrieval;
-3. at least one tier 1 or 2 source, and every tier 1 or 2 source in the pack covered;
-4. for each covered `EXTRACT`, its own whole-document review record. An extract alone proves only the facts it lists, and the person reviewing must have held the whole document.
+3. every source cited by the Requirement Register covered, regardless of tier; a required tier-3 source cannot be omitted from `coveredSourceIds` to bypass completeness review;
+4. at least one tier 1 or 2 source, and every tier 1 or 2 source in the pack covered;
+5. for each covered `EXTRACT`, its own whole-document review record. An extract alone proves only the facts it lists, and the person reviewing must have held the whole document.
 
 An agent that holds only an extract cannot produce that record. A phase that cannot meet these conditions stops; it does not lower the claim.
 

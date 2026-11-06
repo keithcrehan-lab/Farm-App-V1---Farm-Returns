@@ -391,6 +391,78 @@ describe("required rejections", () => {
     expect(codes(validateRequirementRegister(register([row()]), pack))).toContain(expectedCode);
   });
 
+  it("rejects a register-cited tier-3 extract omitted from completeness coverage", () => {
+    const extract = source({
+      sourceId: "SYNTH-SOURCE-3",
+      sourceVersion: "SYNTH-EDITION-3",
+      authorityTier: 3,
+      storedAuthorityTier: "authoritative_secondary",
+      contentScope: "EXTRACT",
+      reviewRecord: null,
+    });
+    const sources = sourcePack({
+      sources: [source(), extract],
+      completeness: {
+        status: "CLAIMED",
+        coveredSourceIds: ["SYNTH-SOURCE-1"],
+        reviewRecord: REVIEW,
+      },
+    });
+    const cited = row({
+      id: "SYNTH-REQ-3",
+      source: {
+        sourceId: extract.sourceId,
+        sourceVersion: extract.sourceVersion,
+        locator: "SYNTH section 3",
+        wordingReference: "SYNTH section 3, first sentence",
+      },
+    });
+    const pack = sealPack({ sourcePack: sources, register: { pin: PIN, rows: [row(), cited] } });
+
+    expect(codes(validateSchemeContentPack(pack, sha256))).toContain(
+      "COMPLETENESS_REQUIRED_SOURCE_NOT_COVERED",
+    );
+    const seedIssues = validateSchemeSeedPacket(sealPacket({}, pack), pack, sha256);
+    expect(codes(seedIssues)).toContain("SEED_CONTENT_PACK_INVALID");
+    expect(seedIssues[0]?.detail).toContain("COMPLETENESS_REQUIRED_SOURCE_NOT_COVERED");
+  });
+
+  it("applies whole-document review checks once a cited extract is covered", () => {
+    const extract = source({
+      sourceId: "SYNTH-SOURCE-3",
+      sourceVersion: "SYNTH-EDITION-3",
+      authorityTier: 3,
+      storedAuthorityTier: "authoritative_secondary",
+      contentScope: "EXTRACT",
+      reviewRecord: null,
+    });
+    const sources = sourcePack({
+      sources: [source(), extract],
+      completeness: {
+        status: "CLAIMED",
+        coveredSourceIds: ["SYNTH-SOURCE-1", "SYNTH-SOURCE-3"],
+        reviewRecord: REVIEW,
+      },
+    });
+    const cited = row({
+      id: "SYNTH-REQ-3",
+      source: {
+        sourceId: extract.sourceId,
+        sourceVersion: extract.sourceVersion,
+        locator: "SYNTH section 3",
+        wordingReference: "SYNTH section 3, first sentence",
+      },
+    });
+    const pack = sealPack({ sourcePack: sources, register: { pin: PIN, rows: [row(), cited] } });
+
+    expect(codes(validateSchemeContentPack(pack, sha256))).toContain(
+      "COMPLETENESS_EXTRACT_NOT_REVIEWED",
+    );
+    const seedIssues = validateSchemeSeedPacket(sealPacket({}, pack), pack, sha256);
+    expect(codes(seedIssues)).toContain("SEED_CONTENT_PACK_INVALID");
+    expect(seedIssues[0]?.detail).toContain("COMPLETENESS_EXTRACT_NOT_REVIEWED");
+  });
+
   it("carries each rejection through the content pack validator", () => {
     const cases: [Partial<SchemeContentPack>, string][] = [
       [{ register: { pin: PIN, rows: [{ ...row(), source: null as never }] } }, "REGISTER_ROW_NO_SOURCE"],

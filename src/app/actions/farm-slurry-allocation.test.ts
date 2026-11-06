@@ -130,7 +130,7 @@ const PLAN_REJECTED =(issue: string): DbError => ({ code: "P0001", message: `slu
 
 /** In-memory stand-in for the Supabase/Postgres boundary. */
 class FakeDatabase {
-  tables: Record<string, Row[]> = { farms: [], farm_preceding_year_gsr_records: [], fields: [], housing: [], livestock_groups: [], slurry_allocations: [], slurry_composition_records: [] };
+  tables: Record<string, Row[]> = { farms: [], farm_preceding_year_gsr_records: [], fields: [], housing: [], livestock_groups: [], livestock_individuals: [], slurry_allocations: [], slurry_composition_records: [] };
   currentUserId = "user-a";
   private storeLocks = new Map<string, Promise<void>>();
   private rpcArrivals = 0;
@@ -224,9 +224,12 @@ class FakeDatabase {
         if (!(table in tables)) throw new Error(`unexpected table ${table}`);
         const filters: [string, unknown][] = [];
         let limit: number | undefined;
+        let range: [number, number] | undefined;
+        const filtered = () => visible(table).filter((r) => filters.every(([col, val]) => r[col] === val));
         const run = () => {
-          let rows = visible(table).filter((r) => filters.every(([col, val]) => r[col] === val));
-          if (limit !== undefined) rows = rows.slice(0, limit);
+          let rows = filtered();
+          if (range !== undefined) rows = rows.slice(range[0], range[1] + 1);
+          else if (limit !== undefined) rows = rows.slice(0, limit);
           return rows.map((r) => ({ ...r }));
         };
         const builder = {
@@ -234,8 +237,10 @@ class FakeDatabase {
           eq: (col: string, val: unknown) => (filters.push([col, val]), builder),
           order: () => builder,
           limit: (n: number) => ((limit = n), builder),
+          range: (from: number, to: number) => ((range = [from, to]), builder),
           maybeSingle: async () => ({ data: run()[0] ?? null, error: null }),
-          then: (resolve: (v: { data: Row[]; error: null }) => unknown) => Promise.resolve({ data: run(), error: null }).then(resolve),
+          then: (resolve: (v: { data: Row[]; error: null; count: number }) => unknown) =>
+            Promise.resolve({ data: run(), error: null, count: filtered().length }).then(resolve),
         };
         return builder;
       },

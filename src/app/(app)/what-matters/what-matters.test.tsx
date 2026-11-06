@@ -135,7 +135,7 @@ describe("Pilot P4 — navigation", () => {
   });
 
   it("Farm + Fields redesign: the primary destinations include Grass; What Matters stays reachable under More", () => {
-    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/fertiliser-plan", "/plan", "/cattle", "/grass", "/inputs-market", "/housing", "/finance", "/records"]);
+    expect(primaryNavItems.map((i) => i.href)).toEqual(["/today", "/fertiliser-plan", "/inputs-market", "/plan", "/cattle", "/grass", "/housing", "/finance", "/records", "/schemes"]);
     expect(moreNavItems.map((i) => i.href)).toContain("/what-matters");
     expect(routeExists("/what-matters")).toBe(true);
   });

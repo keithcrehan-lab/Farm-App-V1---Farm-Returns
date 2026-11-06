@@ -678,6 +678,11 @@ function validateRequirementRegisterUnsafe(
   const issues: SchemeStandardIssue[] = sourcePackAlreadyValidated
     ? []
     : [...validateSchemeSourcePack(sourcePack)];
+  // A register is not valid in isolation if its own cited evidence falls
+  // outside the source pack's completeness claim. Keep this at the register
+  // boundary so every caller, including content-pack validation, gets the same
+  // fail-closed evidence contract.
+  issues.push(...validateRegisterCitedCompleteness(sourcePack, input));
   const pin = isVersionPin(input.pin) ? input.pin : null;
   if (!pin) {
     issues.push({ code: "PIN_INVALID", detail: "A register needs a valid version pin." });
@@ -858,7 +863,6 @@ function validateSchemeContentPackUnsafe(
   const issues: SchemeStandardIssue[] = [
     ...sourceIssues,
     ...validateRequirementRegisterUnsafe(input.register, input.sourcePack, true),
-    ...validateRegisterCitedCompleteness(input.sourcePack, input.register),
   ];
 
   if (input.formatVersion !== SCHEME_CONTENT_PACK_FORMAT_VERSION) {

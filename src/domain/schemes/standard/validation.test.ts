@@ -417,8 +417,12 @@ describe("required rejections", () => {
         wordingReference: "SYNTH section 3, first sentence",
       },
     });
-    const pack = sealPack({ sourcePack: sources, register: { pin: PIN, rows: [row(), cited] } });
+    const register = { pin: PIN, rows: [row(), cited] };
+    const pack = sealPack({ sourcePack: sources, register });
 
+    expect(codes(validateRequirementRegister(register, sources))).toContain(
+      "COMPLETENESS_REQUIRED_SOURCE_NOT_COVERED",
+    );
     expect(codes(validateSchemeContentPack(pack, sha256))).toContain(
       "COMPLETENESS_REQUIRED_SOURCE_NOT_COVERED",
     );

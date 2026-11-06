@@ -423,7 +423,7 @@ function FieldsCompanion({
         <ul className="flex flex-col" data-field-list>
           {fields.map((field) => (
             <FieldListItem
-              key={field.id}
+              key={`${field.id}-${mode}`}
               field={field}
               mode={mode}
               selected={mode === "multi" ? multiIds.includes(field.id) : field.id === selectedFieldId}
@@ -491,12 +491,20 @@ function FieldsCompanion({
 }
 
 function FieldListItem({ field, mode, selected, onSelect, onOpen }: { field: Field; mode: CompanionMode; selected: boolean; onSelect: () => void; onOpen: () => void }) {
+  const { archiveField } = useFarmActions();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+
   return (
     <li className={cn("relative border-b border-fr-v2-cream-rule", selected && "bg-white/70")} data-field-row={field.id} data-selected={selected ? "true" : "false"}>
       {selected ? <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-fr-v2-gold" /> : null}
       <button
         type="button"
-        onClick={onSelect}
+        onClick={() => {
+          setDeleteOpen(false);
+          setDeleteConfirmName("");
+          onSelect();
+        }}
         aria-pressed={selected}
         className="flex min-h-14 w-full items-baseline justify-between gap-4 px-4 py-3 text-left transition-colors duration-[160ms] hover:bg-white/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fr-v2-gold motion-reduce:transition-none lg:px-7"
       >
@@ -514,11 +522,61 @@ function FieldListItem({ field, mode, selected, onSelect, onOpen }: { field: Fie
         </span>
       </button>
       {selected && mode === "browse" ? (
-        <div className="px-4 pb-3 lg:px-7">
+        <div className="px-4 pb-4 lg:px-7">
           {field.polygon ? null : <p className="pb-2 text-xs text-fr-v2-muted">No boundary yet, so it isn&apos;t on the map.</p>}
-          <button type="button" onClick={onOpen} className="text-sm font-semibold text-fr-v2-forest underline decoration-fr-v2-forest/30 underline-offset-[3px] hover:decoration-fr-v2-gold">
-            Open field workspace →
-          </button>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <button type="button" onClick={onOpen} className="min-h-10 text-sm font-semibold text-fr-v2-forest underline decoration-fr-v2-forest/30 underline-offset-[3px] hover:decoration-fr-v2-gold">
+              Open field workspace →
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteOpen(true);
+                setDeleteConfirmName("");
+              }}
+              className="min-h-10 text-xs font-semibold text-fr-v2-clay underline decoration-fr-v2-clay/30 underline-offset-[3px] hover:decoration-fr-v2-clay"
+            >
+              Delete this field
+            </button>
+          </div>
+
+          {deleteOpen ? (
+            <div className="mt-2 border-l-[3px] border-fr-v2-clay bg-fr-v2-clay-tint/35 px-3 py-3 text-xs" data-selected-field-delete>
+              <p className="font-semibold text-fr-v2-charcoal">Delete {field.name}?</p>
+              <p className="mt-1.5 leading-relaxed text-fr-v2-muted">
+                It will disappear from active maps and plans immediately. Its field data is kept and can be restored for 30 days.
+              </p>
+              <label className="mt-3 block text-fr-v2-muted">
+                Type <span className="font-semibold text-fr-v2-charcoal">{field.name}</span> to confirm
+                <input
+                  value={deleteConfirmName}
+                  onChange={(event) => setDeleteConfirmName(event.target.value)}
+                  autoComplete="off"
+                  className="mt-1.5 min-h-10 w-full rounded-[4px] border border-fr-v2-clay/35 bg-white px-2.5 text-sm text-fr-v2-graphite focus-visible:outline-2 focus-visible:outline-fr-v2-clay"
+                />
+              </label>
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteOpen(false);
+                    setDeleteConfirmName("");
+                  }}
+                  className="min-h-10 px-3 font-semibold text-fr-v2-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={deleteConfirmName.trim() !== field.name}
+                  onClick={() => archiveField(field.id)}
+                  className="min-h-10 bg-fr-v2-clay px-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  Delete field
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {selected && mode === "manage" ? (

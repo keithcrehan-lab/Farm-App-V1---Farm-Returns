@@ -164,6 +164,26 @@ describe("Fields companion (Farm + Fields redesign)", () => {
     expect(push).toHaveBeenCalledWith("/fields?field=field-home");
   });
 
+  it("shows Delete this field in the selected sidebar row and keeps the safe name-confirmation step", () => {
+    renderFields();
+    expect(screen.queryByRole("button", { name: "Delete this field" })).toBeNull();
+
+    fireEvent.click(within(row(home.id)).getAllByRole("button")[0]);
+    const deleteShortcut = within(row(home.id)).getByRole("button", { name: "Delete this field" });
+    expect(deleteShortcut).toBeTruthy();
+
+    fireEvent.click(deleteShortcut);
+    const confirmation = document.querySelector("[data-selected-field-delete]") as HTMLElement;
+    expect(within(confirmation).getByText(/restored for 30 days/i)).toBeTruthy();
+
+    const confirmInput = within(confirmation).getByRole("textbox");
+    const confirmDelete = within(confirmation).getByRole("button", { name: "Delete field" });
+    expect((confirmDelete as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(confirmInput, { target: { value: home.name } });
+    expect((confirmDelete as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("a normal tap never offers geometry edits; Manage fields does, with split/merge honestly unavailable", () => {
     renderFields();
     fireEvent.click(within(row(home.id)).getAllByRole("button")[0]);

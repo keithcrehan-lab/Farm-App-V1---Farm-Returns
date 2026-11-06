@@ -665,12 +665,19 @@ function validateRowSource(
 function validateRequirementRegisterUnsafe(
   input: unknown,
   sourcePack: unknown,
+  sourcePackAlreadyValidated = false,
 ): SchemeStandardIssue[] {
   if (!isRecord(input)) {
     return [{ code: "MALFORMED", detail: "A register must be an object." }];
   }
 
-  const issues: SchemeStandardIssue[] = [];
+  // The standalone register boundary must never certify rows against an
+  // untrusted source pack. Keep those pack issues while continuing far enough
+  // to report precise row/source mismatches too. Content-pack validation has
+  // already performed this check and opts out to avoid duplicate diagnostics.
+  const issues: SchemeStandardIssue[] = sourcePackAlreadyValidated
+    ? []
+    : [...validateSchemeSourcePack(sourcePack)];
   const pin = isVersionPin(input.pin) ? input.pin : null;
   if (!pin) {
     issues.push({ code: "PIN_INVALID", detail: "A register needs a valid version pin." });
@@ -813,9 +820,10 @@ function validateSchemeContentPackUnsafe(
     return [{ code: "MALFORMED", detail: "A content pack must be an object." }];
   }
 
+  const sourceIssues = validateSchemeSourcePack(input.sourcePack);
   const issues: SchemeStandardIssue[] = [
-    ...validateSchemeSourcePack(input.sourcePack),
-    ...validateRequirementRegister(input.register, input.sourcePack),
+    ...sourceIssues,
+    ...validateRequirementRegisterUnsafe(input.register, input.sourcePack, true),
   ];
 
   if (input.formatVersion !== SCHEME_CONTENT_PACK_FORMAT_VERSION) {

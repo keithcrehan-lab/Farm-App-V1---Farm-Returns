@@ -364,6 +364,33 @@ describe("required rejections", () => {
     expect(codes(run() as { code: string }[])).toContain(code);
   });
 
+  it.each<[string, SchemeSourcePack, string]>([
+    [
+      "a cited source with no fingerprint",
+      sourcePack({ sources: [{ ...source(), contentFingerprintSha256: undefined as unknown as string }] }),
+      "SOURCE_NO_FINGERPRINT",
+    ],
+    [
+      "a cited source with no governed year",
+      sourcePack({ sources: [{ ...source(), governsSchemeYear: undefined as unknown as number }] }),
+      "SOURCE_NO_YEAR",
+    ],
+    [
+      "a cited source governing another year",
+      sourcePack({ sources: [source({ governsSchemeYear: 2032 })] }),
+      "SOURCE_OTHER_YEAR",
+    ],
+    [
+      "duplicate source ids",
+      sourcePack({ sources: [source(), source()] }),
+      "SOURCE_DUPLICATE_ID",
+    ],
+  ])("standalone register validation rejects %s", (_label, pack, expectedCode) => {
+    const sourceIssues = codes(validateSchemeSourcePack(pack));
+    expect(sourceIssues).toContain(expectedCode);
+    expect(codes(validateRequirementRegister(register([row()]), pack))).toContain(expectedCode);
+  });
+
   it("carries each rejection through the content pack validator", () => {
     const cases: [Partial<SchemeContentPack>, string][] = [
       [{ register: { pin: PIN, rows: [{ ...row(), source: null as never }] } }, "REGISTER_ROW_NO_SOURCE"],

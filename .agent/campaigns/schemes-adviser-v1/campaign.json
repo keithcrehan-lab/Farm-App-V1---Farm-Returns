@@ -62,6 +62,20 @@
           "result_blob": "ad4b7d91a456392fee20d52ad9de4c4e5d1a1a80",
           "amendment_sha256": "61f0429d5b27584e2834d6209f4523496747e7c0e56394bb8cf482f8c6aaa3b8",
           "authorisation": "User authorised continuation on 2026-11-06 after review of the pre-existing full-gate slurry fixture failure; test-only Supabase mock update for the already-required livestock_individuals read path."
+        },
+        {
+          "path": "scripts/agent-lib.sh",
+          "baseline_blob": "3b265e637ab449f3c9ae784f21cb92f619a1bd3f",
+          "result_blob": "1af4d8083d891d9c5e2a5ada22f32a95f723a986",
+          "amendment_sha256": "0fc5727f6ca2895acf28b05c75e0fe41b139bde1139992cc57f4bfb4aa55118e",
+          "authorisation": "User explicitly authorised on 2026-11-06 replacing repeated full-repository gates during campaign repair loops with targeted verification, while retaining full-gate verification at freeze and immediate full gates for high-blast-radius changes."
+        },
+        {
+          "path": "src/tooling/agent-run.test.ts",
+          "baseline_blob": "5c7498df543667cddfea8a80364551911d211d12",
+          "result_blob": "baf31f69065d8a12240e0f518630b4178ece65b4",
+          "amendment_sha256": "abf9e425b3d9da598729412ced0447f8eb527ff810c69baff0b221196e60ed9a",
+          "authorisation": "User explicitly authorised on 2026-11-06 the tooling regression coverage for the new campaign verification policy: phase-local checkpoints defer the full suite to freeze; high-blast-radius changes still force it."
         }
       ]
     },

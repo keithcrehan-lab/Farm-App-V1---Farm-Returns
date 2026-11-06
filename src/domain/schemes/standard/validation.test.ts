@@ -810,6 +810,24 @@ describe("register coverage", () => {
     const proposed = [row({ dataKeys: [{ key: "schemes.synth.2031.fact", owner: "schemes" }] })];
     expect(codes(validateRegisterCoverage([implemented], proposed))).toContain("COVERAGE_DATA_KEY_UNREGISTERED");
   });
+
+  it("rejects a frozen row whose registered data key names the wrong canonical owner", () => {
+    const proposed = [row({ dataKeys: [{ key: "cattle.animal.weight", owner: "fields" }] })];
+    expect(codes(validateRegisterCoverage([implemented], proposed))).toContain(
+      "REGISTER_ROW_DATA_KEY_OWNER_MISMATCH",
+    );
+  });
+
+  it("rejects conflicting ownership for the same data key across frozen rows", () => {
+    const proposed = [
+      row({ dataKeys: [{ key: "synth.shared.fact", owner: "fields" }] }),
+      row({ id: "SYNTH-REQ-2", dataKeys: [{ key: "synth.shared.fact", owner: "cattle" }] }),
+    ];
+    const entries = [implemented, { ...implemented, rowId: "SYNTH-REQ-2" }];
+    expect(codes(validateRegisterCoverage(entries, proposed))).toContain(
+      "REGISTER_ROW_DATA_KEY_OWNER_CONFLICT",
+    );
+  });
 });
 
 describe("seed packet", () => {

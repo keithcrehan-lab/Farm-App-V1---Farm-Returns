@@ -990,6 +990,13 @@ function validateRegisterCoverageUnsafe(
   }
 
   const issues: SchemeStandardIssue[] = [];
+  // Coverage is a standalone trust boundary too. Reuse the register's canonical
+  // data-owner checks across the frozen rows before certifying implementation
+  // coverage so invalid ownership metadata cannot be laundered by this API.
+  const ownerByKey = new Map<string, unknown>();
+  for (const row of rows) {
+    validateRowDataKeys(row as unknown as UnknownRecord, row.id, ownerByKey, issues);
+  }
   const rowById = new Map(rows.map((row) => [row.id, row]));
   const covered = new Set<unknown>();
 

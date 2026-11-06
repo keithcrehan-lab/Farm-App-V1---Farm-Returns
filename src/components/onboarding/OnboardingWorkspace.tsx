@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type 
 import dynamic from "next/dynamic";
 import { ArrowRight, LocateFixed, Search } from "lucide-react";
 import { establishFarmStep, addOnboardingFieldStep, finishOnboardingStep, lookupExactEircodeStep } from "@/app/actions/onboarding";
+import { addScannedFieldsAction } from "@/app/actions/field-scan";
 import { signOut } from "@/app/actions/auth";
 import { computeBoundaryGeometry, isValidBoundaryPolygon } from "@/domain/field-boundary";
 import type { Farm } from "@/domain/types";
+import type { FieldScanCandidate } from "@/domain/field-scan";
 import { cn } from "@/lib/cn";
 import { formatHa } from "@/lib/format";
 import { mapboxConfigured } from "@/lib/mapbox";
@@ -16,6 +18,7 @@ import { IRISH_COUNTIES } from "@/lib/irish-counties";
 import { OnboardingMap, type OnboardingMapHandle } from "./OnboardingMap";
 
 const FieldBoundaryMapModal = dynamic(() => import("@/components/farm/FieldBoundaryMapModal").then((m) => m.FieldBoundaryMapModal), { ssr: false });
+const FieldScanModal = dynamic(() => import("@/components/farm/FieldScanModal").then((m) => m.FieldScanModal), { ssr: false });
 
 /**
  * Map-led first-farm onboarding: the first few minutes of Farm Return, not a questionnaire. The real satellite map
@@ -50,6 +53,7 @@ export function OnboardingWorkspace({ stage, farm: initialFarm, fields: initialF
   const [fields, setFields] = useState<OnboardingField[]>(initialFields);
   const [farmPoint, setFarmPoint] = useState<[number, number] | null>(initialFarm?.location.centroid ?? null);
   const [drawing, setDrawing] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [pendingPolygon, setPendingPolygon] = useState<GeoJSON.Polygon | null>(null);
   const [cameraTarget, setCameraTarget] = useState<{ center: [number, number]; radiusKm?: number; zoom: number; token: number } | null>(null);
   const mapRef = useRef<OnboardingMapHandle>(null);
@@ -153,7 +157,12 @@ export function OnboardingWorkspace({ stage, farm: initialFarm, fields: initialF
             />
           ) : null}
           {step === "FIRST_FIELD" && farm ? (
-            <FirstFieldStep farm={farm} mapAvailable={mapboxConfigured} onDraw={() => setDrawing(true)} />
+            <FirstFieldStep
+              farm={farm}
+              mapAvailable={mapboxConfigured}
+              onScan={() => setScanning(true)}
+              onDraw={() => setDrawing(true)}
+            />
           ) : null}
           {step === "NAME_FIELD" && pendingPolygon ? (
             <NameFieldStep
@@ -171,9 +180,40 @@ export function OnboardingWorkspace({ stage, farm: initialFarm, fields: initialF
               }}
             />
           ) : null}
-          {step === "NEXT_STEPS" && farm ? <NextSteps farm={farm} fields={fields} mapAvailable={mapboxConfigured} onMapAnother={() => setDrawing(true)} /> : null}
+          {step === "NEXT_STEPS" && farm ? (
+            <NextSteps
+              farm={farm}
+              fields={fields}
+              mapAvailable={mapboxConfigured}
+              onScanMore={() => setScanning(true)}
+              onDraw={() => setDrawing(true)}
+            />
+          ) : null}
         </Panel>
       </div>
+
+      {scanning && farm ? (
+        <FieldScanModal
+          farmName={farm.name}
+          centre={farm.location.centroid}
+          onClose={() => setScanning(false)}
+          onDrawInstead={() => {
+            setScanning(false);
+            setDrawing(true);
+          }}
+          onAddSelected={async (candidates: FieldScanCandidate[]) => {
+            const added = await addScannedFieldsAction(candidates.map((candidate) => candidate.lpisRef));
+            setFields((current) => [
+              ...current,
+              ...added
+                .filter((field): field is typeof field & { polygon: GeoJSON.Polygon } => Boolean(field.polygon))
+                .map((field) => ({ id: field.id, name: field.name, polygon: field.polygon })),
+            ]);
+            setScanning(false);
+            setStep("NEXT_STEPS");
+          }}
+        />
+      ) : null}
 
       {drawing && farm ? (
         <FieldBoundaryMapModal
@@ -534,21 +574,36 @@ function IdentityStep({ point, approximate, onBack, onCreated }: { point: [numbe
 // 3. Map the first field
 // ---------------------------------------------------------------------------
 
-function FirstFieldStep({ farm, mapAvailable, onDraw }: { farm: Farm; mapAvailable: boolean; onDraw: () => void }) {
+function FirstFieldStep({
+  farm,
+  mapAvailable,
+  onScan,
+  onDraw,
+}: {
+  farm: Farm;
+  mapAvailable: boolean;
+  onScan: () => void;
+  onDraw: () => void;
+}) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   return (
     <>
       <Eyebrow>{farm.name}</Eyebrow>
-      <Heading>Let’s add your first field</Heading>
+      <Heading>Let’s add your fields</Heading>
       {mapAvailable ? (
         <>
-          <p className="mt-3 text-[15px] leading-snug text-white/75">Draw around one of your fields on the satellite map. Its area is worked out from the boundary you draw.</p>
-          <PrimaryButton onClick={onDraw}>Draw field boundary</PrimaryButton>
+          <p className="mt-3 text-[15px] leading-snug text-white/75">
+            Scan nearby public agricultural boundaries, tap the fields you farm, and add them together. You can refine any boundary afterwards.
+          </p>
+          <PrimaryButton onClick={onScan}>Scan fields</PrimaryButton>
+          <div className="mt-2">
+            <QuietButton onClick={onDraw}>Draw a field instead</QuietButton>
+          </div>
         </>
       ) : (
         <>
-          <p className="mt-3 text-[15px] leading-snug text-white/75">The map isn&apos;t available just now, so fields can&apos;t be drawn yet. You can map them from Fields later.</p>
+          <p className="mt-3 text-[15px] leading-snug text-white/75">The map isn&apos;t available just now, so fields can&apos;t be mapped yet. You can add them from Fields later.</p>
           <ErrorLine text={error} />
           <PrimaryButton
             disabled={pending}
@@ -613,7 +668,19 @@ function NameFieldStep({ polygon, first, onRedraw, onCancel, onSaved }: { polygo
 // 4. Where next
 // ---------------------------------------------------------------------------
 
-function NextSteps({ farm, fields, mapAvailable, onMapAnother }: { farm: Farm; fields: OnboardingField[]; mapAvailable: boolean; onMapAnother: () => void }) {
+function NextSteps({
+  farm,
+  fields,
+  mapAvailable,
+  onScanMore,
+  onDraw,
+}: {
+  farm: Farm;
+  fields: OnboardingField[];
+  mapAvailable: boolean;
+  onScanMore: () => void;
+  onDraw: () => void;
+}) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const go = (destination: "explore" | "cattle") =>
@@ -627,20 +694,25 @@ function NextSteps({ farm, fields, mapAvailable, onMapAnother }: { farm: Farm; f
       <Eyebrow>{farm.name}</Eyebrow>
       <Heading>Your farm is taking shape.</Heading>
       <p className="mt-2 font-mono text-[13px] tabular-nums text-white/70" data-onboarding-fields>
-        {fields.length} {fields.length === 1 ? "field" : "fields"} mapped · {fields.map((f) => f.name).join(", ")}
+        {fields.length} {fields.length === 1 ? "field" : "fields"} mapped
+        {fields.length > 0
+          ? ` · ${fields
+              .slice(0, 3)
+              .map((field) => field.name)
+              .join(", ")}${fields.length > 3 ? ` +${fields.length - 3} more` : ""}`
+          : ""}
       </p>
       <PrimaryButton disabled={pending} onClick={() => go("explore")}>
         {pending ? "Opening Farm Return…" : "Explore Farm Return"}
       </PrimaryButton>
       <div className="mt-3 flex flex-col items-start">
         {mapAvailable ? (
-          <QuietButton onClick={onMapAnother} disabled={pending}>
-            Map another field
-          </QuietButton>
+          <>
+            <QuietButton onClick={onScanMore} disabled={pending}>Scan more fields</QuietButton>
+            <QuietButton onClick={onDraw} disabled={pending}>Draw a field</QuietButton>
+          </>
         ) : null}
-        <QuietButton onClick={() => go("cattle")} disabled={pending}>
-          Add cattle
-        </QuietButton>
+        <QuietButton onClick={() => go("cattle")} disabled={pending}>Add cattle</QuietButton>
       </div>
       <ErrorLine text={error} />
     </>

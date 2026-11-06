@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { FarmProvider } from "@/store/farm-store";
 import { mockFields } from "@/data/mock-farm";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
+import type { FieldScanCandidate } from "@/domain/field-scan";
 import { formatHa } from "@/lib/format";
 import FieldsPage from "./page";
 
@@ -58,6 +59,33 @@ vi.mock("@/components/farm/FieldBoundaryMapModal", () => ({
       <button type="button" onClick={onClose}>
         Close drawing
       </button>
+    </div>
+  ),
+}));
+
+const scannedPolygon: GeoJSON.Polygon = {
+  type: "Polygon",
+  coordinates: [[
+    [-8.4848, 51.8985],
+    [-8.4835, 51.8985],
+    [-8.4835, 51.8994],
+    [-8.4848, 51.8994],
+    [-8.4848, 51.8985],
+  ]],
+};
+vi.mock("@/components/farm/FieldScanModal", () => ({
+  FieldScanModal: ({ onAddSelected, onDrawInstead, onClose }: {
+    onAddSelected: (candidates: FieldScanCandidate[]) => Promise<void>;
+    onDrawInstead: () => void;
+    onClose: () => void;
+  }) => (
+    <div role="dialog" aria-label="Scan fields">
+      <button type="button" onClick={() => void onAddSelected([
+        { id: "scan-a", lpisRef: "dafm_lpis_2025:2025:scan-a", polygon: drawnPolygon, areaHa: 1, centroid: [-8.4857, 51.899], sourceLabel: "DAFM LPIS 2025", sourceYear: "2025" },
+        { id: "scan-b", lpisRef: "dafm_lpis_2025:2025:scan-b", polygon: scannedPolygon, areaHa: 1, centroid: [-8.484, 51.899], sourceLabel: "DAFM LPIS 2025", sourceYear: "2025" },
+      ])}>Use scanned fields</button>
+      <button type="button" onClick={onDrawInstead}>Draw instead</button>
+      <button type="button" onClick={onClose}>Close scan</button>
     </div>
   ),
 }));
@@ -146,10 +174,23 @@ describe("Fields companion (Farm + Fields redesign)", () => {
     expect(mapProps!.highlightedFieldIds).toBeUndefined();
   });
 
+  it("Manage fields makes Scan fields primary, keeps Draw field, and bulk-adds selected public boundaries", async () => {
+    renderFields();
+    const before = mapProps!.fields.length;
+    fireEvent.click(screen.getByRole("button", { name: "Manage fields" }));
+    const manage = document.querySelector("[data-manage-mode]") as HTMLElement;
+    expect(within(manage).getByRole("button", { name: "Scan fields" })).toBeTruthy();
+    expect(within(manage).getByRole("button", { name: "Draw field" })).toBeTruthy();
+    fireEvent.click(within(manage).getByRole("button", { name: "Scan fields" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use scanned fields" }));
+    await vi.waitFor(() => expect(mapProps!.fields.length).toBe(before + 2));
+    await vi.waitFor(() => expect(screen.queryByRole("dialog", { name: "Scan fields" })).toBeNull());
+  });
+
   it("Add field stays boundary-first: the area comes from the drawn polygon, and Cancel saves nothing", () => {
     renderFields();
     const before = mapProps!.fields.length;
-    fireEvent.click(screen.getByRole("button", { name: /add field/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Draw field" }));
     fireEvent.click(screen.getByRole("button", { name: "Use drawn boundary" }));
     const form = document.querySelector("[data-new-field]") as HTMLElement;
     expect(form.textContent).toContain(formatHa(computeBoundaryGeometry(drawnPolygon).areaHa));
@@ -162,7 +203,7 @@ describe("Fields companion (Farm + Fields redesign)", () => {
 
   it("saving a newly drawn field goes straight to that field's canonical recommendation setup", async () => {
     renderFields();
-    fireEvent.click(screen.getByRole("button", { name: /add field/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Draw field" }));
     fireEvent.click(screen.getByRole("button", { name: "Use drawn boundary" }));
     const form = document.querySelector("[data-new-field]") as HTMLElement;
     fireEvent.change(within(form).getByRole("textbox"), { target: { value: "Setup Test Field" } });

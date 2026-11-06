@@ -218,17 +218,14 @@ export interface Field {
   areaHa: number;
   /** Derived from `polygon`, same as `areaHa` — see its comment above. */
   centroid: [number, number];
-  /** Real farmer-drawn field boundary (`docs/data-model.md`'s `Field.polygon`)
-   * — closes the "Mapping provider account" open question in
-   * docs/product-requirements.md. Single exterior ring only, no holes (see
-   * field-boundary.ts). Absent until the farmer maps this field for real. */
+  /** Real field boundary (`docs/data-model.md`'s `Field.polygon`), either
+   * drawn by the farmer or imported from the pinned public LPIS snapshot.
+   * Single exterior ring only, no holes (see field-boundary.ts). */
   polygon?: GeoJSON.Polygon;
-  /** When/how `polygon` was captured — always "farmer_drawn" today (no
-   * other source exists yet, e.g. an LPIS import); kept as a distinct
-   * literal from `DataStatus` because "drawn on real imagery" is a
-   * stronger provenance claim than "farmer adjusted an estimate". Set
-   * together with `polygon`, never independently. */
-  polygonSource?: "farmer_drawn";
+  /** How `polygon` was captured. LPIS imports remain explicitly distinct
+   * from farmer-drawn geometry; once the farmer edits an imported edge the
+   * source becomes `lpis_farmer_refined` while `lpisRef` is retained. */
+  polygonSource?: "farmer_drawn" | "lpis_imported" | "lpis_farmer_refined";
   polygonCapturedAt?: string;
   lpisRef?: string;
   /** Codex remediation Priority 6 — absent until the farmer sets it in

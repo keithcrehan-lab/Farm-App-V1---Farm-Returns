@@ -152,11 +152,18 @@ export async function recordPrecedingYearGsrAction(
  */
 export async function addFieldAction(
   farmId: string,
-  input: { name: string; polygon: GeoJSON.Polygon },
+  input: {
+    name: string;
+    polygon: GeoJSON.Polygon;
+    polygonSource?: NonNullable<Field["polygonSource"]>;
+    lpisRef?: string;
+  },
 ): Promise<Field> {
   const field = await createField(farmId, {
     name: input.name,
     polygon: input.polygon,
+    polygonSource: input.polygonSource,
+    lpisRef: input.lpisRef,
     fertility: {},
   });
   const resolved = await persistAutomaticSpatialEvidence(field);

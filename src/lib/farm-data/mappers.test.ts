@@ -170,6 +170,18 @@ describe("fieldToInsertRow", () => {
     expect(row.area_ha).toBeGreaterThan(0);
     expect(row.farm_id).toBe("farm-1");
   });
+
+  it("persists LPIS provenance and reference for a scanned field", () => {
+    const row = fieldToInsertRow("farm-1", {
+      name: "Field 2",
+      polygon: NEW_FIELD_POLYGON,
+      polygonSource: "lpis_imported",
+      lpisRef: "dafm_lpis_2025:2025:parcel-2",
+      fertility: {},
+    });
+    expect(row.polygon_source).toBe("lpis_imported");
+    expect(row.lpis_ref).toBe("dafm_lpis_2025:2025:parcel-2");
+  });
 });
 
 const HOUSING_ROW: HousingRow = {

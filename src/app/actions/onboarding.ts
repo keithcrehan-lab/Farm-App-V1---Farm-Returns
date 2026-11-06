@@ -163,7 +163,12 @@ export async function establishFarmStep(input: EstablishFarmInput): Promise<Onbo
 }
 
 /** Saves a real, farmer-drawn field boundary to the signed-in farmer's farm (area is derived from the polygon). */
-export async function addOnboardingFieldStep(input: { name: string; polygon: GeoJSON.Polygon }): Promise<OnboardingResult<Field>> {
+export async function addOnboardingFieldStep(input: {
+  name: string;
+  polygon: GeoJSON.Polygon;
+  polygonSource?: NonNullable<Field["polygonSource"]>;
+  lpisRef?: string;
+}): Promise<OnboardingResult<Field>> {
   const name = typeof input?.name === "string" ? input.name.trim() : "";
   if (name.length === 0) return fail("Give the field a name.");
   if (name.length > 80) return fail("Keep the field name under 80 characters.");
@@ -174,7 +179,13 @@ export async function addOnboardingFieldStep(input: { name: string; polygon: Geo
   try {
     const status = await getOnboardingStatusForCurrentUser();
     if (!status) return fail("Set up your farm first.");
-    const field = await createField(status.farm.id, { name, polygon, fertility: {} });
+    const field = await createField(status.farm.id, {
+      name,
+      polygon,
+      polygonSource: input.polygonSource,
+      lpisRef: input.lpisRef,
+      fertility: {},
+    });
     revalidatePath("/onboarding");
     return { ok: true, value: field };
   } catch (error) {

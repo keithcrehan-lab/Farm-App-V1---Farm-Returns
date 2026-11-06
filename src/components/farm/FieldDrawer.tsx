@@ -913,7 +913,11 @@ export function ManageField({
             onClick={() => setMappingOpen(true)}
             className="flex min-h-11 items-center justify-center border border-fr-v2-forest text-sm font-semibold text-fr-v2-forest"
           >
-            {field.polygon ? "Edit boundary" : "Map this field"}
+            {field.polygon
+              ? field.polygonSource === "lpis_imported" || field.polygonSource === "lpis_farmer_refined"
+                ? "Refine boundary"
+                : "Edit boundary"
+              : "Map this field"}
           </button>
 
           {editOpen ? (
@@ -1040,6 +1044,7 @@ export function ManageField({
           fieldName={field.name}
           initialCentroid={field.centroid}
           initialPolygon={field.polygon}
+          refineDetected={field.polygonSource === "lpis_imported" || field.polygonSource === "lpis_farmer_refined"}
           onClose={() => setMappingOpen(false)}
           onSave={(polygon) => {
             setFieldBoundary(field.id, polygon);

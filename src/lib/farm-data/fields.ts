@@ -58,8 +58,24 @@ export async function createField(farmId: string, input: NewFieldInput): Promise
   return rowToField(data as FieldRow);
 }
 
-export async function setFieldBoundary(fieldId: string, polygon: GeoJSON.Polygon, areaHa: number, centroid: [number, number]): Promise<Field> {
+/** One atomic insert for a scan selection — avoids one network write per field. */
+export async function createFields(farmId: string, inputs: readonly NewFieldInput[]): Promise<Field[]> {
+  if (inputs.length === 0) return [];
   const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fields")
+    .insert(inputs.map((input) => fieldToInsertRow(farmId, input)))
+    .select("*");
+  if (error) throw error;
+  return (data as FieldRow[]).map(rowToField);
+}
+
+export async function setFieldBoundary(fieldId: string, polygon: GeoJSON.Polygon, areaHa: number, centroid: [number, number]): Promise<Field> {
+  const { supabase, field } = await fetchField(fieldId);
+  const polygonSource =
+    field.polygonSource === "lpis_imported" || field.polygonSource === "lpis_farmer_refined"
+      ? "lpis_farmer_refined"
+      : "farmer_drawn";
   // Codex remediation Priority 8 — recalculation after a boundary edit, per
   // the remediation brief; see `soil-resolution.ts`'s header for why this
   // always resolves BLOCKED_INSUFFICIENT_EVIDENCE today (no real dataset
@@ -71,7 +87,7 @@ export async function setFieldBoundary(fieldId: string, polygon: GeoJSON.Polygon
     .from("fields")
     .update({
       polygon,
-      polygon_source: "farmer_drawn",
+      polygon_source: polygonSource,
       polygon_captured_at: new Date().toISOString(),
       area_ha: areaHa,
       centroid_lng: centroid[0],

@@ -71,7 +71,7 @@ export interface FieldRow {
   centroid_lng: number;
   centroid_lat: number;
   polygon: GeoJSON.Polygon | null;
-  polygon_source: "farmer_drawn" | null;
+  polygon_source: "farmer_drawn" | "lpis_imported" | "lpis_farmer_refined" | null;
   polygon_captured_at: string | null;
   lpis_ref: string | null;
   // Codex remediation Priority 2/6 — both genuinely nullable now (see

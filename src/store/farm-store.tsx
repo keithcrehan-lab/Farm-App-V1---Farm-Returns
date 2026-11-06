@@ -97,6 +97,7 @@ import {
 } from "@/domain/nutrients";
 import { resolveSoilTestChain } from "@/domain/soil-test-history";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
+import { generatedFieldNames, type FieldScanCandidate } from "@/domain/field-scan";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 import type { NewSlurryCompositionInput, SlurryComposition } from "@/domain/slurry-composition";
 import {
@@ -147,6 +148,7 @@ import {
 } from "@/app/actions/slurry-allocation-lifecycle";
 import { summariseLiveWeight } from "@/lib/livestock-live-weight";
 import { validateNewPrecedingYearGsrInput, type NewPrecedingYearGsrInput } from "@/domain/preceding-year-gsr";
+import { addScannedFieldsAction } from "@/app/actions/field-scan";
 
 /** Phase 1B.1 — whether the slurry plan on screen is known to match the
  * canonical server state. `stale` after any failed re-read: the displayed
@@ -303,6 +305,8 @@ function newId(prefix: string, label: string): string {
 export interface AddFieldInput {
   name: string;
   polygon: GeoJSON.Polygon;
+  polygonSource?: NonNullable<Field["polygonSource"]>;
+  lpisRef?: string;
 }
 
 export type AddSoilTestInput = Omit<SoilTest, "reportFileUrl">;
@@ -350,6 +354,9 @@ interface FarmActions {
    * return. Mock mode resolves immediately with the same locally-built
    * `Field` it always constructed. */
   addField: (input: AddFieldInput) => Promise<Field>;
+  /** Adds a scan selection in one canonical operation. Remote mode re-resolves
+   * every LPIS ref server-side before persisting its geometry. */
+  addScannedFields: (candidates: readonly FieldScanCandidate[]) => Promise<Field[]>;
   /** Saves a real, farmer-drawn field boundary — recomputes `centroid`/
    * `areaHa` from it (never keeps the old placeholder/typed values once
    * real geometry exists). Throws if `polygon` isn't valid geometry
@@ -784,6 +791,8 @@ export function FarmProvider({
           const field = await addFieldAction(state.farm.id, {
             name: input.name,
             polygon: input.polygon,
+            polygonSource: input.polygonSource,
+            lpisRef: input.lpisRef,
           });
           setState((s) => ({ ...s, fields: [...s.fields, field] }));
           markRecommendationInputSaved();
@@ -798,7 +807,8 @@ export function FarmProvider({
           areaHa,
           centroid,
           polygon: input.polygon,
-          polygonSource: "farmer_drawn",
+          polygonSource: input.polygonSource ?? "farmer_drawn",
+          ...(input.lpisRef ? { lpisRef: input.lpisRef } : {}),
           polygonCapturedAt: new Date().toISOString(),
           ...mappedSoilPatchFromResolution(fieldId, input.polygon, areaHa),
           fertility: {},
@@ -806,6 +816,39 @@ export function FarmProvider({
         };
         setState((s) => ({ ...s, fields: [...s.fields, field] }));
         return field;
+      },
+
+      async addScannedFields(candidates) {
+        if (candidates.length === 0) return [];
+        if (remote) {
+          const added = await addScannedFieldsAction(candidates.map((candidate) => candidate.lpisRef));
+          setState((s) => ({ ...s, fields: [...s.fields, ...added] }));
+          markRecommendationInputSaved();
+          return added;
+        }
+
+        const names = generatedFieldNames(state.fields.map((field) => field.name), candidates.length);
+        const now = new Date().toISOString();
+        const added = candidates.map((candidate, index): Field => {
+          const { centroid, areaHa } = computeBoundaryGeometry(candidate.polygon);
+          const fieldId = newId("field", names[index]);
+          return {
+            id: fieldId,
+            farmId: state.farm.id,
+            name: names[index],
+            areaHa,
+            centroid,
+            polygon: candidate.polygon,
+            polygonSource: "lpis_imported",
+            polygonCapturedAt: now,
+            lpisRef: candidate.lpisRef,
+            ...mappedSoilPatchFromResolution(fieldId, candidate.polygon, areaHa),
+            fertility: {},
+            history: [],
+          };
+        });
+        setState((s) => ({ ...s, fields: [...s.fields, ...added] }));
+        return added;
       },
 
       setFieldBoundary(fieldId, polygon) {
@@ -818,7 +861,10 @@ export function FarmProvider({
               ? {
                   ...f,
                   polygon,
-                  polygonSource: "farmer_drawn",
+                  polygonSource:
+                    f.polygonSource === "lpis_imported" || f.polygonSource === "lpis_farmer_refined"
+                      ? "lpis_farmer_refined"
+                      : "farmer_drawn",
                   ...mappedSoilPatch,
                   polygonCapturedAt: new Date().toISOString(),
                   // Real geometry now exists — these stop being the
@@ -1382,7 +1428,7 @@ export function FarmProvider({
         return record;
       },
     }),
-    [state.farm.id, state.farm.ownerName, state.housing, remote, persistRemote, refreshSlurryPlan, runRemoteLifecycle, applyLocal, reloadRegulatoryEvidence, markRecommendationInputSaved],
+    [state.farm.id, state.farm.ownerName, state.fields, state.housing, remote, persistRemote, refreshSlurryPlan, runRemoteLifecycle, applyLocal, reloadRegulatoryEvidence, markRecommendationInputSaved],
   );
 
   const dismissSyncFailure = useCallback((id: string) => {
@@ -1565,6 +1611,7 @@ export function useFarmActions(): FarmActions {
     updateFarmProfile,
     recordPrecedingYearGsr,
     addField,
+    addScannedFields,
     setFieldBoundary,
     updateFieldDetails,
     archiveField,
@@ -1604,6 +1651,7 @@ export function useFarmActions(): FarmActions {
     updateFarmProfile,
     recordPrecedingYearGsr,
     addField,
+    addScannedFields,
     setFieldBoundary,
     updateFieldDetails,
     archiveField,

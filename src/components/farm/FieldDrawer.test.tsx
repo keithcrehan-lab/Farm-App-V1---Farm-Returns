@@ -422,6 +422,18 @@ describe("FieldDrawer — real field mapping entry point", () => {
     expect(screen.getByRole("button", { name: /edit boundary/i })).toBeTruthy();
   });
 
+  it("labels a public LPIS boundary as 'Refine boundary' rather than pretending the detected edge is final", () => {
+    const imported: Field = {
+      ...mockFields[0],
+      polygonSource: "lpis_imported",
+      lpisRef: "dafm_lpis_2025:2025:test-parcel",
+    };
+    renderDrawer(imported);
+    fireEvent.click(screen.getByRole("button", { name: /manage field/i }));
+    expect(screen.getByRole("button", { name: "Refine boundary" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit boundary" })).toBeNull();
+  });
+
   it("still shows the neutral 'Under validation' spreading-suitability state, unaffected by real mapping", () => {
     renderDrawer(mockFields[0]);
     expect(screen.getByText("Under validation")).toBeTruthy();

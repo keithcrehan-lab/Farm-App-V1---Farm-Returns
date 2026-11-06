@@ -84,17 +84,19 @@ describe("the onboarding panel for each stage", () => {
     expect(await screen.findByDisplayValue("V95 TY07")).toBeInTheDocument();
   });
 
-  it("FIRST_FIELD: one clear action to draw a real boundary", () => {
+  it("FIRST_FIELD: scanning is primary and manual drawing remains an explicit fallback", () => {
     render(<OnboardingWorkspace stage="FIRST_FIELD" farm={farm as never} fields={[]} />);
-    expect(screen.getByRole("heading", { name: "Let’s add your first field" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Draw field boundary/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Let’s add your fields" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Scan fields" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Draw a field instead" })).toBeInTheDocument();
+    expect(screen.getByText(/tap the fields you farm/i)).toBeInTheDocument();
   });
 
-  it("NEXT_STEPS: three choices — explore, map another field, add cattle (cattle optional)", () => {
+  it("NEXT_STEPS: explore, scan more, draw manually or add cattle", () => {
     render(<OnboardingWorkspace stage="NEXT_STEPS" farm={farm as never} fields={[{ id: "f1", name: "Meadow", polygon }]} />);
     expect(screen.getByRole("heading", { name: "Your farm is taking shape." })).toBeInTheDocument();
     expect(screen.getByText("1 field mapped · Meadow")).toBeInTheDocument();
-    for (const name of [/Explore Farm Return/, /Map another field/, /Add cattle/]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    for (const name of [/Explore Farm Return/, /Scan more fields/, /Draw a field/, /Add cattle/]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
   });
 
   it("a farmer can always sign out mid-way", () => {

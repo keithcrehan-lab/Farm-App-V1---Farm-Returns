@@ -154,7 +154,11 @@ export function rowToField(row: FieldRow): Field {
  * never typed by hand. `plannedUse`/`mappedSoil` are genuinely absent until
  * set afterward in Field Detail / resolved by a real spatial lookup.
  */
-export type NewFieldInput = Pick<Field, "name" | "fertility"> & { polygon: GeoJSON.Polygon };
+export type NewFieldInput = Pick<Field, "name" | "fertility"> & {
+  polygon: GeoJSON.Polygon;
+  polygonSource?: NonNullable<Field["polygonSource"]>;
+  lpisRef?: string;
+};
 
 export function fieldToInsertRow(farmId: string, input: NewFieldInput): Omit<FieldRow, "id" | "created_at" | "updated_at"> {
   const { centroid, areaHa } = computeBoundaryGeometry(input.polygon);
@@ -173,9 +177,9 @@ export function fieldToInsertRow(farmId: string, input: NewFieldInput): Omit<Fie
     centroid_lng: centroid[0],
     centroid_lat: centroid[1],
     polygon: input.polygon,
-    polygon_source: "farmer_drawn",
+    polygon_source: input.polygonSource ?? "farmer_drawn",
     polygon_captured_at: new Date().toISOString(),
-    lpis_ref: null,
+    lpis_ref: input.lpisRef ?? null,
     planned_use: null,
     mapped_soil: soilOutcome.status === "OK" ? soilOutcome.value.dominant : null,
     fertility: input.fertility,

@@ -104,12 +104,15 @@ export function FieldBoundaryMapModal({
   fieldName,
   initialCentroid,
   initialPolygon,
+  refineDetected = false,
   onSave,
   onClose,
 }: {
   fieldName: string;
   initialCentroid: [number, number];
   initialPolygon?: GeoJSON.Polygon;
+  /** True for a public LPIS boundary the farmer is checking/refining. */
+  refineDetected?: boolean;
   onSave: (polygon: GeoJSON.Polygon) => void;
   onClose: () => void;
 }) {
@@ -218,7 +221,10 @@ export function FieldBoundaryMapModal({
 
     map.on("load", () => {
       if (initialPolygon) {
-        draw.add(initialPolygon);
+        const ids = draw.add(initialPolygon);
+        if (refineDetected && ids[0]) {
+          draw.changeMode("direct_select", { featureId: String(ids[0]) });
+        }
         syncFromDraw();
       }
     });
@@ -263,8 +269,8 @@ export function FieldBoundaryMapModal({
     <div className="fixed inset-0 z-50 flex flex-col bg-black/50" role="dialog" aria-modal="true" aria-label={`Map ${fieldName}`}>
       <div className="flex items-center justify-between border-b border-black/10 bg-[#f4f0e7] px-4 py-3 sm:px-6">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fr-green-700">Field boundary</p>
-          <h2 className="mt-0.5 font-display text-xl leading-none text-fr-ink-900">Map {fieldName}</h2>
+          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fr-green-700">{refineDetected ? "Detected boundary" : "Field boundary"}</p>
+          <h2 className="mt-0.5 font-display text-xl leading-none text-fr-ink-900">{refineDetected ? "Refine " + fieldName : "Map " + fieldName}</h2>
         </div>
         <button
           type="button"
@@ -292,9 +298,11 @@ export function FieldBoundaryMapModal({
               </p>
               {hasDrawing ? (
                 <>
-                  <p className="mt-1 font-display text-lg leading-tight">Hit save now</p>
+                  <p className="mt-1 font-display text-lg leading-tight">{refineDetected ? "Fine-tune the detected edge" : "Hit save now"}</p>
                   <p className="mt-1.5 text-[13px] leading-snug text-white/75">
-                    Your field boundary is drawn. If it looks right, hit Save boundary below. Use Redraw if you want to change it.
+                    {refineDetected
+                      ? "Drag the boundary points so the line follows the real hedge, ditch or field edge, then save the refined boundary."
+                      : "Your field boundary is drawn. If it looks right, hit Save boundary below. Use Redraw if you want to change it."}
                   </p>
                   {previewAreaHa !== null ? (
                     <p className="mt-2 font-mono text-xs tabular-nums text-white/70">{formatHa(previewAreaHa)} from your boundary</p>
@@ -353,7 +361,7 @@ export function FieldBoundaryMapModal({
               className="flex min-h-11 items-center gap-2 border-l-[3px] border-fr-v2-straw bg-fr-v2-forest-deep px-5 text-sm font-semibold text-white transition-colors duration-[160ms] hover:bg-fr-v2-forest focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-straw disabled:cursor-not-allowed disabled:opacity-45 motion-reduce:transition-none"
             >
               <Save className="size-4" />
-              Save boundary
+              {refineDetected ? "Save refined boundary" : "Save boundary"}
             </button>
           </div>
         </div>

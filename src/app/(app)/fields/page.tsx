@@ -3,12 +3,13 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Plus, ScanLine } from "lucide-react";
 import { AskAIButton } from "@/components/next/AskAI";
 import { MapHero } from "@/components/farm/MapHero";
 import { FieldWindChip } from "@/components/farm/FieldWindChip";
 import { FieldDrawer, ManageField } from "@/components/farm/FieldDrawer";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
+import { FieldScanModal } from "@/components/farm/FieldScanModal";
 import { FarmFieldDrawer } from "@/components/farm-spatial/FarmFieldDrawer";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
 import { useAllFieldsIncludingArchived, useFarm, useFarmActions, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
@@ -28,6 +29,7 @@ import { FIELD_SELECTION_COLOR, farmFieldLensView, fieldWorkspaceHref, parseFiel
 import { farmFieldSelectionView } from "@/lib/farm-field-selection";
 import { formatFieldDate } from "@/lib/field-workspace-presentation";
 import type { Field } from "@/domain/types";
+import type { FieldScanCandidate } from "@/domain/field-scan";
 import type { Prompt } from "@/orchestration/prompt";
 import type { MissingSlurryPlanningDetail } from "@/domain/what-matters-no-recommendation";
 
@@ -115,7 +117,7 @@ function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: str
   const fields = useFields();
   const allFields = useAllFieldsIncludingArchived();
   const archivedFields = allFields.filter((f) => f.archivedAt);
-  const { addField, restoreField } = useFarmActions();
+  const { addField, addScannedFields, restoreField } = useFarmActions();
   const farm = useFarm();
   const slurryAllocations = useSlurryAllocations();
   const router = useRouter();
@@ -131,6 +133,7 @@ function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: str
   const [multiIds, setMultiIds] = useState<string[]>([]);
 
   const [mappingOpen, setMappingOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const [pendingPolygon, setPendingPolygon] = useState<GeoJSON.Polygon | null>(null);
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -305,9 +308,14 @@ function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: str
           <div className="flex flex-col gap-2 bg-fr-v2-forest-deep px-4 py-4 text-white lg:px-7" data-manage-mode>
             <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-fr-v2-straw">Managing fields</p>
             <p className="text-xs text-white/70">Select a field for its boundary, name and use, or archive. Split and merge are not available yet.</p>
-            <button type="button" onClick={() => setMappingOpen(true)} className="mt-1 flex min-h-11 items-center justify-center gap-2 bg-fr-v2-cream text-sm font-semibold text-fr-v2-forest-deep">
-              <Plus className="size-4" /> Add field
-            </button>
+            <div className="mt-1 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setScanOpen(true)} className="flex min-h-11 items-center justify-center gap-2 bg-fr-v2-cream px-3 text-sm font-semibold text-fr-v2-forest-deep">
+                <ScanLine className="size-4" /> Scan fields
+              </button>
+              <button type="button" onClick={() => setMappingOpen(true)} className="flex min-h-11 items-center justify-center gap-2 border border-white/25 px-3 text-sm font-semibold text-white">
+                <Plus className="size-4" /> Draw field
+              </button>
+            </div>
           </div>
         ) : null}
 
@@ -361,13 +369,18 @@ function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: str
           ))}
         </ul>
         {fields.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-fr-v2-muted lg:px-7">No fields yet. Draw your first boundary on the satellite map to add one.</p>
+          <p className="px-4 py-6 text-sm text-fr-v2-muted lg:px-7">No fields yet. Scan nearby agricultural boundaries or draw your first field manually.</p>
         ) : null}
 
         {mode !== "manage" && !pendingPolygon ? (
-          <button type="button" onClick={() => setMappingOpen(true)} className="mx-4 mt-4 flex min-h-11 items-center gap-2 self-start text-sm font-semibold text-fr-v2-forest lg:mx-7">
-            <Plus className="size-4" /> Add field
-          </button>
+          <div className="mx-4 mt-4 flex items-center gap-5 lg:mx-7">
+            <button type="button" onClick={() => setScanOpen(true)} className="flex min-h-11 items-center gap-2 text-sm font-semibold text-fr-v2-forest">
+              <ScanLine className="size-4" /> Scan fields
+            </button>
+            <button type="button" onClick={() => setMappingOpen(true)} className="min-h-11 text-xs font-semibold text-fr-v2-muted underline underline-offset-2">
+              Draw field
+            </button>
+          </div>
         ) : null}
 
         {mode === "manage" && archivedFields.length > 0 ? (
@@ -386,6 +399,23 @@ function FieldsCompanion({ leadingPromptFor }: { leadingPromptFor: (fieldId: str
           </div>
         ) : null}
       </aside>
+
+      {scanOpen ? (
+        <FieldScanModal
+          farmName={farm.name}
+          centre={farm.location.centroid}
+          onClose={() => setScanOpen(false)}
+          onDrawInstead={() => {
+            setScanOpen(false);
+            setMappingOpen(true);
+          }}
+          onAddSelected={async (candidates: FieldScanCandidate[]) => {
+            const added = await addScannedFields(candidates);
+            setScanOpen(false);
+            if (added.length > 0) setSelectedFieldId(added[0].id);
+          }}
+        />
+      ) : null}
 
       {mappingOpen ? (
         <FieldBoundaryMapModal

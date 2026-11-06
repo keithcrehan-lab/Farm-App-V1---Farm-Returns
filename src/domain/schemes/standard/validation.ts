@@ -119,6 +119,9 @@ function isText(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
 
+/** Malformed values never reach a diagnostic: formatting one can throw. */
+const textContext = (value: unknown) => (typeof value === "string" ? value : undefined);
+
 function isCalendarDate(value: unknown): value is string {
   return typeof value === "string" && isValidCalendarDate(value);
 }
@@ -371,12 +374,19 @@ function validateCompleteness(
   const sourceById = new Map(sources.map((source) => [source.sourceId, source]));
   const coveredRecords: UnknownRecord[] = [];
   for (const sourceId of covered) {
+    if (typeof sourceId !== "string") {
+      issues.push({
+        code: "COMPLETENESS_SOURCE_UNRESOLVED",
+        detail: "A covered source id must be text.",
+      });
+      continue;
+    }
     const source = sourceById.get(sourceId);
     if (!source) {
       issues.push({
         code: "COMPLETENESS_SOURCE_UNRESOLVED",
         detail: "A covered source is not in this pack.",
-        sourceId: String(sourceId),
+        sourceId,
       });
       continue;
     }
@@ -387,7 +397,7 @@ function validateCompleteness(
         code: "COMPLETENESS_EXTRACT_NOT_REVIEWED",
         detail:
           "An extract supports a claim only with a record that the whole document was reviewed against the register.",
-        sourceId: String(sourceId),
+        sourceId,
       });
     }
     if (
@@ -398,7 +408,7 @@ function validateCompleteness(
       issues.push({
         code: "SOURCE_DATE_ORDER",
         detail: "The claim's review predates the retrieval of a covered source.",
-        sourceId: String(sourceId),
+        sourceId,
       });
     }
   }
@@ -416,7 +426,7 @@ function validateCompleteness(
       issues.push({
         code: "COMPLETENESS_AUTHORITATIVE_SOURCE_NOT_COVERED",
         detail: "A claim cannot leave out a tier 1 or 2 source in its own pack.",
-        sourceId: String(source.sourceId),
+        sourceId: textContext(source.sourceId),
       });
     }
   }
@@ -1187,8 +1197,6 @@ function windowReversed(from: unknown, to: unknown): boolean {
   );
 }
 
-const textContext = (value: unknown) => (typeof value === "string" ? value : undefined);
-
 /** Every stored column, window and row key the tables would hold. The checks
  * after this one compare rows; these ones judge each row on its own. */
 function validateStoredRows(
@@ -1267,7 +1275,9 @@ function validateSeedDefinition(
 ): void {
   const { version } = definition;
 
+  const issuesBeforeRows = issues.length;
   validateStoredRows(definition, issues);
+  const rowsWellFormed = issues.length === issuesBeforeRows;
 
   if (
     version.schemeKey !== pack.pin.schemeKey ||
@@ -1289,13 +1299,17 @@ function validateSeedDefinition(
     });
   }
 
-  for (const issue of validateStoredSchemeDefinition(definition)) {
-    issues.push({
-      code: "SEED_DEFINITION_INVALID",
-      detail: `${issue.code}: ${issue.detail}`,
-      sourceId: issue.sourceId,
-      dataKey: issue.dataKey,
-    });
+  // The shared validator trusts its row types and formats them into details,
+  // so it judges only rows that have passed the field checks.
+  if (rowsWellFormed) {
+    for (const issue of validateStoredSchemeDefinition(definition)) {
+      issues.push({
+        code: "SEED_DEFINITION_INVALID",
+        detail: `${issue.code}: ${issue.detail}`,
+        sourceId: issue.sourceId,
+        dataKey: issue.dataKey,
+      });
+    }
   }
 
   const packSourceById = new Map(pack.sourcePack.sources.map((source) => [source.sourceId, source]));
@@ -1503,7 +1517,15 @@ export function validateSchemeSeedPacket(
     issues.push({ code: "SEED_PACKET_FINGERPRINT_UNVERIFIABLE", detail: "The packet's fingerprint could not be computed." });
   }
 
-  return issues;
+  // The comparison checks above read stored rows whatever their field checks
+  // found, so a malformed key can reach an issue's context here.
+  return issues.map((issue) => ({
+    ...issue,
+    rowId: textContext(issue.rowId),
+    sourceId: textContext(issue.sourceId),
+    dataKey: textContext(issue.dataKey),
+    ruleKey: textContext(issue.ruleKey),
+  }));
 }
 
 /**

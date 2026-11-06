@@ -922,6 +922,120 @@ describe("seed packet", () => {
   });
 });
 
+describe("malformed diagnostics", () => {
+  // String() and template literals throw on this value; JSON can carry it.
+  const unprintable = () => JSON.parse('{"toString":null}') as never;
+  const claim = (coveredSourceIds: unknown[]) => ({
+    status: "CLAIMED" as const,
+    coveredSourceIds: coveredSourceIds as string[],
+    reviewRecord: REVIEW,
+  });
+  const unsealedPack = (pack: SchemeSourcePack) => ({ ...sealPack(), sourcePack: pack });
+
+  describe("an unprintable covered source id", () => {
+    const pack = sourcePack({ completeness: claim([unprintable()]) });
+
+    it("is reported by the source pack validator", () => {
+      const unresolved = validateSchemeSourcePack(pack).find(
+        (issue) => issue.code === "COMPLETENESS_SOURCE_UNRESOLVED",
+      );
+      expect(unresolved).toBeDefined();
+      expect(unresolved?.sourceId).toBeUndefined();
+    });
+
+    it("is reported by the content pack validator", () => {
+      expect(codes(validateSchemeContentPack(unsealedPack(pack), sha256))).toContain(
+        "COMPLETENESS_SOURCE_UNRESOLVED",
+      );
+    });
+
+    it("is reported by the seed packet validator", () => {
+      const issues = validateSchemeSeedPacket(sealPacket(), unsealedPack(pack), sha256);
+      expect(codes(issues)).toEqual(["SEED_CONTENT_PACK_INVALID"]);
+      expect(issues[0].detail).toContain("COMPLETENESS_SOURCE_UNRESOLVED");
+    });
+  });
+
+  it("reports a covered id only when it is text, even if a source shares the value", () => {
+    const shared = unprintable();
+    const issues = validateSchemeSourcePack(
+      sourcePack({
+        sources: [source({ sourceId: shared, contentScope: "EXTRACT" })],
+        completeness: claim([shared]),
+      }),
+    );
+    expect(codes(issues)).toEqual(
+      expect.arrayContaining(["SOURCE_ID_INVALID", "COMPLETENESS_SOURCE_UNRESOLVED"]),
+    );
+  });
+
+  it("reports an uncovered authoritative source with an unprintable id", () => {
+    const uncovered = validateSchemeSourcePack(
+      sourcePack({ sources: [source(), source({ sourceId: unprintable() })] }),
+    ).find((issue) => issue.code === "COMPLETENESS_AUTHORITATIVE_SOURCE_NOT_COVERED");
+    expect(uncovered).toBeDefined();
+    expect(uncovered?.sourceId).toBeUndefined();
+  });
+
+  it("reports an unprintable stored owner rather than formatting it", () => {
+    const value = definition();
+    value.rules[0].inputs[0].owner = unprintable();
+    expect(
+      codes(validateSchemeSeedPacket({ ...sealPacket(), definition: value }, sealPack(), sha256)),
+    ).toContain("SEED_ROW_FIELD_INVALID");
+  });
+
+  // Every position in every validator's input, against every malformed shape.
+  const MALFORMED_VALUES = ['{"toString":null}', '{"toString":null,"valueOf":null}', "[]", "12.5", "null", "true"];
+
+  function pathsOf(value: unknown, path: (string | number)[] = []): (string | number)[][] {
+    if (Array.isArray(value)) {
+      return [path, ...value.flatMap((item, index) => pathsOf(item, [...path, index]))];
+    }
+    if (value !== null && typeof value === "object") {
+      return [path, ...Object.entries(value).flatMap(([key, item]) => pathsOf(item, [...path, key]))];
+    }
+    return [path];
+  }
+
+  function replacedAt<T>(value: T, path: (string | number)[], replacement: unknown): T {
+    const clone = JSON.parse(JSON.stringify(value)) as T;
+    let parent = clone as Record<string | number, unknown>;
+    path.slice(0, -1).forEach((key) => { parent = parent[key] as typeof parent; });
+    parent[path[path.length - 1]] = replacement;
+    return clone;
+  }
+
+  const validators: [string, unknown, (input: unknown) => { code: string }[]][] = [
+    ["source pack", sourcePack(), validateSchemeSourcePack],
+    ["register", { pin: PIN, rows: [row()] }, (input) => validateRequirementRegister(input, sourcePack())],
+    ["content pack", sealPack(), (input) => validateSchemeContentPack(input, sha256)],
+    ["seed packet", sealPacket(), (input) => validateSchemeSeedPacket(input, sealPack(), sha256)],
+    ["content pack of a seed packet", sealPack(), (input) => validateSchemeSeedPacket(sealPacket(), input, sha256)],
+  ];
+
+  it.each(validators)("the %s validator reports every malformed position as text", (_label, valid, validate) => {
+    expect(validate(valid)).toEqual([]);
+
+    for (const path of pathsOf(valid).filter((candidate) => candidate.length > 0)) {
+      for (const malformed of MALFORMED_VALUES) {
+        const position = `${path.join(".")} = ${malformed}`;
+        let issues: Record<string, unknown>[] = [];
+        expect(() => {
+          issues = validate(replacedAt(valid, path, JSON.parse(malformed))) as typeof issues;
+        }, position).not.toThrow();
+
+        for (const issue of issues) {
+          expect(typeof issue.detail, position).toBe("string");
+          for (const context of ["rowId", "sourceId", "dataKey", "ruleKey"]) {
+            expect(["string", "undefined"], `${position} ${context}`).toContain(typeof issue[context]);
+          }
+        }
+      }
+    }
+  });
+});
+
 describe("seed packet document", () => {
   const fence = "```";
 

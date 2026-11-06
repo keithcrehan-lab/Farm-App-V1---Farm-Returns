@@ -29,7 +29,7 @@ import { FIELD_SELECTION_COLOR, farmFieldLensView, fieldWorkspaceHref, parseFiel
 import { farmFieldSelectionView } from "@/lib/farm-field-selection";
 import { formatFieldDate } from "@/lib/field-workspace-presentation";
 import type { Field } from "@/domain/types";
-import type { FieldScanCandidate } from "@/domain/field-scan";
+import { fieldScanCentre, type FieldScanCandidate } from "@/domain/field-scan";
 import type { Prompt } from "@/orchestration/prompt";
 import type { MissingSlurryPlanningDetail } from "@/domain/what-matters-no-recommendation";
 
@@ -144,8 +144,13 @@ function FieldsCompanion({
   // never accumulate a hidden selection.
   const [multiIds, setMultiIds] = useState<string[]>([]);
 
+  const mappedFieldCentre = useMemo(
+    () => fieldScanCentre(fields.flatMap((field) => (field.polygon ? [field.polygon] : [])), farm.location.centroid),
+    [fields, farm.location.centroid],
+  );
   const [mappingOpen, setMappingOpen] = useState(initialAddMode === "draw");
   const [scanOpen, setScanOpen] = useState(initialAddMode === "scan");
+  const [drawCentreOverride, setDrawCentreOverride] = useState<[number, number] | null>(null);
   const [pendingPolygon, setPendingPolygon] = useState<GeoJSON.Polygon | null>(null);
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -436,9 +441,13 @@ function FieldsCompanion({
       {scanOpen ? (
         <FieldScanModal
           farmName={farm.name}
-          centre={farm.location.centroid}
+          centre={mappedFieldCentre}
+          existingFields={fields.flatMap((field) =>
+            field.polygon ? [{ id: field.id, name: field.name, polygon: field.polygon }] : [],
+          )}
           onClose={() => setScanOpen(false)}
-          onDrawInstead={() => {
+          onDrawInstead={(scanCentre) => {
+            setDrawCentreOverride(scanCentre);
             setScanOpen(false);
             setMappingOpen(true);
           }}
@@ -453,11 +462,15 @@ function FieldsCompanion({
       {mappingOpen ? (
         <FieldBoundaryMapModal
           fieldName="new field"
-          initialCentroid={farm.location.centroid}
-          onClose={() => setMappingOpen(false)}
+          initialCentroid={drawCentreOverride ?? mappedFieldCentre}
+          onClose={() => {
+            setMappingOpen(false);
+            setDrawCentreOverride(null);
+          }}
           onSave={(polygon) => {
             setPendingPolygon(polygon);
             setMappingOpen(false);
+            setDrawCentreOverride(null);
             setMobileView("list");
           }}
         />

@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { Field, Farm } from "@/domain/types";
-import { generatedFieldNames, parseFieldScanPayload, type FieldScanOutcome } from "@/domain/field-scan";
+import { fieldScanCentre, generatedFieldNames, parseFieldScanPayload, type FieldScanOutcome } from "@/domain/field-scan";
 import { createFields } from "@/lib/farm-data/fields";
 import { createClient } from "@/lib/supabase/server";
 
@@ -13,10 +13,16 @@ const SCAN_LIMIT = 120;
  * DAFM LPIS 2025 cache. This is geometry discovery only: a returned parcel
  * is never evidence that the signed-in farmer owns or controls it.
  */
-export async function scanNearbyLpisFields(farm: Farm, fields: readonly Field[]): Promise<FieldScanOutcome> {
-  const [lng, lat] = farm.location.centroid;
-  if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
-    return { status: "UNAVAILABLE", reason: "Your farm location is not mapped accurately enough to scan nearby fields." };
+export async function scanNearbyLpisFields(
+  farm: Farm,
+  fields: readonly Field[],
+  requestedCentre?: [number, number],
+): Promise<FieldScanOutcome> {
+  const mappedPolygons = fields.flatMap((field) => (field.polygon ? [field.polygon] : []));
+  const defaultCentre = fieldScanCentre(mappedPolygons, farm.location.centroid);
+  const [lng, lat] = requestedCentre ?? defaultCentre;
+  if (!Number.isFinite(lng) || !Number.isFinite(lat) || lng < -11 || lng > -5 || lat < 51 || lat > 56) {
+    return { status: "UNAVAILABLE", reason: "That map location is outside the supported Irish field-scan area." };
   }
 
   try {
@@ -34,7 +40,7 @@ export async function scanNearbyLpisFields(farm: Farm, fields: readonly Field[])
 
     const outcome = parseFieldScanPayload(data, fields.map((field) => field.lpisRef).filter((ref): ref is string => Boolean(ref)));
     if (outcome.status === "READY" && outcome.candidates.length === 0 && !outcome.coverageAtFarm) {
-      return { status: "UNAVAILABLE", reason: "Field-scan coverage has not been loaded for this area yet. You can still draw a field manually." };
+      return { status: "UNAVAILABLE", reason: "Field-scan coverage has not been loaded for this area yet. Search another Eircode or draw the field manually." };
     }
     return outcome;
   } catch (error) {
@@ -52,15 +58,26 @@ export async function importScannedLpisFields(
   fields: readonly Field[],
   requestedRefs: readonly string[],
 ): Promise<Field[]> {
-  const refs = [...new Set(requestedRefs.filter((ref) => /^dafm_lpis_2025:2025:.+/.test(ref)))].slice(0, 80);
+  const prefix = "dafm_lpis_2025:2025:";
+  const refs = [...new Set(requestedRefs.filter((ref) => ref.startsWith(prefix) && ref.length > prefix.length))].slice(0, 80);
   if (refs.length === 0) return [];
 
-  const scan = await scanNearbyLpisFields(farm, fields);
-  if (scan.status !== "READY") throw new Error(scan.reason);
-  const byRef = new Map(scan.candidates.map((candidate) => [candidate.lpisRef, candidate]));
-  const selected = refs.map((ref) => byRef.get(ref));
+  const existingRefs = new Set(fields.map((field) => field.lpisRef).filter((ref): ref is string => Boolean(ref)));
+  const newRefs = refs.filter((ref) => !existingRefs.has(ref));
+  if (newRefs.length === 0) return [];
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("resolve_lpis_parcels_by_feature_ids", {
+    p_feature_ids: newRefs.map((ref) => ref.slice(prefix.length)),
+  });
+  if (error) throw new Error(`Selected LPIS boundaries could not be resolved: ${error.message}`);
+
+  const resolved = parseFieldScanPayload(data);
+  if (resolved.status !== "READY") throw new Error(resolved.reason);
+  const byRef = new Map(resolved.candidates.map((candidate) => [candidate.lpisRef, candidate]));
+  const selected = newRefs.map((ref) => byRef.get(ref));
   if (selected.some((candidate) => !candidate)) {
-    throw new Error("One or more selected field boundaries are no longer available in the nearby LPIS scan.");
+    throw new Error("One or more selected field boundaries are no longer available in the canonical LPIS cache.");
   }
 
   const names = generatedFieldNames(fields.map((field) => field.name), selected.length);

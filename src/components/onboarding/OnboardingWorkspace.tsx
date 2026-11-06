@@ -8,7 +8,7 @@ import { addScannedFieldsAction } from "@/app/actions/field-scan";
 import { signOut } from "@/app/actions/auth";
 import { computeBoundaryGeometry, isValidBoundaryPolygon } from "@/domain/field-boundary";
 import type { Farm } from "@/domain/types";
-import type { FieldScanCandidate } from "@/domain/field-scan";
+import { fieldScanCentre, type FieldScanCandidate } from "@/domain/field-scan";
 import { cn } from "@/lib/cn";
 import { formatHa } from "@/lib/format";
 import { mapboxConfigured } from "@/lib/mapbox";
@@ -54,6 +54,7 @@ export function OnboardingWorkspace({ stage, farm: initialFarm, fields: initialF
   const [farmPoint, setFarmPoint] = useState<[number, number] | null>(initialFarm?.location.centroid ?? null);
   const [drawing, setDrawing] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [drawCentreOverride, setDrawCentreOverride] = useState<[number, number] | null>(null);
   const [pendingPolygon, setPendingPolygon] = useState<GeoJSON.Polygon | null>(null);
   const [cameraTarget, setCameraTarget] = useState<{ center: [number, number]; radiusKm?: number; zoom: number; token: number } | null>(null);
   const mapRef = useRef<OnboardingMapHandle>(null);
@@ -80,6 +81,10 @@ export function OnboardingWorkspace({ stage, farm: initialFarm, fields: initialF
     };
   }, []);
 
+  const mappedFieldCentre = useMemo(
+    () => fieldScanCentre(fields.map((field) => field.polygon), farm?.location.centroid ?? IRELAND_CENTER),
+    [fields, farm?.location.centroid],
+  );
   const startCenter = initialFarm?.location.centroid ?? IRELAND_CENTER;
   const mapStartCenter = cameraTarget?.center ?? startCenter;
   const mapStartZoom = cameraTarget?.zoom ?? (initialFarm ? CONFIRM_ZOOM : 6.4);
@@ -195,9 +200,11 @@ export function OnboardingWorkspace({ stage, farm: initialFarm, fields: initialF
       {scanning && farm ? (
         <FieldScanModal
           farmName={farm.name}
-          centre={farm.location.centroid}
+          centre={mappedFieldCentre}
+          existingFields={fields}
           onClose={() => setScanning(false)}
-          onDrawInstead={() => {
+          onDrawInstead={(scanCentre) => {
+            setDrawCentreOverride(scanCentre);
             setScanning(false);
             setDrawing(true);
           }}
@@ -218,11 +225,15 @@ export function OnboardingWorkspace({ stage, farm: initialFarm, fields: initialF
       {drawing && farm ? (
         <FieldBoundaryMapModal
           fieldName={fields.length === 0 ? "your first field" : "another field"}
-          initialCentroid={farm.location.centroid}
-          onClose={() => setDrawing(false)}
+          initialCentroid={drawCentreOverride ?? mappedFieldCentre}
+          onClose={() => {
+            setDrawing(false);
+            setDrawCentreOverride(null);
+          }}
           onSave={(polygon) => {
             setPendingPolygon(polygon);
             setDrawing(false);
+            setDrawCentreOverride(null);
             setStep("NAME_FIELD");
           }}
         />

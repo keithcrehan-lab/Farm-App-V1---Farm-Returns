@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generatedFieldNames, parseFieldScanPayload, polygonFromUnknownGeometry } from "./field-scan";
+import { fieldScanBounds, fieldScanCentre, generatedFieldNames, parseFieldScanPayload, polygonFromUnknownGeometry } from "./field-scan";
 
 const small: GeoJSON.Polygon = {
   type: "Polygon",
@@ -21,6 +21,19 @@ const large: GeoJSON.Polygon = {
     [-8.47, 53.51],
   ]],
 };
+
+describe("field scan map viewport", () => {
+  it("centres a new scan on the farmer's existing mapped fields, not the stale farm pin", () => {
+    const fallback: [number, number] = [-9.0568, 53.2707];
+    expect(fieldScanBounds([small, large])).toEqual([-8.47, 53.51, -8.467, 53.513]);
+    expect(fieldScanCentre([small, large], fallback)).toEqual([-8.4685, 53.5115]);
+  });
+
+  it("falls back to the farm location only when there are no mapped field polygons", () => {
+    const fallback: [number, number] = [-9.0568, 53.2707];
+    expect(fieldScanCentre([], fallback)).toEqual(fallback);
+  });
+});
 
 describe("field scan geometry parsing", () => {
   it("accepts a valid polygon and rejects malformed external geometry", () => {

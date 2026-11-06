@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { FarmProvider } from "@/store/farm-store";
-import { mockFields } from "@/data/mock-farm";
+import { mockFarm, mockFields } from "@/data/mock-farm";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
-import type { FieldScanCandidate } from "@/domain/field-scan";
+import { fieldScanCentre, type FieldScanCandidate, type FieldScanExistingField } from "@/domain/field-scan";
 import { formatHa } from "@/lib/format";
 import FieldsPage from "./page";
 
@@ -49,18 +49,22 @@ const drawnPolygon: GeoJSON.Polygon = {
     ],
   ],
 };
+let boundaryInitialCentroid: [number, number] | undefined;
 // The real boundary modal draws on Mapbox; here it hands back a real polygon.
 vi.mock("@/components/farm/FieldBoundaryMapModal", () => ({
-  FieldBoundaryMapModal: ({ onSave, onClose }: { onSave: (p: GeoJSON.Polygon) => void; onClose: () => void }) => (
-    <div role="dialog" aria-label="Draw boundary">
-      <button type="button" onClick={() => onSave(drawnPolygon)}>
-        Use drawn boundary
-      </button>
-      <button type="button" onClick={onClose}>
-        Close drawing
-      </button>
-    </div>
-  ),
+  FieldBoundaryMapModal: ({ onSave, onClose, initialCentroid }: { onSave: (p: GeoJSON.Polygon) => void; onClose: () => void; initialCentroid: [number, number] }) => {
+    boundaryInitialCentroid = initialCentroid;
+    return (
+      <div role="dialog" aria-label="Draw boundary">
+        <button type="button" onClick={() => onSave(drawnPolygon)}>
+          Use drawn boundary
+        </button>
+        <button type="button" onClick={onClose}>
+          Close drawing
+        </button>
+      </div>
+    );
+  },
 }));
 
 const scannedPolygon: GeoJSON.Polygon = {
@@ -73,26 +77,34 @@ const scannedPolygon: GeoJSON.Polygon = {
     [-8.4848, 51.8985],
   ]],
 };
+let scanModalProps: { centre: [number, number]; existingFields: FieldScanExistingField[] } | undefined;
 vi.mock("@/components/farm/FieldScanModal", () => ({
-  FieldScanModal: ({ onAddSelected, onDrawInstead, onClose }: {
+  FieldScanModal: ({ onAddSelected, onDrawInstead, onClose, centre, existingFields = [] }: {
     onAddSelected: (candidates: FieldScanCandidate[]) => Promise<void>;
-    onDrawInstead: () => void;
+    onDrawInstead: (centre: [number, number]) => void;
     onClose: () => void;
-  }) => (
-    <div role="dialog" aria-label="Scan fields">
-      <button type="button" onClick={() => void onAddSelected([
-        { id: "scan-a", lpisRef: "dafm_lpis_2025:2025:scan-a", polygon: drawnPolygon, areaHa: 1, centroid: [-8.4857, 51.899], sourceLabel: "DAFM LPIS 2025", sourceYear: "2025" },
-        { id: "scan-b", lpisRef: "dafm_lpis_2025:2025:scan-b", polygon: scannedPolygon, areaHa: 1, centroid: [-8.484, 51.899], sourceLabel: "DAFM LPIS 2025", sourceYear: "2025" },
-      ])}>Use scanned fields</button>
-      <button type="button" onClick={onDrawInstead}>Draw instead</button>
-      <button type="button" onClick={onClose}>Close scan</button>
-    </div>
-  ),
+    centre: [number, number];
+    existingFields?: FieldScanExistingField[];
+  }) => {
+    scanModalProps = { centre, existingFields };
+    return (
+      <div role="dialog" aria-label="Scan fields">
+        <button type="button" onClick={() => void onAddSelected([
+          { id: "scan-a", lpisRef: "dafm_lpis_2025:2025:scan-a", polygon: drawnPolygon, areaHa: 1, centroid: [-8.4857, 51.899], sourceLabel: "DAFM LPIS 2025", sourceYear: "2025" },
+          { id: "scan-b", lpisRef: "dafm_lpis_2025:2025:scan-b", polygon: scannedPolygon, areaHa: 1, centroid: [-8.484, 51.899], sourceLabel: "DAFM LPIS 2025", sourceYear: "2025" },
+        ])}>Use scanned fields</button>
+        <button type="button" onClick={() => onDrawInstead(centre)}>Draw instead</button>
+        <button type="button" onClick={onClose}>Close scan</button>
+      </div>
+    );
+  },
 }));
 
 beforeEach(() => {
   search.current = new URLSearchParams();
   mapProps = undefined;
+  scanModalProps = undefined;
+  boundaryInitialCentroid = undefined;
   push.mockReset();
 });
 afterEach(cleanup);
@@ -174,12 +186,18 @@ describe("Fields companion (Farm + Fields redesign)", () => {
     expect(mapProps!.highlightedFieldIds).toBeUndefined();
   });
 
-  it("offers a clear Add another field button that opens the scan workflow", () => {
+  it("offers Add another field and opens the scanner on the already-mapped field area", () => {
     renderFields();
     const addButtons = screen.getAllByRole("button", { name: "Add another field" });
     expect(addButtons.length).toBeGreaterThan(0);
     fireEvent.click(addButtons[0]);
     expect(screen.getByRole("dialog", { name: "Scan fields" })).toBeTruthy();
+
+    const mappedPolygons = mockFields
+      .filter((field) => !field.archivedAt && field.polygon)
+      .map((field) => field.polygon as GeoJSON.Polygon);
+    expect(scanModalProps?.centre).toEqual(fieldScanCentre(mappedPolygons, mockFarm.location.centroid));
+    expect(scanModalProps?.existingFields).toHaveLength(mappedPolygons.length);
   });
 
   it("the add=scan deep link opens the same scan workflow", () => {
@@ -200,10 +218,16 @@ describe("Fields companion (Farm + Fields redesign)", () => {
     await vi.waitFor(() => expect(screen.queryByRole("dialog", { name: "Scan fields" })).toBeNull());
   });
 
-  it("Add field stays boundary-first: the area comes from the drawn polygon, and Cancel saves nothing", () => {
+  it("Add field stays boundary-first and opens the drawing map on the existing field area", () => {
     renderFields();
     const before = mapProps!.fields.length;
     fireEvent.click(screen.getByRole("button", { name: "Draw field" }));
+
+    const mappedPolygons = mockFields
+      .filter((field) => !field.archivedAt && field.polygon)
+      .map((field) => field.polygon as GeoJSON.Polygon);
+    expect(boundaryInitialCentroid).toEqual(fieldScanCentre(mappedPolygons, mockFarm.location.centroid));
+
     fireEvent.click(screen.getByRole("button", { name: "Use drawn boundary" }));
     const form = document.querySelector("[data-new-field]") as HTMLElement;
     expect(form.textContent).toContain(formatHa(computeBoundaryGeometry(drawnPolygon).areaHa));

@@ -23,6 +23,40 @@ export type FieldScanOutcome =
     }
   | { status: "UNAVAILABLE"; reason: string };
 
+export interface FieldScanExistingField {
+  id: string;
+  name: string;
+  polygon: GeoJSON.Polygon;
+}
+
+export type FieldScanBounds = [minLng: number, minLat: number, maxLng: number, maxLat: number];
+
+export function fieldScanBounds(polygons: readonly GeoJSON.Polygon[]): FieldScanBounds | null {
+  let minLng = Number.POSITIVE_INFINITY;
+  let minLat = Number.POSITIVE_INFINITY;
+  let maxLng = Number.NEGATIVE_INFINITY;
+  let maxLat = Number.NEGATIVE_INFINITY;
+  let found = false;
+  for (const polygon of polygons) {
+    for (const point of polygon.coordinates[0] ?? []) {
+      const [lng, lat] = point;
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+      minLng = Math.min(minLng, lng);
+      minLat = Math.min(minLat, lat);
+      maxLng = Math.max(maxLng, lng);
+      maxLat = Math.max(maxLat, lat);
+      found = true;
+    }
+  }
+  return found ? [minLng, minLat, maxLng, maxLat] : null;
+}
+
+export function fieldScanCentre(polygons: readonly GeoJSON.Polygon[], fallback: [number, number]): [number, number] {
+  const bounds = fieldScanBounds(polygons);
+  if (!bounds) return fallback;
+  return [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2];
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)

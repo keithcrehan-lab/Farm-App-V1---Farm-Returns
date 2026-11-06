@@ -254,7 +254,7 @@ No campaign phase writes or applies a migration or changes the schema. See `CAMP
 
 - the content pack is itself valid and is the one named;
 - the rows pass `validateStoredSchemeDefinition`, and every row belongs to this version;
-- every row holds exactly its stored columns, each valid for the table: uuid ids, closed vocabularies, bounded text, booleans, real dates (`YYYY-MM-DD`) and UTC timestamps, windows in order, and no duplicate row id, key or rule input;
+- every row holds exactly its stored columns, each valid for the table: uuid ids, closed vocabularies, bounded text, booleans, real dates (`YYYY-MM-DD`) and UTC timestamps no finer than a microsecond, windows in order at that precision, text and nested JSON that PostgreSQL holds exactly (no NUL or lone surrogate, JSON values only), and no duplicate row id, key or rule input;
 - source rows match the pack's sources exactly, in both directions;
 - **the version is `draft`, with `v1Enabled` false and `verifiedAt` null.** Loaded content stays invisible, and suppresses no legacy result, until the post-load audit has passed and that audit's own authorised step publishes it;
 - every stored rule traces to a register row through `engineRuleRef`, cites that row's source, and reads the same facts;

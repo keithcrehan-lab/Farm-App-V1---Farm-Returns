@@ -1009,8 +1009,19 @@ const isUuid: StoredFieldCheck = (value) =>
 
 const isBoolean: StoredFieldCheck = (value) => typeof value === "boolean";
 
+// PostgreSQL has no year 0000. timestamptz keeps microseconds and silently
+// rounds anything finer, so a finer value would not be stored exactly.
+const STORED_YEAR_ZERO_PREFIX = "0000-";
+const FINER_THAN_MICROSECONDS_PATTERN = /\.\d{7,}Z$/;
+
+const isStoredDate: StoredFieldCheck = (value) =>
+  isCalendarDate(value) && !value.startsWith(STORED_YEAR_ZERO_PREFIX);
+
 const isTimestamp: StoredFieldCheck = (value) =>
-  typeof value === "string" && isValidIsoUtcDateTime(value);
+  typeof value === "string" &&
+  isValidIsoUtcDateTime(value) &&
+  !value.startsWith(STORED_YEAR_ZERO_PREFIX) &&
+  !FINER_THAN_MICROSECONDS_PATTERN.test(value);
 
 const isPriority: StoredFieldCheck = (value) =>
   typeof value === "number" &&
@@ -1018,10 +1029,12 @@ const isPriority: StoredFieldCheck = (value) =>
   value >= 0 &&
   value <= MAX_RULE_INPUT_PRIORITY;
 
+// Same measure as the CHECK constraints' length(btrim(value)): btrim strips
+// spaces only, and length counts code points.
 const textUpTo =
   (max: number): StoredFieldCheck =>
   (value) =>
-    isText(value) && value.trim().length <= max;
+    isText(value) && [...value.replace(/^ +| +$/g, "")].length <= max;
 
 const nullable =
   (check: StoredFieldCheck): StoredFieldCheck =>
@@ -1099,8 +1112,8 @@ const STORED_VERSION_FIELDS: Record<keyof StoredSchemeVersion, StoredFieldCheck>
   schemeYear: isSchemeYear,
   programmeGeneration: isNullableText,
   rulesVersion: textUpTo(MAX_RULES_VERSION_LENGTH),
-  effectiveFrom: nullable(isCalendarDate),
-  effectiveTo: nullable(isCalendarDate),
+  effectiveFrom: nullable(isStoredDate),
+  effectiveTo: nullable(isStoredDate),
   applicationOpen: nullable(isTimestamp),
   applicationClose: nullable(isTimestamp),
   lateApplicationClose: nullable(isTimestamp),
@@ -1121,7 +1134,7 @@ const STORED_SOURCE_FIELDS: Record<keyof StoredSchemeSource, StoredFieldCheck> =
   publisher: textUpTo(180),
   title: textUpTo(300),
   url: (value) => isHttpUrl(value) && textUpTo(2000)(value),
-  publicationDate: nullable(isCalendarDate),
+  publicationDate: nullable(isStoredDate),
   retrievedAt: nullable(isTimestamp),
   lastVerifiedAt: nullable(isTimestamp),
   contentFingerprintSha256: nullable(
@@ -1159,6 +1172,42 @@ const STORED_RULE_INPUT_FIELDS: Record<keyof StoredSchemeRuleInput, StoredFieldC
   routeKey: isNullableText,
 };
 
+// text and jsonb reject NUL. jsonb rejects a lone surrogate, and text could
+// only hold one by replacing it. The u flag makes this match lone ones only.
+const LONE_SURROGATE_PATTERN = /[\uD800-\uDFFF]/u;
+
+function isStorableString(value: string): boolean {
+  return !value.includes("\0") && !LONE_SURROGATE_PATTERN.test(value);
+}
+
+/** Whether the database would hold this value exactly, at any depth: JSON
+ * values only, since serialising anything else drops or replaces it. */
+function isStorableValue(value: unknown): boolean {
+  if (value === null || typeof value === "boolean") return true;
+  if (typeof value === "string") return isStorableString(value);
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) {
+    return Array.from(value).every(isStorableValue);
+  }
+  if (typeof value !== "object") return false;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return (
+    (prototype === Object.prototype || prototype === null) &&
+    Object.entries(value).every(
+      ([key, nested]) => isStorableString(key) && isStorableValue(nested),
+    )
+  );
+}
+
+/** A cycle or depth the call stack cannot walk could not be serialised either. */
+function isStorableColumn(value: unknown): boolean {
+  try {
+    return isStorableValue(value);
+  } catch {
+    return false;
+  }
+}
+
 function validateStoredRowFields(
   table: string,
   row: object,
@@ -1168,7 +1217,11 @@ function validateStoredRowFields(
 ): void {
   const values = row as UnknownRecord;
   for (const [field, check] of Object.entries(fields)) {
-    if (!Object.hasOwn(values, field) || !check(values[field])) {
+    if (
+      !Object.hasOwn(values, field) ||
+      !check(values[field]) ||
+      !isStorableColumn(values[field])
+    ) {
       issues.push({
         code: "SEED_ROW_FIELD_INVALID",
         detail: `${table}.${field} is missing or invalid.`,
@@ -1187,13 +1240,20 @@ function validateStoredRowFields(
   }
 }
 
+/** Orders valid stored dates or timestamps as text, at the database's full
+ * precision. Date.parse would truncate to milliseconds. */
+function storedInstantKey(value: string): string {
+  const [whole, fraction = ""] = value.replace(/Z$/, "").split(".");
+  return `${whole}.${fraction.padEnd(6, "0")}`;
+}
+
 /** True when both bounds are present and in the wrong order. A malformed
  * bound is reported by its own field check. */
 function windowReversed(from: unknown, to: unknown): boolean {
   return (
     typeof from === "string" &&
     typeof to === "string" &&
-    Date.parse(from) > Date.parse(to)
+    storedInstantKey(from) > storedInstantKey(to)
   );
 }
 

@@ -804,10 +804,112 @@ describe("seed packet", () => {
       ["a fractional priority", (d) => { input(d).priority = 1.5; }],
       ["a priority out of range", (d) => { input(d).priority = 10001; }],
       ["a blank route key", (d) => { input(d).routeKey = " "; }],
+      ["an application window reversed below a millisecond", (d) => { d.version.applicationOpen = "2031-01-01T00:00:00.000999Z"; d.version.applicationClose = "2031-01-01T00:00:00.000001Z"; }],
+      ["a late close before the close below a millisecond", (d) => { d.version.applicationClose = "2031-01-01T00:00:00.000999Z"; d.version.lateApplicationClose = "2031-01-01T00:00:00.000001Z"; }],
+      ["a rule window reversed below a millisecond", (d) => { d.rules[0].effectiveFrom = "2031-01-01T00:00:00.000999Z"; d.rules[0].effectiveTo = "2031-01-01T00:00:00.000001Z"; }],
+      ["a window reversed against an unpadded fraction", (d) => { d.rules[0].effectiveFrom = "2031-01-01T00:00:00.1Z"; d.rules[0].effectiveTo = "2031-01-01T00:00:00.099999Z"; }],
+      ["a window reversed against a whole second", (d) => { d.rules[0].effectiveFrom = "2031-01-01T00:00:00.000001Z"; d.rules[0].effectiveTo = "2031-01-01T00:00:00Z"; }],
+      ["a timestamp finer than the database stores", (d) => { d.version.applicationOpen = "2031-01-01T00:00:00.0000001Z"; }],
+      ["a timestamp in year zero", (d) => { d.version.applicationOpen = "0000-01-01T00:00:00Z"; }],
+      ["a date in year zero", (d) => { d.version.effectiveFrom = "0000-01-01"; }],
+      ["text over its bound once only spaces are stripped", (d) => { d.version.displayName = `${"x".repeat(180)}\t`; }],
     ])("rejects %s", (_label, change) => {
       expect(codes(withDefinition(change))).toEqual(
         expect.arrayContaining([expect.stringMatching(/^SEED_(ROW_FIELD_INVALID|DUPLICATE_KEY)$/)]),
       );
+    });
+
+    it("accepts windows ordered or equal at microsecond precision", () => {
+      expect(
+        withDefinition((d) => {
+          d.version.applicationOpen = "2031-01-01T00:00:00.000001Z";
+          d.version.applicationClose = "2031-01-01T00:00:00.000999Z";
+          d.version.lateApplicationClose = "2031-01-01T00:00:00.000999Z";
+          d.rules[0].effectiveFrom = "2031-01-01T00:00:00.1Z";
+          d.rules[0].effectiveTo = "2031-01-01T00:00:00.100000Z";
+        }),
+      ).toEqual([]);
+    });
+
+    it("measures text bounds as the database does", () => {
+      expect(
+        withDefinition((d) => {
+          d.version.displayName = `  ${"\u{1F33E}".repeat(180)}  `;
+        }),
+      ).toEqual([]);
+    });
+
+    // Every text column of every row, plus the nested stored JSON, for each
+    // value the database would refuse or could not hold exactly.
+    const textColumns: [string, (d: StoredSchemeDefinition, value: string) => void][] = [
+      ["version.displayName", (d, value) => { d.version.displayName = value; }],
+      ["version.rulesVersion", (d, value) => { d.version.rulesVersion = value; }],
+      ["version.programmeGeneration", (d, value) => { d.version.programmeGeneration = value; }],
+      ["version.supportType", (d, value) => { d.version.supportType = value; }],
+      ["version.recurrenceType", (d, value) => { d.version.recurrenceType = value; }],
+      ["version.enterpriseRelevance", (d, value) => { d.version.enterpriseRelevance = [value]; }],
+      ["source.sourceKey", (d, value) => { d.sources[0].sourceKey = value; }],
+      ["source.publisher", (d, value) => { d.sources[0].publisher = value; }],
+      ["source.title", (d, value) => { d.sources[0].title = value; }],
+      ["source.url", (d, value) => { d.sources[0].url = `https://example.invalid/${value}`; }],
+      ["source.archivedStoragePath", (d, value) => { d.sources[0].archivedStoragePath = value; }],
+      ["rule.ruleKey", (d, value) => { d.rules[0].ruleKey = value; }],
+      ["rule.description", (d, value) => { d.rules[0].description = value; }],
+      ["rule.operator", (d, value) => { d.rules[0].operator = value; }],
+      ["rule.parameters value", (d, value) => { d.rules[0].parameters = { synth: value }; }],
+      ["rule.parameters key", (d, value) => { d.rules[0].parameters = { [value]: true }; }],
+      ["rule.parameters nested value", (d, value) => { d.rules[0].parameters = { synth: [{ nested: [value] }] }; }],
+      ["rule.consequence nested value", (d, value) => { d.rules[0].consequence = { synth: { nested: value } }; }],
+      ["input.dataKey", (d, value) => { input(d).dataKey = value; }],
+      ["input.label", (d, value) => { input(d).label = value; }],
+      ["input.routeKey", (d, value) => { input(d).routeKey = value; }],
+    ];
+    const unstorableText: [string, string][] = [
+      ["a NUL", "synth\0text"],
+      ["a lone high surrogate", "synth\uD83Dtext"],
+      ["a lone low surrogate", "synth\uDF3Etext"],
+    ];
+
+    it.each(
+      textColumns.flatMap(([column, set]) =>
+        unstorableText.map(([label, value]) => [column, label, value, set] as const),
+      ),
+    )("rejects %s holding %s", (_column, _label, value, set) => {
+      expect(codes(withDefinition((d) => set(d, value)))).toContain("SEED_ROW_FIELD_INVALID");
+    });
+
+    it("accepts a paired surrogate in text and nested JSON", () => {
+      expect(
+        withDefinition((d) => {
+          d.version.displayName = "SYNTH \u{1F33E}";
+          d.rules[0].parameters = { "\u{1F33E}": ["\u{1F33E}", 1.5, true, null] };
+        }),
+      ).toEqual([]);
+    });
+
+    it.each<[string, () => unknown]>([
+      ["a non-finite number", () => ({ synth: [Number.POSITIVE_INFINITY] })],
+      ["NaN", () => ({ synth: Number.NaN })],
+      ["an undefined value", () => ({ synth: undefined })],
+      ["an array hole", () => ({ synth: new Array(1) })],
+      ["a Date", () => ({ synth: new Date(0) })],
+      ["a function", () => ({ synth: () => null })],
+      ["a cycle", () => { const value: Record<string, unknown> = {}; value.self = value; return value; }],
+      ["nesting past the call stack", () => {
+        const value: Record<string, unknown> = {};
+        let current = value;
+        for (let depth = 0; depth < 200_000; depth += 1) {
+          const next: Record<string, unknown> = {};
+          current.nested = next;
+          current = next;
+        }
+        return value;
+      }],
+    ])("rejects stored JSON holding %s without throwing", (_label, build) => {
+      const packet = sealPacket({ definition: definition() });
+      packet.definition.rules[0].parameters = build() as Record<string, unknown>;
+      const found = validateSchemeSeedPacket(packet, sealPack(), sha256);
+      expect(found.map((issue) => issue.code)).toContain("SEED_ROW_FIELD_INVALID");
     });
 
     it("rejects a duplicate input, rule row id and version-scoped key", () => {

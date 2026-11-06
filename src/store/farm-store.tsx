@@ -97,7 +97,7 @@ import {
 } from "@/domain/nutrients";
 import { resolveSoilTestChain } from "@/domain/soil-test-history";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
-import { generatedFieldNames, type FieldScanCandidate } from "@/domain/field-scan";
+import type { NamedFieldScanSelection } from "@/domain/field-scan";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 import type { NewSlurryCompositionInput, SlurryComposition } from "@/domain/slurry-composition";
 import {
@@ -356,7 +356,7 @@ interface FarmActions {
   addField: (input: AddFieldInput) => Promise<Field>;
   /** Adds a scan selection in one canonical operation. Remote mode re-resolves
    * every LPIS ref server-side before persisting its geometry. */
-  addScannedFields: (candidates: readonly FieldScanCandidate[]) => Promise<Field[]>;
+  addScannedFields: (selections: readonly NamedFieldScanSelection[]) => Promise<Field[]>;
   /** Saves a real, farmer-drawn field boundary — recomputes `centroid`/
    * `areaHa` from it (never keeps the old placeholder/typed values once
    * real geometry exists). Throws if `polygon` isn't valid geometry
@@ -818,24 +818,36 @@ export function FarmProvider({
         return field;
       },
 
-      async addScannedFields(candidates) {
-        if (candidates.length === 0) return [];
+      async addScannedFields(selections) {
+        if (selections.length === 0) return [];
         if (remote) {
-          const added = await addScannedFieldsAction(candidates.map((candidate) => candidate.lpisRef));
+          const added = await addScannedFieldsAction(
+            selections.map(({ candidate, name }) => ({ lpisRef: candidate.lpisRef, name })),
+          );
           setState((s) => ({ ...s, fields: [...s.fields, ...added] }));
           markRecommendationInputSaved();
           return added;
         }
 
-        const names = generatedFieldNames(state.fields.map((field) => field.name), candidates.length);
+        const existingNames = new Set(state.fields.map((field) => field.name.trim().toLocaleLowerCase()));
+        const seenNames = new Set<string>();
+        for (const { name } of selections) {
+          const trimmed = name.trim();
+          const key = trimmed.toLocaleLowerCase();
+          if (trimmed.length === 0 || trimmed.length > 80) throw new Error("Give every selected field a name of 1 to 80 characters.");
+          if (existingNames.has(key) || seenNames.has(key)) throw new Error(`Field name "${trimmed}" is already in use.`);
+          seenNames.add(key);
+        }
+
         const now = new Date().toISOString();
-        const added = candidates.map((candidate, index): Field => {
+        const added = selections.map(({ candidate, name }): Field => {
+          const trimmedName = name.trim();
           const { centroid, areaHa } = computeBoundaryGeometry(candidate.polygon);
-          const fieldId = newId("field", names[index]);
+          const fieldId = newId("field", trimmedName);
           return {
             id: fieldId,
             farmId: state.farm.id,
-            name: names[index],
+            name: trimmedName,
             areaHa,
             centroid,
             polygon: candidate.polygon,

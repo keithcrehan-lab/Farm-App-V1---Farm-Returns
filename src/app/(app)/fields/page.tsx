@@ -29,7 +29,7 @@ import { FIELD_SELECTION_COLOR, farmFieldLensView, fieldWorkspaceHref, parseFiel
 import { farmFieldSelectionView } from "@/lib/farm-field-selection";
 import { formatFieldDate } from "@/lib/field-workspace-presentation";
 import type { Field } from "@/domain/types";
-import { fieldScanCentre, type FieldScanCandidate } from "@/domain/field-scan";
+import { fieldScanCentre, type NamedFieldScanSelection } from "@/domain/field-scan";
 import type { Prompt } from "@/orchestration/prompt";
 import type { MissingSlurryPlanningDetail } from "@/domain/what-matters-no-recommendation";
 
@@ -451,8 +451,8 @@ function FieldsCompanion({
             setScanOpen(false);
             setMappingOpen(true);
           }}
-          onAddSelected={async (candidates: FieldScanCandidate[]) => {
-            const added = await addScannedFields(candidates);
+          onAddSelected={async (selections: NamedFieldScanSelection[]) => {
+            const added = await addScannedFields(selections);
             setScanOpen(false);
             if (added.length > 0) setSelectedFieldId(added[0].id);
           }}

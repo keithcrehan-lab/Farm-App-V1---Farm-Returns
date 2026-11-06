@@ -8,7 +8,7 @@ import { addScannedFieldsAction } from "@/app/actions/field-scan";
 import { signOut } from "@/app/actions/auth";
 import { computeBoundaryGeometry, isValidBoundaryPolygon } from "@/domain/field-boundary";
 import type { Farm } from "@/domain/types";
-import { fieldScanCentre, type FieldScanCandidate } from "@/domain/field-scan";
+import { fieldScanCentre, type NamedFieldScanSelection } from "@/domain/field-scan";
 import { cn } from "@/lib/cn";
 import { formatHa } from "@/lib/format";
 import { mapboxConfigured } from "@/lib/mapbox";
@@ -208,8 +208,10 @@ export function OnboardingWorkspace({ stage, farm: initialFarm, fields: initialF
             setScanning(false);
             setDrawing(true);
           }}
-          onAddSelected={async (candidates: FieldScanCandidate[]) => {
-            const added = await addScannedFieldsAction(candidates.map((candidate) => candidate.lpisRef));
+          onAddSelected={async (selections: NamedFieldScanSelection[]) => {
+            const added = await addScannedFieldsAction(
+              selections.map(({ candidate, name }) => ({ lpisRef: candidate.lpisRef, name })),
+            );
             setFields((current) => [
               ...current,
               ...added

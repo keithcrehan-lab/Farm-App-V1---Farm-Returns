@@ -13,6 +13,17 @@ export interface FieldScanCandidate {
   sourceYear: string;
 }
 
+/** A farmer-reviewed scan candidate with the name they want to use in Farm Return. */
+export interface NamedFieldScanSelection {
+  candidate: FieldScanCandidate;
+  name: string;
+}
+
+export interface FieldScanImportRequest {
+  lpisRef: string;
+  name: string;
+}
+
 export type FieldScanOutcome =
   | {
       status: "READY";

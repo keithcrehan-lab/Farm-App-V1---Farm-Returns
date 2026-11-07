@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Plus, ScanLine } from "lucide-react";
+import { ArrowLeft, Camera, Plus, QrCode, ScanLine } from "lucide-react";
 import { AskAIButton } from "@/components/next/AskAI";
 import { MapHero } from "@/components/farm/MapHero";
 import { FieldWindChip } from "@/components/farm/FieldWindChip";
@@ -341,6 +341,16 @@ function FieldsCompanion({
           <button type="button" onClick={() => setFieldModeOpen(true)} className="ml-auto min-h-11 text-xs font-semibold text-fr-v2-forest hover:text-fr-v2-graphite">
             Field mode
           </button>
+        </div>
+
+        {/* Scan labels without interrupting the field-mapping or manage flow. */}
+        <div className="flex flex-wrap gap-2 border-b border-fr-v2-cream-rule px-4 py-3 lg:px-7">
+          <Link href="/smart-camera" className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 bg-fr-v2-forest-deep px-3 text-sm font-semibold text-white hover:bg-fr-v2-forest">
+            <Camera className="size-4" aria-hidden="true" /> Smart Camera
+          </Link>
+          <Link href="/smart-camera/labels" className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 border border-fr-v2-cream-rule px-3 text-sm font-semibold text-fr-v2-forest hover:bg-white/60">
+            <QrCode className="size-4" aria-hidden="true" /> Field QR labels
+          </Link>
         </div>
 
         {/* The phone's list view hides the map and the bar over it. */}

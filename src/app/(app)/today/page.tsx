@@ -77,7 +77,7 @@ import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { FarmConditionsControl } from "@/components/farm-spatial/FarmConditionsControl";
 import { farmConditionsSummary, spreadingCalendarEntry, spreadingCalendarStatusLine } from "@/lib/farm-conditions-summary";
-import { MapPin } from "lucide-react";
+import { MapPin, ScanBarcode } from "lucide-react";
 import { NearbyFieldCard } from "@/components/farm/NearbyFieldCard";
 import { FieldModeSheet } from "@/components/farm/FieldModeSheet";
 import { GpsActivityCandidateCard } from "@/components/farm/GpsActivityCandidateCard";
@@ -751,6 +751,9 @@ export default function TodayPage() {
                     >
                       <MapPin className="size-3.5" aria-hidden /> Field mode
                     </button>
+                    <Link href="/smart-camera" className="inline-flex min-h-11 items-center gap-2 self-start bg-fr-v2-forest-deep/90 px-3 text-xs font-semibold text-white backdrop-blur hover:bg-fr-v2-forest">
+                      <ScanBarcode className="size-3.5" aria-hidden /> Smart Camera
+                    </Link>
                   </div>
                   <div className="pointer-events-auto">
                     {lens === "grass" && !grassLoadFailed ? (

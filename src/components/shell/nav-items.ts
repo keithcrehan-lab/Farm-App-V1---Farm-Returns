@@ -19,6 +19,7 @@ import {
   Store,
   Warehouse,
   ShoppingBasket,
+  ScanBarcode,
 } from "lucide-react";
 import { CowIcon } from "./CowIcon";
 import { FertiliserBagIcon } from "./FertiliserBagIcon";
@@ -86,6 +87,7 @@ export const moreNavItems: NavItem[] = [
   // Transitional: What Matters stays reachable here until the Plan redesign.
   { href: "/what-matters", label: "What Matters", icon: Target },
   { href: "/fields", label: "Fields", icon: Map },
+  { href: "/smart-camera", label: "Smart Camera", icon: ScanBarcode },
   { href: "/soil", label: "Soil", icon: Sprout },
   { href: "/spreading", label: "Spreading", icon: Tractor },
   { href: "/quotes", label: "Market", icon: Store },

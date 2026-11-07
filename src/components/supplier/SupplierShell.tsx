@@ -6,6 +6,7 @@
  * operators.
  */
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
 
@@ -63,9 +64,15 @@ export function SupplierShell({ supplierName, role, children }: { supplierName: 
 
 export function SupplierNotice({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="mx-auto max-w-xl p-6">
-      <h1 className="mb-2 text-title text-fr-ink-900">{title}</h1>
-      <div className="rounded-fr-control border border-dashed border-fr-border p-4 text-sm text-fr-ink-600">{children}</div>
-    </div>
+    <main className="min-h-dvh bg-fr-v2-cream px-4 py-8 text-fr-v2-graphite">
+      <div className="mx-auto max-w-xl border-t-2 border-fr-v2-gold pt-5">
+        <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-fr-v2-muted">Farm Return · Supplier portal</p>
+        <h1 className="mb-3 mt-3 font-display text-[32px] font-normal leading-tight">{title}</h1>
+        <div className="border border-fr-v2-cream-rule bg-white p-4 text-sm leading-relaxed text-fr-v2-muted">{children}</div>
+        <Link href="/today" className="mt-5 inline-flex min-h-11 items-center gap-2 bg-fr-v2-forest-deep px-4 py-3 text-sm font-semibold text-white">
+          <ArrowLeft className="size-4" aria-hidden="true" /> Return to Farm Return
+        </Link>
+      </div>
+    </main>
   );
 }

@@ -710,7 +710,7 @@ export default function TodayPage() {
 
               <div className="relative flex flex-col gap-4 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] sm:flex-row sm:items-start sm:justify-between lg:px-9 lg:pt-8">
                 <div className="pointer-events-auto min-w-0 [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]">
-                  <p className={cn("text-[10.5px] font-semibold uppercase tracking-[0.18em]", activeLens.kickerClassName)}>Farm Return · {activeLens.label}</p>
+                  <p className={cn("text-[10.5px] font-semibold uppercase tracking-[0.18em]", activeLens.kickerClassName)}>Farm Return · {activeLens.label}{!isRealMode ? " · Demo" : ""}</p>
                   <h1 className="mt-2 max-w-[16ch] text-balance font-display text-[34px] leading-[0.98] tracking-[-0.02em] text-white lg:text-[56px]">{farm.name}</h1>
                   <p className="mt-3 font-mono text-[12px] tabular-nums tracking-[0.01em] text-white/90" data-farm-identity-measure>
                     {fieldCountLabel}

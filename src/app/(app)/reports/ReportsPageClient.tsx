@@ -117,7 +117,7 @@ export function ReportsPageClient({
                     ? "Exports a real CSV built from this farm's current data"
                     : "Report generation arrives once the relevant domain engine is live — this one needs a real sales-plan/sales-log data source"
                 }
-                className="flex items-center gap-1.5 rounded-full border border-fr-border px-3 py-1.5 text-xs font-medium text-fr-ink-600 disabled:text-fr-ink-400"
+                className="flex min-h-11 items-center gap-1.5 rounded-fr-v2-control border border-fr-v2-cream-rule px-3 py-2 text-xs font-medium text-fr-v2-forest disabled:text-fr-v2-muted"
               >
                 <Download className="size-3.5" />
                 Export

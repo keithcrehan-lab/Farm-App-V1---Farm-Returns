@@ -91,7 +91,7 @@ export function DemoNotice({ children }: { children?: React.ReactNode }) {
   return (
     <p className="flex items-start gap-2 border-l-2 border-fr-v2-harvest bg-fr-v2-harvest-tint/60 px-3 py-2 text-[13px] text-fr-v2-charcoal" role="note">
       <span className="font-semibold">Demonstration herd.</span>
-      <span>{children ?? "Synthetic animals run through the real cattle engine. Nothing you do here is saved; a reload starts again."}</span>
+      <span>{children ?? "This is a separate 12-animal engine test herd, not the 81-cattle sample farm shown in Farm and Finance. Its jobs are engine test results, not scheduled work in Plan. Changes are not saved."}</span>
     </p>
   );
 }

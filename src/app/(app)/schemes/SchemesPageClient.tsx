@@ -76,7 +76,7 @@ function GapField({ gapKey, label, onSaved, isDemoMode }: { gapKey: SupportProfi
     }
   }
 
-  const demoNote = isDemoMode ? <p className="text-xs text-fr-ink-400">Demo mode — this is a sample farm, so answers here aren&apos;t saved.</p> : null;
+  const demoNote = null; // One disclaimer is shown above the entire demo questionnaire.
 
   if (gapKey === "biss_participant_2026" || gapKey === "holds_annex_j_qualification") {
     return (
@@ -84,10 +84,10 @@ function GapField({ gapKey, label, onSaved, isDemoMode }: { gapKey: SupportProfi
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm text-fr-ink-700">{label}</span>
           <div className="flex gap-2">
-            <button type="button" disabled={pending || isDemoMode} onClick={() => save(true)} className="rounded-full border border-fr-border px-3 py-1.5 text-xs font-medium text-fr-ink-700 disabled:opacity-50">
+            <button type="button" disabled={pending || isDemoMode} onClick={() => save(true)} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-fr-v2-control border border-fr-v2-cream-rule px-3 py-2 text-xs font-medium text-fr-ink-700 disabled:opacity-50">
               Yes
             </button>
-            <button type="button" disabled={pending || isDemoMode} onClick={() => save(false)} className="rounded-full border border-fr-border px-3 py-1.5 text-xs font-medium text-fr-ink-700 disabled:opacity-50">
+            <button type="button" disabled={pending || isDemoMode} onClick={() => save(false)} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-fr-v2-control border border-fr-v2-cream-rule px-3 py-2 text-xs font-medium text-fr-ink-700 disabled:opacity-50">
               No
             </button>
           </div>
@@ -111,13 +111,13 @@ function GapField({ gapKey, label, onSaved, isDemoMode }: { gapKey: SupportProfi
             value={levelValue}
             disabled={isDemoMode}
             onChange={(e) => setLevelValue(e.target.value)}
-            className="w-32 rounded-fr-control border border-fr-border px-3 py-1.5 text-sm disabled:opacity-50"
+            className="w-32 min-h-11 rounded-fr-v2-control border border-fr-v2-cream-rule px-3 py-2 text-sm disabled:opacity-50"
           />
           <button
             type="button"
             disabled={pending || isDemoMode || levelValue === ""}
             onClick={() => save(Number(levelValue))}
-            className="rounded-full bg-fr-green-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-fr-v2-control bg-fr-v2-forest-deep px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
           >
             Save
           </button>
@@ -141,13 +141,13 @@ function GapField({ gapKey, label, onSaved, isDemoMode }: { gapKey: SupportProfi
             value={areaValue}
             disabled={isDemoMode}
             onChange={(e) => setAreaValue(e.target.value)}
-            className="w-32 rounded-fr-control border border-fr-border px-3 py-1.5 text-sm disabled:opacity-50"
+            className="w-32 min-h-11 rounded-fr-v2-control border border-fr-v2-cream-rule px-3 py-2 text-sm disabled:opacity-50"
           />
           <button
             type="button"
             disabled={pending || isDemoMode || areaValue === ""}
             onClick={() => save(Number(areaValue))}
-            className="rounded-full bg-fr-green-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-fr-v2-control bg-fr-v2-forest-deep px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
           >
             Save
           </button>
@@ -163,12 +163,12 @@ function GapField({ gapKey, label, onSaved, isDemoMode }: { gapKey: SupportProfi
     <div className="flex flex-col gap-2 py-3">
       <span className="text-sm text-fr-ink-700">{label}</span>
       <div className="flex items-center gap-2">
-        <input type="date" value={dateValue} disabled={isDemoMode} onChange={(e) => setDateValue(e.target.value)} className="rounded-fr-control border border-fr-border px-3 py-1.5 text-sm disabled:opacity-50" />
+        <input type="date" value={dateValue} disabled={isDemoMode} onChange={(e) => setDateValue(e.target.value)} className="min-h-11 rounded-fr-v2-control border border-fr-v2-cream-rule px-3 py-2 text-sm disabled:opacity-50" />
         <button
           type="button"
           disabled={pending || isDemoMode || dateValue === ""}
           onClick={() => save(dateValue)}
-          className="rounded-full bg-fr-green-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-fr-v2-control bg-fr-v2-forest-deep px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
         >
           Save
         </button>
@@ -364,11 +364,15 @@ export function SchemesPageClient({
           <section>
             <FarmSectionHeading>Needs your input ({profile.gaps.length})</FarmSectionHeading>
             <Card>
-              <div className="divide-y divide-fr-border">
-                {profile.gaps.map((gap) => (
-                  <GapField key={gap.key} gapKey={gap.key} label={gap.label} onSaved={() => router.refresh()} isDemoMode={isDemoMode} />
-                ))}
-              </div>
+              {isDemoMode ? <p className="mb-3 border-b border-fr-v2-cream-rule pb-3 text-xs text-fr-v2-muted">Demonstration farm — answers are disabled and will not be saved.</p> : null}
+              <details className="group" open={false}>
+                <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-fr-v2-forest-deep">Review {profile.gaps.length} missing eligibility details <span className="ml-auto text-fr-v2-muted group-open:rotate-180">⌄</span></summary>
+                <div className="divide-y divide-fr-border">
+                  {profile.gaps.map((gap) => (
+                    <GapField key={gap.key} gapKey={gap.key} label={gap.label} onSaved={() => router.refresh()} isDemoMode={isDemoMode} />
+                  ))}
+                </div>
+              </details>
             </Card>
           </section>
         ) : (

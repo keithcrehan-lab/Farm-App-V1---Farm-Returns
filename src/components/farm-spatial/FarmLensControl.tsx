@@ -33,7 +33,7 @@ export function FarmLensControl({ value, onChange }: { value: FarmLensId; onChan
             aria-pressed={active}
             onClick={() => onChange(lens.id)}
             className={cn(
-              "relative min-w-0 truncate px-0.5 pb-2.5 pt-2 text-[12px] font-semibold tracking-[0.01em] transition-colors duration-[160ms] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white motion-reduce:transition-none sm:px-3.5 sm:text-[13px]",
+              "relative min-h-11 min-w-0 truncate px-0.5 py-3 text-[12px] font-semibold tracking-[0.01em] transition-colors duration-[160ms] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white motion-reduce:transition-none sm:px-3.5 sm:text-[13px]",
               active ? "text-white" : "text-white/58 hover:text-white",
             )}
           >

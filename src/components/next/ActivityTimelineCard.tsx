@@ -1,6 +1,7 @@
 "use client";
 
 import { Card } from "@/components/ui/Card";
+import Link from "next/link";
 import { FarmSectionHeading } from "@/components/next/FarmSectionHeading";
 import { JobHistoryRow } from "@/components/farm/JobHistoryCard";
 import { DecisionRow } from "@/components/next/DecisionHistoryCard";
@@ -146,6 +147,7 @@ export function ActivityTimelineCard({
         <p className="mx-auto max-w-[220px] py-2 text-center text-sm text-fr-ink-600">
           No activity yet — completed jobs and recorded decisions will appear here.
         </p>
+        <Link href="/plan" className="mx-auto mt-2 flex min-h-11 w-fit items-center text-sm font-semibold text-fr-v2-forest underline underline-offset-4">View planned work</Link>
       </Card>
     );
   }

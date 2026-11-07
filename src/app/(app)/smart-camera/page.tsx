@@ -128,13 +128,13 @@ export default function SmartCameraPage() {
   const field = result.kind === 'field' ? fields.find((item) => item.id === result.fieldId) : undefined;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5 pb-8">
+    <div className="mx-auto max-w-2xl space-y-5 pb-8 text-fr-v2-graphite">
       <header className="space-y-2">
         <div className="flex items-center gap-2 text-fr-green-700"><ScanBarcode className="size-5"/><span className="text-sm font-semibold">Smart Camera · Early access</span></div>
-        <h1 className="font-display text-3xl font-semibold text-fr-ink-900">Scan to open a farm record</h1>
-        <p className="text-sm text-fr-ink-600">Scan a field QR code or look up a fertiliser barcode against the curated catalogue. Unmatched products remain unverified.</p>
+        <h1 className="font-display text-[32px] font-normal leading-tight text-fr-v2-graphite">Scan products and field labels</h1>
+        <p className="text-sm text-fr-ink-600">Scan a product barcode or a field QR label. Check manufacturer-verified products or view suggestions from free barcode databases. Unverified results never change farm records.</p>
       </header>
-      <section className="space-y-4 rounded-2xl border border-fr-border bg-fr-surface p-4 sm:p-6">
+      <section className="space-y-4 border border-fr-v2-cream-rule bg-fr-v2-cream p-4 sm:p-6">
         {active ? (
           <div className="overflow-hidden rounded-xl bg-black"><video ref={video} playsInline muted autoPlay className="aspect-[4/3] w-full object-cover" aria-label="Live camera preview" /></div>
         ) : (
@@ -153,10 +153,11 @@ export default function SmartCameraPage() {
             <Link href={`/fields?field=${encodeURIComponent(field.id)}`} className="inline-flex rounded-lg bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white">Open this field</Link>
           </div>
         ) : value.trim() ? (
-          <div role="status" className="space-y-3 rounded-xl border border-fr-border p-4 text-sm text-fr-ink-600">
-            <p>No field in this farm matches the scanned identifier. No record has been changed.</p>
+          <div role="status" className="space-y-3 border-t border-fr-v2-cream-rule pt-4 text-sm text-fr-ink-600">
             {normaliseGtin(value) ? (
               <>
+                <p className="font-semibold text-fr-v2-graphite">Product barcode detected</p>
+                <p>Choose a product lookup below. A valid GTIN does not guarantee a matching product or verified nutrient information.</p>
                 <button type="button" onClick={() => void lookupProduct()} disabled={lookingUp || !isRealMode}
                   className="rounded-fr-control bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
                   {lookingUp ? 'Checking catalogue…' : 'Look up fertiliser product'}
@@ -179,7 +180,7 @@ export default function SmartCameraPage() {
                   <p>{lookup.status === 'invalid' ? 'Invalid GTIN check digit.' : lookup.status === 'unavailable' ? 'Catalogue unavailable. No identity can be confirmed.' : 'No verified catalogue match. Do not assume product identity.'}</p>
                 ) : null}
               </>
-            ) : <p>Only assigned field identifiers and valid product barcodes are supported at present.</p>}
+            ) : <p>No field QR label matches an active field in this farm. Check the label or scan a valid product barcode. No record has changed.</p>}
           </div>
         ) : null}
       </section>
@@ -196,8 +197,8 @@ export default function SmartCameraPage() {
           defaultSource={`Farmer counted stock after GTIN scan ${normaliseGtin(value) ?? ''}`}
         />
       ) : null}
-      <Link href={lookup?.status === "verified" ? `/smart-camera/orders?gtin=${encodeURIComponent(lookup.product.barcode)}` : "/smart-camera/orders"} className="flex items-center justify-center gap-2 rounded-xl border border-fr-border bg-fr-surface px-4 py-3 text-sm font-semibold text-fr-green-700 hover:bg-fr-surface-alt"><CheckCircle2 className="size-5"/>Orders and delivery receipts</Link>
-      <Link href="/smart-camera/labels" className="flex items-center justify-center gap-2 rounded-xl border border-fr-border bg-fr-surface px-4 py-3 text-sm font-semibold text-fr-green-700 hover:bg-fr-surface-alt"><QrCode className="size-5"/>Generate and print field QR labels</Link>
+      <Link href={lookup?.status === "verified" ? `/smart-camera/orders?gtin=${encodeURIComponent(lookup.product.barcode)}` : "/smart-camera/orders"} className="flex items-center justify-center gap-2 border border-fr-v2-cream-rule bg-fr-v2-cream px-4 py-3 text-sm font-semibold text-fr-green-700 hover:bg-fr-surface-alt"><CheckCircle2 className="size-5"/>Orders and delivery receipts</Link>
+      <Link href="/smart-camera/labels" className="flex items-center justify-center gap-2 border border-fr-v2-cream-rule bg-fr-v2-cream px-4 py-3 text-sm font-semibold text-fr-green-700 hover:bg-fr-surface-alt"><QrCode className="size-5"/>Generate and print field QR labels</Link>
       <p className="flex items-start gap-2 text-xs text-fr-ink-600"><ShieldCheck className="size-4 shrink-0" />Scans do not automatically create transactions, treatments, applications or measurements. Only assigned fields and curated product barcodes can be matched automatically. Free GS1 results are viewed separately and do not create verified records. Stock quantities always need farmer confirmation.</p>
     </div>
   );

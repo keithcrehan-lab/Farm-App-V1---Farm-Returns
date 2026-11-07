@@ -192,8 +192,9 @@ export default function PlanPage() {
             <div className="flex items-start gap-3 py-1">
               <CalendarClock className="mt-0.5 size-4 shrink-0 text-fr-ink-400" />
               <p className="text-sm text-fr-ink-600">
-                No jobs are scheduled yet. Set a target date on a cattle group to bring its production milestone into Planning.
+                No dated production milestones are scheduled yet. Set a target date on a cattle group to bring it into Planning. The separate Cattle demonstration engine may show test jobs that are not farm calendar entries.
               </p>
+              <Link href="/cattle" className="ml-auto inline-flex min-h-11 shrink-0 items-center text-sm font-semibold text-fr-v2-forest underline underline-offset-4">Open cattle</Link>
             </div>
           )}
         </section>

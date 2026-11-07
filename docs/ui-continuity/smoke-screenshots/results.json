@@ -1,0 +1,32 @@
+[
+  {
+    "label": "barcode-is-product-not-field-error",
+    "pass": true,
+    "evidence": ""
+  },
+  {
+    "label": "scheme-inputs-collapsed",
+    "pass": true,
+    "evidence": ""
+  },
+  {
+    "label": "supplier-return-action",
+    "pass": true,
+    "evidence": ""
+  },
+  {
+    "label": "plan-dated-milestone-guidance",
+    "pass": true,
+    "evidence": ""
+  },
+  {
+    "label": "farm-demo-labelled",
+    "pass": true,
+    "evidence": ""
+  },
+  {
+    "label": "reports-export-touch-target",
+    "pass": true,
+    "evidence": "Export heights: 44, 44, 44, 44"
+  }
+]

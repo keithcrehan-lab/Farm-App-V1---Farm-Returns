@@ -31,6 +31,25 @@ The full `scripts/quality-gate.sh` passed on 2026-11-07 (logs in
 ESLint (0 errors, 2 pre-existing warnings), and production Next build. The independent final
 audit is still required before closure. Nothing was pushed or deployed.
 
+## 10X final audit F004 GPS cancellation repair (2026-11-07)
+
+At `a7e6d76`, the full quality gate passed (424 files / 7,832 tests, typecheck,
+lint and Next production build). Independent final audit
+`.agent/history/audit-20261107T143809Z-56048.md` found 0 Critical, 0 High
+and 1 Medium (F004): a delayed GPS capability check could start tracking after
+the guided grass walk was finished, orphaning the provider.
+
+The narrow F004 repair in `GrassPageClient.tsx` invalidates pending GPS start
+generations on stop/unmount, checks generation after asynchronous capability and
+start calls, stops stale providers, and ignores late position callbacks. The
+delayed-`getCapability` regression in `GrassPageClient.test.tsx` asserts that
+finishing before capability resolves never starts tracking. Focused grass tests
+16/16, TypeScript and scoped lint passed. One final `scripts/quality-gate.sh`
+also passed on the remediation tree, logs
+`.agent/history/quality-20261107T153550Z-57016`.
+One independent scoped audit of the F004 repair is still pending. No migration,
+push or deployment; Schemes worktree untouched.
+
 ## Farmer Pilot — set up (2026-10-25)
 
 The validated build is preserved as the local tag `farm-return-pilot-v1`, on `c40bf99` (implementation `5e35def`).

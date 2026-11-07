@@ -174,6 +174,8 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
   const [tracking, setTracking] = useState<"idle" | "starting" | "tracking" | "unsupported" | "denied" | "error">("idle");
   const [livePosition, setLivePosition] = useState<LocationPosition | null>(null);
   const providerRef = useRef<LocationTrackingProvider | null>(null);
+  // Invalidate pending capability/start awaits whenever tracking stops or restarts.
+  const gpsGenerationRef = useRef(0);
   const [asOf, setAsOf] = useState(() => new Date().toISOString());
 
   const reload = useCallback(async () => {
@@ -209,7 +211,10 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
 
   useEffect(() => {
     return () => {
-      if (providerRef.current) void providerRef.current.stopActiveTracking();
+      gpsGenerationRef.current += 1;
+      const provider = providerRef.current;
+      providerRef.current = null;
+      if (provider) void provider.stopActiveTracking();
     };
   }, []);
 
@@ -352,32 +357,50 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
 
   async function startGps() {
     setCoverError(null);
-    if (providerRef.current) await providerRef.current.stopActiveTracking();
+    const generation = ++gpsGenerationRef.current;
+    const previous = providerRef.current;
+    providerRef.current = null;
+    if (previous) await previous.stopActiveTracking();
+    if (generation !== gpsGenerationRef.current) return;
     const provider = createWebLocationTrackingProvider();
     providerRef.current = provider;
     setTracking("starting");
     try {
       const capability = await provider.getCapability();
+      if (generation !== gpsGenerationRef.current) {
+        await provider.stopActiveTracking();
+        return;
+      }
       if (!capability.activeTrackingSupported) {
         setTracking(capability.permissionState === "denied" ? "denied" : "unsupported");
         return;
       }
       await provider.startActiveTracking(
         (position) => {
+          if (generation !== gpsGenerationRef.current) return;
           setLivePosition(position);
           setTracking("tracking");
         },
-        () => setTracking("error"),
+        () => { if (generation === gpsGenerationRef.current) setTracking("error"); },
       );
+      // stopGps may have run while the adapter was awaiting its start.
+      if (generation !== gpsGenerationRef.current) await provider.stopActiveTracking();
     } catch {
-      setTracking("error");
+      if (generation === gpsGenerationRef.current) setTracking("error");
+    } finally {
+      if (generation !== gpsGenerationRef.current && providerRef.current === provider) {
+        providerRef.current = null;
+      }
     }
   }
 
   async function stopGps() {
-    if (providerRef.current) await providerRef.current.stopActiveTracking();
+    ++gpsGenerationRef.current;
+    const provider = providerRef.current;
     providerRef.current = null;
+    if (provider) await provider.stopActiveTracking();
     setTracking("idle");
+    setLivePosition(null);
   }
 
   function startWalk() {

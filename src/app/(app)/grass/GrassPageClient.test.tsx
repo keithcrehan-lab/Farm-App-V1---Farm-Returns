@@ -43,13 +43,20 @@ vi.mock("@/components/farm/MapHero", () => ({
   ),
 }));
 let gpsFix: { lat: number; lng: number; accuracyMeters: number } | null = null;
+let capabilityDelay: Promise<void> | null = null;
+const gpsStart = vi.fn();
+const gpsStop = vi.fn();
 vi.mock("@/lib/location/web-location-tracking-provider", () => ({
   createWebLocationTrackingProvider: () => ({
-    getCapability: async () => ({ activeTrackingSupported: gpsFix !== null, permissionState: "prompt" }),
+    getCapability: async () => {
+      if (capabilityDelay) await capabilityDelay;
+      return { activeTrackingSupported: gpsFix !== null, permissionState: "prompt" };
+    },
     startActiveTracking: async (onPosition: (position: { lat: number; lng: number; accuracyMeters: number }) => void) => {
+      gpsStart();
       if (gpsFix) onPosition(gpsFix);
     },
-    stopActiveTracking: async () => undefined,
+    stopActiveTracking: async () => { gpsStop(); },
   }),
 }));
 
@@ -67,12 +74,14 @@ describe("GrassPageClient guided walk", () => {
     vi.clearAllMocks();
     storeFields = [field, secondField];
     gpsFix = null;
+    capabilityDelay = null;
     getData.mockResolvedValue(twoFields);
   });
   afterEach(() => {
     cleanup();
     storeFields = [field];
     gpsFix = null;
+    capabilityDelay = null;
   });
 
   async function startWalk() {
@@ -208,6 +217,19 @@ describe("GrassPageClient guided walk", () => {
     expect(document.querySelector("[data-grass-walk]")).toBeNull();
     expect(screen.getByRole("option", { name: "Choose field" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Record grass reading" })).toBeTruthy();
+  });
+
+  it("cancels a pending GPS capability check when the walk finishes", async () => {
+    gpsFix = { lat: 53.0105, lng: -8.0095, accuracyMeters: 5 };
+    let releaseCapability: () => void = () => undefined;
+    capabilityDelay = new Promise<void>((resolve) => { releaseCapability = resolve; });
+    await startWalk();
+    fireEvent.click(screen.getByRole("button", { name: "Finish walk" }));
+    await screen.findByText("Walk finished: 0 of 2 fields measured.");
+    releaseCapability();
+    await waitFor(() => expect(gpsStop).toHaveBeenCalled());
+    expect(gpsStart).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Live fix/)).toBeNull();
   });
 
   it("finishing early reports the true count", async () => {

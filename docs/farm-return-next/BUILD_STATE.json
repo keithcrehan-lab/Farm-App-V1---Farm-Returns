@@ -543,16 +543,18 @@
     "task_id": "farm-return-10x-workflow-integration-v1-20261106",
     "branch": "feature/10x-workflows",
     "task_base": "4746a0a0594d30e498ff6e7e30f066b41044e093",
-    "implementation_sha": "5482ad3",
-    "status": "REMEDIATED_FINAL_AUDIT_PENDING",
+    "implementation_sha": "a7e6d76",
+    "status": "F004_REMEDIATED_SCOPED_AUDIT_PENDING",
     "primary_audit": ".agent/history/audit-20261106T213453Z-56185.md (CRITICAL=0 HIGH=1 MEDIUM=2 LOW=0)",
     "findings": {
-      "F001": "HIGH STALE_SNAPSHOT_OVERWRITE: repaired, crop-only update conditional on updated_at; awaiting independent final audit",
-      "F002": "MEDIUM STALE_ASYNC_SESSION_UPDATE: repaired, walk controls locked while a reading saves; awaiting independent final audit",
-      "F003": "MEDIUM TASK_RECORD_DRIFT: repaired by this entry and the IMPLEMENTATION_LOG entry"
+      "F001": "HIGH STALE_SNAPSHOT_OVERWRITE: repaired in a7e6d76, covered by final audit without recurrence",
+      "F002": "MEDIUM STALE_ASYNC_SESSION_UPDATE: repaired in a7e6d76, covered by final audit without recurrence",
+      "F003": "MEDIUM TASK_RECORD_DRIFT: records updated; final audit found no recurrence",
+      "F004": "MEDIUM STALE_ASYNC_SUBSCRIPTION: pending GPS capability/start cancelled on Finish/unmount; delayed capability regression passed; scoped independent audit pending"
     },
-    "verification": "remediation tree 2026-11-07: npx vitest run --maxWorkers=1 424 files / 7832 tests pass; tsc --noEmit pass; eslint . 0 errors (2 pre-existing warnings); next build pass; scripts/quality-gate.sh pass (logs .agent/history/quality-20261107T133612Z-33818)",
+    "verification": "a7e6d76 full gate PASS (424 files / 7832 tests; typecheck, lint, Next build); F004 remediation focused grass tests 16/16, typecheck and scoped lint PASS; full gate PASS on remediation tree 2026-11-07 (.agent/history/quality-20261107T153550Z-57016); audit pending",
     "migration": "none",
-    "pushed_or_deployed": false
+    "pushed_or_deployed": false,
+    "final_audit": ".agent/history/audit-20261107T143809Z-56048.md (CRITICAL=0 HIGH=0 MEDIUM=1 LOW=0 at a7e6d76)"
   }
 }

@@ -31,6 +31,13 @@ await run('barcode-is-product-not-field-error', '/smart-camera', async (page) =>
   const misleading = await page.getByText(/No field in this farm matches/i).count();
   return { pass: product && misleading === 0, reason: 'A valid GTIN must show product identification without the field error' };
 });
+await run('orders-unreleased-schema-guard', '/smart-camera/orders', async (page) => {
+  const body = await page.locator('body').innerText();
+  return {
+    pass: body.includes('Coming soon') && body.includes('database permissions') && !body.includes('Save confirmed purchase order'),
+    reason: 'Orders must fail closed without a released, verified schema',
+  };
+});
 await run('scheme-inputs-collapsed', '/schemes', async (page) => {
   const details = page.locator('details').filter({ hasText: /missing eligibility details/i }).first();
   return { pass: await details.count() === 1 && !(await details.evaluate(el => el.open)), reason: 'Scheme eligibility questions must start behind a disclosure' };

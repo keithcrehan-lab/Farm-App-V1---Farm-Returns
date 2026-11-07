@@ -197,7 +197,7 @@ export default function SmartCameraPage() {
           defaultSource={`Farmer counted stock after GTIN scan ${normaliseGtin(value) ?? ''}`}
         />
       ) : null}
-      <Link href={lookup?.status === "verified" ? `/smart-camera/orders?gtin=${encodeURIComponent(lookup.product.barcode)}` : "/smart-camera/orders"} className="flex items-center justify-center gap-2 border border-fr-v2-cream-rule bg-fr-v2-cream px-4 py-3 text-sm font-semibold text-fr-green-700 hover:bg-fr-surface-alt"><CheckCircle2 className="size-5"/>Orders and delivery receipts</Link>
+      <Link href={lookup?.status === "verified" ? `/smart-camera/orders?gtin=${encodeURIComponent(lookup.product.barcode)}` : "/smart-camera/orders"} className="flex items-center justify-center gap-2 border border-fr-v2-cream-rule bg-fr-v2-cream px-4 py-3 text-sm font-semibold text-fr-green-700 hover:bg-fr-surface-alt"><CheckCircle2 className="size-5"/>Orders and delivery receipts · Coming soon</Link>
       <Link href="/smart-camera/labels" className="flex items-center justify-center gap-2 border border-fr-v2-cream-rule bg-fr-v2-cream px-4 py-3 text-sm font-semibold text-fr-green-700 hover:bg-fr-surface-alt"><QrCode className="size-5"/>Generate and print field QR labels</Link>
       <p className="flex items-start gap-2 text-xs text-fr-ink-600"><ShieldCheck className="size-4 shrink-0" />Scans do not automatically create transactions, treatments, applications or measurements. Only assigned fields and curated product barcodes can be matched automatically. Free GS1 results are viewed separately and do not create verified records. Stock quantities always need farmer confirmation.</p>
     </div>

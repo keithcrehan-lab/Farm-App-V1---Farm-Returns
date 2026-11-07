@@ -25,12 +25,14 @@ import { createCameraOrder, listCameraOrders, recordCameraDelivery, type CameraO
 import { validateDeliveryInput, validateOrderInput, type DeliveryFormInput, type OrderFormInput } from '@/lib/smart-camera/order-forms';
 
 export async function listSmartCameraOrdersAction(): Promise<CameraOrder[]> {
+  if (process.env.SMART_CAMERA_ORDERS_ENABLED !== 'true') throw new Error('Order recording is not enabled');
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error('Farm sign-in required');
   return listCameraOrders(farm.id);
 }
 
 export async function confirmSmartCameraPurchaseOrderAction(input: OrderFormInput): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  if (process.env.SMART_CAMERA_ORDERS_ENABLED !== 'true') return { ok: false, error: 'Order recording is not enabled yet' };
   const farm = await getFarmForCurrentUser();
   if (!farm) return { ok: false, error: 'Farm sign-in required' };
   const validation = validateOrderInput(input, new Date().toISOString().slice(0,10));
@@ -45,6 +47,7 @@ export async function confirmSmartCameraPurchaseOrderAction(input: OrderFormInpu
 }
 
 export async function recordSmartCameraDeliveryAction(input: DeliveryFormInput): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  if (process.env.SMART_CAMERA_ORDERS_ENABLED !== 'true') return { ok: false, error: 'Delivery recording is not enabled yet' };
   const farm = await getFarmForCurrentUser();
   if (!farm) return { ok: false, error: 'Farm sign-in required' };
   const validation = validateDeliveryInput(input,new Date().toISOString().slice(0,10));

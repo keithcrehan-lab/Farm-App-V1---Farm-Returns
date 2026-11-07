@@ -5,6 +5,19 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Schemes Adviser v1, S0 close-out — Scheme Implementation Standard and Migration Contract — frozen at e4d40ed (2026-11-07)
+
+S0 (task `schemes-s0-implementation-standard-and-migration-contract-20261105`, base `8e1e716`) is **frozen at `e4d40ede09433a075ef7acdddea41ab3b1f06311`** by `scripts/agent-campaign-run`. This is the
+functional freeze SHA; the documentation commit recording it is not.
+
+- Strict full-phase audit `audit-20261107T091001Z-2688438312.md` over `8e1e716..e4d40ed`: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0.
+- Automatic remediation: 4 Medium round(s), 0 High round(s): F004 (MEDIUM, audit-20261106T112743Z-609337860.md): Sparse seed arrays crash validation — sig 0ab128e8f3effb8b; F003 (MEDIUM, audit-20261106T090721Z-286328100.md): Malformed completeness IDs throw during validation — sig 564fb71568cb36c7; F002 (MEDIUM, audit-20261106T074249Z-2582501281.md): Coverage can replace frozen implementation references — sig ab8130b219f94975; F001 (MEDIUM, audit-20261106T074249Z-2582501281.md): Malformed seed rows pass validation — sig d3fbc82ddb5ae4a8; F001 (MEDIUM, audit-20261106T101837Z-3171333534.md): Seed validation still accepts invalid stored rows — sig e9ef92a2528d1670.
+- Outstanding Low (recorded, not fixed): none.
+- Verification at `e4d40ed`: phase verify and full suite (`scripts/quality-gate.sh`) passed.
+- Human-authorised amendments outside the phase scope (bound to exact blobs; never agent-editable): `src/app/(app)/what-matters/what-matters.test.tsx` 5c7b02eccfbd→6767fca4912c (User authorised continuation on 2026-11-06 after review of the pre-existing full-gate navigation test failure; test-only expectation update to match the already-committed primary Schemes navigation.); `src/app/actions/farm-slurry-allocation.test.ts` 6a4430780104→ad4b7d91a456 (User authorised continuation on 2026-11-06 after review of the pre-existing full-gate slurry fixture failure; test-only Supabase mock update for the already-required livestock_individuals read path.); `scripts/agent-lib.sh` 3b265e637ab4→4e68e55d3d89 (User explicitly authorised on 2026-11-06 replacing repeated full-repository gates during campaign repair loops with targeted verification, while retaining full-gate verification at freeze and immediate full gates for high-blast-radius changes. Strict audit F008 then required the immediate-gate check to reuse the established shared-contract classifier; this updated result is that bounded correction.); `src/tooling/agent-run.test.ts` 5c7498df5436→0696870b3578 (User explicitly authorised on 2026-11-06 the tooling regression coverage for the faster campaign verification policy. Strict audit F008 required coverage for shared category-E paths; this updated result proves those paths still force the full gate while phase-local paths defer it.); `scripts/agent-runstate.py` 4e88f55c348d→392db91bb3c9 (User explicitly authorised continuation on 2026-11-06 after strict audit F008. This bounded tooling amendment exposes the existing deterministic path category classifier so campaign checkpoint verification reuses the canonical E/F blast-radius decision instead of maintaining a second partial list.).
+- Receipt `.agent/campaigns/schemes-adviser-v1/receipts/S0.json` (fingerprint `a1f879fc13868054`). Migrations: none. Frozen contracts: ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md. Nothing pushed or deployed.
+- S1 **not started**.
+
 ## Farmer Pilot — set up (2026-10-25)
 
 The validated build is preserved as the local tag `farm-return-pilot-v1`, on `c40bf99` (implementation `5e35def`).

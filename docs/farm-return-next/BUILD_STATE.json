@@ -532,11 +532,31 @@
   "schemes_adviser_v1": {
     "campaign": ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
     "campaign_progress": {
-      "last_frozen_phase": null,
-      "next_phase": "S0",
+      "last_frozen_phase": "S0",
+      "next_phase": "S1",
       "next_phase_status": "NOT_STARTED",
-      "campaign_status": "READY",
-      "updated_by": "controller-bootstrap-2026-11-05"
+      "updated_by": "scripts/agent-campaign-run"
+    },
+    "c0_implementation_standard": {
+      "status": "FROZEN_COMPLETE_IN_CODE",
+      "task": "schemes-s0-implementation-standard-and-migration-contract-20261105",
+      "base_sha": "8e1e716e96584d45b42d45ac4cd791cfd90a6189",
+      "final_audited_sha": "e4d40ede09433a075ef7acdddea41ab3b1f06311",
+      "final_audit": ".agent/campaigns/schemes-adviser-v1/audits/audit-20261107T091001Z-2688438312.md",
+      "final_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0",
+      "remediated_findings": [
+        "F004 (MEDIUM, audit-20261106T112743Z-609337860.md): Sparse seed arrays crash validation — sig 0ab128e8f3effb8b",
+        "F003 (MEDIUM, audit-20261106T090721Z-286328100.md): Malformed completeness IDs throw during validation — sig 564fb71568cb36c7",
+        "F002 (MEDIUM, audit-20261106T074249Z-2582501281.md): Coverage can replace frozen implementation references — sig ab8130b219f94975",
+        "F001 (MEDIUM, audit-20261106T074249Z-2582501281.md): Malformed seed rows pass validation — sig d3fbc82ddb5ae4a8",
+        "F001 (MEDIUM, audit-20261106T101837Z-3171333534.md): Seed validation still accepts invalid stored rows — sig e9ef92a2528d1670"
+      ],
+      "outstanding_low_findings": [],
+      "verification": "at e4d40ede09433a075ef7acdddea41ab3b1f06311: phase verify `npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint` qualified; full suite scripts/quality-gate.sh qualified (PASS or bounded FLAKY_RECOVERED)",
+      "receipt": ".agent/campaigns/schemes-adviser-v1/receipts/S0.json",
+      "receipt_fingerprint": "a1f879fc138680547fcbc23718397af9147aa41eaeb39c2301bd81e92cf83a95",
+      "closed_by": "scripts/agent-campaign-run",
+      "next_phase": "S1 NOT_STARTED"
     }
   }
 }

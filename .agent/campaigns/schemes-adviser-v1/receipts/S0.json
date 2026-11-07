@@ -1,0 +1,452 @@
+{
+  "receipt_schema_version": 1,
+  "origin": "campaign",
+  "campaign_id": "schemes-adviser-v1",
+  "phase_id": "S0",
+  "phase_title": "Scheme Implementation Standard and Migration Contract",
+  "phase_order": 0,
+  "task_id": "schemes-s0-implementation-standard-and-migration-contract-20261105",
+  "phase_base_sha": "8e1e716e96584d45b42d45ac4cd791cfd90a6189",
+  "functional_freeze_sha": "e4d40ede09433a075ef7acdddea41ab3b1f06311",
+  "frozen_at": "2026-11-07T21:23:33Z",
+  "brief": ".agent/campaigns/schemes-adviser-v1/S0_BRIEF.md",
+  "brief_sha256": "c331694f53ec7a7dbd2d0250c415d284ae996296a58ee09aa0679f93ebbc15f0",
+  "contracts": [
+    {
+      "path": "AGENTS.md",
+      "blob_at_freeze": "c608fb74479ed5ef58544105aee90d6fa07ce918"
+    },
+    {
+      "path": ".agent/AUDIT_RULES.md",
+      "blob_at_freeze": "d01ab47f5cc5c4be98f369e565d448292bf7ae47"
+    },
+    {
+      "path": ".agent/campaigns/schemes-adviser-v1/CAMPAIGN.md",
+      "blob_at_freeze": "130ea792d1463ab2d901d62d5b7fdecbe8eb20e9"
+    },
+    {
+      "path": ".agent/campaigns/schemes-adviser-v1/AUTONOMY.md",
+      "blob_at_freeze": "558993b73bf310bb7ecba6768db29dd9ae44a049"
+    },
+    {
+      "path": "docs/product/schemes/SCHEMES_ARCHITECTURE_V1.md",
+      "blob_at_freeze": "badfc51a20e9b34a2009e9381220d727447874f9"
+    },
+    {
+      "path": "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+      "blob_at_freeze": "87486e27bf7d32f0e0182b6b5c3ed139e626f99e"
+    }
+  ],
+  "verify_command": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
+  "verification": [
+    {
+      "name": "phase_verify",
+      "cmd": "npx vitest run schemes/ --maxWorkers=1 && npm run typecheck && npm run lint",
+      "head": "e4d40ede09433a075ef7acdddea41ab3b1f06311",
+      "result": "PASS",
+      "log": ".agent/history/campaign-schemes-adviser-v1-S0-freeze-phase_verify-20261106T232114597670Z.log"
+    },
+    {
+      "name": "full_suite",
+      "cmd": "bash scripts/quality-gate.sh",
+      "head": "e4d40ede09433a075ef7acdddea41ab3b1f06311",
+      "result": "PASS",
+      "log": ".agent/history/campaign-schemes-adviser-v1-S0-freeze-full_suite-20261107T201120104981Z.log"
+    }
+  ],
+  "strict_audit": {
+    "artifact": ".agent/campaigns/schemes-adviser-v1/audits/audit-20261107T091001Z-2688438312.md",
+    "original": ".agent/history/audit-20261107T091001Z-2688438312.md",
+    "sha256": "5c4c935008f6adac42f0791c782df8c7ac8132a1d7e460ec312de4ad00a3be66",
+    "range": "8e1e716e96584d45b42d45ac4cd791cfd90a6189..e4d40ede09433a075ef7acdddea41ab3b1f06311",
+    "counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "tier": "strict"
+  },
+  "audits": [
+    {
+      "tier": "standard",
+      "artifact": "audit-20261106T074249Z-2582501281.md",
+      "head": "f53d3c68653149be94fd14ba1a57ffdacfc4439c",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261106T090721Z-286328100.md",
+      "head": "bce5b32a5fd3acf728902a36ab5813dbb8014e8f",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261106T101837Z-3171333534.md",
+      "head": "c22a733b9743e88266533bcbdb35c1bd931c411e",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261106T112743Z-609337860.md",
+      "head": "36ac367ec9de4d56982b735653ef4735465f7cdb",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261106T115224Z-1437957654.md",
+      "head": "57cdeeaaa0acbfb6a2c6970d9b3a94e48e45da3d",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261106T121710Z-2196023592.md",
+      "head": "06824dcaba28e5df9e24eecf0d369f0b1861652f",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261106T122531Z-2376302783.md",
+      "head": "db30471346c49bb2686659acc13cb9489d381d3e",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261106T123726Z-815692911.md",
+      "head": "db30471346c49bb2686659acc13cb9489d381d3e",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261106T134712Z-1321619124.md",
+      "head": "9e416b25ac77b15e0ac1e2d9641939697b87c85a",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261106T135050Z-4114740111.md",
+      "head": "9e416b25ac77b15e0ac1e2d9641939697b87c85a",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261106T181257Z-208246361.md",
+      "head": "1ddc5558d0261eb337c4843f70af593f314f0c19",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261106T201404Z-389880070.md",
+      "head": "86956712195b0246641f6cabc7d43ffd1cdce0ec",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261106T201725Z-612469473.md",
+      "head": "86956712195b0246641f6cabc7d43ffd1cdce0ec",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261106T213438Z-842343107.md",
+      "head": "e4d40ede09433a075ef7acdddea41ab3b1f06311",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261106T231606Z-2851568025.md",
+      "head": "e4d40ede09433a075ef7acdddea41ab3b1f06311",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261107T090537Z-4094187411.md",
+      "head": "e4d40ede09433a075ef7acdddea41ab3b1f06311",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261107T091001Z-2688438312.md",
+      "head": "e4d40ede09433a075ef7acdddea41ab3b1f06311",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "standard",
+      "artifact": "audit-20261107T104117Z-1934154148.md",
+      "head": "e4d40ede09433a075ef7acdddea41ab3b1f06311",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": false
+    },
+    {
+      "tier": "strict",
+      "artifact": "audit-20261107T091001Z-2688438312.md",
+      "head": "e4d40ede09433a075ef7acdddea41ab3b1f06311",
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "adopted": true
+    }
+  ],
+  "remediation": {
+    "medium_rounds": 4,
+    "high_rounds": 0,
+    "rounds": [
+      {
+        "n": 1,
+        "tier": "standard",
+        "audit": "audit-20261106T074249Z-2582501281.md",
+        "ids": [
+          "F001",
+          "F002"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "bce5b32a5fd3acf728902a36ab5813dbb8014e8f"
+      },
+      {
+        "n": 2,
+        "tier": "standard",
+        "audit": "audit-20261106T090721Z-286328100.md",
+        "ids": [
+          "F003"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "c22a733b9743e88266533bcbdb35c1bd931c411e"
+      },
+      {
+        "n": 3,
+        "tier": "standard",
+        "audit": "audit-20261106T101837Z-3171333534.md",
+        "ids": [
+          "F001"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "36ac367ec9de4d56982b735653ef4735465f7cdb"
+      },
+      {
+        "n": 4,
+        "tier": "standard",
+        "audit": "audit-20261106T112743Z-609337860.md",
+        "ids": [
+          "F004"
+        ],
+        "severities": [
+          "MEDIUM"
+        ],
+        "fix_commit": "b1813cacd521b45b4e7b1173aac7f3125ef0c66a"
+      }
+    ]
+  },
+  "finding_signatures": {
+    "0ab128e8f3effb8b": {
+      "severity": "MEDIUM",
+      "title": "Sparse seed arrays crash validation",
+      "file": "src/domain/schemes/standard/validation.ts",
+      "attempts": 1,
+      "ids": [
+        "F004@audit-20261106T112743Z-609337860.md"
+      ]
+    },
+    "564fb71568cb36c7": {
+      "severity": "MEDIUM",
+      "title": "Malformed completeness IDs throw during validation",
+      "file": "src/domain/schemes/standard/validation.ts",
+      "attempts": 1,
+      "ids": [
+        "F003@audit-20261106T090721Z-286328100.md"
+      ]
+    },
+    "ab8130b219f94975": {
+      "severity": "MEDIUM",
+      "title": "Coverage can replace frozen implementation references",
+      "file": "src/domain/schemes/standard/validation.ts",
+      "attempts": 1,
+      "ids": [
+        "F002@audit-20261106T074249Z-2582501281.md"
+      ]
+    },
+    "d3fbc82ddb5ae4a8": {
+      "severity": "MEDIUM",
+      "title": "Malformed seed rows pass validation",
+      "file": "src/domain/schemes/standard/validation.ts",
+      "attempts": 1,
+      "ids": [
+        "F001@audit-20261106T074249Z-2582501281.md"
+      ]
+    },
+    "e9ef92a2528d1670": {
+      "severity": "MEDIUM",
+      "title": "Seed validation still accepts invalid stored rows",
+      "file": "src/domain/schemes/standard/validation.ts",
+      "attempts": 1,
+      "ids": [
+        "F001@audit-20261106T101837Z-3171333534.md"
+      ]
+    }
+  },
+  "outstanding_low_findings": [],
+  "migration_status": "NONE",
+  "frozen_contract_status": "ADDITIVE_ALLOWED: docs/farm-return-next/DOMAIN_CONTRACTS.md",
+  "human_gate_status": "NONE",
+  "pushed_or_deployed": false,
+  "predecessor": null,
+  "predecessor_receipt_fingerprint": null,
+  "policy": {
+    "medium_rounds": 4,
+    "high_rounds": 2,
+    "attempts_per_signature": 2
+  },
+  "authorised_amendments": [
+    {
+      "path": "src/app/(app)/what-matters/what-matters.test.tsx",
+      "baseline_blob": "5c7b02eccfbd7ca38b5ab165ef96cd06e0a54239",
+      "result_blob": "6767fca4912c0656e751f26687183a0ddfe89b89",
+      "amendment_sha256": "d942147ab4cfebc184f01ade67779a1d967051141ced54d80373cac745989519",
+      "authorisation": "User authorised continuation on 2026-11-06 after review of the pre-existing full-gate navigation test failure; test-only expectation update to match the already-committed primary Schemes navigation."
+    },
+    {
+      "path": "src/app/actions/farm-slurry-allocation.test.ts",
+      "baseline_blob": "6a4430780104295e63186e11df629ec3cf6a32a4",
+      "result_blob": "ad4b7d91a456392fee20d52ad9de4c4e5d1a1a80",
+      "amendment_sha256": "61f0429d5b27584e2834d6209f4523496747e7c0e56394bb8cf482f8c6aaa3b8",
+      "authorisation": "User authorised continuation on 2026-11-06 after review of the pre-existing full-gate slurry fixture failure; test-only Supabase mock update for the already-required livestock_individuals read path."
+    },
+    {
+      "path": "scripts/agent-lib.sh",
+      "baseline_blob": "3b265e637ab449f3c9ae784f21cb92f619a1bd3f",
+      "result_blob": "4e68e55d3d890322811519a680fd0340e1e0a8e1",
+      "amendment_sha256": "3e5226bdc5ab65b1bf6a8facce63518c013728ab0872cfd91263675d10d70953",
+      "authorisation": "User explicitly authorised on 2026-11-06 replacing repeated full-repository gates during campaign repair loops with targeted verification, while retaining full-gate verification at freeze and immediate full gates for high-blast-radius changes. Strict audit F008 then required the immediate-gate check to reuse the established shared-contract classifier; this updated result is that bounded correction."
+    },
+    {
+      "path": "src/tooling/agent-run.test.ts",
+      "baseline_blob": "5c7498df543667cddfea8a80364551911d211d12",
+      "result_blob": "0696870b357895b886459ae8f46ad095a0dc4b4c",
+      "amendment_sha256": "214fdc8da0cbb6ca89eeca45669387741adf519b81e70efbe389f0a856423668",
+      "authorisation": "User explicitly authorised on 2026-11-06 the tooling regression coverage for the faster campaign verification policy. Strict audit F008 required coverage for shared category-E paths; this updated result proves those paths still force the full gate while phase-local paths defer it."
+    },
+    {
+      "path": "scripts/agent-runstate.py",
+      "baseline_blob": "4e88f55c348d4df164ef034a227e01ce40c5fdd0",
+      "result_blob": "392db91bb3c90b1240064e4cb31754c4472d0038",
+      "amendment_sha256": "a0dbdf87549a6e14e34a9bf229235e9b8dd9ce5ae9b89ab3b300f9fc7043d433",
+      "authorisation": "User explicitly authorised continuation on 2026-11-06 after strict audit F008. This bounded tooling amendment exposes the existing deterministic path category classifier so campaign checkpoint verification reuses the canonical E/F blast-radius decision instead of maintaining a second partial list."
+    }
+  ],
+  "receipt_fingerprint": "a1f879fc138680547fcbc23718397af9147aa41eaeb39c2301bd81e92cf83a95"
+}

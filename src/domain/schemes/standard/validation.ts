@@ -608,13 +608,11 @@ function validateRowStatus(
   }
 }
 
-function validateRowSource(
+function validateRowSourceCitation(
   row: UnknownRecord,
   rowId: string | undefined,
-  rowPin: SchemeVersionPin | null,
-  sourceById: ReadonlyMap<unknown, UnknownRecord>,
   issues: SchemeStandardIssue[],
-): void {
+): { citation: UnknownRecord; sourceId: string } | null {
   const citation = row.source;
   if (!isRecord(citation) || !isText(citation.sourceId)) {
     issues.push({
@@ -622,23 +620,39 @@ function validateRowSource(
       detail: "Every row, including an unsupported one, needs a source.",
       rowId,
     });
-    return;
+    return null;
   }
 
   const sourceId = citation.sourceId;
-  const push = (code: SchemeStandardIssue["code"], detail: string) =>
-    issues.push({ code, detail, rowId, sourceId });
-
   if (
     !isText(citation.sourceVersion) ||
     !isText(citation.locator) ||
     !isText(citation.wordingReference)
   ) {
-    push(
-      "REGISTER_ROW_SOURCE_INCOMPLETE",
-      "A citation needs the source edition, a locator and a wording reference.",
-    );
+    issues.push({
+      code: "REGISTER_ROW_SOURCE_INCOMPLETE",
+      detail: "A citation needs the source edition, a locator and a wording reference.",
+      rowId,
+      sourceId,
+    });
   }
+
+  return { citation, sourceId };
+}
+
+function validateRowSource(
+  row: UnknownRecord,
+  rowId: string | undefined,
+  rowPin: SchemeVersionPin | null,
+  sourceById: ReadonlyMap<unknown, UnknownRecord>,
+  issues: SchemeStandardIssue[],
+): void {
+  const parsed = validateRowSourceCitation(row, rowId, issues);
+  if (!parsed) return;
+
+  const { citation, sourceId } = parsed;
+  const push = (code: SchemeStandardIssue["code"], detail: string) =>
+    issues.push({ code, detail, rowId, sourceId });
 
   const source = sourceById.get(sourceId);
   if (!source) {
@@ -660,6 +674,62 @@ function validateRowSource(
       "Tier 4 material is explanation only and cannot carry a requirement.",
     );
   }
+}
+
+function validateRequirementRowStructure(
+  row: unknown,
+  registerPin: SchemeVersionPin | null,
+  seenIds: Set<string>,
+  ownerByKey: Map<string, unknown>,
+  issues: SchemeStandardIssue[],
+): { row: UnknownRecord; rowId: string | undefined; rowPin: SchemeVersionPin | null } | null {
+  if (!isRecord(row)) {
+    issues.push({ code: "MALFORMED", detail: "A register row must be an object." });
+    return null;
+  }
+
+  const rowId = typeof row.id === "string" ? row.id : undefined;
+  if (!rowId || !ID_PATTERN.test(rowId)) {
+    issues.push({ code: "REGISTER_ROW_ID_INVALID", detail: "A row needs a stable id.", rowId });
+  }
+  if (rowId) {
+    const folded = rowId.toLowerCase();
+    if (seenIds.has(folded)) {
+      issues.push({
+        code: "REGISTER_ROW_DUPLICATE_ID",
+        detail: "Row ids must be unique in a register.",
+        rowId,
+      });
+    }
+    seenIds.add(folded);
+  }
+
+  const rowPin = isVersionPin(row.pin) ? row.pin : null;
+  if (!rowPin) {
+    issues.push({ code: "PIN_INVALID", detail: "A row needs a valid version pin.", rowId });
+  } else if (registerPin && !sameSchemeVersionPin(rowPin, registerPin)) {
+    issues.push({
+      code: "REGISTER_ROW_OTHER_VERSION",
+      detail: "The row belongs to another scheme version.",
+      rowId,
+    });
+  }
+
+  if (typeof row.kind !== "string" || !Object.hasOwn(REQUIREMENT_KINDS, row.kind)) {
+    issues.push({ code: "REGISTER_ROW_KIND_INVALID", detail: "The row has no valid kind.", rowId });
+  }
+  if (!isText(row.applicability)) {
+    issues.push({
+      code: "REGISTER_ROW_NO_APPLICABILITY",
+      detail: "A row must state to whom it applies.",
+      rowId,
+    });
+  }
+
+  validateRowDataKeys(row, rowId, ownerByKey, issues);
+  validateRowStatus(row, rowId, issues);
+
+  return { row, rowId, rowPin };
 }
 
 function validateRequirementRegisterUnsafe(
@@ -716,52 +786,15 @@ function validateRequirementRegisterUnsafe(
   const ownerByKey = new Map<string, unknown>();
 
   for (const row of input.rows) {
-    if (!isRecord(row)) {
-      issues.push({ code: "MALFORMED", detail: "A register row must be an object." });
-      continue;
-    }
-
-    const rowId = typeof row.id === "string" ? row.id : undefined;
-    if (!rowId || !ID_PATTERN.test(rowId)) {
-      issues.push({ code: "REGISTER_ROW_ID_INVALID", detail: "A row needs a stable id.", rowId });
-    }
-    if (rowId) {
-      const folded = rowId.toLowerCase();
-      if (seenIds.has(folded)) {
-        issues.push({
-          code: "REGISTER_ROW_DUPLICATE_ID",
-          detail: "Row ids must be unique in a register.",
-          rowId,
-        });
-      }
-      seenIds.add(folded);
-    }
-
-    const rowPin = isVersionPin(row.pin) ? row.pin : null;
-    if (!rowPin) {
-      issues.push({ code: "PIN_INVALID", detail: "A row needs a valid version pin.", rowId });
-    } else if (pin && !sameSchemeVersionPin(rowPin, pin)) {
-      issues.push({
-        code: "REGISTER_ROW_OTHER_VERSION",
-        detail: "The row belongs to another scheme version.",
-        rowId,
-      });
-    }
-
-    if (typeof row.kind !== "string" || !Object.hasOwn(REQUIREMENT_KINDS, row.kind)) {
-      issues.push({ code: "REGISTER_ROW_KIND_INVALID", detail: "The row has no valid kind.", rowId });
-    }
-    if (!isText(row.applicability)) {
-      issues.push({
-        code: "REGISTER_ROW_NO_APPLICABILITY",
-        detail: "A row must state to whom it applies.",
-        rowId,
-      });
-    }
-
-    validateRowSource(row, rowId, rowPin, sourceById, issues);
-    validateRowDataKeys(row, rowId, ownerByKey, issues);
-    validateRowStatus(row, rowId, issues);
+    const validated = validateRequirementRowStructure(row, pin, seenIds, ownerByKey, issues);
+    if (!validated) continue;
+    validateRowSource(
+      validated.row,
+      validated.rowId,
+      validated.rowPin,
+      sourceById,
+      issues,
+    );
   }
 
   return issues;
@@ -938,17 +971,7 @@ function validateSchemeContentPackUnsafe(
   return issues;
 }
 
-function isRequirementImplementationStatus(
-  value: unknown,
-): value is RequirementImplementationStatus {
-  return typeof value === "string" && Object.hasOwn(COVERAGE_TRANSITIONS, value);
-}
-
-/** Coverage is an exported runtime boundary: its frozen rows may have come
- * back from storage or another module and must not be trusted merely because
- * the TypeScript caller claims RequirementRegisterRow[]. Validate every field
- * the coverage algorithm dereferences before it traverses or formats it. */
-function isFrozenRowsShape(rows: unknown): rows is readonly RequirementRegisterRow[] {
+function hasCoverageTraversalShape(rows: unknown): rows is readonly RequirementRegisterRow[] {
   return (
     Array.isArray(rows) &&
     everyPosition(
@@ -956,7 +979,8 @@ function isFrozenRowsShape(rows: unknown): rows is readonly RequirementRegisterR
       (row) =>
         isRecord(row) &&
         isText(row.id) &&
-        isRequirementImplementationStatus(row.status) &&
+        typeof row.status === "string" &&
+        Object.hasOwn(COVERAGE_TRANSITIONS, row.status) &&
         Array.isArray(row.dataKeys) &&
         everyPosition(
           row.dataKeys,
@@ -985,11 +1009,35 @@ function validateRegisterCoverageUnsafe(
   if (!Array.isArray(input)) {
     return [{ code: "MALFORMED", detail: "coverage must be an array." }];
   }
-  if (!isFrozenRowsShape(rows)) {
+  if (!hasCoverageTraversalShape(rows)) {
     return [{ code: "MALFORMED", detail: "The frozen rows must be register rows." }];
   }
 
   const issues: SchemeStandardIssue[] = [];
+  // Coverage is an exported trust boundary. Frozen rows may have come back
+  // from persistence, so validate the complete row structure with the same
+  // helpers used by the Requirement Register before constructing any lookup.
+  const frozenPin = rows.find(
+    (row) => isRecord(row) && isVersionPin(row.pin),
+  )?.pin ?? null;
+  const seenIds = new Set<string>();
+  const ownerByKey = new Map<string, unknown>();
+  for (const row of rows) {
+    const validated = validateRequirementRowStructure(
+      row,
+      frozenPin,
+      seenIds,
+      ownerByKey,
+      issues,
+    );
+    if (validated) {
+      validateRowSourceCitation(validated.row, validated.rowId, issues);
+    }
+  }
+  // Never let Map semantics hide duplicate or otherwise malformed frozen rows.
+  // Coverage is meaningful only against a structurally valid frozen register.
+  if (issues.length > 0) return issues;
+
   const rowById = new Map(rows.map((row) => [row.id, row]));
   const covered = new Set<unknown>();
 

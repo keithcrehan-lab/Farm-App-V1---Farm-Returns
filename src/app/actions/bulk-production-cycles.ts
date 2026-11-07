@@ -22,7 +22,7 @@ import {
   getFieldProductionCycle,
   insertFieldProductionCycleIfAbsent,
   listFieldProductionCyclesForSeason,
-  upsertFieldProductionCycle,
+  updateFieldProductionCycleCropIfUnchanged,
 } from "@/lib/farm-data/field-production-cycles";
 import { withFuturePlanningChemicalBaseline } from "@/lib/fertiliser-planning-season";
 
@@ -125,7 +125,9 @@ export async function previewBulkProductionCyclesAction(input: { fieldIds: strin
 }
 
 /** Sets the confirmed crop/use for one season on each field. Only the crop
- * changes on an existing cycle: its status, dates and other evidence stay. */
+ * changes on an existing cycle: its status, dates and other evidence stay. A
+ * cycle that changes between the read and the write is left as it now is and
+ * reported as not saved, so the farmer's retry starts from the newer record. */
 export async function setBulkFieldCropSystemAction(input: { fieldIds: string[]; season: string; cropSystem: CropSystem }): Promise<BulkProductionCycleResult> {
   const nowSeason = currentSeason();
   if (!validSeason(input.season) || input.season < nowSeason || Number(input.season) > Number(nowSeason) + 1) {
@@ -148,15 +150,21 @@ export async function setBulkFieldCropSystemAction(input: { fieldIds: string[]; 
         outcomes.push({ fieldId, fieldName: field.name, outcome: "unchanged", gateStatus: gateStatusFor(field, existing, input.season) });
         continue;
       }
-      const saved = await upsertFieldProductionCycle({
-        fieldId: field.id,
-        season: input.season,
-        cropSystem: input.cropSystem,
-        status: existing?.status ?? (input.season > nowSeason ? "planned" : "active"),
-        ...(existing?.startDate ? { startDate: existing.startDate } : {}),
-        ...(existing?.endDate ? { endDate: existing.endDate } : {}),
-        evidence: bulkCropSystemEvidence(existing?.evidence ?? {}, input.cropSystem, selection.farmerName, observedAt),
-      });
+      const evidence = bulkCropSystemEvidence(existing?.evidence ?? {}, input.cropSystem, selection.farmerName, observedAt);
+      const saved = existing
+        ? await updateFieldProductionCycleCropIfUnchanged({ id: existing.id, expectedUpdatedAt: existing.updatedAt, cropSystem: input.cropSystem, evidence })
+        : await insertFieldProductionCycleIfAbsent({
+            fieldId: field.id,
+            season: input.season,
+            cropSystem: input.cropSystem,
+            status: input.season > nowSeason ? "planned" : "active",
+            evidence,
+          });
+      if (!saved) {
+        console.error("[bulk-production-cycles] cycle changed while saving; left as it is", fieldId);
+        outcomes.push({ fieldId, fieldName: field.name, outcome: "failed" });
+        continue;
+      }
       outcomes.push({ fieldId, fieldName: field.name, outcome: "saved", gateStatus: gateStatusFor(field, saved, input.season) });
     } catch (error) {
       console.error("[bulk-production-cycles] set crop failed", fieldId, error);

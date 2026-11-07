@@ -93,6 +93,31 @@ export async function upsertFieldProductionCycle(input: UpsertFieldProductionCyc
   return rowToCycle(data as FieldProductionCycleRow);
 }
 
+export interface UpdateFieldProductionCycleCropInput {
+  id: string;
+  /** The `updatedAt` of the cycle the new evidence was built from. */
+  expectedUpdatedAt: string;
+  cropSystem: CropSystem;
+  evidence: FieldProductionCycleEvidence;
+}
+
+/** Changes only the crop and its evidence, and only if the cycle hasn't changed
+ * since it was read, returning `null` otherwise. The `set_updated_at` trigger
+ * moves the revision on every update and the database decides the match, so a
+ * stale evidence snapshot can never replace a newer one. */
+export async function updateFieldProductionCycleCropIfUnchanged(input: UpdateFieldProductionCycleCropInput): Promise<FieldProductionCycle | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("field_production_cycles")
+    .update({ crop_system: input.cropSystem, evidence: input.evidence })
+    .eq("id", input.id)
+    .eq("updated_at", input.expectedUpdatedAt)
+    .select("*")
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToCycle(data as FieldProductionCycleRow) : null;
+}
+
 /** Creates the cycle only when that field and season has none, returning
  * `null` otherwise. The conflict is decided by the database, so a cycle saved
  * in the meantime can never be overwritten. */

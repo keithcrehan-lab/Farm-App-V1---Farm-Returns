@@ -117,6 +117,55 @@ describe("GrassPageClient guided walk", () => {
     expect(progress()).toBe("0 of 2 measured · 2 remaining");
   });
 
+  it("keeps a slow save bound to its walk: nothing can finish, restart or move the walk until it resolves", async () => {
+    gpsFix = { lat: 53.0105, lng: -8.0095, accuracyMeters: 5 };
+    let resolveSave: (value: unknown) => void = () => undefined;
+    recordCover.mockReturnValueOnce(new Promise((resolve) => { resolveSave = resolve; }));
+    await startWalk();
+    await screen.findByText("River Field", { selector: "strong" });
+    await saveReading("Home Field", "1450");
+    await screen.findByRole("button", { name: "Saving…" });
+
+    for (const name of ["Finish walk", "Skip this field", "Measure this field", "River Field"]) {
+      const control = screen.getByRole("button", { name }) as HTMLButtonElement;
+      expect(control.disabled).toBe(true);
+      fireEvent.click(control);
+    }
+    expect(screen.queryByRole("button", { name: "Start guided walk" })).toBeNull();
+    expect(current()).toBe("Home Field");
+    expect(progress()).toBe("0 of 2 measured · 2 remaining");
+
+    resolveSave(saved(FIELD_ID, 1450));
+    await waitFor(() => expect(progress()).toBe("1 of 2 measured · 1 remaining"));
+    expect(current()).toBe("River Field");
+
+    await waitFor(() => expect((screen.getByRole("button", { name: "Finish walk" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Finish walk" }));
+    await screen.findByText("Walk finished: 1 of 2 fields measured.");
+    fireEvent.click(screen.getByRole("button", { name: "Start guided walk" }));
+    expect(progress()).toBe("0 of 2 measured · 2 remaining");
+    expect(current()).toBe("Home Field");
+  });
+
+  it("won't start a walk while a single reading is saving, so that reading can't count towards it", async () => {
+    let resolveSave: (value: unknown) => void = () => undefined;
+    recordCover.mockReturnValueOnce(new Promise((resolve) => { resolveSave = resolve; }));
+    render(<GrassPageClient initialFieldId={SECOND_FIELD_ID} />);
+    const start = (await screen.findByRole("button", { name: "Start guided walk" })) as HTMLButtonElement;
+    fireEvent.change(screen.getByPlaceholderText("e.g. 1450"), { target: { value: "1450" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record grass reading" }));
+    await screen.findByRole("button", { name: "Saving…" });
+
+    expect(start.disabled).toBe(true);
+    fireEvent.click(start);
+    expect(document.querySelector("[data-grass-walk]")).toBeNull();
+
+    resolveSave(saved(SECOND_FIELD_ID, 1450));
+    await waitFor(() => expect(start.disabled).toBe(false));
+    fireEvent.click(start);
+    expect(progress()).toBe("0 of 2 measured · 2 remaining");
+  });
+
   it("suggests the live GPS field, and only moves when the farmer accepts", async () => {
     gpsFix = { lat: 53.0105, lng: -8.0095, accuracyMeters: 5 };
     await startWalk();

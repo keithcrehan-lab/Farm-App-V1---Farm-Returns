@@ -5,6 +5,32 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## 10x workflow integration v1 — built and remediated (2026-11-06/07)
+
+Branch `feature/10x-workflows`, task `farm-return-10x-workflow-integration-v1-20261106`, base `4746a0a`,
+implementation `5482ad3`. Fields "Select multiple" now offers farmer-confirmed bulk crop/use and explicit
+next-season carry-forward through the canonical `field_production_cycles` layer (per-field outcomes, no legacy
+`plannedUse`). Shared Field Mode (GPS suggestion, farmer-confirmed, real quick links only) is on Today and Fields.
+Grass has a guided walk, Housing has "Add another like this". No migration and no new calculation.
+
+The primary Codex audit `audit-20261106T213453Z-56185` found 1 High and 2 Medium. Repairs:
+- **F001 (High, stale snapshot overwrite).** A bulk crop change now writes only `crop_system` and `evidence`,
+  conditional on the `updated_at` it read (`updateFieldProductionCycleCropIfUnchanged`; the existing
+  `set_updated_at` trigger moves the revision on every update). A new cycle uses `insertFieldProductionCycleIfAbsent`.
+  A cycle that changed in between is left as it is and reported "Not saved", and the retry reads the newer record.
+  Status and dates are no longer rewritten. Regression tests use a revision-aware store, plus data-layer tests.
+  Not exercised against a live database. The pre-existing single-field `saveFieldProductionCycleAction` still
+  does a read-then-upsert (outside this task's delta) and should be given the same revision guard.
+- **F002 (Medium, stale walk progress).** Start, Finish, Skip, Move and GPS "Measure this field" are disabled
+  while a reading saves, so a save can only advance the walk and field it began on. Covered by delayed-save tests.
+- **F003 (Medium, record drift).** This entry and `BUILD_STATE.json.ten_x_workflow_integration_v1`.
+
+Verification (remediation tree): full Vitest 424 files / 7832 tests pass, `tsc --noEmit` pass, `eslint .` 0 errors.
+The full `scripts/quality-gate.sh` passed on 2026-11-07 (logs in
+`.agent/history/quality-20261107T133612Z-33818`): 424 files / 7832 tests, TypeScript,
+ESLint (0 errors, 2 pre-existing warnings), and production Next build. The independent final
+audit is still required before closure. Nothing was pushed or deployed.
+
 ## Farmer Pilot — set up (2026-10-25)
 
 The validated build is preserved as the local tag `farm-return-pilot-v1`, on `c40bf99` (implementation `5e35def`).

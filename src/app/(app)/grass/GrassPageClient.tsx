@@ -153,7 +153,9 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
   const [confidenceOpen, setConfidenceOpen] = useState(false);
 
   const [recordFieldId, setRecordFieldId] = useState(initialFieldId ?? "");
-  // Guided walk: `null` is the normal single-reading workflow.
+  // Guided walk: `null` is the normal single-reading workflow. Its controls are
+  // locked while a reading saves, so a save can only ever advance the walk and
+  // field it was started on.
   const [walk, setWalk] = useState<GrassWalk | null>(null);
   const walkStartedGpsRef = useRef(false);
   const [coverInput, setCoverInput] = useState("");
@@ -686,7 +688,7 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
                 {walkOfferedFieldId ? (
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-fr-v2-cream-rule pt-3">
                     <p className="inline-flex items-center gap-2 text-sm text-fr-v2-charcoal"><MapPin className="size-4 text-fr-v2-teal" /> GPS suggests <strong>{fieldNameById.get(walkOfferedFieldId) ?? "Field"}</strong></p>
-                    <button type="button" onClick={() => setWalk(moveGrassWalkTo(walk, walkOfferedFieldId))} className="min-h-10 text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2">Measure this field</button>
+                    <button type="button" disabled={coverSaving} onClick={() => setWalk(moveGrassWalkTo(walk, walkOfferedFieldId))} className="min-h-10 text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2 disabled:opacity-50">Measure this field</button>
                   </div>
                 ) : null}
                 {walkGpsSuggestion?.status === "ambiguous" ? <p className="mt-3 border-t border-fr-v2-cream-rule pt-3 text-xs text-fr-v2-muted">GPS can&apos;t separate {walkGpsSuggestion.candidates.map((candidate) => candidate.name).join(" and ")}. Check the field name before saving.</p> : null}
@@ -695,7 +697,7 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
                     <p className="text-xs text-fr-v2-muted">Still to measure</p>
                     <div className="mt-1 flex flex-wrap gap-x-4">
                       {walkProgress.remainingFieldIds.filter((id) => id !== walk.currentFieldId).map((id) => (
-                        <button key={id} type="button" onClick={() => setWalk(moveGrassWalkTo(walk, id))} className="min-h-10 text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2">
+                        <button key={id} type="button" disabled={coverSaving} onClick={() => setWalk(moveGrassWalkTo(walk, id))} className="min-h-10 text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2 disabled:opacity-50">
                           {fieldNameById.get(id) ?? "Field"}{walk.skippedIds.includes(id) ? " (skipped)" : ""}
                         </button>
                       ))}
@@ -703,14 +705,14 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
                   </div>
                 ) : null}
                 <div className="mt-3 flex flex-wrap gap-x-5 border-t border-fr-v2-cream-rule pt-2">
-                  {walk.currentFieldId ? <button type="button" onClick={() => setWalk(skipGrassWalkField(walk, walkGpsFieldId))} className="min-h-10 text-xs font-semibold text-fr-v2-muted underline underline-offset-2">Skip this field</button> : null}
-                  <button type="button" onClick={finishWalk} className="min-h-10 text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2">Finish walk</button>
+                  {walk.currentFieldId ? <button type="button" disabled={coverSaving} onClick={() => setWalk(skipGrassWalkField(walk, walkGpsFieldId))} className="min-h-10 text-xs font-semibold text-fr-v2-muted underline underline-offset-2 disabled:opacity-50">Skip this field</button> : null}
+                  <button type="button" disabled={coverSaving} onClick={finishWalk} className="min-h-10 text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2 disabled:opacity-50">Finish walk</button>
                 </div>
               </div>
             ) : okData.fields.length > 0 ? (
               <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-y border-fr-v2-cream-rule py-3">
                 <p className="max-w-sm text-xs text-fr-v2-muted">Walking several fields? Go field to field without choosing each one from the list.</p>
-                <button type="button" onClick={startWalk} className="min-h-11 rounded-fr-v2-control border border-fr-v2-forest px-4 text-sm font-semibold text-fr-v2-forest">Start guided walk</button>
+                <button type="button" disabled={coverSaving} onClick={startWalk} className="min-h-11 rounded-fr-v2-control border border-fr-v2-forest px-4 text-sm font-semibold text-fr-v2-forest disabled:opacity-50">Start guided walk</button>
               </div>
             ) : null}
 

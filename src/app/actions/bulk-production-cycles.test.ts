@@ -9,7 +9,7 @@ vi.mock("@/lib/farm-data/field-production-cycles", () => ({
   getFieldProductionCycle: vi.fn(),
   insertFieldProductionCycleIfAbsent: vi.fn(),
   listFieldProductionCyclesForSeason: vi.fn(),
-  upsertFieldProductionCycle: vi.fn(),
+  updateFieldProductionCycleCropIfUnchanged: vi.fn(),
 }));
 
 import { revalidatePath } from "next/cache";
@@ -19,7 +19,7 @@ import {
   getFieldProductionCycle,
   insertFieldProductionCycleIfAbsent,
   listFieldProductionCyclesForSeason,
-  upsertFieldProductionCycle,
+  updateFieldProductionCycleCropIfUnchanged,
 } from "@/lib/farm-data/field-production-cycles";
 import { carryForwardFieldCyclesAction, previewBulkProductionCyclesAction, setBulkFieldCropSystemAction } from "./bulk-production-cycles";
 
@@ -58,6 +58,8 @@ function cycle(fieldId: string, season: string, overrides: Partial<FieldProducti
 
 /** Stored cycles by `${fieldId}:${season}`, read by the mocked data layer. */
 let stored: Record<string, FieldProductionCycle>;
+let revision = 0;
+const nextRevision = () => `2026-11-06T10:00:00.${String(++revision).padStart(6, "0")}+00:00`;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -67,8 +69,19 @@ beforeEach(() => {
   vi.mocked(listFieldsForFarm).mockResolvedValue([field("a"), field("b"), field("c")]);
   vi.mocked(getFieldProductionCycle).mockImplementation(async (fieldId, season) => stored[`${fieldId}:${season}`] ?? null);
   vi.mocked(listFieldProductionCyclesForSeason).mockImplementation(async (ids, season) => ids.flatMap((id) => (stored[`${id}:${season}`] ? [stored[`${id}:${season}`]] : [])));
-  vi.mocked(upsertFieldProductionCycle).mockImplementation(async (input) => cycle(input.fieldId, input.season, { ...input }));
-  vi.mocked(insertFieldProductionCycleIfAbsent).mockImplementation(async (input) => cycle(input.fieldId, input.season, { ...input }));
+  // Both writes behave as the database does: conditional on what's stored now.
+  vi.mocked(updateFieldProductionCycleCropIfUnchanged).mockImplementation(async ({ id, expectedUpdatedAt, cropSystem, evidence }) => {
+    const key = Object.keys(stored).find((storedKey) => stored[storedKey].id === id);
+    if (!key || stored[key].updatedAt !== expectedUpdatedAt) return null;
+    stored[key] = { ...stored[key], cropSystem, evidence, updatedAt: nextRevision() };
+    return stored[key];
+  });
+  vi.mocked(insertFieldProductionCycleIfAbsent).mockImplementation(async (input) => {
+    const key = `${input.fieldId}:${input.season}`;
+    if (stored[key]) return null;
+    stored[key] = cycle(input.fieldId, input.season, { ...input });
+    return stored[key];
+  });
 });
 afterEach(() => vi.useRealTimers());
 
@@ -83,31 +96,71 @@ describe("setBulkFieldCropSystemAction", () => {
     });
     const result = await setBulkFieldCropSystemAction({ fieldIds: ["a"], season: "2026", cropSystem: "GRASS_HAY" });
     expect(result.status === "completed" && result.outcomes[0].outcome).toBe("saved");
-    const saved = vi.mocked(upsertFieldProductionCycle).mock.calls[0][0];
+    const saved = stored["a:2026"];
     expect(saved).toMatchObject({ cropSystem: "GRASS_HAY", status: "closed", startDate: "2026-02-01", endDate: "2026-06-01" });
     expect(saved.evidence.productionTargetTDMHa).toBe(target);
     expect(saved.evidence.cropSystem?.previous?.value).toBe("GRASS_GRAZING");
     expect(saved.evidence.cropSystem?.source).toBe("Keith");
+    expect(Object.keys(vi.mocked(updateFieldProductionCycleCropIfUnchanged).mock.calls[0][0]).sort()).toEqual(["cropSystem", "evidence", "expectedUpdatedAt", "id"]);
+  });
+
+  it("never restores a stale snapshot over evidence saved between its read and its write", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const chemicalN = (value: number) => ({ value, method: "FARMER_DECLARED" as const, source: "Keith" });
+    stored["a:2026"] = cycle("a", "2026", {
+      evidence: { cropSystem: { value: "GRASS_GRAZING", method: "FARMER_DECLARED", source: "Keith" }, chemicalNAppliedKgHa: chemicalN(10) },
+    });
+    // The fertiliser record moves from 10 to 50 once the bulk action holds its snapshot.
+    vi.mocked(getFieldProductionCycle).mockImplementationOnce(async (fieldId, season) => {
+      const snapshot = stored[`${fieldId}:${season}`];
+      stored[`${fieldId}:${season}`] = { ...snapshot, evidence: { ...snapshot.evidence, chemicalNAppliedKgHa: chemicalN(50) }, updatedAt: nextRevision() };
+      return snapshot;
+    });
+
+    const first = await setBulkFieldCropSystemAction({ fieldIds: ["a"], season: "2026", cropSystem: "GRASS_HAY" });
+    expect(first.status === "completed" && first.outcomes[0].outcome).toBe("failed");
+    expect(stored["a:2026"].cropSystem).toBe("GRASS_GRAZING");
+    expect(stored["a:2026"].evidence.chemicalNAppliedKgHa?.value).toBe(50);
+    expect(revalidatePath).not.toHaveBeenCalled();
+
+    // The farmer's retry reads the newer record, so both changes survive.
+    const retry = await setBulkFieldCropSystemAction({ fieldIds: ["a"], season: "2026", cropSystem: "GRASS_HAY" });
+    expect(retry.status === "completed" && retry.outcomes[0].outcome).toBe("saved");
+    expect(stored["a:2026"].cropSystem).toBe("GRASS_HAY");
+    expect(stored["a:2026"].evidence.chemicalNAppliedKgHa?.value).toBe(50);
+  });
+
+  it("never replaces a cycle another save created after this action found none", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(getFieldProductionCycle).mockImplementationOnce(async (fieldId, season) => {
+      stored[`${fieldId}:${season}`] = cycle(fieldId, season, { startDate: "2026-02-01" });
+      return null;
+    });
+    const result = await setBulkFieldCropSystemAction({ fieldIds: ["a"], season: "2026", cropSystem: "GRASS_HAY" });
+    expect(result.status === "completed" && result.outcomes[0].outcome).toBe("failed");
+    expect(stored["a:2026"]).toMatchObject({ cropSystem: "GRASS_GRAZING", startDate: "2026-02-01" });
   });
 
   it("creates a planned cycle for a future season and an active one for this season", async () => {
     await setBulkFieldCropSystemAction({ fieldIds: ["a"], season: "2027", cropSystem: "GRASS_HAY" });
     await setBulkFieldCropSystemAction({ fieldIds: ["b"], season: "2026", cropSystem: "GRASS_HAY" });
-    const calls = vi.mocked(upsertFieldProductionCycle).mock.calls.map(([input]) => input.status);
-    expect(calls).toEqual(["planned", "active"]);
+    expect(stored["a:2027"].status).toBe("planned");
+    expect(stored["b:2026"].status).toBe("active");
+    expect(updateFieldProductionCycleCropIfUnchanged).not.toHaveBeenCalled();
   });
 
   it("writes nothing for a field already on the chosen crop, so the provenance chain doesn't grow", async () => {
     stored["a:2026"] = cycle("a", "2026");
     const result = await setBulkFieldCropSystemAction({ fieldIds: ["a"], season: "2026", cropSystem: "GRASS_GRAZING" });
     expect(result.status === "completed" && result.outcomes[0].outcome).toBe("unchanged");
-    expect(upsertFieldProductionCycle).not.toHaveBeenCalled();
+    expect(updateFieldProductionCycleCropIfUnchanged).not.toHaveBeenCalled();
+    expect(insertFieldProductionCycleIfAbsent).not.toHaveBeenCalled();
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("reports a mixed result per field and keeps going after a failure", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    vi.mocked(upsertFieldProductionCycle).mockImplementationOnce(async () => {
+    vi.mocked(insertFieldProductionCycleIfAbsent).mockImplementationOnce(async () => {
       throw new Error("write failed");
     });
     const result = await setBulkFieldCropSystemAction({ fieldIds: ["a", "b"], season: "2026", cropSystem: "GRASS_HAY" });
@@ -119,7 +172,7 @@ describe("setBulkFieldCropSystemAction", () => {
     vi.mocked(listFieldsForFarm).mockResolvedValue([field("a"), field("deleted", { archivedAt: "2026-11-01T00:00:00.000Z" })]);
     const result = await setBulkFieldCropSystemAction({ fieldIds: ["other-farm", "deleted", "a"], season: "2026", cropSystem: "GRASS_HAY" });
     expect(result.status === "completed" && result.outcomes.map((item) => item.outcome)).toEqual(["failed", "failed", "saved"]);
-    expect(vi.mocked(upsertFieldProductionCycle).mock.calls.map(([input]) => input.fieldId)).toEqual(["a"]);
+    expect(vi.mocked(insertFieldProductionCycleIfAbsent).mock.calls.map(([input]) => input.fieldId)).toEqual(["a"]);
   });
 
   it("rejects seasons and crops the workflow doesn't offer", async () => {
@@ -127,7 +180,7 @@ describe("setBulkFieldCropSystemAction", () => {
     await expect(setBulkFieldCropSystemAction({ fieldIds: ["a"], season: "2028", cropSystem: "GRASS_HAY" })).resolves.toMatchObject({ status: "rejected" });
     await expect(setBulkFieldCropSystemAction({ fieldIds: ["a"], season: "2026", cropSystem: "NOT_A_CROP" as never })).resolves.toMatchObject({ status: "rejected" });
     await expect(setBulkFieldCropSystemAction({ fieldIds: [], season: "2026", cropSystem: "GRASS_HAY" })).resolves.toMatchObject({ status: "rejected" });
-    expect(upsertFieldProductionCycle).not.toHaveBeenCalled();
+    expect(insertFieldProductionCycleIfAbsent).not.toHaveBeenCalled();
   });
 
   it("rejects when nobody is signed in", async () => {
@@ -153,7 +206,7 @@ describe("carryForwardFieldCyclesAction", () => {
   it("only ever writes the target season", async () => {
     stored["a:2026"] = cycle("a", "2026");
     await carryForwardFieldCyclesAction({ fieldIds: ["a"], targetSeason: "2027" });
-    expect(upsertFieldProductionCycle).not.toHaveBeenCalled();
+    expect(updateFieldProductionCycleCropIfUnchanged).not.toHaveBeenCalled();
     expect(vi.mocked(insertFieldProductionCycleIfAbsent).mock.calls[0][0]).toMatchObject({ season: "2027", status: "planned" });
   });
 

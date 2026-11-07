@@ -538,5 +538,21 @@
       "campaign_status": "READY",
       "updated_by": "controller-bootstrap-2026-11-05"
     }
+  },
+  "ten_x_workflow_integration_v1": {
+    "task_id": "farm-return-10x-workflow-integration-v1-20261106",
+    "branch": "feature/10x-workflows",
+    "task_base": "4746a0a0594d30e498ff6e7e30f066b41044e093",
+    "implementation_sha": "5482ad3",
+    "status": "REMEDIATED_FINAL_AUDIT_PENDING",
+    "primary_audit": ".agent/history/audit-20261106T213453Z-56185.md (CRITICAL=0 HIGH=1 MEDIUM=2 LOW=0)",
+    "findings": {
+      "F001": "HIGH STALE_SNAPSHOT_OVERWRITE: repaired, crop-only update conditional on updated_at; awaiting independent final audit",
+      "F002": "MEDIUM STALE_ASYNC_SESSION_UPDATE: repaired, walk controls locked while a reading saves; awaiting independent final audit",
+      "F003": "MEDIUM TASK_RECORD_DRIFT: repaired by this entry and the IMPLEMENTATION_LOG entry"
+    },
+    "verification": "remediation tree 2026-11-07: npx vitest run --maxWorkers=1 424 files / 7832 tests pass; tsc --noEmit pass; eslint . 0 errors (2 pre-existing warnings); next build pass; scripts/quality-gate.sh pass (logs .agent/history/quality-20261107T133612Z-33818)",
+    "migration": "none",
+    "pushed_or_deployed": false
   }
 }

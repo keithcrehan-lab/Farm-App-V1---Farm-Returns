@@ -42,8 +42,23 @@ export async function scanStaticLpis(lng: number, lat: number, existingRefs: str
 export async function resolveStaticLpis(ids: string[]): Promise<FieldScanOutcome | null> {
   if (!base()) return null;
   if (ids.length > 80 || ids.some(id => !/^[\w.-]{1,120}$/.test(id))) throw new Error('Invalid LPIS references');
-  const manifest = await jsonAt<Manifest>('manifest.json');
-  if (manifest.tiles.length > 700) throw new Error('Static LPIS lookup requires a feature index');
-  // Explicitly refuse a full-country scan: save must use a canonical indexed resolver.
-  return null;
+  if (ids.length === 0) return parseFieldScanPayload({ sourceLabel: 'DAFM LPIS 2025', sourceYear: '2025', coverageAtFarm: true, candidates: [] });
+  // The manifest index maps a canonical source feature ID to its immutable tile.
+  // Never accept a tile URL or geometry supplied by the farmer's browser.
+  const index = await jsonAt<{ sourceYear: string; features: Record<string, string> }>('feature-index.json');
+  if (index.sourceYear !== '2025' || !index.features || typeof index.features !== 'object') throw new Error('Invalid LPIS feature index');
+  const paths = [...new Set(ids.map(id => index.features[id]))];
+  if (paths.some(path => !path || !validPath(path))) throw new Error('Selected LPIS parcel not indexed');
+  if (paths.length > 12) throw new Error('Too many LPIS tiles selected at once');
+  const collections = await Promise.all(paths.map(path => jsonAt<GeoJSON.FeatureCollection>(path)));
+  const requested = new Set(ids);
+  const byId = new Map<string, ReturnType<typeof featureToCandidate>>();
+  for (const collection of collections) {
+    for (const feature of collection.features) {
+      const candidate = featureToCandidate(feature as Feature);
+      if (candidate && requested.has(candidate.sourceFeatureId)) byId.set(candidate.sourceFeatureId, candidate);
+    }
+  }
+  if (byId.size !== requested.size) throw new Error('Selected LPIS boundary missing from canonical tile');
+  return parseFieldScanPayload({ sourceLabel: 'DAFM LPIS 2025', sourceYear: '2025', coverageAtFarm: true, candidates: ids.map(id => byId.get(id)) });
 }

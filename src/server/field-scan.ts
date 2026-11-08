@@ -4,7 +4,7 @@ import type { Field, Farm } from "@/domain/types";
 import { fieldScanCentre, parseFieldScanPayload, type FieldScanImportRequest, type FieldScanOutcome } from "@/domain/field-scan";
 import { createFields } from "@/lib/farm-data/fields";
 import { createClient } from "@/lib/supabase/server";
-import { scanStaticLpis } from "@/server/lpis-static";
+import { scanStaticLpis, resolveStaticLpis } from "@/server/lpis-static";
 
 const SCAN_RADIUS_M = 1200;
 const SCAN_LIMIT = 120;
@@ -87,6 +87,21 @@ export async function importScannedLpisFields(
     names.add(nameKey);
   }
 
+  if (process.env.LPIS_STATIC_BASE_URL && process.env.LPIS_STATIC_SCAN_ENABLED === "true") {
+    const resolvedStatic = await resolveStaticLpis(cleaned.map(request => request.lpisRef.slice(prefix.length)));
+    if (!resolvedStatic || resolvedStatic.status !== "READY") {
+      throw new Error("The selected boundaries cannot yet be verified against the official static LPIS source. Please try again later.");
+    }
+    const byRef = new Map(resolvedStatic.candidates.map(candidate => [candidate.lpisRef, candidate]));
+    if (cleaned.some(request => !byRef.has(request.lpisRef))) throw new Error("One or more selected LPIS boundaries could not be verified.");
+    return createFields(farm.id, cleaned.map(request => ({
+      name: request.name,
+      polygon: byRef.get(request.lpisRef)!.polygon,
+      polygonSource: "lpis_imported" as const,
+      lpisRef: request.lpisRef,
+      fertility: {},
+    })));
+  }
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("resolve_lpis_parcels_by_feature_ids", {
     p_feature_ids: cleaned.map((request) => request.lpisRef.slice(prefix.length)),

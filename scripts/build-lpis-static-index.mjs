@@ -16,7 +16,9 @@ for (const file of files) {
   for (const feature of data.features) {
     const id = String(feature.properties?.id ?? feature.id ?? '');
     if (!id || !/^[\w.-]{1,120}$/.test(id)) throw new Error(`Invalid feature ID in ${file}`);
-    if (features[id] && features[id] !== file) throw new Error(`Duplicate feature ID across tiles: ${id}`);
+    // A parcel intersecting neighbouring tile bounding boxes is expected to repeat.
+    // Preserve the first deterministic canonical tile for server-side re-resolution.
+    if (features[id] && features[id] !== file) continue;
     features[id] = file;
   }
   tiles.push({ bbox, path: file, count: data.features.length });

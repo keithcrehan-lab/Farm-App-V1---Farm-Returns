@@ -27,7 +27,7 @@ export async function scanNearbyLpisFields(
   }
 
   try {
-    if (process.env.LPIS_STATIC_BASE_URL && process.env.LPIS_STATIC_SCAN_ENABLED === "true") {
+    if (process.env.LPIS_STATIC_BASE_URL && process.env.LPIS_STATIC_SCAN_ENABLED === "true" && process.env.LPIS_STATIC_BUDGET_FUSE !== "OPEN") {
       try {
         const result = await scanStaticLpis(lng, lat, fields.map(field => field.lpisRef).filter((ref): ref is string => Boolean(ref)));
         if (result?.status === "READY" && result.candidates.length > 0) return result;
@@ -87,7 +87,7 @@ export async function importScannedLpisFields(
     names.add(nameKey);
   }
 
-  if (process.env.LPIS_STATIC_BASE_URL && process.env.LPIS_STATIC_SCAN_ENABLED === "true") {
+  if (process.env.LPIS_STATIC_BASE_URL && process.env.LPIS_STATIC_SCAN_ENABLED === "true" && process.env.LPIS_STATIC_BUDGET_FUSE !== "OPEN") {
     const resolvedStatic = await resolveStaticLpis(cleaned.map(request => request.lpisRef.slice(prefix.length)));
     if (!resolvedStatic || resolvedStatic.status !== "READY") {
       throw new Error("The selected boundaries cannot yet be verified against the official static LPIS source. Please try again later.");

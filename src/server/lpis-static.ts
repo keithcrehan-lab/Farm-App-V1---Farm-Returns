@@ -4,7 +4,7 @@ import { parseFieldScanPayload, type FieldScanOutcome } from '@/domain/field-sca
 type Tile = { bbox: [number, number, number, number]; path: string; count: number };
 type Manifest = { sourceYear: '2025'; tiles: Tile[] };
 type Feature = GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon, { id: string; parcelLabel?: string | null }>;
-const base = () => process.env.LPIS_STATIC_BASE_URL?.replace(/\/$/, '');
+const base = () => process.env.LPIS_STATIC_BUDGET_FUSE === 'OPEN' ? undefined : process.env.LPIS_STATIC_BASE_URL?.replace(/\/$/, '');
 const validPath = (path: string) => /^[a-zA-Z0-9_./-]+$/.test(path) && !path.includes('..') && !path.startsWith('/');
 async function jsonAt<T>(path: string): Promise<T> {
   const url = base();

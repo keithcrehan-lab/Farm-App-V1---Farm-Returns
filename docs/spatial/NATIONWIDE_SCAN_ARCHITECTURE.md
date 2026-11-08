@@ -16,3 +16,6 @@ The initial exporter produces one bounded GeoJSON file as a proof of the offline
 
 ## Vercel target
 All deployments must use Farm IQ Vercel project `prj_G1qM47n7nSmlQYfqr5kI2RI2sWg5` in team `team_AEDVfh1AUUrf6CBOxw1qQ8og`. Run `npm run deploy:farm-iq:preview` or `npm run deploy:farm-iq:production` from the release checkout; both enforce project identity.
+
+## Cost fuse — critical limitations
+Cloudflare R2 free allowances are **not** a hard spending cap. Alerts, quotas in our app, and a feature flag cannot guarantee zero billing; R2 can also incur charges for direct requests, writes, or other workloads outside Farm Return. Do not claim a provider-enforced hard stop exists. `LPIS_STATIC_BUDGET_FUSE=OPEN` prevents this application's static LPIS fetches, and `LPIS_STATIC_SCAN_ENABLED=false` disables the static scan feature. These are emergency switches, not automatic metered tripwires. A reliable automatic cap needs provider-supported hard quotas or a single metered gateway with atomic counters and all R2 reads restricted to that gateway, plus conservative headroom for storage and writes. Disable public R2 endpoints and unmanaged credentials if implementing such a gateway. For now, leave the static feature disabled in production until quota controls, access restrictions, alerts and end-to-end tests are verified.

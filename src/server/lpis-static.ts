@@ -32,6 +32,7 @@ export async function scanStaticLpis(lng: number, lat: number, existingRefs: str
   const buffer = 0.035;
   const tiles = manifest.tiles.filter(t => contains(t.bbox, lng, lat, buffer));
   if (tiles.length > 9) throw new Error('LPIS scan exceeded tile limit');
+  if (tiles.length === 0) return null;
   const candidates = (await Promise.all(tiles.map(async t => {
     const collection = await jsonAt<GeoJSON.FeatureCollection>(t.path);
     return collection.features.map(f => featureToCandidate(f as Feature)).filter(x => x !== null);

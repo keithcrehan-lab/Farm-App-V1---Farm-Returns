@@ -19,6 +19,9 @@ export async function scanNearbyLpisFields(
   fields: readonly Field[],
   requestedCentre?: [number, number],
 ): Promise<FieldScanOutcome> {
+  if (process.env.LPIS_STATIC_BUDGET_FUSE === "OPEN") {
+    return { status: "UNAVAILABLE", reason: "Field scanning is temporarily unavailable. You can still draw your fields manually or return later. Fields already saved are unaffected." };
+  }
   const mappedPolygons = fields.flatMap((field) => (field.polygon ? [field.polygon] : []));
   const defaultCentre = fieldScanCentre(mappedPolygons, farm.location.centroid);
   const [lng, lat] = requestedCentre ?? defaultCentre;
@@ -65,6 +68,9 @@ export async function importScannedLpisFields(
   fields: readonly Field[],
   requests: readonly FieldScanImportRequest[],
 ): Promise<Field[]> {
+  if (process.env.LPIS_STATIC_BUDGET_FUSE === "OPEN") {
+    throw new Error("Field scanning is temporarily unavailable. Your saved fields are unaffected; please try again later.");
+  }
   const prefix = "dafm_lpis_2025:2025:";
   const existingRefs = new Set(fields.map((field) => field.lpisRef).filter((ref): ref is string => Boolean(ref)));
   const existingNames = new Set(fields.map((field) => field.name.trim().toLocaleLowerCase()));

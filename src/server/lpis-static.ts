@@ -36,8 +36,29 @@ export async function scanStaticLpis(lng: number, lat: number, existingRefs: str
     const collection = await jsonAt<GeoJSON.FeatureCollection>(t.path);
     return collection.features.map(f => featureToCandidate(f as Feature)).filter(x => x !== null);
   }))).flat();
-  const payload = { sourceLabel: 'DAFM LPIS 2025', sourceYear: '2025', coverageAtFarm: tiles.some(t => contains(t.bbox, lng, lat)), candidates: candidates.slice(0, 200) };
-  return parseFieldScanPayload(payload, existingRefs);
+  // Parse/validate geometry first, then rank by actual distance to the requested
+  // scan centre rather than the arbitrary ordering of a geographic tile.
+  const validated = parseFieldScanPayload({
+    sourceLabel: 'DAFM LPIS 2025', sourceYear: '2025',
+    coverageAtFarm: tiles.some(t => contains(t.bbox, lng, lat)), candidates,
+  }, existingRefs);
+  if (validated.status !== 'READY') return validated;
+  const distance = (x: number, y: number) => {
+    const radians = Math.PI / 180;
+    const dLat = (y - lat) * radians;
+    const dLon = (x - lng) * radians;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * radians) * Math.cos(y * radians) * Math.sin(dLon / 2) ** 2;
+    return 12742000 * Math.asin(Math.min(1, Math.sqrt(a)));
+  };
+  return {
+    ...validated,
+    candidates: validated.candidates
+      .map(candidate => ({ candidate, metres: distance(candidate.centroid[0], candidate.centroid[1]) }))
+      .filter(item => item.metres <= 3000)
+      .sort((a, b) => a.metres - b.metres)
+      .slice(0, 120)
+      .map(item => item.candidate),
+  };
 }
 export async function resolveStaticLpis(ids: string[]): Promise<FieldScanOutcome | null> {
   if (!base()) return null;

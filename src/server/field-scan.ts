@@ -4,6 +4,7 @@ import type { Field, Farm } from "@/domain/types";
 import { fieldScanCentre, parseFieldScanPayload, type FieldScanImportRequest, type FieldScanOutcome } from "@/domain/field-scan";
 import { createFields } from "@/lib/farm-data/fields";
 import { createClient } from "@/lib/supabase/server";
+import { scanStaticLpis } from "@/server/lpis-static";
 
 const SCAN_RADIUS_M = 1200;
 const SCAN_LIMIT = 120;
@@ -26,6 +27,12 @@ export async function scanNearbyLpisFields(
   }
 
   try {
+    if (process.env.LPIS_STATIC_BASE_URL && process.env.LPIS_STATIC_SCAN_ENABLED === "true") {
+      try {
+        const result = await scanStaticLpis(lng, lat, fields.map(field => field.lpisRef).filter((ref): ref is string => Boolean(ref)));
+        if (result?.status === "READY" && result.candidates.length > 0) return result;
+      } catch (error) { console.error("[field-scan] static reference unavailable; falling back", error); }
+    }
     const supabase = await createClient();
     const { data, error } = await supabase.rpc("scan_lpis_parcels_near_point", {
       p_lng: lng,

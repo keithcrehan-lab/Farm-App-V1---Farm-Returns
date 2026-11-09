@@ -709,7 +709,7 @@ export default function TodayPage() {
               <div aria-hidden className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/28 via-black/7 to-transparent" />
 
               <div className="relative flex flex-col gap-4 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] sm:flex-row sm:items-start sm:justify-between lg:px-9 lg:pt-8">
-                <div className="pointer-events-auto min-w-0 [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]">
+                <div className="pointer-events-auto min-w-0 max-sm:pr-16 [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]">
                   <p className={cn("text-[10.5px] font-semibold uppercase tracking-[0.18em]", activeLens.kickerClassName)}>Farm Return · {activeLens.label}{!isRealMode ? " · Demo" : ""}</p>
                   <h1 className="mt-2 max-w-[16ch] text-balance font-display text-[34px] leading-[0.98] tracking-[-0.02em] text-white lg:text-[56px]">{farm.name}</h1>
                   <p className="mt-3 font-mono text-[12px] tabular-nums tracking-[0.01em] text-white/90" data-farm-identity-measure>
@@ -729,6 +729,33 @@ export default function TodayPage() {
                     selected, so the field stays visible above its panel. */}
                 <div className={cn("pointer-events-auto flex min-w-0 flex-wrap items-start gap-1 self-start sm:shrink-0 sm:justify-end", selectedField && "max-sm:hidden")}>
                   <FarmConditionsControl centroid={farm.location.centroid} summary={conditionsSummary} ready={mounted} />
+                  {/* Quick actions: a compact map-control column in the top-right
+                      corner on a phone; inline beside the conditions pill from sm up. */}
+                  <div className="absolute right-4 top-[max(env(safe-area-inset-top),1.25rem)] flex flex-col gap-2 sm:static sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={() => setFieldModeOpen(true)}
+                      aria-label="Field mode"
+                      className="flex size-12 flex-col items-center justify-center gap-0.5 rounded-[14px] border border-white/15 bg-fr-v2-forest-deep/85 text-white shadow-[0_6px_18px_rgba(0,0,0,0.25)] backdrop-blur-md transition-colors hover:bg-fr-v2-forest sm:h-11 sm:w-auto sm:flex-row sm:gap-2 sm:px-3.5"
+                    >
+                      <MapPin className="size-4" aria-hidden />
+                      <span className="text-[9px] font-semibold leading-none sm:text-xs" aria-hidden>
+                        <span className="sm:hidden">Field</span>
+                        <span className="max-sm:hidden">Field mode</span>
+                      </span>
+                    </button>
+                    <Link
+                      href="/smart-camera"
+                      aria-label="Smart Camera"
+                      className="flex size-12 flex-col items-center justify-center gap-0.5 rounded-[14px] border border-white/15 bg-fr-v2-forest-deep/85 text-white shadow-[0_6px_18px_rgba(0,0,0,0.25)] backdrop-blur-md transition-colors hover:bg-fr-v2-forest sm:h-11 sm:w-auto sm:flex-row sm:gap-2 sm:px-3.5"
+                    >
+                      <ScanBarcode className="size-4" aria-hidden />
+                      <span className="text-[9px] font-semibold leading-none sm:text-xs" aria-hidden>
+                        <span className="sm:hidden">Camera</span>
+                        <span className="max-sm:hidden">Smart Camera</span>
+                      </span>
+                    </Link>
+                  </div>
                   {/* Non-visual compatibility hook for the existing What Matters
                       sheet tests. The farmer-facing shortcut has intentionally
                       been removed from the map header. */}
@@ -744,19 +771,6 @@ export default function TodayPage() {
                   <div className="pointer-events-auto flex max-w-md flex-col gap-2">
                     <GpsActivityCandidateCard fields={fields} />
                     <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
-                    {/* Quick actions share one row so they don't stack over the fields on a phone. */}
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setFieldModeOpen(true)}
-                        className="flex min-h-11 items-center gap-2 rounded-full bg-fr-v2-forest-deep/90 px-3.5 text-xs font-semibold text-white backdrop-blur"
-                      >
-                        <MapPin className="size-3.5" aria-hidden /> Field mode
-                      </button>
-                      <Link href="/smart-camera" className="inline-flex min-h-11 items-center gap-2 rounded-full bg-fr-v2-forest-deep/90 px-3.5 text-xs font-semibold text-white backdrop-blur hover:bg-fr-v2-forest">
-                        <ScanBarcode className="size-3.5" aria-hidden /> Smart Camera
-                      </Link>
-                    </div>
                   </div>
                   <div className="pointer-events-auto">
                     {lens === "grass" && !grassLoadFailed ? (

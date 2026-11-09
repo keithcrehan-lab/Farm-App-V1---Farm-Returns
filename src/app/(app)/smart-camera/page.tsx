@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Camera, CameraOff, CheckCircle2, ScanBarcode, ShieldCheck, AlertCircle, QrCode } from 'lucide-react';
+import { Camera, CameraOff, CheckCircle2, ScanBarcode, ShieldCheck, AlertCircle, QrCode , Pill} from 'lucide-react';
+import { parseMedicinePackScan } from '@/lib/medicines/gs1';
 import { useFields, useIsRealMode } from '@/store/farm-store';
 import { lookupScannedFertiliserProductAction, type ProductScanResult } from '@/app/actions/smart-camera';
 import { normaliseGtin } from '@/lib/smart-camera/fertiliser-products';
@@ -126,6 +127,7 @@ export default function SmartCameraPage() {
 
   const result = resolveFieldScan(value, fields.map((field) => field.id));
   const field = result.kind === 'field' ? fields.find((item) => item.id === result.fieldId) : undefined;
+  const medicineScan = field ? null : parseMedicinePackScan(value);
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 pb-8 text-fr-v2-graphite">
@@ -154,9 +156,16 @@ export default function SmartCameraPage() {
           </div>
         ) : value.trim() ? (
           <div role="status" className="space-y-3 border-t border-fr-v2-cream-rule pt-4 text-sm text-fr-ink-600">
-            {normaliseGtin(value) ? (
+            {medicineScan?.source === 'datamatrix' ? (
+              <div className="space-y-3 rounded-xl border border-fr-green-700/30 bg-fr-surface-alt p-4 text-fr-ink-900">
+                <p className="flex items-center gap-2 text-sm font-semibold text-fr-green-700"><Pill className="size-5"/>Medicine pack detected</p>
+                <p>{medicineScan.batch ? `Batch ${medicineScan.batch}` : 'No batch in the code'}{medicineScan.expiry ? ` · Expires ${medicineScan.expiry}` : ''}</p>
+                <Link href={`/medicines/record?code=${encodeURIComponent(value)}`} className="inline-flex rounded-lg bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white">Record medicine purchase</Link>
+              </div>
+            ) : normaliseGtin(value) ? (
               <>
                 <p className="font-semibold text-fr-v2-graphite">Product barcode detected</p>
+                <Link href={`/medicines/record?code=${encodeURIComponent(value)}`} className="inline-flex items-center gap-2 rounded-fr-control border border-fr-green-700 px-4 py-2 text-sm font-semibold text-fr-green-700"><Pill className="size-4"/>Record as a medicine purchase</Link>
                 <p>Choose a product lookup below. A valid GTIN does not guarantee a matching product or verified nutrient information.</p>
                 <button type="button" onClick={() => void lookupProduct()} disabled={lookingUp || !isRealMode}
                   className="rounded-fr-control bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
@@ -198,6 +207,7 @@ export default function SmartCameraPage() {
         />
       ) : null}
       <Link href={lookup?.status === "verified" ? `/smart-camera/orders?gtin=${encodeURIComponent(lookup.product.barcode)}` : "/smart-camera/orders"} className="flex items-center justify-center gap-2 border border-fr-v2-cream-rule bg-fr-v2-cream px-4 py-3 text-sm font-semibold text-fr-green-700 hover:bg-fr-surface-alt"><CheckCircle2 className="size-5"/>Orders and delivery receipts · Coming soon</Link>
+      <Link href="/medicines" className="flex items-center justify-center gap-2 border border-fr-v2-cream-rule bg-fr-v2-cream px-4 py-3 text-sm font-semibold text-fr-green-700 hover:bg-fr-surface-alt"><Pill className="size-4"/>Medicines bought</Link>
       <Link href="/smart-camera/labels" className="flex items-center justify-center gap-2 border border-fr-v2-cream-rule bg-fr-v2-cream px-4 py-3 text-sm font-semibold text-fr-green-700 hover:bg-fr-surface-alt"><QrCode className="size-5"/>Generate and print field QR labels</Link>
       <p className="flex items-start gap-2 text-xs text-fr-ink-600"><ShieldCheck className="size-4 shrink-0" />Scans do not automatically create transactions, treatments, applications or measurements. Only assigned fields and curated product barcodes can be matched automatically. Free GS1 results are viewed separately and do not create verified records. Stock quantities always need farmer confirmation.</p>
     </div>

@@ -32,15 +32,20 @@ const todo = ordered.filter(k => !done.has(`${prefix}/${k}`));
 console.log(`files=${all.length} alreadyVerified=${all.length - todo.length - last.filter(k => !done.has(`${prefix}/${k}`)).length} toUpload=${todo.length}+final`);
 
 let ok = 0, bytes = 0, failed = 0; const t0 = Date.now();
+// Cloudflare API limit is 1,200 requests / 5 min per user; stay under it.
+const RATE = Number(process.env.R2_UPLOAD_RATE ?? 3.5); let nextSlot = Date.now();
+const pace = async () => { const now = Date.now(); const at = Math.max(now, nextSlot); nextSlot = at + 1000 / RATE; if (at > now) await new Promise(r => setTimeout(r, at - now)); };
 async function put(k) {
   const key = `${prefix}/${k}`; const body = fs.readFileSync(path.join(dir, k));
   const md5 = crypto.createHash('md5').update(body).digest('hex');
-  for (let attempt = 1; attempt <= 6; attempt++) {
+  for (let attempt = 1; attempt <= 10; attempt++) {
     try {
+      await pace();
       const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/r2/buckets/${bucket}/objects/${key}`, {
         method: 'PUT', body, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, signal: AbortSignal.timeout(120000),
       });
       if (res.status === 401 || res.status === 403) { refresh(); throw new Error(`auth ${res.status}`); }
+      if (res.status === 429) { await new Promise(r => setTimeout(r, 60000)); throw new Error('HTTP 429'); }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const j = await res.json().catch(() => ({}));
       const etag = String(j?.result?.etag ?? res.headers.get('etag') ?? '').replace(/"/g, '');
@@ -48,7 +53,7 @@ async function put(k) {
       ledger.write(JSON.stringify({ key, md5, size: body.length, etagVerified: !!etag }) + '\n');
       ok++; bytes += body.length; return;
     } catch (e) {
-      if (attempt === 6) { failed++; console.error(`FAILED ${key}: ${e.message}`); return; }
+      if (attempt === 10) { failed++; console.error(`FAILED ${key}: ${e.message}`); return; }
       await new Promise(r => setTimeout(r, 1000 * 2 ** attempt));
     }
   }

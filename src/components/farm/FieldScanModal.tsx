@@ -92,6 +92,8 @@ export function FieldScanModal({
   const [currentCentre, setCurrentCentre] = useState<[number, number]>(initialCentre);
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const scanRequestRef = useRef(0);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -120,6 +122,8 @@ export function FieldScanModal({
   }, [existingNameKeys, fieldNames, selectedCandidates, stage]);
 
   const scanAt = useCallback(async (target: [number, number]) => {
+    const request = ++scanRequestRef.current;
+    setScanning(true);
     setCurrentCentre(target);
     setOutcome(null);
     setSelectedIds(new Set());
@@ -129,26 +133,23 @@ export function FieldScanModal({
     setActiveNamingId(null);
     activeNamingRef.current = null;
     setSaveError(null);
+    setSearchError(null);
     try {
-      setOutcome(await scanCurrentFarmFieldsAction(target));
+      const result = await scanCurrentFarmFieldsAction(target);
+      if (request === scanRequestRef.current) setOutcome(result);
     } catch {
-      setOutcome({ status: "UNAVAILABLE", reason: "Public field boundaries could not be loaded just now. You can still draw a field manually." });
+      if (request === scanRequestRef.current) {
+        setOutcome({ status: "UNAVAILABLE", reason: "Public field boundaries could not be loaded just now. You can still draw a field manually." });
+      }
+    } finally {
+      if (request === scanRequestRef.current) setScanning(false);
     }
   }, []);
 
   useEffect(() => {
-    let alive = true;
-    scanCurrentFarmFieldsAction(initialCentre)
-      .then((result) => {
-        if (alive) setOutcome(result);
-      })
-      .catch(() => {
-        if (alive) setOutcome({ status: "UNAVAILABLE", reason: "Public field boundaries could not be loaded just now. You can still draw a field manually." });
-      });
-    return () => {
-      alive = false;
-    };
-  }, [initialCentre]);
+    void scanAt(initialCentre);
+    return () => { scanRequestRef.current += 1; };
+  }, [initialCentre, scanAt]);
 
   useEffect(() => {
     candidatesRef.current = candidates;
@@ -273,6 +274,8 @@ export function FieldScanModal({
       setSearchQuery(result.value.eircode);
       mapRef.current?.flyTo({ center: result.value.center, zoom: 15.3, duration: 450 });
       await scanAt(result.value.center);
+    } catch {
+      setSearchError("Eircode lookup is temporarily unavailable. Try again or move the map and scan this area.");
     } finally {
       setSearching(false);
     }
@@ -374,7 +377,7 @@ export function FieldScanModal({
               <input
                 id="field-scan-eircode"
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={(event) => { setSearchQuery(event.target.value); setSearchError(null); }}
                 placeholder="Search Eircode"
                 autoComplete="postal-code"
                 className="min-w-0 flex-1 bg-transparent px-2.5 text-sm text-white outline-none placeholder:text-white/55"
@@ -442,6 +445,22 @@ export function FieldScanModal({
             </>
           )}
 
+          {stage === "select" ? (
+            <button
+              type="button"
+              disabled={scanning || searching || !mapboxConfigured}
+              onClick={() => {
+                const map = mapRef.current;
+                if (!map) return;
+                const point = map.getCenter();
+                void scanAt([point.lng, point.lat]);
+              }}
+              className="mt-3 inline-flex min-h-11 items-center gap-2 border border-fr-v2-straw/60 bg-fr-v2-straw px-4 text-sm font-semibold text-fr-v2-forest-deep hover:bg-white disabled:cursor-wait disabled:opacity-60"
+            >
+              <ScanLine className="size-4" /> {scanning ? "Scanning…" : "Scan this area"}
+            </button>
+          ) : null}
+
           {stage === "select" && existingFields.length > 0 ? (
             <div className="mt-3 border-t border-white/10 pt-2.5">
               <p className="text-[11px] leading-snug text-white/60">{existingFields.length} already-mapped {existingFields.length === 1 ? "field is" : "fields are"} outlined in gold.</p>
@@ -492,7 +511,7 @@ export function FieldScanModal({
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => onDrawInstead(currentCentre)} className="min-h-11 border border-fr-v2-forest-deep/25 px-4 text-sm font-semibold text-fr-v2-forest-deep hover:bg-white/50">
+              <button type="button" onClick={() => { const point = mapRef.current?.getCenter(); onDrawInstead(point ? [point.lng, point.lat] : currentCentre); }} className="min-h-11 border border-fr-v2-forest-deep/25 px-4 text-sm font-semibold text-fr-v2-forest-deep hover:bg-white/50">
                 Draw field instead
               </button>
               <button

@@ -80,28 +80,41 @@ export async function lookupExactEircodeStep(input: string): Promise<OnboardingR
       return fail("We couldn't look up that Eircode just now. Check it and try again.");
     }
 
-    const body = (await response.json()) as {
-      status?: string;
-      results?: Array<{
-        formatted_address?: string;
-        address_components?: Array<{ long_name?: string; short_name?: string; types?: string[] }>;
-        geometry?: { location?: { lat?: number; lng?: number } };
-      }>;
+    type GoogleResult = {
+      formatted_address?: string;
+      address_components?: Array<{ long_name?: string; short_name?: string; types?: string[] }>;
+      geometry?: { location?: { lat?: number; lng?: number } };
     };
-
-    if (body.status !== "OK" || !body.results?.length) {
-      return fail("We couldn't find an exact match for that Eircode. Check it and try again.");
-    }
-
-    const exact = body.results.find((result) => {
+    const body = (await response.json()) as { status?: string; results?: GoogleResult[] };
+    const matchesEircode = (result: GoogleResult) => {
       const postal = result.address_components?.find((part) => part.types?.includes("postal_code"));
-      return normaliseEircode(postal?.long_name ?? postal?.short_name ?? "") === eircode;
-    });
-
+      if (postal) return normaliseEircode(postal.long_name ?? postal.short_name ?? "") === eircode;
+      // Some Irish Eircode responses omit the postal_code component but
+      // include the complete seven-character code in formatted_address.
+      const compactAddress = (result.formatted_address ?? "").toUpperCase().replace(/\s+/g, "");
+      const compactEircode = eircode.replace(/\s+/g, "");
+      return new RegExp(`(^|[^A-Z0-9])${compactEircode}($|[^A-Z0-9])`).test(compactAddress);
+    };
+    let exact = body.results?.find(matchesEircode);
+    // Google sometimes fails its postal-code component filter for individual Irish
+    // Eircodes, even when a normal address query resolves that same Eircode.
+    // Retry as an address but still require an exact postal-code match: never
+    // silently move the farmer to a town or routing-key centroid.
+    if (!exact) {
+      const fallbackUrl = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+      fallbackUrl.searchParams.set("address", `${eircode}, Ireland`);
+      fallbackUrl.searchParams.set("components", "country:IE");
+      fallbackUrl.searchParams.set("key", apiKey);
+      const fallbackResponse = await fetch(fallbackUrl, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
+      if (fallbackResponse.ok) {
+        const fallback = (await fallbackResponse.json()) as { results?: GoogleResult[] };
+        exact = fallback.results?.find(matchesEircode);
+      }
+    }
     const latitude = exact?.geometry?.location?.lat;
     const longitude = exact?.geometry?.location?.lng;
     if (!exact || !Number.isFinite(latitude) || !Number.isFinite(longitude) || !isIrishPoint(longitude, latitude)) {
-      return fail("We couldn't find an exact match for that Eircode. Check it and try again.");
+      return fail("We couldn't verify this exact Eircode. Try again or move the map to the farm and select Scan this area.");
     }
 
     return {

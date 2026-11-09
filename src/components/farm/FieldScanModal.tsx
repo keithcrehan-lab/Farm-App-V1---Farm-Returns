@@ -120,6 +120,18 @@ export function FieldScanModal({
     }
     return null;
   }, [existingNameKeys, fieldNames, selectedCandidates, stage]);
+  // Which selected fields have a clashing name, so the one-at-a-time mobile
+  // card can point the farmer at them instead of only naming the clash.
+  const conflictIndexes = useMemo(() => {
+    const byKey = new Map<string, number[]>();
+    selectedCandidates.forEach((candidate, index) => {
+      const key = (fieldNames[candidate.id] ?? "").trim().toLocaleLowerCase();
+      if (key) byKey.set(key, [...(byKey.get(key) ?? []), index]);
+    });
+    const out = new Set<number>();
+    for (const [key, indexes] of byKey) if (indexes.length > 1 || existingNameKeys.has(key)) indexes.forEach((i) => out.add(i));
+    return out;
+  }, [existingNameKeys, fieldNames, selectedCandidates]);
 
   const scanAt = useCallback(async (target: [number, number]) => {
     const request = ++scanRequestRef.current;
@@ -403,7 +415,13 @@ export function FieldScanModal({
                 const candidate = selectedCandidates[index];
                 if (!candidate) return null;
                 const isLast = index === selectedCandidates.length - 1;
-                const go = (next: number) => focusNamingCandidate(selectedCandidates[next]);
+                // Block leaving a field while its name duplicates another, so a
+                // clash is fixed where it is typed rather than discovered later.
+                const ownKey = (fieldNames[candidate.id] ?? "").trim().toLocaleLowerCase();
+                const clashWith = ownKey ? selectedCandidates.findIndex((other, i) => i !== index && (fieldNames[other.id] ?? "").trim().toLocaleLowerCase() === ownKey) : -1;
+                const clashExisting = ownKey ? existingNameKeys.has(ownKey) : false;
+                const blocked = clashWith >= 0 || clashExisting;
+                const go = (next: number) => { if (!blocked) focusNamingCandidate(selectedCandidates[next]); };
                 return (
                   <div className="sm:hidden">
                     <div className="flex items-center justify-between gap-3">
@@ -421,26 +439,56 @@ export function FieldScanModal({
                       maxLength={80}
                       autoComplete="off"
                       placeholder="Name this field, e.g. House Field"
-                      className="mt-2 min-h-11 w-full border border-white/20 bg-white/[0.06] px-3 text-[16px] text-white outline-none placeholder:text-white/35 focus:border-fr-v2-straw"
+                      aria-invalid={blocked}
+                      className={`mt-2 min-h-11 w-full border bg-white/[0.06] px-3 text-[16px] text-white outline-none placeholder:text-white/35 ${blocked ? "border-fr-v2-clay-tint" : "border-white/20 focus:border-fr-v2-straw"}`}
                     />
+                    {blocked ? (
+                      <p className="mt-1.5 text-xs leading-snug text-fr-v2-clay-tint" role="alert">
+                        {clashWith >= 0 ? `Already used for Field ${clashWith + 1}. Choose a different name.` : "Already used by a field on this farm. Choose a different name."}
+                      </p>
+                    ) : null}
                     <div className="mt-2 flex items-center justify-between gap-2">
-                      <button type="button" onClick={() => go(index - 1)} disabled={index === 0} className="inline-flex min-h-10 items-center gap-1.5 px-1 text-xs font-semibold text-white/75 disabled:opacity-30">
+                      <button type="button" onClick={() => go(index - 1)} disabled={index === 0 || blocked} className="inline-flex min-h-10 items-center gap-1.5 px-1 text-xs font-semibold text-white/75 disabled:opacity-30">
                         <ArrowLeft className="size-3.5" /> Previous
                       </button>
-                      <div className="flex gap-1.5" aria-hidden="true">
+                      <div className="flex min-w-0 flex-1 flex-wrap justify-center">
                         {selectedCandidates.map((item, dot) => (
-                          <span key={item.id} className={`size-1.5 rounded-full ${dot === index ? "bg-fr-v2-straw" : (fieldNames[item.id] ?? "").trim() ? "bg-white/60" : "bg-white/20"}`} />
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => go(dot)}
+                            aria-label={`Go to field ${dot + 1}`}
+                            className="flex size-4 items-center justify-center"
+                          >
+                            <span className={`rounded-full ${dot === index ? "size-2 bg-fr-v2-straw" : conflictIndexes.has(dot) ? "size-2 bg-fr-v2-clay-tint" : (fieldNames[item.id] ?? "").trim() ? "size-1.5 bg-white/60" : "size-1.5 bg-white/20"}`} />
+                          </button>
                         ))}
                       </div>
                       {isLast ? (
                         <span className="min-h-10 px-1 py-3 text-xs text-white/55">Then save below</span>
                       ) : (
-                        <button type="button" onClick={() => go(index + 1)} className="inline-flex min-h-10 items-center gap-1.5 border border-fr-v2-straw/60 px-3 text-xs font-semibold text-fr-v2-straw">
+                        <button type="button" onClick={() => go(index + 1)} disabled={blocked} className="inline-flex min-h-10 items-center gap-1.5 border border-fr-v2-straw/60 px-3 text-xs font-semibold text-fr-v2-straw disabled:opacity-30">
                           Next field <ArrowLeft className="size-3.5 rotate-180" />
                         </button>
                       )}
                     </div>
-                    {namingIssue ? <p className="mt-2 text-xs leading-snug text-fr-v2-clay-tint">{namingIssue}</p> : null}
+                    {namingIssue && !blocked ? (() => {
+                      const others = [...conflictIndexes].filter((i) => i !== index);
+                      const fieldList = [...conflictIndexes].map((i) => i + 1).join(" & ");
+                      return (
+                        <div className="mt-2 flex items-start justify-between gap-3">
+                          <p className="text-xs leading-snug text-fr-v2-clay-tint">
+                            {namingIssue}
+                            {conflictIndexes.size > 1 ? ` Field ${fieldList} — rename one.` : conflictIndexes.size === 1 ? ` Field ${fieldList} — choose a different name.` : ""}
+                          </p>
+                          {others.length > 0 ? (
+                            <button type="button" onClick={() => go(others[0])} className="shrink-0 min-h-9 border border-fr-v2-clay-tint/60 px-2.5 text-xs font-semibold text-fr-v2-clay-tint">
+                              Go to field {others[0] + 1}
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })() : null}
                   </div>
                 );
               })()}

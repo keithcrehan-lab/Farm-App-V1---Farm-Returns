@@ -555,95 +555,39 @@ export function MapHero({
       silage: "#8BA23A",
     };
 
-    // Grass and other detail-rich lenses can put two lines beside every
-    // field pin. On compact farms those labels can share almost the same
-    // screen y-coordinate, making the map unreadable. Keep the actual pin
-    // anchored to the real field centroid, but vertically stagger only the
-    // text stacks that would collide. This is derived from projected screen
-    // positions, not field names or farm-specific hard-coded offsets.
-    const detailLabelShiftByField = new Map<string, number>();
-    if (compactNeighbourLabels && neighbourNameLabels && neighbourDetailLabels && typeof map.project === "function") {
-      const candidates = mappedFields
-        .filter((field) => field.id !== selectedFieldId)
-        .map((field) => {
-          const point = map.project(field.centroid as [number, number]);
-          return { id: field.id, x: point.x, y: point.y };
-        })
-        .sort((a, b) => a.y - b.y);
-
-      const flushCluster = (cluster: typeof candidates) => {
-        if (cluster.length < 2) {
-          if (cluster[0]) detailLabelShiftByField.set(cluster[0].id, 0);
-          return;
-        }
-        const centreY = cluster.reduce((sum, item) => sum + item.y, 0) / cluster.length;
-        const spacing = 38;
-        cluster.forEach((item, index) => {
-          const targetY = centreY + (index - (cluster.length - 1) / 2) * spacing;
-          const shift = Math.max(-44, Math.min(44, targetY - item.y));
-          detailLabelShiftByField.set(item.id, Math.round(shift));
-        });
-      };
-
-      let cluster: typeof candidates = [];
-      for (const candidate of candidates) {
-        const previous = cluster[cluster.length - 1];
-        if (!previous || (Math.abs(candidate.y - previous.y) < 40 && Math.abs(candidate.x - previous.x) < 280)) {
-          cluster.push(candidate);
-        } else {
-          flushCluster(cluster);
-          cluster = [candidate];
-        }
-      }
-      flushCluster(cluster);
-    }
+    // Label placement (collision-free). Every pin stays exactly on its field
+    // centroid. Each label is placed beside its own pin in the first free
+    // slot (right, left, above, below, then staggered right/left) so labels
+    // never overlap one another, any pin, or the map edge. A label with no
+    // free slot is hidden until the farmer zooms in; its pin, tap target and
+    // accessible name stay. Placement re-runs whenever the camera moves.
+    type LabelLayoutItem = { lngLat: [number, number]; pinRadius: number; label: HTMLElement | null; priority: number };
+    const layoutItems: LabelLayoutItem[] = [];
 
     markersRef.current = mappedFields.map((field) => {
       const tone = getTone(field);
       const selected = field.id === selectedFieldId;
-      // Today Control Room V1 — real category-focus membership only
-      // (never a colour change: `tone` above is untouched either way,
-      // so a highlighted field's marker never implies it has been
-      // individually priority-ranked). A genuinely unrelated field
-      // softens slightly while a focus is active, matching the
-      // boundary treatment above.
+      // Real category-focus membership only (never a colour change).
       const highlighted = Boolean(highlightedFieldIds?.includes(field.id));
       const dimmed = Boolean(highlightedFieldIds && highlightedFieldIds.length > 0 && dimUnhighlighted && !highlighted && !selected);
       const statusLabel = getStatusLabel?.(field);
       const shortName = field.name.replace(" Field", "");
 
-      // Strict Visual Reproduction phase (2026-09-03): media/image2.png's
-      // own real pin marks a place with a colour-coded pin on one side
-      // and a two-line bold-status/secondary-context label beside it
-      // (horizontal pairing) — not a caption stacked underneath a dot
-      // (the prior, composition-only interpretation). anchor: "left"
-      // puts the real lng/lat at the pin's own left edge/vertical
-      // centre, a small (~half the pin's own width) approximation in
-      // exchange for a true horizontal pin+label reading, same
-      // real-world precision tradeoff any icon-based map pin makes.
+      // The marker root is exactly the pin; the label is positioned
+      // absolutely from the pin centre by `layoutLabels` below.
       const el = document.createElement("button");
       el.type = "button";
       el.setAttribute("aria-label", statusLabel ? `${field.name} — ${statusLabel}` : field.name);
-      el.className = "flex items-center gap-1.5 transition-transform";
-      // Codex audit round 6 (Strict Visual Reproduction, Field detail):
-      // the selected marker "resembles the neighbouring status-marker
-      // system" — a bigger scale step (was 1.15) gives it the same kind
-      // of clear focal presence image3's own central selected marker has,
-      // without fabricating a field number this app has no real data for.
-      if (selected) el.style.transform = selectionColor ? "scale(1.15)" : "scale(1.35)";
-      // Today Control Room V1 — dimmed markers stay fully present (never
-      // `display: none`/removed) and still clickable, just visually
-      // secondary while a category is focused.
+      el.className = "relative block";
+      // Dimmed markers stay present and clickable, just visually secondary.
       if (dimmed) el.style.opacity = "0.45";
 
-      // Codex audit round 1 (Strict Visual Reproduction): "field markers
-      // use small circular dots... they read more like map captions than
-      // anchored places" — a real teardrop/pointer silhouette (the
-      // classic rotated-square CSS pin) instead of a plain circle, its
-      // own point aligned to the marker's anchor edge.
       const quietNeighbour = compactNeighbourLabels && neighbourNameLabels && !selected;
+      const pinSize = quietNeighbour ? 18 : 26;
+      const pinScale = selected ? (selectionColor ? 1.15 : 1.35) : 1;
       const pin = document.createElement("span");
       pin.className = cn("relative block shrink-0", quietNeighbour ? "size-[18px]" : "size-[26px]");
+      if (pinScale !== 1) pin.style.transform = `scale(${pinScale})`;
       const pinShape = document.createElement("span");
       pinShape.className = "absolute inset-0 rounded-tl-full rounded-tr-full rounded-bl-full border-[2px] border-white shadow-md";
       pinShape.style.backgroundColor = selected && selectionColor ? selectionColor : (markerAccentColor ?? toneBg[tone]);
@@ -651,6 +595,8 @@ export function MapHero({
       pin.appendChild(pinShape);
       el.appendChild(pin);
 
+      const textShadow = "0 1px 2px rgba(0,0,0,0.85), 0 0 6px rgba(0,0,0,0.45)";
+      let labelEl: HTMLElement | null = null;
       if (selected && selectionColor) {
         // Straw selection: the name as bare text beside a straw pin.
         const name = document.createElement("span");
@@ -658,55 +604,148 @@ export function MapHero({
         name.style.color = selectionColor;
         name.style.textShadow = "0 1px 2px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.5)";
         name.textContent = shortName;
-        el.appendChild(name);
+        labelEl = name;
       } else if (!compactNeighbourLabels || selected) {
         const label = document.createElement("span");
         label.className = cn(
-          "flex flex-col items-start rounded-lg px-2 py-1 text-left leading-tight shadow-sm",
+          "flex flex-col items-start whitespace-nowrap rounded-lg px-2 py-1 text-left leading-tight shadow-sm",
           selected ? "opacity-100" : "opacity-90",
         );
         label.style.backgroundColor = markerAccentColor ?? toneBg[tone];
+        const bold = document.createElement("span");
+        bold.className = "text-[11px] font-semibold text-white";
+        bold.textContent = statusLabel ?? shortName;
+        label.append(bold);
         if (statusLabel) {
-          const bold = document.createElement("span");
-          bold.className = "text-[11px] font-semibold text-white";
-          bold.textContent = statusLabel;
           const secondary = document.createElement("span");
           secondary.className = "text-[10px] text-white/80";
           secondary.textContent = shortName;
-          label.append(bold, secondary);
-        } else {
-          const bold = document.createElement("span");
-          bold.className = "text-[11px] font-semibold text-white";
-          bold.textContent = shortName;
-          label.append(bold);
+          label.append(secondary);
         }
-        el.appendChild(label);
+        labelEl = label;
       } else if (quietNeighbour) {
         const name = document.createElement("span");
         name.className = "whitespace-nowrap text-[12px] font-semibold leading-none text-white";
-        name.style.textShadow = "0 1px 2px rgba(0,0,0,0.85), 0 0 6px rgba(0,0,0,0.45)";
+        name.style.textShadow = textShadow;
         name.textContent = shortName;
         if (neighbourDetailLabels && statusLabel) {
           const stack = document.createElement("span");
           stack.className = "flex flex-col items-start gap-0.5";
-          const labelShift = detailLabelShiftByField.get(field.id) ?? 0;
-          if (labelShift !== 0) {
-            stack.style.transform = `translateY(${labelShift}px)`;
-          }
           const detail = document.createElement("span");
           detail.className = "whitespace-nowrap text-[11px] font-medium leading-none text-white/90 tabular-nums";
-          detail.style.textShadow = name.style.textShadow;
+          detail.style.textShadow = textShadow;
           detail.textContent = statusLabel;
           stack.append(name, detail);
-          el.appendChild(stack);
+          labelEl = stack;
         } else {
-          el.appendChild(name);
+          labelEl = name;
         }
       }
 
+      if (labelEl) {
+        labelEl.dataset.fieldLabel = field.id;
+        labelEl.style.position = "absolute";
+        labelEl.style.left = "50%";
+        labelEl.style.top = "50%";
+        labelEl.style.visibility = "hidden";
+        el.appendChild(labelEl);
+      }
+      layoutItems.push({
+        lngLat: field.centroid as [number, number],
+        pinRadius: (pinSize * pinScale) / 2 + 1,
+        label: labelEl,
+        priority: selected ? 0 : highlighted ? 1 : 2,
+      });
+
       if (onSelectField) el.addEventListener("click", () => onSelectField(field.id));
-      return new mapboxgl.Marker({ element: el, anchor: "left" }).setLngLat(field.centroid).addTo(map);
+      return new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat(field.centroid).addTo(map);
     });
+
+    const layoutLabels = () => {
+      const labelled = layoutItems.filter((item) => item.label);
+      if (typeof map.project !== "function") {
+        labelled.forEach((item) => { item.label!.style.visibility = "visible"; });
+        return;
+      }
+      const container = typeof map.getContainer === "function" ? map.getContainer() : undefined;
+      const width = container?.clientWidth ?? 0;
+      const height = container?.clientHeight ?? 0;
+      const EDGE = 4;
+      const GAP = 5;
+      const PAD = 3;
+      type Box = { x: number; y: number; w: number; h: number };
+      const overlaps = (a: Box, b: Box) =>
+        a.x < b.x + b.w + PAD && b.x < a.x + a.w + PAD && a.y < b.y + b.h + PAD && b.y < a.y + a.h + PAD;
+
+      const projected = layoutItems.map((item) => {
+        const p = map.project(item.lngLat);
+        return { item, x: p.x, y: p.y };
+      });
+      // Every pin is an obstacle, so no label ever sits on top of a pin.
+      const taken: Box[] = projected.map(({ item, x, y }) => ({ x: x - item.pinRadius, y: y - item.pinRadius, w: item.pinRadius * 2, h: item.pinRadius * 2 }));
+      const cx = width / 2;
+      const cy = height / 2;
+      const order = projected
+        .filter(({ item }) => item.label)
+        .sort((a, b) => a.item.priority - b.item.priority || Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
+
+      for (const { item, x, y } of order) {
+        const label = item.label!;
+        const w = label.offsetWidth;
+        const h = label.offsetHeight;
+        if (!w || !h || !width || !height) {
+          // Not measurable (e.g. not laid out yet): show in the default slot.
+          label.style.transform = `translate(${item.pinRadius + GAP}px, -50%)`;
+          label.style.visibility = "visible";
+          continue;
+        }
+        const r = item.pinRadius;
+        const slots: Array<[number, number]> = [
+          [r + GAP, -h / 2], // right
+          [-r - GAP - w, -h / 2], // left
+          [-w / 2, -r - GAP - h], // above
+          [-w / 2, r + GAP], // below
+          [r + GAP, -r - h], // right, raised
+          [r + GAP, r], // right, lowered
+          [-r - GAP - w, -r - h], // left, raised
+          [-r - GAP - w, r], // left, lowered
+        ];
+        let placed = false;
+        for (const [dx, dy] of slots) {
+          const box = { x: x + dx, y: y + dy, w, h };
+          if (box.x < EDGE || box.y < EDGE || box.x + w > width - EDGE || box.y + h > height - EDGE) continue;
+          if (taken.some((other) => overlaps(other, box))) continue;
+          taken.push(box);
+          label.style.transform = `translate(${Math.round(dx)}px, ${Math.round(dy)}px)`;
+          label.style.visibility = "visible";
+          placed = true;
+          break;
+        }
+        if (!placed) label.style.visibility = "hidden";
+      }
+    };
+
+    let layoutFrame = 0;
+    const scheduleLayout = () => {
+      if (layoutFrame) return;
+      layoutFrame = requestAnimationFrame(() => {
+        layoutFrame = 0;
+        layoutLabels();
+      });
+    };
+    layoutLabels();
+    scheduleLayout(); // once more after fonts/styles settle
+    if (typeof map.on === "function") {
+      map.on("move", scheduleLayout);
+      map.on("resize", scheduleLayout);
+    }
+    return () => {
+      if (layoutFrame) cancelAnimationFrame(layoutFrame);
+      if (typeof map.off === "function") {
+        map.off("move", scheduleLayout);
+        map.off("resize", scheduleLayout);
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getTone/onSelectField are inline closures from the caller; re-running per render (rather than gating on a stable identity) is the correct behaviour here, not a bug — it's what keeps a Prompt-driven tone change reflected immediately.
   }, [fields, selectedFieldId, glowSelection, compactNeighbourLabels, neighbourNameLabels, neighbourDetailLabels, markerAccentColor, markerContentKey, highlightedFieldIds, dimUnhighlighted]);
 

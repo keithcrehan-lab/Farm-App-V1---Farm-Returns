@@ -153,7 +153,7 @@ describe("lookupExactEircodeStep", () => {
 
     expect(await lookupExactEircodeStep("V95 TY07")).toEqual({
       ok: false,
-      error: "We couldn't find an exact match for that Eircode. Check it and try again.",
+      error: "We couldn't verify this exact Eircode. Try again or move the map to the farm and select Scan this area.",
     });
   });
 });

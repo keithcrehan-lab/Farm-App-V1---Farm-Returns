@@ -307,7 +307,11 @@ export function FieldScanModal({
           [bounds[0], bounds[1]],
           [bounds[2], bounds[3]],
         ],
-        { padding: 120, maxZoom: 17, duration: 350 },
+        // On phones the naming card sits at the bottom of the map, so keep the
+        // focused boundary in the clear space above it.
+        typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches
+          ? { padding: { top: 32, right: 32, bottom: 190, left: 32 }, maxZoom: 17, duration: 350 }
+          : { padding: 120, maxZoom: 17, duration: 350 },
       );
     }
   }
@@ -390,9 +394,57 @@ export function FieldScanModal({
           </div>
         ) : null}
 
-        <aside className={`absolute left-3 z-10 w-[min(400px,calc(100%-1.5rem))] border-l-[3px] border-fr-v2-straw bg-fr-v2-forest-deep/95 px-4 py-3 text-white shadow-xl backdrop-blur sm:left-5 ${stage === "name" ? "top-3 max-h-[calc(100%-1.5rem)] overflow-y-auto sm:top-5" : "top-[74px] sm:top-[82px]"}`}>
+        <aside className={`absolute left-3 z-10 w-[min(400px,calc(100%-1.5rem))] border-l-[3px] border-fr-v2-straw bg-fr-v2-forest-deep/95 px-4 py-3 text-white shadow-xl backdrop-blur sm:left-5 ${stage === "name" ? "bottom-3 sm:bottom-auto sm:top-5 sm:max-h-[calc(100%-2.5rem)] sm:overflow-y-auto" : "top-[74px] sm:top-[82px]"}`}>
           {stage === "name" ? (
             <>
+              {/* Mobile: one field at a time in a compact card so the highlighted boundary stays visible above it. */}
+              {(() => {
+                const index = Math.max(0, selectedCandidates.findIndex((candidate) => candidate.id === activeNamingId));
+                const candidate = selectedCandidates[index];
+                if (!candidate) return null;
+                const isLast = index === selectedCandidates.length - 1;
+                const go = (next: number) => focusNamingCandidate(selectedCandidates[next]);
+                return (
+                  <div className="sm:hidden">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-fr-v2-straw">Field {index + 1} of {selectedCandidates.length}</p>
+                      <p className="font-mono text-[10px] tabular-nums text-white/60">{formatHa(candidate.areaHa)} · {namedCount}/{selectedCandidates.length} named</p>
+                    </div>
+                    <label htmlFor="field-scan-mobile-name" className="sr-only">Name field {index + 1}</label>
+                    <input
+                      id="field-scan-mobile-name"
+                      key={candidate.id}
+                      value={fieldNames[candidate.id] ?? ""}
+                      onChange={(event) => setFieldNames((current) => ({ ...current, [candidate.id]: event.target.value }))}
+                      onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); if (isLast) (event.target as HTMLInputElement).blur(); else go(index + 1); } }}
+                      enterKeyHint={isLast ? "done" : "next"}
+                      maxLength={80}
+                      autoComplete="off"
+                      placeholder="Name this field, e.g. House Field"
+                      className="mt-2 min-h-11 w-full border border-white/20 bg-white/[0.06] px-3 text-[16px] text-white outline-none placeholder:text-white/35 focus:border-fr-v2-straw"
+                    />
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <button type="button" onClick={() => go(index - 1)} disabled={index === 0} className="inline-flex min-h-10 items-center gap-1.5 px-1 text-xs font-semibold text-white/75 disabled:opacity-30">
+                        <ArrowLeft className="size-3.5" /> Previous
+                      </button>
+                      <div className="flex gap-1.5" aria-hidden="true">
+                        {selectedCandidates.map((item, dot) => (
+                          <span key={item.id} className={`size-1.5 rounded-full ${dot === index ? "bg-fr-v2-straw" : (fieldNames[item.id] ?? "").trim() ? "bg-white/60" : "bg-white/20"}`} />
+                        ))}
+                      </div>
+                      {isLast ? (
+                        <span className="min-h-10 px-1 py-3 text-xs text-white/55">Then save below</span>
+                      ) : (
+                        <button type="button" onClick={() => go(index + 1)} className="inline-flex min-h-10 items-center gap-1.5 border border-fr-v2-straw/60 px-3 text-xs font-semibold text-fr-v2-straw">
+                          Next field <ArrowLeft className="size-3.5 rotate-180" />
+                        </button>
+                      )}
+                    </div>
+                    {namingIssue ? <p className="mt-2 text-xs leading-snug text-fr-v2-clay-tint">{namingIssue}</p> : null}
+                  </div>
+                );
+              })()}
+              <div className="hidden sm:block">
               <button type="button" onClick={backToSelection} className="mb-3 inline-flex min-h-9 items-center gap-1.5 text-xs font-semibold text-white/70 hover:text-white">
                 <ArrowLeft className="size-3.5" /> Back to field selection
               </button>
@@ -425,6 +477,7 @@ export function FieldScanModal({
                 ))}
               </div>
               {namingIssue ? <p className="mt-3 text-xs leading-snug text-fr-v2-clay-tint">{namingIssue}</p> : null}
+              </div>
             </>
           ) : outcome === null ? (
             <>

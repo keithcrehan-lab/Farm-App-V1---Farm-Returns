@@ -1,7 +1,8 @@
 "use client";
 
+import { useId, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Leaf } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Leaf } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { DEFAULT_GRASS_PRESENTATION_TARGETS } from "@/domain/grass-management";
@@ -34,62 +35,137 @@ function Outlook({ days, value }: { days: number; value?: number }) {
   );
 }
 
+const BANDS = [
+  { key: "low", label: "Low", short: "Low", color: "#D98324" },
+  { key: "target", label: "Target", short: "Target", color: "#8BA23A" },
+  { key: "above", label: "Above target", short: "Above", color: "#2E7D4F" },
+  { key: "surplus", label: "Surplus", short: "Surplus", color: "#2563AC" },
+  { key: "unknown", label: "Unknown", short: "No data", color: "#98A2B3" },
+] as const;
+
+/**
+ * Grass lens overlay on the Farm map.
+ *
+ * Phone: one compact strip (three headline numbers + a slim colour key) so
+ * the fields stay visible. Tapping it expands the full ranges, outlook and
+ * the link into Grass. Desktop (lg+) always shows the expanded layout.
+ * A single DOM tree is used for both, so nothing is duplicated for
+ * assistive tech or tests.
+ */
 export function FarmGrassMapOverlay({ summary }: { summary: FarmGrassMapSummary }) {
   const target = DEFAULT_GRASS_PRESENTATION_TARGETS;
+  const [expanded, setExpanded] = useState(false);
+  const detailsId = useId();
+  const ranges: Record<(typeof BANDS)[number]["key"], string> = {
+    low: `< ${formatNumber(target.targetMinKgDmHa, 0)}`,
+    target: `${formatNumber(target.targetMinKgDmHa, 0)}–${formatNumber(target.targetMaxKgDmHa, 0)}`,
+    above: `${formatNumber(target.targetMaxKgDmHa, 0)}–${formatNumber(target.surplusFromKgDmHa, 0)}`,
+    surplus: `≥ ${formatNumber(target.surplusFromKgDmHa, 0)}`,
+    unknown: "No reading",
+  };
+
   return (
-    <div className="grid max-w-[560px] gap-3 lg:grid-cols-[210px_minmax(0,1fr)]" data-grass-map-overlay>
-      <section className="rounded-[12px] border border-white/15 bg-fr-v2-forest-deep/88 p-3.5 text-white shadow-[0_12px_30px_rgba(0,0,0,0.24)] backdrop-blur-md">
+    <div className="grid max-w-[560px] gap-3 lg:grid-cols-[210px_minmax(0,1fr)]" data-grass-map-overlay data-expanded={expanded || undefined}>
+      {/* Full legend with ranges: desktop always, phone only when expanded. */}
+      <section
+        className={cn(
+          "order-2 rounded-[12px] border border-white/15 bg-fr-v2-forest-deep/88 p-3.5 text-white shadow-[0_12px_30px_rgba(0,0,0,0.24)] backdrop-blur-md lg:order-none",
+          !expanded && "max-lg:hidden",
+        )}
+        id={`${detailsId}-legend`}
+      >
         <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.15em] text-white/60">Grass status · kg DM/ha</p>
         <div className="mt-3 space-y-2 text-[11px]">
-          <LegendRow swatch="border-[#D98324] bg-[#D98324]/20" label="Low" value={`< ${formatNumber(target.targetMinKgDmHa, 0)}`} />
-          <LegendRow swatch="border-[#8BA23A] bg-[#8BA23A]/20" label="Target" value={`${formatNumber(target.targetMinKgDmHa, 0)}–${formatNumber(target.targetMaxKgDmHa, 0)}`} />
-          <LegendRow swatch="border-[#2E7D4F] bg-[#2E7D4F]/20" label="Above target" value={`${formatNumber(target.targetMaxKgDmHa, 0)}–${formatNumber(target.surplusFromKgDmHa, 0)}`} />
-          <LegendRow swatch="border-[#2563AC] bg-[#2563AC]/20" label="Surplus" value={`≥ ${formatNumber(target.surplusFromKgDmHa, 0)}`} />
-          <LegendRow swatch="border-[#98A2B3] bg-[#98A2B3]/15" label="Unknown" value="No reading" />
+          {BANDS.map((band) => (
+            <LegendRow key={band.key} color={band.color} label={band.label} value={ranges[band.key]} />
+          ))}
         </div>
       </section>
 
-      <section className="rounded-[12px] border border-white/15 bg-fr-v2-forest-deep/92 p-4 text-white shadow-[0_12px_30px_rgba(0,0,0,0.26)] backdrop-blur-md">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Leaf className="size-4 text-fr-v2-straw" />
-            <p className="text-sm font-semibold">Grass summary</p>
+      <section className="order-1 rounded-[14px] border border-white/15 bg-fr-v2-forest-deep/92 text-white shadow-[0_12px_30px_rgba(0,0,0,0.26)] backdrop-blur-md lg:order-none lg:rounded-[12px] lg:p-4">
+        {/* Phone header doubles as the expand toggle. */}
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          aria-controls={`${detailsId}-details ${detailsId}-legend`}
+          className="flex w-full items-center gap-3 px-3.5 pb-2 pt-3 text-left lg:hidden"
+        >
+          <Leaf className="size-4 shrink-0 text-fr-v2-straw" aria-hidden />
+          <div className="grid min-w-0 flex-1 grid-cols-3 gap-2">
+            <CompactMetric label="Cover" value={summary.averageCoverKgDmHa} unit="kg DM/ha" />
+            <CompactMetric label="Growth" value={summary.growthRateKgDmHaDay} unit="/day" />
+            <CompactMetric label="Demand" value={summary.animalDemandKgDmDay} unit="kg/day" />
           </div>
-          <p className="text-[10.5px] text-white/55">
-            {summary.lastWalkAt ? `Last walk · ${dateLabel(summary.lastWalkAt)}` : "No grass walk yet"}
+          <ChevronDown className={cn("size-4 shrink-0 text-white/60 transition-transform motion-reduce:transition-none", expanded && "rotate-180")} aria-hidden />
+          <span className="sr-only">{expanded ? "Hide grass details" : "Show grass details"}</span>
+        </button>
+
+        {/* Slim colour key: phone only, always visible so map colours make sense. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-white/10 px-3.5 py-2 text-[10px] text-white/70 lg:hidden" aria-hidden={expanded}>
+          {BANDS.map((band) => (
+            <span key={band.key} className="inline-flex items-center gap-1">
+              <span className="size-2 rounded-full" style={{ backgroundColor: band.color }} />
+              {band.short}
+            </span>
+          ))}
+        </div>
+
+        {/* Detail block: desktop always, phone only when expanded. */}
+        <div id={`${detailsId}-details`} className={cn("max-lg:border-t max-lg:border-white/10 max-lg:px-3.5 max-lg:pb-3 max-lg:pt-3", !expanded && "max-lg:hidden")}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-2 max-lg:hidden">
+              <Leaf className="size-4 text-fr-v2-straw" />
+              <p className="text-sm font-semibold">Grass summary</p>
+            </div>
+            <p className="text-[10.5px] text-white/55">
+              {summary.lastWalkAt ? `Last walk · ${dateLabel(summary.lastWalkAt)}` : "No grass walk yet"}
+            </p>
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 divide-x divide-white/10 max-lg:hidden">
+            <Metric label="Average cover" value={summary.averageCoverKgDmHa} unit="kg DM/ha" />
+            <Metric label="Growth" value={summary.growthRateKgDmHaDay} unit="kg DM/ha/day" className="pl-4" />
+            <Metric label="Animal demand" value={summary.animalDemandKgDmDay} unit="kg DM/day" className="pl-4" />
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-[11px] lg:mt-4 lg:border-t lg:border-white/10 lg:pt-3">
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <Outlook days={3} value={summary.outlook3Pct} />
+              <Outlook days={7} value={summary.outlook7Pct} />
+            </div>
+            <Link href="/grass" className="inline-flex min-h-9 items-center gap-1 font-semibold text-white/80 underline decoration-white/25 underline-offset-2 hover:text-white lg:min-h-0">
+              Open Grass <ArrowUpRight className="size-3" />
+            </Link>
+          </div>
+          <p className="mt-2 text-[10px] leading-snug text-white/48">
+            {summary.knownFieldCount} of {summary.totalFieldCount} fields have grass ground truth
+            {summary.forecastLabel ? ` · ${summary.forecastLabel}` : ""}.
           </p>
         </div>
-
-        <div className="mt-4 grid grid-cols-3 divide-x divide-white/10">
-          <Metric label="Average cover" value={summary.averageCoverKgDmHa} unit="kg DM/ha" />
-          <Metric label="Growth" value={summary.growthRateKgDmHaDay} unit="kg DM/ha/day" className="pl-4" />
-          <Metric label="Animal demand" value={summary.animalDemandKgDmDay} unit="kg DM/day" className="pl-4" />
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-white/10 pt-3 text-[11px]">
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <Outlook days={3} value={summary.outlook3Pct} />
-            <Outlook days={7} value={summary.outlook7Pct} />
-          </div>
-          <Link href="/grass" className="inline-flex items-center gap-1 font-semibold text-white/80 underline decoration-white/25 underline-offset-2 hover:text-white">
-            Open Grass <ArrowUpRight className="size-3" />
-          </Link>
-        </div>
-        <p className="mt-2 text-[10px] leading-snug text-white/48">
-          {summary.knownFieldCount} of {summary.totalFieldCount} fields have grass ground truth
-          {summary.forecastLabel ? ` · ${summary.forecastLabel}` : ""}.
-        </p>
       </section>
     </div>
   );
 }
 
-function LegendRow({ swatch, label, value }: { swatch: string; label: string; value: string }) {
+function LegendRow({ color, label, value }: { color: string; label: string; value: string }) {
   return (
     <div className="grid grid-cols-[18px_1fr_auto] items-center gap-2">
-      <span aria-hidden className={cn("h-3.5 rounded-[3px] border", swatch)} />
+      <span aria-hidden className="h-3.5 rounded-[3px] border" style={{ borderColor: color, backgroundColor: `${color}33` }} />
       <span className="font-semibold text-white/88">{label}</span>
       <span className="font-mono tabular-nums text-white/56">{value}</span>
+    </div>
+  );
+}
+
+function CompactMetric({ label, value, unit }: { label: string; value?: number; unit: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-white/50">{label}</p>
+      <p className="mt-0.5 truncate font-display text-[18px] leading-none tabular-nums text-white">
+        {value === undefined ? "—" : formatNumber(value, 0)}
+        <span className="ml-1 font-sans text-[9px] font-normal text-white/50">{unit}</span>
+      </p>
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { REGIONAL_GROWTH_COLUMNS, toRegionalRow, type RegionalGrowthRow } from "@/lib/farm-data/regional-grass-growth";
-import { extractLatestMostBatch, type ExtractionOutcome } from "@/server/teagasc/most-growth";
+import { extractLatestMostBatch, locateMostMap, normaliseCounty, TEAGASC_GRASS_PAGE, type ExtractionOutcome, type MostMapLocation } from "@/server/teagasc/most-growth";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -68,5 +68,72 @@ export async function reviewGrowthBatchAction(
   } catch (err) {
     console.error("[Regional growth] review failed", err);
     return { ok: false, error: "Couldn't save the review. Try again." };
+  }
+}
+
+export type LatestMapView = { status: "forbidden" } | { status: "ok"; map: MostMapLocation | null; reason?: string };
+
+/** Finds this week's MoSt map on the Teagasc page (no AI involved). */
+export async function getLatestMostMapAction(): Promise<LatestMapView> {
+  const admin = await adminClient();
+  if (!admin) return { status: "forbidden" };
+  try {
+    const page = await fetch(TEAGASC_GRASS_PAGE, { headers: { "user-agent": "FarmReturn/1.0" }, signal: AbortSignal.timeout(20_000), cache: "no-store" });
+    if (!page.ok) return { status: "ok", map: null, reason: `The Teagasc page returned HTTP ${page.status}.` };
+    const map = locateMostMap(await page.text());
+    return map ? { status: "ok", map } : { status: "ok", map: null, reason: "Couldn't find the MoSt map or its date on the Teagasc page. The layout may have changed." };
+  } catch {
+    return { status: "ok", map: null, reason: "Couldn't reach the Teagasc page just now." };
+  }
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Publishes county figures typed in by an admin from the map. */
+export async function publishManualGrowthAction(input: {
+  validFrom: string;
+  validTo: string;
+  imageUrl: string;
+  caption: string;
+  figures: Array<{ county: string; growth: number }>;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const admin = await adminClient();
+  if (!admin) return { ok: false, error: "Admins only." };
+  if (!input || !ISO_DATE.test(input.validFrom) || !ISO_DATE.test(input.validTo) || input.validTo < input.validFrom) return { ok: false, error: "The map's week couldn't be read." };
+  if (!Array.isArray(input.figures) || !input.figures.length || input.figures.length > 40) return { ok: false, error: "Type at least one county's figure." };
+  const seen = new Set<string>();
+  for (const f of input.figures) {
+    const county = normaliseCounty(f.county);
+    if (!county || seen.has(county)) return { ok: false, error: `Check the county "${f.county}".` };
+    if (!Number.isFinite(f.growth) || f.growth < 0 || f.growth > 200) return { ok: false, error: `${county}: figures must be between 0 and 200 kg DM/ha/day.` };
+    seen.add(county);
+  }
+  try {
+    const existing = await admin.supabase.from("regional_grass_growth").select("id").eq("valid_from", input.validFrom).neq("status", "rejected").limit(1).maybeSingle();
+    if (existing.error) throw existing.error;
+    if (existing.data) return { ok: false, error: "Figures for this week are already published." };
+    const batchId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const { error } = await admin.supabase.from("regional_grass_growth").insert(input.figures.map((f) => ({
+      batch_id: batchId,
+      county: normaliseCounty(f.county),
+      growth_kg_dm_ha_day: Math.round(f.growth * 10) / 10,
+      confidence: "high",
+      valid_from: input.validFrom,
+      valid_to: input.validTo,
+      status: "approved",
+      source_url: TEAGASC_GRASS_PAGE,
+      image_url: typeof input.imageUrl === "string" && input.imageUrl.startsWith("https://") ? input.imageUrl.slice(0, 500) : null,
+      caption: typeof input.caption === "string" ? input.caption.slice(0, 300) : null,
+      reviewed_at: now,
+      reviewed_by: admin.userId,
+    })));
+    if (error) throw error;
+    revalidatePath("/grass");
+    revalidatePath("/today");
+    return { ok: true };
+  } catch (err) {
+    console.error("[Regional growth] manual publish failed", err);
+    return { ok: false, error: "Couldn't publish just now. Try again." };
   }
 }

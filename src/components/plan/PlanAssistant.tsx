@@ -21,6 +21,7 @@ import { buildFarmSlurryForecast } from "@/domain/slurry-storage-forecast";
 import { buildGrassFieldState, latestGrassGrowthObservation, latestGrassObservationByField } from "@/domain/grass-management";
 import { getGrassManagementDataAction, type GrassManagementData } from "@/app/actions/grass-management";
 import { loadScepForPlanAction } from "@/app/actions/scheme-plan";
+import { getRecordGapsAction } from "@/app/actions/farm-records";
 import { listRecommendationStatesAction, setRecommendationStateAction } from "@/app/actions/recommendations";
 import type { PlanAssistantContext } from "@/components/plan/FarmCalendar";
 
@@ -51,6 +52,7 @@ export function PlanAssistant({ ctx, farmId, county, fields, prompts, milestones
   const [error, setError] = useState("");
   const [grass, setGrass] = useState<{ data: Extract<GrassManagementData, { status: "ok" }>; asOf: string } | null>(null);
   const [scep, setScep] = useState<{ name: string; actions: SchemeActionLike[] } | null>(null);
+  const [recordGaps, setRecordGaps] = useState<PlanningContext["recordGaps"]>(undefined);
 
   useEffect(() => {
     if (!signedIn) return;
@@ -58,6 +60,7 @@ export function PlanAssistant({ ctx, farmId, county, fields, prompts, milestones
     void listRecommendationStatesAction().then((r) => { if (live && r.status === "ok") setStates(r.states); }).catch(() => undefined);
     void getGrassManagementDataAction().then((d) => { if (live && d.status === "ok") setGrass({ data: d, asOf: new Date().toISOString() }); }).catch(() => undefined);
     void loadScepForPlanAction().then((r) => { if (live && r.status === "ok") setScep({ name: r.name, actions: r.actions }); }).catch(() => undefined);
+    void getRecordGapsAction().then((r) => { if (live && r.ok) setRecordGaps(r.gaps); }).catch(() => undefined);
     return () => { live = false; };
   }, [signedIn]);
 
@@ -108,7 +111,8 @@ export function PlanAssistant({ ctx, farmId, county, fields, prompts, milestones
     schemeName: scep?.name ?? schemeName,
     schemeActions: scep?.actions ?? schemeActions,
     grazing,
-  }, states), [farmId, today, fields, prompts, compliance, entries, ctx.lastWalk, milestones, housing.length, slurryForecast, schemeName, schemeActions, scep, grazing, states]);
+    recordGaps,
+  }, states), [farmId, today, fields, prompts, compliance, entries, ctx.lastWalk, milestones, housing.length, slurryForecast, schemeName, schemeActions, scep, grazing, recordGaps, states]);
 
   const overview = useMemo(() => weeklyOverview(recs, entries, compliance, today), [recs, entries, compliance, today]);
   // Overdue jobs and bookings already sit in the Today and Up next lists; they

@@ -12,11 +12,11 @@ import { listMedicinePurchases, type MedicinePurchase } from "@/lib/farm-data/me
 import { listGrazingFieldSessionsForFarm } from "@/lib/farm-data/grazing-field-sessions";
 import { listSlurryAllocationRecordsForFarm } from "@/lib/farm-data/slurry";
 import { listCalendarEntries } from "@/lib/farm-data/calendar-entries";
-import { listBookConfirmations, listFeedRecords, listPesticideApplications, listSprayOperators } from "@/lib/farm-data/farm-records";
+import { listBookConfirmations, listFeedRecords, listHealthEvents, listPesticideApplications, listSprayOperators, listTreatments } from "@/lib/farm-data/farm-records";
 import { listGrassSurveysAction } from "@/app/actions/grass-surveys";
 import {
-  feedDiaryEntry, pesticideDiaryEntries, sortDiary,
-  type DiaryEntry, type FeedRecord, type PesticideApplication, type RecordBook, type SprayOperator,
+  feedDiaryEntry, healthDiaryEntry, pesticideDiaryEntries, sortDiary, treatmentDiaryEntry,
+  type DiaryEntry, type FeedRecord, type HealthEvent, type MedicineTreatment, type PesticideApplication, type RecordBook, type SprayOperator,
 } from "@/domain/farm-records";
 
 export interface FieldRef { id: string; name: string; areaHa: number; lpisRef: string | null }
@@ -33,6 +33,10 @@ export interface RecordBooks {
   feed: FeedRecord[];
   sprays: PesticideApplication[];
   medicines: MedicinePurchase[];
+  /** Every medicine bought, newest first, for the treatment form. */
+  medicineStock: MedicinePurchase[];
+  treatments: MedicineTreatment[];
+  health: HealthEvent[];
   moves: MoveRecord[];
   slurry: SlurryRecord[];
   walks: WalkRecord[];
@@ -68,7 +72,7 @@ async function safe<T>(book: RecordBook | null, unavailable: RecordBook[], fn: (
 
 export async function loadRecordBooks(farmId: string, from: string, to: string): Promise<RecordBooks> {
   const unavailable: RecordBook[] = [];
-  const [rawFields, rawGroups, operators, feed, sprays, medicines, sessions, slurryRecords, surveys, entries, notUsed] = await Promise.all([
+  const [rawFields, rawGroups, operators, feed, sprays, medicines, sessions, slurryRecords, surveys, entries, notUsed, treatmentRows, healthRows] = await Promise.all([
     safe(null, unavailable, () => listFieldsForFarm(farmId), []),
     safe(null, unavailable, () => listLivestockGroupsForFarm(farmId), []),
     safe("pesticides", unavailable, () => listSprayOperators(farmId), [] as SprayOperator[]),
@@ -84,6 +88,8 @@ export async function loadRecordBooks(farmId: string, from: string, to: string):
     }, []),
     safe("jobs", unavailable, () => listCalendarEntries(farmId, from, to), []),
     safe(null, unavailable, () => listBookConfirmations(farmId), {} as Partial<Record<RecordBook, string>>),
+    safe("treatments", unavailable, () => listTreatments(farmId, from), [] as MedicineTreatment[]),
+    safe("health", unavailable, () => listHealthEvents(farmId, from), [] as HealthEvent[]),
   ]);
 
   const fields: FieldRef[] = rawFields.map((f) => ({ id: f.id, name: f.name, areaHa: num(f, "areaHa") ?? 0, lpisRef: str(f, "lpisRef") ?? null }));
@@ -109,10 +115,14 @@ export async function loadRecordBooks(farmId: string, from: string, to: string):
     .filter((e) => e.status === "done" && e.kind !== "season")
     .map((e) => ({ id: e.id, date: e.endDate, title: e.title, assignee: e.assignee }));
   const opName = new Map(operators.map((o) => [o.id, o.name]));
+  const treatments = treatmentRows.filter((t) => inRange(t.treatedOn));
+  const health = healthRows.filter((h) => inRange(h.occurredOn));
 
   const diary = sortDiary([
     ...feed.map((r) => feedDiaryEntry(r, r.livestockGroupId ? groupName.get(r.livestockGroupId) : undefined)),
     ...pesticideDiaryEntries(withNames, (id) => opName.get(id) ?? "Unknown sprayer"),
+    ...treatments.map((t) => treatmentDiaryEntry(t, t.livestockGroupId ? groupName.get(t.livestockGroupId) : undefined)),
+    ...health.map((h) => healthDiaryEntry(h, h.livestockGroupId ? groupName.get(h.livestockGroupId) : undefined)),
     ...meds.map((m): DiaryEntry => ({
       id: `med-${m.id}`, book: "medicines", date: m.dateReceived, title: `Bought ${m.productName}`,
       detail: [`Qty ${m.quantity}`, m.supplierName, m.batchNumber ? `batch ${m.batchNumber}` : null, m.vetName ? `vet ${m.vetName}` : null].filter(Boolean).join(" · "),
@@ -130,10 +140,10 @@ export async function loadRecordBooks(farmId: string, from: string, to: string):
   ]);
 
   return {
-    fields, groups, operators, feed, sprays: withNames, medicines: meds, moves, slurry, walks, jobsDone, notUsed, diary,
+    fields, groups, operators, feed, sprays: withNames, medicines: meds, medicineStock: medicines, treatments, health, moves, slurry, walks, jobsDone, notUsed, diary,
     dates: {
       feed: feed.map((r) => r.receivedOn), pesticides: sprays.map((s) => s.appliedOn), medicines: meds.map((m) => m.dateReceived),
-      movements: moves.map((m) => m.date), slurry: slurry.map((s) => s.date), grass: walks.map((w) => w.date), jobs: jobsDone.map((j) => j.date),
+      treatments: treatments.map((t) => t.treatedOn), health: health.map((h) => h.occurredOn), movements: moves.map((m) => m.date), slurry: slurry.map((s) => s.date), grass: walks.map((w) => w.date), jobs: jobsDone.map((j) => j.date),
     },
     unavailable: [...new Set(unavailable)],
   };

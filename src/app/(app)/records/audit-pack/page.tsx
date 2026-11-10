@@ -3,7 +3,8 @@ import Link from "next/link";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { loadRecordBooks } from "@/lib/farm-data/record-books";
 import { addDays, isIsoDate } from "@/domain/farm-calendar";
-import { FEED_TYPE_LABEL, RATE_UNIT_LABEL, formatRecordDate as fmt, nitratesReadiness, sblasReadiness } from "@/domain/farm-records";
+import { FEED_TYPE_LABEL, HEALTH_KIND_LABEL, RATE_UNIT_LABEL, formatRecordDate as fmt, nitratesReadiness, sblasReadiness } from "@/domain/farm-records";
+import { signedEvidenceUrls } from "@/lib/farm-data/record-evidence";
 import { PrintButton } from "@/components/records/PrintButton";
 
 /**
@@ -26,6 +27,14 @@ export default async function AuditPackPage({ searchParams }: { searchParams: Pr
   const opName = new Map(b.operators.map((o) => [o.id, o]));
   const groupName = new Map(b.groups.map((g) => [g.id, g.name]));
   const county = (farm as unknown as { location?: { county?: string } }).location?.county;
+  const sprayPhotos = new Map(b.sprays.filter((s) => s.evidencePath).map((s) => [s.evidencePath as string, `${fmt(s.appliedOn)} · ${s.productName} label`]));
+  const evidence: Array<{ path: string; caption: string }> = pack === "sblas" ? [
+    ...b.feed.filter((f) => f.evidencePath).map((f) => ({ path: f.evidencePath as string, caption: `${fmt(f.receivedOn)} · ${f.product} docket` })),
+    ...[...sprayPhotos].map(([path, caption]) => ({ path, caption })),
+    ...b.health.filter((h) => h.evidencePath).map((h) => ({ path: h.evidencePath as string, caption: `${fmt(h.occurredOn)} · knackery receipt${h.disposalRef ? ` ${h.disposalRef}` : ""}` })),
+  ] : [];
+  const urls = await signedEvidenceUrls(evidence.map((e) => e.path));
+  const shown = evidence.filter((e) => urls.has(e.path));
 
   return (
     <article className="mx-auto max-w-4xl space-y-8 bg-white p-4 text-fr-ink-900 print:p-0">
@@ -53,7 +62,14 @@ export default async function AuditPackPage({ searchParams }: { searchParams: Pr
           <Section title="Animal remedy purchases">
             <Table head={["Date", "Medicine", "Quantity", "Batch", "Supplier", "Vet"]} empty="No purchases recorded in this period."
               rows={b.medicines.map((m) => [fmt(m.dateReceived), m.productName, String(m.quantity), m.batchNumber ?? "", `${m.supplierName}${m.supplierAddress ? `, ${m.supplierAddress}` : ""}`, m.vetName ?? ""])} />
-            <p className="mt-2 text-xs text-fr-ink-600">Remedy usage (animals treated, withdrawal end dates) is not yet recorded in Farm Return; see the remedies usage record kept separately.</p>
+          </Section>
+          <Section title="Animal remedy usage">
+            <Table head={["Date", "Medicine", "Batch", "Animals", "Dose", "Withdrawal ends", "Given by", "Prescribed by"]} empty={b.notUsed.treatments ? `No remedies used (confirmed ${fmt(b.notUsed.treatments)}).` : "No treatments recorded in this period."}
+              rows={b.treatments.map((t) => [fmt(t.treatedOn), t.productName, t.batchNumber ?? "", `${t.animalCount}${t.livestockGroupId ? ` in ${groupName.get(t.livestockGroupId) ?? "a group"}` : ""}${t.animalTags ? ` (${t.animalTags})` : ""}`, `${t.dose} ${t.doseUnit}`, t.withdrawalMeatDays ? fmt(t.withdrawalEndsOn) : "None", t.administeredBy, t.prescribedBy ?? ""])} />
+          </Section>
+          <Section title="Mortality and significant health issues">
+            <Table head={["Date", "What", "Animal", "Details", "Vet", "Disposal"]} empty={b.notUsed.health ? `Nothing to record (confirmed ${fmt(b.notUsed.health)}).` : "Nothing recorded in this period."}
+              rows={b.health.map((h) => [fmt(h.occurredOn), HEALTH_KIND_LABEL[h.kind], h.animalTag ?? `${h.animalCount}${h.livestockGroupId ? ` in ${groupName.get(h.livestockGroupId) ?? "a group"}` : ""}`, h.description, h.vetSeen ? "Yes" : "No", h.disposal === "knackery" ? `Knackery${h.disposalRef ? ` ${h.disposalRef}` : ""}` : h.disposal === "other" ? `Other${h.disposalRef ? ` ${h.disposalRef}` : ""}` : ""])} />
           </Section>
           <Section title="Animal movements between fields">
             <Table head={["Moved in", "Group", "Field", "Head", "Moved out"]} empty="No moves recorded in this period."
@@ -76,10 +92,23 @@ export default async function AuditPackPage({ searchParams }: { searchParams: Pr
               <li>Herd register, passports and blue cards (AgFood)</li>
               <li>Animal health plan</li>
               <li>Farm safety risk assessment</li>
-              <li>Waste plastic collection and knackery receipts</li>
-              <li>Feed delivery dockets (original copies)</li>
+              <li>Waste plastic collection receipts</li>
+              <li>Original feed dockets and knackery receipts (photos are in the appendix below)</li>
             </ul>
           </Section>
+          {shown.length ? (
+            <Section title="Appendix: docket, label and receipt photos">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                {shown.map((e) => (
+                  <figure key={e.path} className="break-inside-avoid">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- signed, short-lived storage link */}
+                    <img src={urls.get(e.path)} alt={e.caption} className="w-full rounded border border-fr-v2-cream-rule object-contain" />
+                    <figcaption className="mt-1 text-xs text-fr-ink-600">{e.caption}</figcaption>
+                  </figure>
+                ))}
+              </div>
+            </Section>
+          ) : null}
         </>
       ) : (
         <>

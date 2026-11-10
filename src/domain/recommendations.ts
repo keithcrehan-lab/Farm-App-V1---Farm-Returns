@@ -38,7 +38,7 @@ export const RELIABILITY_LABEL: Record<Reliability, string> = {
   missing: "Information missing",
 };
 
-export type RecommendationSource = "fertiliser" | "slurry" | "grass" | "grazing" | "cattle" | "schemes" | "calendar" | "fields";
+export type RecommendationSource = "fertiliser" | "slurry" | "grass" | "grazing" | "cattle" | "schemes" | "calendar" | "fields" | "records";
 export type LifecycleStatus = "active" | "planned" | "snoozed" | "dismissed" | "done";
 
 export interface EvidenceItem { label: string; value: string; reliability: Reliability }
@@ -172,6 +172,8 @@ export interface PlanningContext {
   schemeName?: string;
   schemeActions?: readonly SchemeActionLike[];
   grazing?: GrazingContext;
+  /** Gaps from the Records readiness checks (Bord Bia, Nitrates). */
+  recordGaps?: ReadonlyArray<{ key: string; label: string; detail: string; pack: "sblas" | "nitrates" }>;
 }
 
 const fmtDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-IE", { timeZone: "UTC", day: "numeric", month: "short" });
@@ -543,6 +545,30 @@ function grazingSource(ctx: PlanningContext): Candidate[] {
   return out;
 }
 
+/** Record-book gaps before an inspection, as one recommendation. */
+function recordsSource(ctx: PlanningContext): Candidate[] {
+  const gaps = ctx.recordGaps ?? [];
+  if (!gaps.length) return [];
+  const packs = [...new Set(gaps.map((g) => (g.pack === "sblas" ? "Bord Bia" : "Nitrates")))];
+  return [{
+    key: "records:gaps:farm",
+    source: "records",
+    category: "opportunity",
+    subject: { type: "farm", ids: [], names: [] },
+    title: `Fill ${plural(gaps.length, "record gap")} before an inspection`,
+    explanation: `${listNames(gaps.map((g) => g.label))}: ${gaps[0].detail.charAt(0).toLowerCase()}${gaps[0].detail.slice(1)}${gaps.length > 1 ? ", and more" : ""}.`,
+    why: `${packs.join(" and ")} inspections check these records, and most failures come from gaps in them.`,
+    evidence: gaps.map((g) => ({ label: g.label, value: g.detail, reliability: "missing" as Reliability })),
+    action: { type: "open", label: "Open Records", href: "/records" },
+    href: "/records",
+    reliability: "missing",
+    fingerprint: fingerprintOf(gaps.map((g) => `${g.pack}:${g.key}:${g.detail}`).sort()),
+    dismissible: true,
+    statutory: false,
+    impact: 25,
+  }];
+}
+
 function calendarSource(ctx: PlanningContext): Candidate[] {
   const out: Candidate[] = [];
   for (const e of ctx.entries) {
@@ -714,6 +740,7 @@ export function candidateRecommendations(ctx: PlanningContext): Recommendation[]
     ...grassSource(ctx),
     ...soilSource(ctx, fieldName),
     ...fieldDetailsSource(ctx, fieldName),
+    ...recordsSource(ctx),
   ];
   const seen = new Set<string>();
   return all.filter((c) => (seen.has(c.key) ? false : (seen.add(c.key), true))).map((c) => ({

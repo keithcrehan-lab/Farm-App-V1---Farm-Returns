@@ -2,6 +2,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { loadRecordBooks } from "@/lib/farm-data/record-books";
 import { addDays } from "@/domain/farm-calendar";
+import { activeWithdrawals } from "@/domain/farm-records";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { RecordsHome } from "@/components/records/RecordsHome";
 
@@ -30,6 +31,16 @@ export default async function RecordsPage() {
   // Six months back covers the Bord Bia window; January covers Nitrates.
   const from = [addDays(today, -183), `${today.slice(0, 4)}-01-01`].sort()[0];
   const books = await loadRecordBooks(farm.id, from, today);
+  const groupName = new Map(books.groups.map((g) => [g.id, g.name]));
+  const seen = new Set<string>();
+  const medicines = books.medicineStock
+    .filter((m) => { const k = `${m.productName}|${m.batchNumber ?? ""}`; if (seen.has(k)) return false; seen.add(k); return true; })
+    .slice(0, 40)
+    .map((m) => ({ id: m.id, productName: m.productName, batchNumber: m.batchNumber ?? null, vetName: m.vetName ?? null }));
+  const withdrawals = activeWithdrawals(books.treatments, today).map((t) => ({
+    id: t.id, productName: t.productName, endsOn: t.withdrawalEndsOn,
+    who: t.livestockGroupId ? groupName.get(t.livestockGroupId) ?? "A group" : t.animalTags ?? `${t.animalCount} animals`,
+  }));
   return (
     <>
       {header}
@@ -44,6 +55,8 @@ export default async function RecordsPage() {
         groups={books.groups}
         operators={books.operators}
         feed={books.feed}
+        medicines={medicines}
+        withdrawals={withdrawals}
       />
       <div className="h-16 lg:hidden" aria-hidden="true" />
     </>

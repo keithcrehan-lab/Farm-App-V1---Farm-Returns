@@ -8,7 +8,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, ChevronDown, CircleDashed, FileText, Info, Plus, SprayCan, Wheat, X } from "lucide-react";
+import { CheckCircle2, ChevronDown, CircleDashed, FileText, HeartPulse, Info, Plus, SprayCan, Syringe, Wheat, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   CROP_SITUATIONS, FEED_TYPES, FEED_TYPE_LABEL, FEED_UNITS, HOME_GROWN, RATE_UNITS, RATE_UNIT_LABEL, RECORD_BOOKS, RECORD_BOOK_COLOR, RECORD_BOOK_LABEL, SPRAY_REASONS,
@@ -16,6 +16,7 @@ import {
   type DiaryEntry, type FeedRecord, type FeedType, type FeedUnit, type RateUnit, type ReadinessItem, type RecordBook, type SprayOperator,
 } from "@/domain/farm-records";
 import { confirmBookNotUsedAction, saveFeedRecordAction, savePesticideJobAction, saveSprayOperatorAction } from "@/app/actions/farm-records";
+import { HealthSheet, PhotoCapture, TreatmentSheet, WithdrawalBanner, type MedicineChoice, type WithdrawalLine } from "./RecordSheets";
 
 export interface RecordsHomeProps {
   today: string;
@@ -28,6 +29,10 @@ export interface RecordsHomeProps {
   groups: Array<{ id: string; name: string }>;
   operators: SprayOperator[];
   feed: FeedRecord[];
+  /** Medicines bought, for the treatment form. */
+  medicines?: MedicineChoice[];
+  /** Animals still inside a meat withdrawal period. */
+  withdrawals?: WithdrawalLine[];
 }
 
 const fmt = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-IE", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
@@ -37,7 +42,7 @@ export function RecordsHome(props: RecordsHomeProps) {
   const { today, signedIn } = props;
   const router = useRouter();
   const [filter, setFilter] = useState<RecordBook | "all">("all");
-  const [sheet, setSheet] = useState<"feed" | "spray" | null>(null);
+  const [sheet, setSheet] = useState<"feed" | "spray" | "treatment" | "health" | null>(null);
   const [notUsed, setNotUsed] = useState(props.notUsed);
   const [shown, setShown] = useState(30);
   const [error, setError] = useState("");
@@ -59,9 +64,12 @@ export function RecordsHome(props: RecordsHomeProps) {
         <div className="grid grid-cols-2 gap-2">
           <button type="button" onClick={() => setSheet("feed")} className="flex min-h-12 items-center justify-center gap-2 rounded-[12px] bg-fr-green-700 text-sm font-semibold text-white"><Wheat className="size-4" aria-hidden />Add feed</button>
           <button type="button" onClick={() => setSheet("spray")} className="flex min-h-12 items-center justify-center gap-2 rounded-[12px] border border-fr-v2-cream-rule bg-white text-sm font-semibold text-fr-ink-900"><SprayCan className="size-4" aria-hidden />Add spray</button>
+          <button type="button" onClick={() => setSheet("treatment")} className="flex min-h-12 items-center justify-center gap-2 rounded-[12px] border border-fr-v2-cream-rule bg-white text-sm font-semibold text-fr-ink-900"><Syringe className="size-4" aria-hidden />Add treatment</button>
+          <button type="button" onClick={() => setSheet("health")} className="flex min-h-12 items-center justify-center gap-2 rounded-[12px] border border-fr-v2-cream-rule bg-white text-sm font-semibold text-fr-ink-900"><HeartPulse className="size-4" aria-hidden />Health or death</button>
         </div>
       ) : <p className="text-sm text-fr-ink-600">Sign in to keep your farm records here.</p>}
       {error ? <p role="alert" className="text-sm text-fr-risk">{error}</p> : null}
+      <WithdrawalBanner lines={props.withdrawals ?? []} />
 
       <section aria-label="Audit readiness" className="space-y-2">
         <Readiness title="Bord Bia SBLAS" period={`Last 6 months, from ${fmt(sblas.from)}`} items={sblas.items} pack="sblas" signedIn={signedIn} onConfirm={confirmNotUsed} unavailable={props.unavailable} />
@@ -97,7 +105,7 @@ export function RecordsHome(props: RecordsHomeProps) {
           </ul>
         ) : (
           <p className="rounded-[12px] border border-dashed border-fr-v2-cream-rule p-4 text-center text-sm text-fr-ink-600">
-            {filter === "all" ? "Nothing recorded yet. Medicines, cattle moves, spreading, grass walks and finished jobs appear here as you record them." : `No ${RECORD_BOOK_LABEL[filter].toLowerCase()} records yet.`}
+            {filter === "all" ? "Nothing recorded yet. Medicines, treatments, cattle moves, feed, sprays, spreading, grass walks, health and finished jobs appear here as you record them." : `No ${RECORD_BOOK_LABEL[filter].toLowerCase()} records yet.`}
           </p>
         )}
         {diary.length > shown ? (
@@ -109,6 +117,8 @@ export function RecordsHome(props: RecordsHomeProps) {
 
       {sheet === "feed" ? <FeedSheet today={today} groups={props.groups} feed={props.feed} onClose={() => setSheet(null)} onSaved={() => { setSheet(null); router.refresh(); }} /> : null}
       {sheet === "spray" ? <SpraySheet today={today} fields={props.fields} operators={props.operators} onClose={() => setSheet(null)} onSaved={() => { setSheet(null); router.refresh(); }} /> : null}
+      {sheet === "treatment" ? <TreatmentSheet today={today} groups={props.groups} medicines={props.medicines ?? []} onClose={() => setSheet(null)} onSaved={() => { setSheet(null); router.refresh(); }} /> : null}
+      {sheet === "health" ? <HealthSheet today={today} groups={props.groups} onClose={() => setSheet(null)} onSaved={() => { setSheet(null); router.refresh(); }} /> : null}
     </div>
   );
 }
@@ -197,6 +207,19 @@ function FeedSheet({ today, groups, feed, onClose, onSaved }: { today: string; g
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [id] = useState(() => crypto.randomUUID());
+  const [evidencePath, setEvidencePath] = useState<string | null>(null);
+
+  function fillFromDocket(path: string, f: Record<string, string> | null) {
+    setEvidencePath(path);
+    if (!f) return;
+    if (f.receivedOn && receivedOn === today && /^\d{4}-\d{2}-\d{2}$/.test(f.receivedOn) && f.receivedOn <= today) setReceivedOn(f.receivedOn);
+    if (f.supplierName && !supplierName) setSupplierName(f.supplierName);
+    if (f.supplierAddress && !supplierAddress) setSupplierAddress(f.supplierAddress);
+    if (f.product && !product) setProduct(f.product);
+    if (f.batchNumber && !batchNumber) setBatchNumber(f.batchNumber);
+    if (f.quantity && !quantity && Number.isFinite(Number(f.quantity))) setQuantity(f.quantity);
+    if (f.unit && (FEED_UNITS as readonly string[]).includes(f.unit)) setUnit(f.unit as FeedUnit);
+  }
 
   function pickProduct(v: string) {
     setProduct(v);
@@ -210,6 +233,7 @@ function FeedSheet({ today, groups, feed, onClose, onSaved }: { today: string; g
       id, receivedOn, homeGrown,
       supplierName: homeGrown ? HOME_GROWN : supplierName, supplierAddress: homeGrown ? null : supplierAddress || null,
       product, feedType, batchNumber: batchNumber || null, quantity: Number(quantity), unit, livestockGroupId: groupId || null, notes: null,
+      evidencePath: homeGrown ? null : evidencePath,
     });
     setSaving(false);
     if (r.ok) onSaved(); else setError(r.error);
@@ -224,6 +248,7 @@ function FeedSheet({ today, groups, feed, onClose, onSaved }: { today: string; g
         ))}
       </div>
       <div className="mt-4 space-y-3">
+        {!homeGrown ? <PhotoCapture kind="feed" label="Photo of the docket" onDone={fillFromDocket} /> : null}
         <label className="block text-xs font-semibold text-fr-ink-900">{homeGrown ? "Date fed or made" : "Date it arrived"}
           <input type="date" value={receivedOn} max={today} onChange={(e) => setReceivedOn(e.target.value)} className={inputClass} />
         </label>
@@ -271,7 +296,7 @@ function FeedSheet({ today, groups, feed, onClose, onSaved }: { today: string; g
             </select>
           </label>
         ) : null}
-        {!homeGrown ? <p className="text-xs text-fr-ink-600">Keep the docket too. Bord Bia accepts it as the record, and docket photos are coming soon.</p> : null}
+        {!homeGrown ? <p className="text-xs text-fr-ink-600">Keep the paper docket as well. The photo is kept with this record and printed in your audit pack.</p> : null}
       </div>
       {error ? <p role="alert" className="mt-3 text-sm text-fr-risk">{error}</p> : null}
       <button type="button" onClick={() => void save()} disabled={saving} className="mt-4 min-h-12 w-full rounded-[12px] bg-fr-green-700 text-base font-semibold text-white disabled:opacity-60">{saving ? "Saving…" : "Save feed record"}</button>
@@ -299,6 +324,13 @@ function SpraySheet({ today, fields, operators: initialOperators, onClose, onSav
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [jobId] = useState(() => crypto.randomUUID());
+  const [evidencePath, setEvidencePath] = useState<string | null>(null);
+
+  function fillFromLabel(path: string, f: Record<string, string> | null) {
+    setEvidencePath(path);
+    if (f?.productName && !productName) setProductName(f.productName);
+    if (f?.pcsNumber && !pcsNumber) setPcsNumber(f.pcsNumber);
+  }
 
   function toggle(f: { id: string; areaHa: number }) {
     setPicked((p) => {
@@ -324,7 +356,7 @@ function SpraySheet({ today, fields, operators: initialOperators, onClose, onSav
     const r = await savePesticideJobAction({
       sprayJobId: jobId, appliedOn, fields: Object.entries(picked).map(([fieldId, a]) => ({ fieldId, areaHa: Number(a) })),
       cropSituation, productName, pcsNumber: pcsNumber.trim(), rate: Number(rate), rateUnit, waterLHa: water ? Number(water) : null,
-      reason: reason === "Other" ? otherReason : reason, operatorId: who,
+      reason: reason === "Other" ? otherReason : reason, operatorId: who, evidencePath,
     });
     setSaving(false);
     if (r.ok) onSaved(); else setError(r.error);
@@ -333,6 +365,7 @@ function SpraySheet({ today, fields, operators: initialOperators, onClose, onSav
   return (
     <Sheet title="Add spray" onClose={onClose}>
       <div className="space-y-3">
+        <PhotoCapture kind="spray" label="Photo of the product label" onDone={fillFromLabel} />
         <label className="block text-xs font-semibold text-fr-ink-900">Date sprayed
           <input type="date" value={appliedOn} max={today} onChange={(e) => setAppliedOn(e.target.value)} className={inputClass} />
         </label>

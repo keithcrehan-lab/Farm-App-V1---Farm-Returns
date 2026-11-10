@@ -282,3 +282,16 @@ describe("schemes: progress figures", () => {
     expect(r.some((x) => x.source === "schemes")).toBe(false);
   });
 });
+
+describe("records: gaps before an inspection", () => {
+  it("groups the readiness gaps into one recommendation that opens Records", () => {
+    const r = buildRecommendations(ctx({ recordGaps: [
+      { key: "feed", label: "Feed purchases", detail: "Nothing recorded since 20 Jul", pack: "sblas" },
+      { key: "slurry", label: "Slurry spread", detail: "No slurry spreading recorded in 2026", pack: "nitrates" },
+    ] })).filter((x) => x.source === "records");
+    expect(r).toHaveLength(1);
+    expect(r[0].title).toBe("Fill 2 record gaps before an inspection");
+    expect(r[0].why).toContain("Bord Bia and Nitrates");
+    expect(r[0].action).toMatchObject({ type: "open", href: "/records" });
+  });
+});

@@ -1628,8 +1628,8 @@ function SoilEvidence({
         <Link href={`/soil-sample/${field.id}`} className={TEXT_LINK}>
           Start guided field sampling →
         </Link>
-        <Link href="/soil" className={TEXT_LINK}>
-          View farm soil overview →
+        <Link href="/today?lens=nutrients" className={TEXT_LINK}>
+          See soil results on the farm map →
         </Link>
       </p>
     </div>

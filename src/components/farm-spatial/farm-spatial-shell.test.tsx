@@ -18,7 +18,7 @@ describe("Farm lenses (Farm + Fields redesign)", () => {
   it("absorbs soil evidence into Nutrients", () => {
     const nutrients = farmLensById("nutrients");
     expect(nutrients.caption).toMatch(/soil evidence/i);
-    expect(nutrients.links).toContainEqual({ href: "/soil", label: "Soil by field" });
+    expect(nutrients.links.map((l) => l.href)).not.toContain("/soil");
   });
 
   it("gives each non-Current lens its own domain colour, not green", () => {
@@ -207,7 +207,7 @@ describe("Primary navigation (Farm + Fields redesign)", () => {
   it("keeps every earlier screen under More, without duplicating a primary item", () => {
     const moreHrefs = moreNavItems.map((i) => i.href);
     // `/nutrients` left navigation in 17b5a83; `/fertiliser-plan` is now primary.
-    for (const href of ["/what-matters", "/fields", "/soil", "/quotes", "/market-prices", "/spreading", "/reports", "/settings"]) {
+    for (const href of ["/what-matters", "/fields", "/quotes", "/market-prices", "/spreading", "/reports", "/settings"]) {
       expect(moreHrefs).toContain(href);
     }
     for (const item of primaryNavItems) expect(moreHrefs).not.toContain(item.href);

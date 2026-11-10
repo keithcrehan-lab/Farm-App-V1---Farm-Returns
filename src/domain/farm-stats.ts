@@ -86,7 +86,7 @@ export function calculateFarmSetupProgress(
   } else if (totalFieldsMapped === 0) {
     nextAction = { label: "Draw a real boundary for your fields", href: "/fields" };
   } else if (totalVerifiedTests === 0) {
-    nextAction = { label: "Add a real soil test", href: "/soil" };
+    nextAction = { label: "Add a real soil test", href: "/today?lens=nutrients" };
   } else if (livestockGroups.length === 0) {
     nextAction = { label: "Add your livestock", href: "/livestock" };
   } else if (housing.length === 0) {

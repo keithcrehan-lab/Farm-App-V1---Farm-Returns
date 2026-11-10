@@ -56,7 +56,7 @@ export function FertilityAssumptionsCard({ fieldId, fertility }: { fieldId: stri
           </div>
         ) : null}
         <Link
-          href="/soil"
+          href={`/fields?field=${encodeURIComponent(fieldId)}&chapter=nutrients`}
           className="ml-auto self-center rounded-full border border-fr-green-700 px-3.5 py-1.5 text-sm font-medium text-fr-green-700"
         >
           Add soil test →

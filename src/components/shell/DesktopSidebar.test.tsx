@@ -37,7 +37,7 @@ describe("DesktopSidebar (Farm Spatial V2 Phase 02B)", () => {
     for (const item of moreNavItems) {
       expect(within(group).getByRole("link", { name: item.label }).getAttribute("href")).toBe(item.href);
     }
-    for (const href of ["/fields", "/soil", "/spreading", "/quotes"]) {
+    for (const href of ["/fields", "/spreading", "/quotes"]) {
       expect(within(group).getAllByRole("link").map((a) => a.getAttribute("href"))).toContain(href);
     }
   });

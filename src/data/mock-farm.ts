@@ -709,7 +709,7 @@ export const mockMarketPrices: MarketPrice[] = [
 ];
 
 export const mockAlerts: FarmAlert[] = [
-  { id: "alert-soil-test", severity: "risk", title: "Soil test due", subtitle: "Home Field", href: "/soil" },
+  { id: "alert-soil-test", severity: "risk", title: "Soil test due", subtitle: "Home Field", href: "/fertiliser-plan" },
   { id: "alert-fert-window", severity: "attention", title: "Fertiliser window open", subtitle: "Back Field", href: "/nutrients" },
   { id: "alert-slurry", severity: "info", title: "Slurry spreading conditions", subtitle: "Good for next 3 days", href: "/spreading" },
   { id: "alert-feed-budget", severity: "attention", title: "Feed budget attention", subtitle: "Weanlings", href: "/feed-optimiser" },

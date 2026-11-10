@@ -62,7 +62,6 @@ export const FARM_LENSES: readonly FarmLens[] = [
     links: [
       { href: "/fertiliser-plan", label: "Farm nutrient plan" },
       { href: "/nutrients", label: "Field nutrient plan" },
-      { href: "/soil", label: "Soil by field" },
     ],
     accentClassName: "bg-fr-v2-harvest",
     kickerClassName: "text-fr-v2-harvest-strong",

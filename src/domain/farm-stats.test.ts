@@ -153,7 +153,7 @@ describe("calculateFarmSetupProgress", () => {
   it("recommends a soil test once a field is mapped but has no verified test", () => {
     const mapped = makeField("f1", { polygon: { type: "Polygon", coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } });
     const result = calculateFarmSetupProgress([mapped], [], []);
-    expect(result.nextAction).toEqual({ label: "Add a real soil test", href: "/soil" });
+    expect(result.nextAction).toEqual({ label: "Add a real soil test", href: "/today?lens=nutrients" });
   });
 
   it("recommends adding livestock once fields/soil are done but no groups exist", () => {

@@ -216,7 +216,7 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): DeriveRealAlerts
         severity: "attention",
         title: "Soil test disregarded — retest needed",
         subtitle: field.name,
-        href: "/soil",
+        href: `/fields?field=${encodeURIComponent(field.id)}&chapter=nutrients`,
       });
     }
 

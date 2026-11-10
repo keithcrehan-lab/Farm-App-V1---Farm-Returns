@@ -344,7 +344,7 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
   if (!field) {
     return (
       <>
-        <MobileDetailHeader title="Soil sample" backHref="/soil" />
+        <MobileDetailHeader title="Soil sample" backHref="/today" />
         <PageHeader title="Soil sample" subtitle="Field not found" />
         <p className="text-sm text-fr-ink-600">This field could not be found on the current farm.</p>
       </>
@@ -353,7 +353,7 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
 
   return (
     <>
-      <MobileDetailHeader title="Soil sampling" backHref="/soil" />
+      <MobileDetailHeader title="Soil sampling" backHref={`/fields?field=${encodeURIComponent(field.id)}&chapter=nutrients`} />
       <PageHeader title="Soil sampling" subtitle={`${field.name}${field.lpisRef ? ` — LPIS ${field.lpisRef}` : ""}`} />
 
       {phase === "loading" ? <p className="text-sm text-fr-ink-600">Loading…</p> : null}
@@ -520,7 +520,7 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
       {phase === "done" && !sample ? (
         <Card className="flex flex-col items-center gap-3 p-6 text-center">
           <p className="text-sm text-fr-ink-700">Recorded as &quot;did not happen&quot; — no sample was taken.</p>
-          <button type="button" onClick={() => router.push("/soil")} className="mt-2 rounded-full bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white">
+          <button type="button" onClick={() => router.push(`/fields?field=${encodeURIComponent(fieldId)}&chapter=nutrients`)} className="mt-2 rounded-full bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white">
             Done
           </button>
         </Card>
@@ -539,7 +539,7 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
           </p>
           <p className="text-xs text-fr-ink-600">{new Date(sample.sampleDate).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })} — {sample.methodology}, {sample.methodologyVersion}</p>
           <p className="text-xs font-medium text-fr-attention">Awaiting laboratory result</p>
-          <button type="button" onClick={() => router.push("/soil")} className="mt-2 rounded-full bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white">
+          <button type="button" onClick={() => router.push(`/fields?field=${encodeURIComponent(fieldId)}&chapter=nutrients`)} className="mt-2 rounded-full bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white">
             Done
           </button>
         </Card>

@@ -184,7 +184,7 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
 
   return (
     <>
-      <MobileDetailHeader title="Evidence report" backHref={r.compositeSample ? `/soil-sample/${r.field.id}` : "/soil"} />
+      <MobileDetailHeader title="Evidence report" backHref={r.compositeSample ? `/soil-sample/${r.field.id}` : `/fields?field=${encodeURIComponent(r.field.id)}&chapter=nutrients`} />
 
       <div className="mx-auto max-w-3xl">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-3 print:hidden">

@@ -1,7 +1,6 @@
 import {
   Home,
   Map,
-  Sprout,
   Leaf,
   Wheat,
   Tractor,
@@ -88,7 +87,6 @@ export const moreNavItems: NavItem[] = [
   { href: "/what-matters", label: "What Matters", icon: Target },
   { href: "/fields", label: "Fields", icon: Map },
   { href: "/smart-camera", label: "Smart Camera", icon: ScanBarcode },
-  { href: "/soil", label: "Soil", icon: Sprout },
   { href: "/spreading", label: "Spreading", icon: Tractor },
   { href: "/quotes", label: "Market", icon: Store },
   { href: "/market-prices", label: "Market Prices", icon: LineChart },

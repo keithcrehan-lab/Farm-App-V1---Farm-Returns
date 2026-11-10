@@ -230,7 +230,6 @@ export function farmFieldLensView(
         links: [
           { href: `/fields?field=${encodeURIComponent(field.id)}&chapter=nutrients`, label: "Recommendation setup" },
           { href: "/fertiliser-plan", label: "Farm nutrient plan" },
-          { href: "/soil", label: "Soil by field" },
           fieldDetail,
         ],
       };

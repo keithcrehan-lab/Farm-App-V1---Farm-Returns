@@ -15,7 +15,7 @@ import { mapboxConfigured } from "@/lib/mapbox";
 import { COUNTY_NAMES, FARM_TYPES, type OnboardingStage } from "@/lib/onboarding";
 import { countyAt, normaliseEircode, searchPlaces, type PlaceResult } from "@/lib/onboarding-geocoding";
 import { IRISH_COUNTIES } from "@/lib/irish-counties";
-import { OnboardingMap, type OnboardingMapHandle } from "./OnboardingMap";
+import { OnboardingMap, type OnboardingMapHandle, type OnboardingMapView } from "./OnboardingMap";
 
 const FieldBoundaryMapModal = dynamic(() => import("@/components/farm/FieldBoundaryMapModal").then((m) => m.FieldBoundaryMapModal), { ssr: false });
 const FieldScanModal = dynamic(() => import("@/components/farm/FieldScanModal").then((m) => m.FieldScanModal), { ssr: false });
@@ -58,6 +58,7 @@ export function OnboardingWorkspace({ stage, farm: initialFarm, fields: initialF
   const [pendingPolygon, setPendingPolygon] = useState<GeoJSON.Polygon | null>(null);
   const [cameraTarget, setCameraTarget] = useState<{ center: [number, number]; radiusKm?: number; zoom: number; token: number } | null>(null);
   const mapRef = useRef<OnboardingMapHandle>(null);
+  const [mapView, setMapView] = useState<OnboardingMapView>("satellite");
   const panelRef = useRef<HTMLDivElement>(null);
   const [padding, setPadding] = useState({ top: 72, bottom: 0, left: 0, right: 0 });
 
@@ -104,11 +105,22 @@ export function OnboardingWorkspace({ stage, farm: initialFarm, fields: initialF
           pendingPolygon={pendingPolygon}
           padding={padding}
           onUserMove={onUserMove}
+          view={mapView}
         />
       ) : (
         <div className="absolute inset-0 bg-fr-v2-forest-deep" />
       )}
 
+      {mapboxConfigured ? (
+        <div role="radiogroup" aria-label="Map view" className="absolute right-4 top-16 z-10 flex rounded-full bg-black/55 p-1 text-xs font-semibold shadow-lg backdrop-blur lg:right-6">
+          {(["satellite", "map"] as const).map((v) => (
+            <button key={v} type="button" role="radio" aria-checked={mapView === v} onClick={() => setMapView(v)}
+              className={cn("min-h-9 rounded-full px-3.5", mapView === v ? "bg-fr-v2-cream text-fr-ink-900" : "text-white/85 hover:text-white")}>
+              {v === "satellite" ? "Satellite" : "Map"}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {showPin ? <CentrePin padding={padding} /> : null}
       {farmPoint && !showPin ? <CentrePin padding={padding} subtle /> : null}
 

@@ -10,6 +10,10 @@ import { IRELAND_BBOX, MAPBOX_SATELLITE_STYLE, MAPBOX_TOKEN } from "@/lib/mapbox
  * only what is real: the point the farmer is positioning (a fixed centre pin, drawn by the caller over the map's
  * padded centre) and, once saved, their own field boundaries. No parcels, shapes or ownership are guessed.
  */
+/** Satellite photo, or a labelled road map (roads, townlands, place names) to help find the farm. */
+export type OnboardingMapView = "satellite" | "map";
+const STYLE_FOR: Record<OnboardingMapView, string> = { satellite: MAPBOX_SATELLITE_STYLE, map: "mapbox://styles/mapbox/streets-v12" };
+
 export interface OnboardingMapHandle {
   flyTo: (center: [number, number], zoom: number) => void;
   center: () => [number, number];
@@ -69,13 +73,15 @@ export const OnboardingMap = forwardRef<
     padding: { top: number; bottom: number; left: number; right: number };
     /** The farmer moved the map themselves (drag / zoom / rotate), as opposed to a programmatic fly-to. */
     onUserMove: () => void;
+    view?: OnboardingMapView;
   }
->(function OnboardingMap({ initialCenter, initialZoom, initialRadiusKm, fields, pendingPolygon = null, padding, onUserMove }, ref) {
+>(function OnboardingMap({ initialCenter, initialZoom, initialRadiusKm, fields, pendingPolygon = null, padding, onUserMove, view = "satellite" }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const onUserMoveRef = useRef(onUserMove);
   const fieldsRef = useRef(fields);
   const pendingPolygonRef = useRef<GeoJSON.Polygon | null>(pendingPolygon);
+  const viewRef = useRef(view);
 
   useEffect(() => {
     onUserMoveRef.current = onUserMove;
@@ -95,7 +101,7 @@ export const OnboardingMap = forwardRef<
   useEffect(() => {
     if (!containerRef.current) return;
     mapboxgl.accessToken = MAPBOX_TOKEN;
-    const map = new mapboxgl.Map({ container: containerRef.current, style: MAPBOX_SATELLITE_STYLE, center: initialCenter, zoom: initialZoom, maxBounds: MAX_BOUNDS });
+    const map = new mapboxgl.Map({ container: containerRef.current, style: STYLE_FOR[viewRef.current], center: initialCenter, zoom: initialZoom, maxBounds: MAX_BOUNDS });
     mapRef.current = map;
     map.setPadding(padding);
     if (initialRadiusKm) {
@@ -114,7 +120,9 @@ export const OnboardingMap = forwardRef<
     map.on("moveend", (e) => {
       if ((e as { originalEvent?: unknown }).originalEvent) onUserMoveRef.current();
     });
-    map.on("load", () => {
+    // Runs for the first style and again after every Satellite / Map switch, which clears custom layers.
+    map.on("style.load", () => {
+      if (map.getSource(FIELDS_SOURCE)) return;
       map.addSource(FIELDS_SOURCE, { type: "geojson", data: featureCollection(fieldsRef.current) });
       map.addLayer({ id: `${FIELDS_SOURCE}-fill`, type: "fill", source: FIELDS_SOURCE, paint: { "fill-color": "#e3c77e", "fill-opacity": 0.22 } });
       map.addLayer({ id: `${FIELDS_SOURCE}-line`, type: "line", source: FIELDS_SOURCE, paint: { "line-color": "#e3c77e", "line-width": 2.5 } });
@@ -176,6 +184,12 @@ export const OnboardingMap = forwardRef<
   useEffect(() => {
     mapRef.current?.setPadding(padding);
   }, [padding]);
+
+  useEffect(() => {
+    if (viewRef.current === view) return;
+    viewRef.current = view;
+    mapRef.current?.setStyle(STYLE_FOR[view]);
+  }, [view]);
 
   return <div ref={containerRef} className="absolute inset-0 h-full w-full" data-onboarding-map />;
 });

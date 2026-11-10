@@ -42,6 +42,7 @@ import {
 import { Card } from "@/components/ui/Card";
 import { RequestQuoteSheet } from "@/components/farm/RequestQuoteSheet";
 import { Sheet } from "@/components/ui/Sheet";
+import { CalfSystemQuestion } from "@/components/farm/CalfSystemQuestion";
 import { SlurryStorageSection } from "@/components/farm/SlurryTankVisual";
 import { FertiliserStockColumn } from "@/components/farm/FertiliserStockColumnVisual";
 import { AddFertiliserStockRecordSheet } from "@/components/farm/AddFertiliserStockRecordSheet";
@@ -214,6 +215,7 @@ export function FertiliserPlanOverviewClient() {
             spatialAutoAttempted.current = true;
             refresh();
           }}
+          onFarmUpdated={refresh}
         />
       ) : null}
 
@@ -836,6 +838,7 @@ function QuoteReadinessSheet({
   farmerName,
   spatialAutoStatus,
   onConfirmedCommonage,
+  onFarmUpdated,
 }: {
   open: boolean;
   onClose: () => void;
@@ -843,7 +846,9 @@ function QuoteReadinessSheet({
   farmerName: string;
   spatialAutoStatus: string | null;
   onConfirmedCommonage: () => void;
+  onFarmUpdated?: () => void;
 }) {
+  const needsCalfSystem = readiness.items.some((item) => item.id === "farm:grazing-system" && !item.complete);
   const groups = readiness.items.reduce<Record<string, typeof readiness.items>>(
     (acc, item) => {
       (acc[item.fieldId] ??= []).push(item);
@@ -871,6 +876,7 @@ function QuoteReadinessSheet({
   return (
     <Sheet open={open} onClose={onClose} title="Quote readiness">
       <div className="space-y-5">
+        {needsCalfSystem ? <CalfSystemQuestion value={null} onSaved={() => onFarmUpdated?.()} /> : null}
         {spatialAutoStatus ? (
           <p className="rounded-md bg-fr-surface-alt px-3 py-2 text-xs leading-relaxed text-fr-ink-600">
             {spatialAutoStatus}

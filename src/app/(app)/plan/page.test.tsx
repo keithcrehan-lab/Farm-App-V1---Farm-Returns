@@ -43,8 +43,10 @@ describe("PlanPage", () => {
     expect(within(dialog).getByText("What this is based on")).toBeTruthy();
     expect(within(dialog).getByText("How was this calculated?")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Not relevant" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.getByText(/Snoozed or dismissed \(1\)/)).toBeTruthy();
+    // Mock mode is unsigned-in: the action must not appear to have saved.
+    await waitFor(() => expect(screen.getByText("Sign in to save changes to your recommendations.")).toBeTruthy());
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.queryByText(/Snoozed or dismissed \(1\)/)).toBeNull();
   });
 
   it("offers today, week, season and year views, with the month grid kept under week", async () => {

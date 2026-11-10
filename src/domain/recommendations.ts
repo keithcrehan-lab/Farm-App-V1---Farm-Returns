@@ -38,7 +38,7 @@ export const RELIABILITY_LABEL: Record<Reliability, string> = {
   missing: "Information missing",
 };
 
-export type RecommendationSource = "fertiliser" | "slurry" | "grass" | "cattle" | "schemes" | "calendar" | "fields";
+export type RecommendationSource = "fertiliser" | "slurry" | "grass" | "grazing" | "cattle" | "schemes" | "calendar" | "fields";
 export type LifecycleStatus = "active" | "planned" | "snoozed" | "dismissed" | "done";
 
 export interface EvidenceItem { label: string; value: string; reliability: Reliability }
@@ -126,6 +126,35 @@ export interface SchemeActionLike {
   deadlineState: "past" | "upcoming" | null;
   state: string;
   detail: string;
+  current?: number | null;
+  target?: number | null;
+}
+
+/** One field's grass position, from the grass engine (`buildGrassFieldState`). */
+export interface GrazingFieldLike {
+  fieldId: string;
+  name: string;
+  known: boolean;
+  coverKgDmHa?: number;
+  /** measured = the last reading itself; estimated = brought forward with growth and grazing. */
+  basis?: "measured" | "estimated";
+  band?: "unknown" | "below_target" | "target" | "above_target" | "surplus";
+  measuredAgeDays?: number;
+}
+
+/** A group of cattle currently recorded in a field. */
+export interface OpenGrazingLike {
+  sessionId: string;
+  fieldId: string;
+  groupId: string;
+  groupLabel: string;
+  headCount: number;
+  startedAt: string;
+}
+
+export interface GrazingContext {
+  fields: readonly GrazingFieldLike[];
+  open: readonly OpenGrazingLike[];
 }
 
 export interface PlanningContext {
@@ -142,6 +171,7 @@ export interface PlanningContext {
   slurryForecast?: SlurryForecastLike | null;
   schemeName?: string;
   schemeActions?: readonly SchemeActionLike[];
+  grazing?: GrazingContext;
 }
 
 const fmtDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-IE", { timeZone: "UTC", day: "numeric", month: "short" });
@@ -409,6 +439,110 @@ function cattleSource(ctx: PlanningContext): Candidate[] {
   });
 }
 
+const round10 = (n: number) => Math.round(n / 10) * 10;
+const READY: ReadonlyArray<GrazingFieldLike["band"]> = ["target", "above_target", "surplus"];
+
+function coverReliability(f: GrazingFieldLike): Reliability {
+  if (f.basis === "estimated") return "modelled";
+  return (f.measuredAgeDays ?? 99) <= 7 ? "verified" : "calculated";
+}
+const coverWords = (f: GrazingFieldLike) => `${f.basis === "estimated" ? "estimated at" : "measured at"} about ${round10(f.coverKgDmHa ?? 0)} kg DM/ha`;
+
+/**
+ * Grazing from recorded cattle moves and grass covers. Keys follow the
+ * group and the field it's in, so recording a move retires the old advice
+ * on its own. Covers are labelled measured or estimated; the bands come
+ * from the grass engine's own targets, nothing is invented here.
+ */
+function grazingSource(ctx: PlanningContext): Candidate[] {
+  const g = ctx.grazing;
+  if (!g) return [];
+  const out: Candidate[] = [];
+  const byField = new Map(g.fields.map((f) => [f.fieldId, f]));
+  const occupied = new Set(g.open.map((o) => o.fieldId));
+  const free = g.fields
+    .filter((f) => f.known && !occupied.has(f.fieldId) && READY.includes(f.band))
+    .sort((a, b) => (b.coverKgDmHa ?? 0) - (a.coverKgDmHa ?? 0));
+  const seenGroups = new Set<string>();
+  for (const o of g.open) {
+    if (seenGroups.has(o.groupId)) continue;
+    seenGroups.add(o.groupId);
+    const f = byField.get(o.fieldId);
+    const name = f?.name ?? "their field";
+    if (!f || !f.known) {
+      out.push({
+        key: `grazing:measure:${o.fieldId}`,
+        source: "grazing",
+        category: "upcoming",
+        subject: { type: "field", ids: [o.fieldId], names: [name] },
+        title: `Measure ${name} while ${o.groupLabel} graze it`,
+        explanation: `${o.groupLabel} (${o.headCount} head) are in ${name}, but there's no grass reading for it yet, so the plan can't say when they'll need moving.`,
+        why: "A cover reading lets Farm Return estimate how many days of grass are left in the field.",
+        evidence: [{ label: name, value: "No cover reading", reliability: "missing" }],
+        action: { type: "open", label: "Start walk", href: "/grass/walk" },
+        href: "/grass/walk",
+        reliability: "missing",
+        fingerprint: fingerprintOf([o.sessionId]),
+        dismissible: true,
+        statutory: false,
+        impact: 20,
+      });
+      continue;
+    }
+    if (f.band !== "below_target") continue;
+    const next = free[0];
+    out.push({
+      key: `grazing:move:${o.groupId}`,
+      source: "grazing",
+      category: "attention",
+      subject: { type: "group", ids: [o.groupId], names: [o.groupLabel] },
+      title: `Move ${o.groupLabel} out of ${name}`,
+      explanation: `${name} is ${coverWords(f)}, below the grazing target. ${next ? `${next.name} is the best next field, ${coverWords(next)}.` : "No other field shows a grazing cover yet, so walk the farm to find the next one."}`,
+      why: "Leaving cattle on a bare paddock costs regrowth and liveweight gain.",
+      evidence: [
+        { label: name, value: `${round10(f.coverKgDmHa ?? 0)} kg DM/ha`, reliability: coverReliability(f) },
+        ...(next ? [{ label: `${next.name} (next)`, value: `${round10(next.coverKgDmHa ?? 0)} kg DM/ha`, reliability: coverReliability(next) }] : []),
+        { label: "In the field since", value: fmtDate(o.startedAt.slice(0, 10)), reliability: "verified" as Reliability },
+      ],
+      provenance: [{ label: "Cover", value: "Grass engine: last reading brought forward with growth and recorded grazing" }],
+      action: {
+        type: "open", label: "Record a move", href: `/cattle/groups/${o.groupId}`,
+        plan: { title: `Move ${o.groupLabel}${next ? ` to ${next.name}` : ""}`, category: "grass", kind: "job", startDate: ctx.today, endDate: addDays(ctx.today, 1), fieldIds: next ? [next.fieldId] : [] },
+      },
+      href: `/cattle/groups/${o.groupId}`,
+      reliability: coverReliability(f),
+      date: ctx.today,
+      fingerprint: fingerprintOf([o.sessionId, o.fieldId, next?.fieldId]),
+      dismissible: true,
+      statutory: false,
+      impact: 40,
+    });
+  }
+
+  const month = Number(ctx.today.slice(5, 7));
+  const ready = free.filter((f) => f.band === "above_target" || f.band === "surplus");
+  if (ready.length && month !== 12 && month !== 1) {
+    out.push({
+      key: "grazing:ready:farm",
+      source: "grazing",
+      category: "opportunity",
+      subject: { type: "field", ids: ready.map((f) => f.fieldId), names: ready.map((f) => f.name) },
+      title: ready.length === 1 ? `${ready[0].name} is ready to graze` : `${ready.length} fields are ready to graze`,
+      explanation: `${listNames(ready.map((f) => `${f.name} (${round10(f.coverKgDmHa ?? 0)} kg DM/ha)`))} ${ready.length === 1 ? "is" : "are"} above the grazing target with no cattle recorded in ${ready.length === 1 ? "it" : "them"}.`,
+      why: "Grazing heavy covers before they go stemmy keeps grass quality up; a big surplus may suit baling.",
+      evidence: ready.map((f) => ({ label: f.name, value: `${round10(f.coverKgDmHa ?? 0)} kg DM/ha`, reliability: coverReliability(f) })),
+      action: { type: "open", label: "Open grass", href: "/grass" },
+      href: "/grass",
+      reliability: ready.some((f) => f.basis === "estimated") ? "modelled" : "calculated",
+      fingerprint: fingerprintOf(ready.map((f) => `${f.fieldId}:${f.band}`).sort()),
+      dismissible: true,
+      statutory: false,
+      impact: 15,
+    });
+  }
+  return out;
+}
+
 function calendarSource(ctx: PlanningContext): Candidate[] {
   const out: Candidate[] = [];
   for (const e of ctx.entries) {
@@ -526,7 +660,10 @@ function schemeSource(ctx: PlanningContext): Candidate[] {
     if (!a.deadline || a.deadlineState !== "upcoming") return [];
     const days = daysBetween(ctx.today, a.deadline);
     if (days < 0 || days > 60) return [];
-    const attention = a.state !== "MET" && a.state !== "PASS" && days <= 21;
+    // Done already: nothing to remind about. Progress figures win over the rule state.
+    const complete = a.current != null && a.target != null ? a.current >= a.target : /^(MET|PASS|PASSED|SATISFIED|ON_TRACK|COMPLETE|COMPLETED)$/i.test(a.state);
+    if (complete) return [];
+    const attention = days <= 21;
     return [{
       key: `schemes:${a.key}:${a.deadline}`,
       source: "schemes",
@@ -572,6 +709,7 @@ export function candidateRecommendations(ctx: PlanningContext): Recommendation[]
     ...slurrySource(ctx),
     ...schemeSource(ctx),
     ...fertiliserSource(ctx, fieldName),
+    ...grazingSource(ctx),
     ...cattleSource(ctx),
     ...grassSource(ctx),
     ...soilSource(ctx, fieldName),

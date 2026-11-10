@@ -3,7 +3,7 @@ import type { CalendarEntry } from "./farm-calendar";
 import { spreadingCompliance } from "./spreading-compliance";
 import {
   applyLifecycle, buildRecommendations, candidateRecommendations, fingerprintOf, weeklyOverview,
-  type PlanningContext, type PromptLike, type RecommendationState, type SlurryForecastLike,
+  type GrazingContext, type PlanningContext, type PromptLike, type RecommendationState, type SlurryForecastLike,
 } from "./recommendations";
 
 const TODAY = "2026-11-10";
@@ -235,5 +235,50 @@ describe("weekly overview", () => {
   it("is empty rather than invented for a farm with no data", () => {
     const o = weeklyOverview(buildRecommendations({ farmId: "x", today: TODAY, fields: [], prompts: [], compliance: null, entries: [] }), [], null, TODAY);
     expect(o).toEqual({ attention: [], comingUp: [], opportunities: 0, canWait: 0, restrictions: [] });
+  });
+});
+
+describe("scenario 4: cattle move between fields", () => {
+  const fields: GrazingContext["fields"] = [
+    { fieldId: "f-home", name: "Home Field", known: true, coverKgDmHa: 640, basis: "estimated", band: "below_target", measuredAgeDays: 9 },
+    { fieldId: "f-river", name: "River Field", known: true, coverKgDmHa: 1530, basis: "measured", band: "target", measuredAgeDays: 3 },
+    { fieldId: "f-road", name: "Road Field", known: true, coverKgDmHa: 2410, basis: "measured", band: "surplus", measuredAgeDays: 3 },
+    { fieldId: "f-back", name: "Back Field", known: false },
+  ];
+  const inHome = { sessionId: "s1", fieldId: "f-home", groupId: "g1", groupLabel: "Weanlings", headCount: 24, startedAt: "2026-04-20T08:00:00Z" };
+  const april = (grazing: GrazingContext) => buildRecommendations(ctx({ today: "2026-04-28", grazing }));
+
+  it("says to move a group off a field below target, and names the best free field", () => {
+    const move = april({ fields, open: [inHome] }).find((r) => r.key === "grazing:move:g1")!;
+    expect(move).toMatchObject({ category: "attention", reliability: "modelled" });
+    expect(move.title).toBe("Move Weanlings out of Home Field");
+    expect(move.explanation).toContain("estimated at about 640 kg DM/ha");
+    expect(move.explanation).toContain("Road Field is the best next field");
+    expect(move.action).toMatchObject({ type: "open", href: "/cattle/groups/g1", plan: { fieldIds: ["f-road"] } });
+  });
+
+  it("retires the advice once the move is recorded", () => {
+    const moved = april({ fields, open: [{ ...inHome, sessionId: "s2", fieldId: "f-road" }] });
+    expect(moved.some((r) => r.key === "grazing:move:g1")).toBe(false);
+    // Road Field is now occupied, so it is no longer offered as ready to graze.
+    expect(moved.find((r) => r.key === "grazing:ready:farm")?.subject.ids ?? []).not.toContain("f-road");
+  });
+
+  it("asks for a reading when cattle are in a field with none", () => {
+    const r = april({ fields, open: [{ ...inHome, fieldId: "f-back" }] }).find((x) => x.key === "grazing:measure:f-back")!;
+    expect(r.title).toBe("Measure Back Field while Weanlings graze it");
+    expect(r.reliability).toBe("missing");
+  });
+
+  it("offers fields above target with no cattle, but not in midwinter", () => {
+    expect(april({ fields, open: [] }).find((r) => r.key === "grazing:ready:farm")?.title).toBe("Road Field is ready to graze");
+    expect(buildRecommendations(ctx({ today: "2026-12-10", grazing: { fields, open: [] } })).some((r) => r.key === "grazing:ready:farm")).toBe(false);
+  });
+});
+
+describe("schemes: progress figures", () => {
+  it("stays quiet when the action is already complete", () => {
+    const r = buildRecommendations(ctx({ schemeActions: [{ key: "w", label: "Weigh", deadline: "2026-11-25", deadlineState: "upcoming", state: "NEEDS_ATTENTION", detail: "20 of 20", current: 20, target: 20 }] }));
+    expect(r.some((x) => x.source === "schemes")).toBe(false);
   });
 });

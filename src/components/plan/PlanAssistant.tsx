@@ -15,9 +15,12 @@ import { addDays } from "@/domain/farm-calendar";
 import { spreadingCompliance, type SpreadingCompliance } from "@/domain/spreading-compliance";
 import {
   RECOMMENDATION_CATEGORY_LABEL, RELIABILITY_LABEL, buildRecommendations, weeklyOverview,
-  type PlanningContext, type PromptLike, type Recommendation, type RecommendationState, type SchemeActionLike,
+  type GrazingContext, type PlanningContext, type PromptLike, type Recommendation, type RecommendationState, type SchemeActionLike,
 } from "@/domain/recommendations";
 import { buildFarmSlurryForecast } from "@/domain/slurry-storage-forecast";
+import { buildGrassFieldState, latestGrassGrowthObservation, latestGrassObservationByField } from "@/domain/grass-management";
+import { getGrassManagementDataAction, type GrassManagementData } from "@/app/actions/grass-management";
+import { loadScepForPlanAction } from "@/app/actions/scheme-plan";
 import { listRecommendationStatesAction, setRecommendationStateAction } from "@/app/actions/recommendations";
 import type { PlanAssistantContext } from "@/components/plan/FarmCalendar";
 
@@ -46,11 +49,15 @@ export function PlanAssistant({ ctx, farmId, county, fields, prompts, milestones
   const [open, setOpen] = useState<Recommendation | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState("");
+  const [grass, setGrass] = useState<{ data: Extract<GrassManagementData, { status: "ok" }>; asOf: string } | null>(null);
+  const [scep, setScep] = useState<{ name: string; actions: SchemeActionLike[] } | null>(null);
 
   useEffect(() => {
     if (!signedIn) return;
     let live = true;
     void listRecommendationStatesAction().then((r) => { if (live && r.status === "ok") setStates(r.states); }).catch(() => undefined);
+    void getGrassManagementDataAction().then((d) => { if (live && d.status === "ok") setGrass({ data: d, asOf: new Date().toISOString() }); }).catch(() => undefined);
+    void loadScepForPlanAction().then((r) => { if (live && r.status === "ok") setScep({ name: r.name, actions: r.actions }); }).catch(() => undefined);
     return () => { live = false; };
   }, [signedIn]);
 
@@ -67,15 +74,41 @@ export function PlanAssistant({ ctx, farmId, county, fields, prompts, milestones
     }
   }, [housing, livestockGroups, slurryAllocations, compliance, today]);
 
+  // Same cover calculation as Today's grass map: last reading, brought
+  // forward with growth and the grazing recorded by cattle moves.
+  const grazing = useMemo<GrazingContext | undefined>(() => {
+    if (!grass) return undefined;
+    const { data, asOf } = grass;
+    const latest = latestGrassObservationByField(data.coverObservations, asOf);
+    const growth = latestGrassGrowthObservation(data.growthObservations, asOf);
+    const demand = new Map<string, { demandWindows: Array<{ id: string; dailyDemandKgDm: number; startedAt: string; endedAt?: string; source: string }>; unresolvedDemandWindows: Array<{ id: string; startedAt: string; endedAt?: string }> }>();
+    for (const s of data.grazingSessions) {
+      const entry = demand.get(s.fieldId) ?? { demandWindows: [], unresolvedDemandWindows: [] };
+      if (s.demand.status === "resolved") entry.demandWindows.push({ id: s.sessionId, dailyDemandKgDm: s.demand.dailyDemandKgDm, startedAt: s.startedAt, ...(s.endedAt ? { endedAt: s.endedAt } : {}), source: s.demand.source });
+      else entry.unresolvedDemandWindows.push({ id: s.sessionId, startedAt: s.startedAt, ...(s.endedAt ? { endedAt: s.endedAt } : {}) });
+      demand.set(s.fieldId, entry);
+    }
+    return {
+      fields: data.fields.map((f) => {
+        const st = buildGrassFieldState({ fieldId: f.id, areaHa: f.areaHa, observation: latest.get(f.id), growth, asOf, ...(demand.get(f.id) ?? {}) });
+        return st.status === "known"
+          ? { fieldId: f.id, name: f.name, known: true, coverKgDmHa: st.current.coverKgDmHa, basis: st.current.basis, band: st.band, measuredAgeDays: st.measured.ageDays }
+          : { fieldId: f.id, name: f.name, known: false };
+      }),
+      open: data.openGrazingSessions.map((s) => ({ sessionId: s.sessionId, fieldId: s.fieldId, groupId: s.livestockGroupId, groupLabel: s.groupLabel, headCount: s.headCountSnapshot, startedAt: s.startedAt })),
+    };
+  }, [grass]);
+
   const recs = useMemo(() => buildRecommendations({
     farmId, today, fields, prompts, compliance, entries,
     lastWalkDate: ctx.lastWalk,
     milestones: milestones ?? [],
     hasHousing: housing.length > 0,
     slurryForecast,
-    schemeName,
-    schemeActions,
-  }, states), [farmId, today, fields, prompts, compliance, entries, ctx.lastWalk, milestones, housing.length, slurryForecast, schemeName, schemeActions, states]);
+    schemeName: scep?.name ?? schemeName,
+    schemeActions: scep?.actions ?? schemeActions,
+    grazing,
+  }, states), [farmId, today, fields, prompts, compliance, entries, ctx.lastWalk, milestones, housing.length, slurryForecast, schemeName, schemeActions, scep, grazing, states]);
 
   const overview = useMemo(() => weeklyOverview(recs, entries, compliance, today), [recs, entries, compliance, today]);
   // Overdue jobs and bookings already sit in the Today and Up next lists; they

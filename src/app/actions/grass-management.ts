@@ -57,6 +57,8 @@ export interface RecordGrassCoverObservationInput {
   lat?: number | null;
   lng?: number | null;
   accuracyM?: number | null;
+  /** The grass walk (survey) this reading belongs to, if any. */
+  surveyId?: string | null;
 }
 
 export interface RecordGrassGrowthObservationInput {
@@ -94,6 +96,7 @@ export async function recordGrassCoverObservationAction(
   if (!isGrassCoverMethod(input.method)) return { status: "rejected", reasonCode: "INVALID_METHOD" };
   const timeRejection = observedAtRejection(input.observedAt);
   if (timeRejection) return { status: "rejected", reasonCode: timeRejection };
+  if (input.surveyId != null && (typeof input.surveyId !== "string" || !UUID.test(input.surveyId))) return { status: "rejected", reasonCode: "INVALID_ID" };
 
   const lat = input.lat ?? undefined;
   const lng = input.lng ?? undefined;
@@ -119,6 +122,7 @@ export async function recordGrassCoverObservationAction(
     method: input.method,
     ...(lat !== undefined && lng !== undefined ? { lat, lng } : {}),
     ...(accuracyM !== undefined ? { accuracyM } : {}),
+    ...(input.surveyId ? { surveyId: input.surveyId } : {}),
     observedAt: input.observedAt,
     source: farmerSource(farm.ownerName),
   });

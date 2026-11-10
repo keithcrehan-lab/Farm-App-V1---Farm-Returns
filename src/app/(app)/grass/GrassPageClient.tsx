@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, Crosshair, MapPin, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronUp, Crosshair, Footprints, MapPin, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MapHero } from "@/components/farm/MapHero";
 import type { MapTone } from "@/components/farm/FieldMap";
@@ -523,6 +523,11 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
       <div className="mb-6 lg:hidden">
         <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-fr-v2-muted">Farm Return · Grass</p>
         <h1 className="mt-1 font-display text-[36px] leading-none text-fr-v2-graphite">Grass</h1>
+      </div>
+
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row">
+        <Link href="/grass/walk" className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-[16px] bg-fr-v2-forest px-5 text-base font-semibold text-white"><Footprints className="size-5" aria-hidden />Start grass walk</Link>
+        <Link href="/grass/walks" className="flex min-h-14 items-center justify-center rounded-[16px] border border-fr-v2-cream-rule bg-fr-v2-cream px-5 text-sm font-semibold text-fr-v2-forest">Past walks</Link>
       </div>
 
       <section className="border-y border-fr-v2-cream-rule py-4" aria-label="Grass summary">

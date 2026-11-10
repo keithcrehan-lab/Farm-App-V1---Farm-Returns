@@ -139,6 +139,7 @@ export interface NewGrassCoverObservationInput {
   accuracyM?: number;
   observedAt: string;
   source: string;
+  surveyId?: string;
 }
 
 export interface NewFarmGrassGrowthObservationInput {
@@ -212,6 +213,7 @@ export async function insertGrassCoverObservation(input: NewGrassCoverObservatio
       accuracy_m: input.accuracyM ?? null,
       observed_at: input.observedAt,
       source: input.source,
+      ...(input.surveyId ? { survey_id: input.surveyId } : {}),
     })
     .select("*")
     .single();

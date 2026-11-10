@@ -134,6 +134,7 @@ export function FarmGrassMapOverlay({ summary }: { summary: FarmGrassMapSummary 
               <Outlook days={3} value={summary.outlook3Pct} />
               <Outlook days={7} value={summary.outlook7Pct} />
             </div>
+            <Link href="/grass/walk" className="inline-flex min-h-9 items-center rounded-full bg-white/15 px-3 font-semibold text-white hover:bg-white/25 lg:min-h-0 lg:py-1">Start walk</Link>
             <Link href="/grass" className="inline-flex min-h-9 items-center gap-1 font-semibold text-white/80 underline decoration-white/25 underline-offset-2 hover:text-white lg:min-h-0">
               Open Grass <ArrowUpRight className="size-3" />
             </Link>

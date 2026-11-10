@@ -1,10 +1,11 @@
 /**
- * Plan views over the farm calendar: the season ribbon, now / next / later
- * horizons, year lanes per category, and suggestions inferred from data
+ * Plan views over the farm calendar: the season ribbon, up next, now / next /
+ * later horizons, year lanes per category, activity swim lanes, booking
+ * state for vet and contractor work, and suggestions inferred from data
  * the farmer has already entered elsewhere in the app. Pure functions;
  * `today` is always passed in.
  */
-import { addDays, daysBetween, isOpen, overlaps, weekStart, type CalendarCategory, type CalendarEntry, type CalendarKind } from "./farm-calendar";
+import { CATEGORY_COLOR, addDays, compareEntries, daysBetween, isOpen, overlaps, weekStart, type CalendarCategory, type CalendarEntry, type CalendarKind } from "./farm-calendar";
 
 export interface CalendarSuggestion {
   id: string;
@@ -105,30 +106,116 @@ export interface Lane {
  * draw as markers on the first row. Lanes with nothing in them are left out.
  */
 export function yearLanes(entries: CalendarEntry[], from: string, to: string): Lane[] {
-  const span = daysBetween(from, to) + 1;
-  const clamp = (d: string) => (d < from ? from : d > to ? to : d);
-  const pct = (days: number) => Math.max(0, Math.min(100, (days / span) * 100));
   const lanes: Lane[] = [];
   for (const category of LANE_ORDER) {
     const items = entries
       .filter((e) => e.category === category && e.status !== "cancelled" && overlaps(e, from, to))
-      .filter((e) => e.kind === "season" || e.kind === "deadline" || daysBetween(e.startDate, e.endDate) >= 6)
-      .sort((a, b) => a.startDate.localeCompare(b.startDate) || b.endDate.localeCompare(a.endDate));
+      .filter((e) => e.kind === "season" || e.kind === "deadline" || daysBetween(e.startDate, e.endDate) >= 6);
     if (!items.length) continue;
-    const rowEnds: string[] = [];
-    const bars: LaneBar[] = [];
-    for (const e of items) {
-      const marker = e.kind === "deadline" || e.startDate === e.endDate;
-      const startPct = pct(daysBetween(from, clamp(e.startDate)));
-      const endPct = pct(daysBetween(from, clamp(e.endDate)) + 1);
-      if (marker) { bars.push({ entry: e, startPct, endPct, row: 0, marker }); continue; }
-      let row = rowEnds.findIndex((end) => end < e.startDate);
-      if (row === -1) { row = rowEnds.length; rowEnds.push(e.endDate); } else rowEnds[row] = e.endDate;
-      bars.push({ entry: e, startPct, endPct, row, marker });
-    }
-    lanes.push({ category, rows: Math.max(1, rowEnds.length), bars });
+    lanes.push({ category, ...packBars(items, from, to) });
   }
   return lanes;
+}
+
+/** Positions entries over [from, to] as bars packed into non-overlapping rows; single days are markers on row 0. */
+function packBars(items: CalendarEntry[], from: string, to: string): { rows: number; bars: LaneBar[] } {
+  const span = daysBetween(from, to) + 1;
+  const clamp = (d: string) => (d < from ? from : d > to ? to : d);
+  const pct = (days: number) => Math.max(0, Math.min(100, (days / span) * 100));
+  const sorted = [...items].sort((a, b) => a.startDate.localeCompare(b.startDate) || b.endDate.localeCompare(a.endDate));
+  const rowEnds: string[] = [];
+  const bars: LaneBar[] = [];
+  for (const e of sorted) {
+    const marker = e.kind === "deadline" || e.startDate === e.endDate;
+    const startPct = pct(daysBetween(from, clamp(e.startDate)));
+    const endPct = pct(daysBetween(from, clamp(e.endDate)) + 1);
+    if (marker) { bars.push({ entry: e, startPct, endPct, row: 0, marker }); continue; }
+    let row = rowEnds.findIndex((end) => end < e.startDate);
+    if (row === -1) { row = rowEnds.length; rowEnds.push(e.endDate); } else rowEnds[row] = e.endDate;
+    bars.push({ entry: e, startPct, endPct, row, marker });
+  }
+  return { rows: Math.max(1, rowEnds.length), bars };
+}
+
+/**
+ * Activity swim lanes: what the farmer is doing rather than the entry's
+ * category. Vet work sits with cattle, field work with grass, statutory
+ * closed periods and scheme deadlines under compliance.
+ */
+export const ACTIVITY_LANES = ["cattle", "grass", "fertiliser", "contractors", "compliance", "other"] as const;
+export type ActivityLane = (typeof ACTIVITY_LANES)[number];
+
+export const ACTIVITY_LANE_LABEL: Record<ActivityLane, string> = {
+  cattle: "Cattle", grass: "Grass", fertiliser: "Fertiliser", contractors: "Contractors", compliance: "Compliance", other: "Other",
+};
+export const ACTIVITY_LANE_COLOR: Record<ActivityLane, string> = {
+  cattle: CATEGORY_COLOR.cattle, grass: CATEGORY_COLOR.grass, fertiliser: CATEGORY_COLOR.nutrients,
+  contractors: CATEGORY_COLOR.contractor, compliance: CATEGORY_COLOR.schemes, other: CATEGORY_COLOR.other,
+};
+
+/** Statutory entries the app adds itself (Nitrates closed periods). */
+export const isStatutory = (e: CalendarEntry): boolean => e.source === "app" && e.id.startsWith("closed-");
+
+export function activityLane(e: CalendarEntry): ActivityLane {
+  if (isStatutory(e)) return "compliance";
+  switch (e.category) {
+    case "cattle": case "vet": return "cattle";
+    case "grass": case "fields": return "grass";
+    case "nutrients": return "fertiliser";
+    case "contractor": return "contractors";
+    case "schemes": return "compliance";
+    default: return "other";
+  }
+}
+
+export interface ActivityLaneRow {
+  lane: ActivityLane;
+  rows: number;
+  bars: LaneBar[];
+}
+
+/**
+ * Every core activity lane over [from, to], empty or not, so the farm year
+ * always reads the same way; "Other" only when something is in it. With
+ * `minDays` set, shorter jobs and appointments are left out (a year is too
+ * coarse for a one-day job); deadlines and seasons always show.
+ */
+export function activityLanes(entries: CalendarEntry[], from: string, to: string, opts: { minDays?: number } = {}): ActivityLaneRow[] {
+  const minDays = opts.minDays ?? 1;
+  const items = entries.filter((e) => e.status !== "cancelled" && overlaps(e, from, to)
+    && (e.kind === "season" || e.kind === "deadline" || daysBetween(e.startDate, e.endDate) + 1 >= minDays));
+  return ACTIVITY_LANES.flatMap((lane) => {
+    const mine = items.filter((e) => activityLane(e) === lane);
+    if (lane === "other" && !mine.length) return [];
+    return [{ lane, ...packBars(mine, from, to) }];
+  });
+}
+
+/** Vet and contractor work needs a booking; null when booking doesn't apply. */
+export type BookingState = "not_booked" | "booked" | "done";
+export function bookingState(e: CalendarEntry): BookingState | null {
+  if (e.kind === "season" || (e.category !== "vet" && e.category !== "contractor")) return null;
+  if (e.status === "done") return "done";
+  if (e.status === "booked") return "booked";
+  return e.status === "planned" ? "not_booked" : null;
+}
+
+/**
+ * The few things the farmer should see first, whatever view is open:
+ * overdue items (oldest first), then open items running today or starting
+ * soonest. Seasons are context, not jobs, so they are left out.
+ */
+export function upNext(entries: CalendarEntry[], today: string, limit = 3): { items: CalendarEntry[]; more: number; needsBooking: number } {
+  const open = entries.filter((e) => e.kind !== "season" && isOpen(e) && (isOverdue(e, today) || e.endDate >= today));
+  const overdue = open.filter((e) => isOverdue(e, today)).sort((a, b) => a.endDate.localeCompare(b.endDate) || compareEntries(a, b));
+  const ahead = open.filter((e) => !isOverdue(e, today)).sort((a, b) =>
+    (a.startDate < today ? today : a.startDate).localeCompare(b.startDate < today ? today : b.startDate) || compareEntries(a, b));
+  const ordered = [...overdue, ...ahead];
+  return {
+    items: ordered.slice(0, limit),
+    more: Math.max(0, ordered.length - limit),
+    needsBooking: ordered.filter((e) => bookingState(e) === "not_booked").length,
+  };
 }
 
 /**

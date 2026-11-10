@@ -3,13 +3,14 @@
 /**
  * Plan: the farm's operations over time, built on one farm calendar.
  *
- * Week (day strip and agenda), Season (now / next / later), Year (one lane
- * per category) and Month views all read the same entries: the farmer's
- * own jobs, appointments, deadlines and seasons, plus read-only entries
- * the app already knows (statutory closed periods, cattle production
- * targets). The app's own Prompts no longer sit in a separate list; they
- * appear in the Week view as dashed suggestions the farmer can open or add
- * to the calendar in one tap.
+ * A permanent Up next card sits beside Today (agenda), Week (day strip,
+ * with a Month grid toggle), Season (12-week activity swim lanes and now /
+ * next / later) and Year (activity swim lanes) views. All read the same
+ * entries: the farmer's own jobs, appointments, deadlines and seasons,
+ * plus read-only entries the app already knows (statutory closed periods,
+ * cattle production targets). Vet and contractor work shows its booking
+ * status. The app's own Prompts appear in the Today view as dashed
+ * suggestions the farmer can open or add to the calendar in one tap.
  */
 import { useEffect, useMemo, useState } from "react";
 import { FarmCalendar } from "@/components/plan/FarmCalendar";

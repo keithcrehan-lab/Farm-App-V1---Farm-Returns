@@ -1,45 +1,59 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Plus, User, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Clock, Flag, Plus, Sparkles, User, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   CALENDAR_CATEGORIES, CATEGORY_COLOR, CATEGORY_LABEL, KIND_LABEL,
   addDays, addMonths, closedPeriodEntries, compareEntries, daysBetween, isOpen, milestoneEntries, monthGrid, monthStart, overlaps, weekStart,
   type CalendarCategory, type CalendarEntry, type CalendarKind, type CalendarStatus,
 } from "@/domain/farm-calendar";
+import {
+  activeSeasons, grassWalkSuggestion, isOverdue, nowNextLater, yearLanes,
+  type CalendarSuggestion, type Horizon,
+} from "@/domain/plan-views";
 import { listCalendarEntriesAction, saveCalendarEntryAction, setCalendarEntryStatusAction } from "@/app/actions/calendar";
+import { listGrassSurveysAction } from "@/app/actions/grass-surveys";
 
-type View = "week" | "season" | "year" | "calendar";
-const VIEWS: Array<[View, string]> = [["week", "This week"], ["season", "Season"], ["year", "Year"], ["calendar", "Calendar"]];
+type View = "week" | "season" | "year" | "month";
+const VIEWS: Array<[View, string]> = [["week", "Week"], ["season", "Season"], ["year", "Year"], ["month", "Month"]];
 
 const localToday = () => new Date().toLocaleDateString("en-CA");
 const fmt = (d: string, opts: Intl.DateTimeFormatOptions) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-IE", { timeZone: "UTC", ...opts });
 const dayMonth = (d: string) => fmt(d, { day: "numeric", month: "short" });
+const tint = (c: CalendarCategory, alpha: string) => `${CATEGORY_COLOR[c]}${alpha}`;
 
-function whenLabel(e: CalendarEntry): string {
-  if (e.kind === "appointment") return `${fmt(e.startDate, { weekday: "short", day: "numeric", month: "short" })} · ${e.startTime}${e.endTime ? `–${e.endTime}` : ""}`;
+function whenLabel(e: CalendarEntry, today: string): string {
+  if (isOverdue(e, today)) return `Overdue since ${dayMonth(e.endDate)}`;
+  if (e.kind === "appointment") return `${e.startDate === today ? "" : `${fmt(e.startDate, { weekday: "short", day: "numeric" })} · `}${e.startTime}${e.endTime ? `–${e.endTime}` : ""}`;
+  if (e.kind === "deadline") return `By ${fmt(e.startDate, { weekday: "short", day: "numeric", month: "short" })}`;
   if (e.startDate === e.endDate) return fmt(e.startDate, { weekday: "short", day: "numeric", month: "short" });
   return `${dayMonth(e.startDate)} – ${dayMonth(e.endDate)}`;
 }
+
+interface Preset { title: string; category: CalendarCategory; kind: CalendarKind }
 
 interface Props {
   county: string | null | undefined;
   fields: ReadonlyArray<{ id: string; name: string }>;
   milestones: ReadonlyArray<{ groupId: string; groupLabel: string; targetDate: string; targetWeightKg?: number }> | null;
   signedIn: boolean;
+  /** Suggestions the app has already worked out from the farm's own data. */
+  suggestions?: CalendarSuggestion[];
+  onOpenSuggestion?: (s: CalendarSuggestion) => void;
 }
 
-export function FarmCalendar({ county, fields, milestones, signedIn }: Props) {
+export function FarmCalendar({ county, fields, milestones, signedIn, suggestions = [], onOpenSuggestion }: Props) {
   const [today] = useState(localToday);
   const [view, setView] = useState<View>("week");
   const [weekOf, setWeekOf] = useState(() => weekStart(localToday()));
   const [monthOf, setMonthOf] = useState(() => monthStart(localToday()));
   const [selectedDay, setSelectedDay] = useState(localToday);
   const [own, setOwn] = useState<CalendarEntry[] | null>(signedIn ? null : []);
+  const [lastWalk, setLastWalk] = useState<string | null | undefined>(signedIn ? undefined : null);
   const [loadError, setLoadError] = useState("");
-  const [editing, setEditing] = useState<CalendarEntry | "new" | null>(null);
+  const [editing, setEditing] = useState<{ entry: CalendarEntry | null; preset?: Preset } | null>(null);
 
   const rangeFrom = useMemo(() => addDays(today, -90), [today]);
   const rangeTo = useMemo(() => addDays(today, 400), [today]);
@@ -58,6 +72,11 @@ export function FarmCalendar({ county, fields, milestones, signedIn }: Props) {
       if (r.status === "ok") setOwn(r.entries);
       else { setOwn([]); if (r.status === "unavailable") setLoadError("Your calendar couldn't be loaded just now."); }
     });
+    void listGrassSurveysAction().then((r) => {
+      if (!live) return;
+      const finished = r.ok ? r.surveys.map((s) => s.finishedAt).filter((d): d is string => Boolean(d)).sort() : [];
+      setLastWalk(r.ok ? (finished.length ? new Date(finished[finished.length - 1]).toLocaleDateString("en-CA") : null) : undefined);
+    }).catch(() => undefined);
     return () => { live = false; };
   }, [signedIn, rangeFrom, rangeTo]);
 
@@ -67,7 +86,13 @@ export function FarmCalendar({ county, fields, milestones, signedIn }: Props) {
     ...milestoneEntries(milestones ?? []),
   ].sort(compareEntries), [own, county, milestones, rangeFrom, rangeTo]);
 
+  const allSuggestions = useMemo(() => {
+    const walk = lastWalk === undefined ? null : grassWalkSuggestion(lastWalk, today);
+    return [...(walk ? [walk] : []), ...suggestions];
+  }, [lastWalk, today, suggestions]);
+
   const assignees = useMemo(() => [...new Set((own ?? []).map((e) => e.assignee).filter((a): a is string => Boolean(a)))], [own]);
+  const ribbon = activeSeasons(all, today);
 
   async function toggleDone(e: CalendarEntry) {
     if (e.source !== "farmer") return;
@@ -77,36 +102,59 @@ export function FarmCalendar({ county, fields, milestones, signedIn }: Props) {
     if (!r.ok) { setLoadError(r.error); void load(); }
   }
 
-  const rowProps = { onOpen: (e: CalendarEntry) => (e.source === "farmer" ? setEditing(e) : undefined), onToggle: toggleDone, today };
+  const row = {
+    today,
+    onOpen: (e: CalendarEntry) => (e.source === "farmer" ? setEditing({ entry: e }) : undefined),
+    onToggle: toggleDone,
+  };
 
   return (
     <section aria-label="Farm calendar" className="space-y-4">
+      {ribbon.length ? (
+        <div className="space-y-1">
+          {ribbon.map((s) => (
+            <p key={s.id} className="flex items-center gap-2 rounded-[10px] px-3 py-2 text-[12.5px] font-semibold" style={{ backgroundColor: tint(s.category, "1a"), color: CATEGORY_COLOR[s.category] }}>
+              <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: CATEGORY_COLOR[s.category] }} aria-hidden />
+              <span className="min-w-0 truncate">{s.title}</span>
+              <span className="ml-auto shrink-0 font-normal">until {dayMonth(s.endDate)}</span>
+            </p>
+          ))}
+        </div>
+      ) : null}
+
       <div className="flex items-center gap-2">
-        <div className="grid flex-1 grid-cols-4 rounded-[12px] bg-fr-surface-alt p-1 text-[13px] font-semibold" role="tablist">
+        <div className="grid flex-1 grid-cols-4 rounded-[12px] bg-fr-surface-alt p-1 text-[13px] font-semibold" role="tablist" aria-label="Plan view">
           {VIEWS.map(([value, label]) => (
             <button key={value} type="button" role="tab" aria-selected={view === value} onClick={() => setView(value)}
               className={cn("min-h-10 rounded-[9px] px-1", view === value ? "bg-white text-fr-ink-900 shadow-sm" : "text-fr-ink-600")}>{label}</button>
           ))}
         </div>
         {signedIn ? (
-          <button type="button" onClick={() => setEditing("new")} aria-label="Add to calendar"
+          <button type="button" onClick={() => setEditing({ entry: null })} aria-label="Add to calendar"
             className="grid size-12 shrink-0 place-items-center rounded-[12px] bg-fr-green-700 text-white"><Plus className="size-5" /></button>
         ) : null}
       </div>
       {loadError ? <p role="alert" className="text-sm text-fr-red-700">{loadError}</p> : null}
-      {!signedIn ? <p className="text-xs text-fr-ink-600">Sign in to add your own jobs and appointments. Statutory dates are shown below.</p> : null}
+      {!signedIn ? <p className="text-xs text-fr-ink-600">Sign in to add your own jobs and appointments. Statutory dates are shown already.</p> : null}
 
-      {view === "week" ? <WeekView all={all} weekOf={weekOf} setWeekOf={setWeekOf} loading={own === null} {...rowProps} /> : null}
-      {view === "season" ? <SeasonView all={all} {...rowProps} /> : null}
+      {view === "week" ? (
+        <WeekView all={all} weekOf={weekOf} selectedDay={selectedDay} loading={own === null} {...row}
+          setWeek={(w) => { setWeekOf(w); setSelectedDay(w <= today && today <= addDays(w, 6) ? today : w); }}
+          setSelectedDay={setSelectedDay}
+          suggestions={allSuggestions} signedIn={signedIn} onOpenSuggestion={onOpenSuggestion}
+          onAddSuggestion={(s) => setEditing({ entry: null, preset: { title: s.title, category: s.category, kind: s.kind } })} />
+      ) : null}
+      {view === "season" ? <SeasonView all={all} {...row} /> : null}
       {view === "year" ? <YearView all={all} today={today} /> : null}
-      {view === "calendar" ? (
-        <MonthView all={all} monthOf={monthOf} setMonthOf={setMonthOf} selectedDay={selectedDay} setSelectedDay={setSelectedDay} {...rowProps} />
+      {view === "month" ? (
+        <MonthView all={all} monthOf={monthOf} setMonthOf={setMonthOf} selectedDay={selectedDay} setSelectedDay={setSelectedDay} {...row} />
       ) : null}
 
       {editing ? (
         <EntrySheet
-          entry={editing === "new" ? null : editing}
-          defaultDate={view === "calendar" ? selectedDay : today}
+          entry={editing.entry}
+          preset={editing.preset}
+          defaultDate={view === "week" || view === "month" ? (selectedDay < today ? today : selectedDay) : today}
           fields={fields}
           assignees={assignees}
           onClose={() => setEditing(null)}
@@ -120,15 +168,17 @@ export function FarmCalendar({ county, fields, milestones, signedIn }: Props) {
   );
 }
 
-function EntryRow({ entry, onOpen, onToggle, compact }: { entry: CalendarEntry; onOpen: (e: CalendarEntry) => void; onToggle: (e: CalendarEntry) => void; today: string; compact?: boolean }) {
+type RowProps = { onOpen: (e: CalendarEntry) => void; onToggle: (e: CalendarEntry) => void; today: string };
+
+function EntryRow({ entry, onOpen, onToggle, today }: RowProps & { entry: CalendarEntry }) {
   const done = entry.status === "done";
-  const tickable = entry.source === "farmer" && entry.kind !== "season";
+  const overdue = isOverdue(entry, today);
+  const tickable = entry.source === "farmer" && entry.kind !== "season" && entry.kind !== "appointment";
   const body = (
     <>
-      <span className="block truncate text-sm font-semibold text-fr-ink-900">{entry.title}</span>
+      <span className={cn("block truncate text-sm font-semibold text-fr-ink-900", done && "line-through")}>{entry.title}</span>
       <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-fr-ink-600">
-        <span>{whenLabel(entry)}</span>
-        {!compact ? <span style={{ color: CATEGORY_COLOR[entry.category] }}>{CATEGORY_LABEL[entry.category]}</span> : null}
+        <span className={cn(overdue && "font-semibold text-fr-red-700")}>{whenLabel(entry, today)}</span>
         {entry.status === "booked" ? <span className="font-semibold text-fr-green-700">Booked</span> : null}
         {entry.assignee ? <span className="inline-flex items-center gap-0.5"><User className="size-3" aria-hidden />{entry.assignee}</span> : null}
         {entry.source === "app" && entry.sourceNote ? <span className="text-fr-ink-400">{entry.sourceNote}</span> : null}
@@ -136,79 +186,153 @@ function EntryRow({ entry, onOpen, onToggle, compact }: { entry: CalendarEntry; 
     </>
   );
   return (
-    <li className={cn("flex items-center gap-3 rounded-[12px] border border-fr-v2-cream-rule bg-white px-3 py-2.5", done && "opacity-60")} style={{ borderLeft: `4px solid ${CATEGORY_COLOR[entry.category]}` }}>
+    <li className={cn("flex items-center gap-3 border border-fr-v2-cream-rule bg-white py-2.5 pl-3 pr-3", done && "opacity-60")}
+      style={{ borderLeft: `3px solid ${CATEGORY_COLOR[entry.category]}`, borderRadius: "0 12px 12px 0" }}>
       {tickable ? (
         <button type="button" onClick={() => onToggle(entry)} aria-label={done ? `Mark ${entry.title} not done` : `Mark ${entry.title} done`} aria-pressed={done}
           className={cn("grid size-7 shrink-0 place-items-center rounded-[8px] border-2", done ? "border-fr-green-700 bg-fr-green-700 text-white" : "border-fr-ink-400 text-transparent")}>
           <Check className="size-4" />
         </button>
-      ) : <CalendarDays className="size-5 shrink-0 text-fr-ink-400" aria-hidden />}
+      ) : entry.kind === "appointment" ? <Clock className="size-5 shrink-0" style={{ color: CATEGORY_COLOR[entry.category] }} aria-hidden />
+        : <Flag className="size-5 shrink-0" style={{ color: CATEGORY_COLOR[entry.category] }} aria-hidden />}
       {entry.href ? (
-        <Link href={entry.href} className={cn("min-w-0 flex-1", done && "line-through")}>{body}</Link>
+        <Link href={entry.href} className="min-w-0 flex-1">{body}</Link>
       ) : entry.source === "farmer" ? (
-        <button type="button" onClick={() => onOpen(entry)} className={cn("min-w-0 flex-1 text-left", done && "line-through")}>{body}</button>
+        <button type="button" onClick={() => onOpen(entry)} className="min-w-0 flex-1 text-left">{body}</button>
       ) : <div className="min-w-0 flex-1">{body}</div>}
     </li>
   );
 }
 
-type RowProps = { onOpen: (e: CalendarEntry) => void; onToggle: (e: CalendarEntry) => void; today: string };
+function Label({ children }: { children: ReactNode }) {
+  return <p className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-ink-600">{children}</p>;
+}
 
-function SeasonBanner({ seasons }: { seasons: CalendarEntry[] }) {
-  if (!seasons.length) return null;
+function SuggestionRow({ s, signedIn, onOpen, onAdd }: { s: CalendarSuggestion; signedIn: boolean; onOpen?: (s: CalendarSuggestion) => void; onAdd: (s: CalendarSuggestion) => void }) {
+  const body = (
+    <>
+      <span className="block truncate text-sm font-semibold text-fr-ink-900">{s.title}</span>
+      <span className="mt-0.5 line-clamp-1 text-xs text-fr-ink-600">{s.detail}</span>
+    </>
+  );
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {seasons.map((s) => (
-        <span key={s.id} className="rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ backgroundColor: `${CATEGORY_COLOR[s.category]}1f`, color: CATEGORY_COLOR[s.category] }}>
-          {s.title} · to {dayMonth(s.endDate)}
-        </span>
-      ))}
+    <li className="flex items-center gap-3 rounded-[12px] border border-dashed border-fr-ink-400 px-3 py-2.5">
+      <Sparkles className="size-5 shrink-0" style={{ color: CATEGORY_COLOR[s.category] }} aria-hidden />
+      {s.href ? <Link href={s.href} className="min-w-0 flex-1">{body}</Link>
+        : onOpen ? <button type="button" onClick={() => onOpen(s)} className="min-w-0 flex-1 text-left">{body}</button>
+          : <div className="min-w-0 flex-1">{body}</div>}
+      {signedIn ? (
+        <button type="button" onClick={() => onAdd(s)} aria-label={`Add ${s.title} to calendar`}
+          className="min-h-9 shrink-0 rounded-full bg-fr-surface-alt px-3 text-xs font-semibold text-fr-green-700">Add</button>
+      ) : null}
+    </li>
+  );
+}
+
+function WeekView({ all, weekOf, selectedDay, setWeek, setSelectedDay, loading, suggestions, signedIn, onOpenSuggestion, onAddSuggestion, ...row }: RowProps & {
+  all: CalendarEntry[]; weekOf: string; selectedDay: string; setWeek: (d: string) => void; setSelectedDay: (d: string) => void; loading: boolean;
+  suggestions: CalendarSuggestion[]; signedIn: boolean; onOpenSuggestion?: (s: CalendarSuggestion) => void; onAddSuggestion: (s: CalendarSuggestion) => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const end = addDays(weekOf, 6);
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekOf, i));
+  const items = all.filter((e) => e.kind !== "season" && e.status !== "cancelled");
+  const onDay = (d: string) => items.filter((e) => overlaps(e, d, d));
+  const dayItems = onDay(selectedDay);
+  const inThisWeek = weekOf <= row.today && row.today <= end;
+  const overdue = inThisWeek ? items.filter((e) => isOverdue(e, row.today)) : [];
+  const rest = items.filter((e) => isOpen(e) && overlaps(e, weekOf, end) && !overlaps(e, selectedDay, selectedDay) && !overdue.includes(e));
+  const nothing = dayItems.length === 0 && rest.length === 0 && overdue.length === 0;
+  const shown = showAll ? suggestions : suggestions.slice(0, 3);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <button type="button" onClick={() => setWeek(addDays(weekOf, -7))} aria-label="Previous week" className="grid size-10 place-items-center rounded-full text-fr-ink-600"><ChevronLeft className="size-5" /></button>
+        <p className="text-sm font-semibold text-fr-ink-900">{inThisWeek ? "This week" : `${dayMonth(weekOf)} – ${dayMonth(end)}`}</p>
+        <button type="button" onClick={() => setWeek(addDays(weekOf, 7))} aria-label="Next week" className="grid size-10 place-items-center rounded-full text-fr-ink-600"><ChevronRight className="size-5" /></button>
+      </div>
+      <div className="grid grid-cols-7 gap-1" role="group" aria-label="Days">
+        {days.map((d) => {
+          const list = onDay(d);
+          const selected = d === selectedDay;
+          return (
+            <button key={d} type="button" onClick={() => setSelectedDay(d)} aria-pressed={selected} aria-label={`${fmt(d, { weekday: "long", day: "numeric", month: "long" })}, ${list.length} entries`}
+              className={cn("flex min-h-[64px] flex-col items-center rounded-[12px] pt-1.5", selected ? "border-2 border-fr-green-700 bg-white" : "border-2 border-transparent")}>
+              <span className="text-[11px] text-fr-ink-600">{fmt(d, { weekday: "narrow" })}</span>
+              <span className={cn("text-base text-fr-ink-900", d === row.today ? "font-bold" : "font-medium")}>{Number(d.slice(8))}</span>
+              <span className="mt-1 flex h-1.5 gap-0.5">
+                {list.slice(0, 3).map((e) => <span key={e.id} className="size-1.5 rounded-full" style={{ backgroundColor: CATEGORY_COLOR[e.category] }} />)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {loading ? <p className="text-sm text-fr-ink-600" role="status">Loading…</p> : (
+        <>
+          {overdue.length ? (
+            <div><Label>Overdue</Label><ul className="space-y-1.5">{overdue.map((e) => <EntryRow key={e.id} entry={e} {...row} />)}</ul></div>
+          ) : null}
+          <div>
+            <Label>{selectedDay === row.today ? "Today" : fmt(selectedDay, { weekday: "long", day: "numeric", month: "short" })}</Label>
+            {dayItems.length ? <ul className="space-y-1.5">{dayItems.map((e) => <EntryRow key={e.id} entry={e} {...row} />)}</ul>
+              : <p className="text-xs text-fr-ink-400">Nothing on this day.</p>}
+          </div>
+          {rest.length ? (
+            <div><Label>Also this week</Label><ul className="space-y-1.5">{rest.map((e) => <EntryRow key={e.id} entry={e} {...row} />)}</ul></div>
+          ) : null}
+          {nothing ? <p className="rounded-[12px] border border-dashed border-fr-v2-cream-rule p-4 text-center text-sm text-fr-ink-600">No jobs are scheduled yet this week.{signedIn ? " Tap + to add one." : ""}</p> : null}
+        </>
+      )}
+
+      {inThisWeek && suggestions.length ? (
+        <div>
+          <Label>Suggested</Label>
+          <ul className="space-y-1.5">
+            {shown.map((s) => <SuggestionRow key={s.id} s={s} signedIn={signedIn} onOpen={onOpenSuggestion} onAdd={onAddSuggestion} />)}
+          </ul>
+          {suggestions.length > 3 ? (
+            <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-1 min-h-10 w-full text-sm font-semibold text-fr-green-700">
+              {showAll ? "Show fewer" : `Show ${suggestions.length - 3} more`}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function WeekView({ all, weekOf, setWeekOf, loading, ...row }: RowProps & { all: CalendarEntry[]; weekOf: string; setWeekOf: (d: string) => void; loading: boolean }) {
-  const end = addDays(weekOf, 6);
-  const inWeek = all.filter((e) => overlaps(e, weekOf, end));
-  const seasons = inWeek.filter((e) => e.kind === "season");
-  const items = inWeek.filter((e) => e.kind !== "season" && e.status !== "cancelled");
-  const open = items.filter(isOpen);
-  const done = items.filter((e) => e.status === "done");
+function HorizonBlock({ title, hint, horizon, ...row }: RowProps & { title: string; hint: string; horizon: Horizon }) {
+  const empty = !horizon.entries.length && !horizon.transitions.length;
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <button type="button" onClick={() => setWeekOf(addDays(weekOf, -7))} aria-label="Previous week" className="grid size-10 place-items-center rounded-full text-fr-ink-600"><ChevronLeft className="size-5" /></button>
-        <p className="text-sm font-semibold text-fr-ink-900">{dayMonth(weekOf)} – {dayMonth(end)}</p>
-        <button type="button" onClick={() => setWeekOf(addDays(weekOf, 7))} aria-label="Next week" className="grid size-10 place-items-center rounded-full text-fr-ink-600"><ChevronRight className="size-5" /></button>
+    <div>
+      <div className="mb-1.5 flex items-baseline justify-between">
+        <p className="text-sm font-semibold text-fr-ink-900">{title}</p>
+        <p className="text-xs text-fr-ink-600">{hint}</p>
       </div>
-      <SeasonBanner seasons={seasons} />
-      {loading ? <p className="text-sm text-fr-ink-600" role="status">Loading…</p> : open.length === 0 && done.length === 0 ? (
-        <p className="rounded-[12px] border border-dashed border-fr-v2-cream-rule p-6 text-center text-sm text-fr-ink-600">No jobs are scheduled yet this week. Tap + to add one.</p>
-      ) : (
-        <ul className="space-y-2">{[...open, ...done].map((e) => <EntryRow key={e.id} entry={e} {...row} />)}</ul>
+      {empty ? <p className="text-xs text-fr-ink-400">Nothing planned.</p> : (
+        <ul className="space-y-1.5">
+          {horizon.transitions.map((t) => (
+            <li key={t.id} className="flex items-center gap-3 rounded-[12px] px-3 py-2" style={{ backgroundColor: tint(t.category, "14") }}>
+              <Flag className="size-4 shrink-0" style={{ color: CATEGORY_COLOR[t.category] }} aria-hidden />
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold" style={{ color: CATEGORY_COLOR[t.category] }}>{t.title}</span>
+              <span className="shrink-0 text-xs text-fr-ink-600">{dayMonth(t.date)}</span>
+            </li>
+          ))}
+          {horizon.entries.map((e) => <EntryRow key={e.id} entry={e} {...row} />)}
+        </ul>
       )}
     </div>
   );
 }
 
 function SeasonView({ all, ...row }: RowProps & { all: CalendarEntry[] }) {
-  const start = weekStart(row.today);
-  const end = addDays(start, 8 * 7 - 1);
-  const seasons = all.filter((e) => e.kind === "season" && overlaps(e, start, end));
-  const weeks = Array.from({ length: 8 }, (_, i) => addDays(start, i * 7));
+  const h = nowNextLater(all, row.today);
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-fr-ink-600">The next 8 weeks. Jobs that run across weeks show in the week they start.</p>
-      <SeasonBanner seasons={seasons} />
-      {weeks.map((w, i) => {
-        const items = all.filter((e) => e.kind !== "season" && isOpen(e) && (i === 0 ? overlaps(e, w, addDays(w, 6)) : e.startDate >= w && e.startDate <= addDays(w, 6)));
-        return (
-          <div key={w}>
-            <p className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-ink-600">{i === 0 ? "This week" : `Week of ${dayMonth(w)}`}</p>
-            {items.length ? <ul className="space-y-2">{items.map((e) => <EntryRow key={e.id} entry={e} {...row} />)}</ul> : <p className="text-xs text-fr-ink-400">Nothing planned.</p>}
-          </div>
-        );
-      })}
+    <div className="space-y-5">
+      <HorizonBlock title="Now" hint="This week" horizon={h.now} {...row} />
+      <HorizonBlock title="Next" hint="Next 4 weeks" horizon={h.next} {...row} />
+      <HorizonBlock title="Later" hint="Next 6 months" horizon={h.later} {...row} />
     </div>
   );
 }
@@ -216,41 +340,67 @@ function SeasonView({ all, ...row }: RowProps & { all: CalendarEntry[] }) {
 function YearView({ all, today }: { all: CalendarEntry[]; today: string }) {
   const start = monthStart(today);
   const end = addDays(addMonths(start, 12), -1);
-  const span = daysBetween(start, end) + 1;
   const months = Array.from({ length: 12 }, (_, i) => addMonths(start, i));
-  const bars = all.filter((e) => (e.kind === "season" || daysBetween(e.startDate, e.endDate) >= 14) && e.status !== "cancelled" && overlaps(e, start, end));
-  const pct = (d: string) => Math.max(0, Math.min(100, (daysBetween(start, d < start ? start : d > end ? end : d) / span) * 100));
-  const nowPct = pct(today);
+  const lanes = yearLanes(all, start, end);
+  const [picked, setPicked] = useState<CalendarEntry | null>(null);
+  const nowPct = (daysBetween(start, today) / (daysBetween(start, end) + 1)) * 100;
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="rounded-[14px] border border-fr-v2-cream-rule bg-white p-3">
-        <div className="grid grid-cols-12 text-center text-[10px] text-fr-ink-600">{months.map((m) => <span key={m}>{fmt(m, { month: "narrow" })}</span>)}</div>
-        <div className="relative mt-2 space-y-1.5">
-          <div aria-hidden className="absolute inset-y-0 w-px bg-[#D85A30]" style={{ left: `${nowPct}%` }} />
-          {bars.length ? bars.map((b) => (
-            <div key={b.id} className="relative h-6">
-              <div className="absolute inset-y-0 flex items-center overflow-hidden rounded-[6px] px-1.5 text-[10.5px] font-semibold"
-                style={{ left: `${pct(b.startDate)}%`, width: `${Math.max(3, pct(b.endDate) - pct(b.startDate))}%`, backgroundColor: `${CATEGORY_COLOR[b.category]}26`, color: CATEGORY_COLOR[b.category] }}
-                title={`${b.title}: ${dayMonth(b.startDate)} – ${dayMonth(b.endDate)}`}>
-                <span className="truncate">{b.title}</span>
-              </div>
-            </div>
-          )) : <p className="py-3 text-center text-xs text-fr-ink-400">No seasons or long jobs yet. Add a season, such as calving or housing.</p>}
+        <div className="grid grid-cols-[64px_minmax(0,1fr)] gap-2">
+          <span />
+          <div className="grid grid-cols-12 text-center text-[10.5px] text-fr-ink-600">{months.map((m) => <span key={m}>{fmt(m, { month: "narrow" })}</span>)}</div>
         </div>
+        {lanes.length ? (
+          <div className="relative mt-2 space-y-2">
+            {lanes.map((lane) => (
+              <div key={lane.category} className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+                <span className="truncate text-[11.5px] font-semibold" style={{ color: CATEGORY_COLOR[lane.category] }}>{CATEGORY_LABEL[lane.category].split(" ")[0]}</span>
+                <div className="relative rounded-[6px] bg-fr-surface-alt" style={{ height: `${lane.rows * 22 + 4}px` }}>
+                  {lane.bars.map((b) => b.marker ? (
+                    <button key={b.entry.id} type="button" onClick={() => setPicked(b.entry)} aria-label={`${b.entry.title}, ${dayMonth(b.entry.startDate)}`}
+                      className="absolute top-[5px] size-3 rotate-45" style={{ left: `calc(${b.startPct}% - 6px)`, backgroundColor: CATEGORY_COLOR[lane.category] }} />
+                  ) : (
+                    <button key={b.entry.id} type="button" onClick={() => setPicked(b.entry)}
+                      className="absolute flex h-[18px] items-center overflow-hidden rounded-[4px] px-1.5 text-left text-[10.5px] font-semibold"
+                      style={{ top: `${b.row * 22 + 2}px`, left: `${b.startPct}%`, width: `${Math.max(2.5, b.endPct - b.startPct)}%`, backgroundColor: tint(lane.category, b.entry.source === "app" ? "1f" : "33"), color: CATEGORY_COLOR[lane.category] }}
+                      aria-label={`${b.entry.title}, ${dayMonth(b.entry.startDate)} to ${dayMonth(b.entry.endDate)}`}>
+                      <span className="truncate">{b.entry.title.replace(/^Closed period: /, "Closed: ")}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div aria-hidden className="pointer-events-none absolute inset-y-0 left-[72px] right-0">
+              <span className="absolute inset-y-0 w-[1.5px] bg-[#D85A30]" style={{ left: `${nowPct}%` }} />
+            </div>
+          </div>
+        ) : <p className="py-4 text-center text-xs text-fr-ink-400">No seasons yet. Add one with +, such as calving or housing, and it shows here.</p>}
       </div>
+      {picked ? (
+        <div className="flex items-start gap-3 rounded-[12px] border border-fr-v2-cream-rule bg-white p-3">
+          <span className="mt-1 size-2.5 shrink-0 rounded-full" style={{ backgroundColor: CATEGORY_COLOR[picked.category] }} aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-fr-ink-900">{picked.title}</p>
+            <p className="text-xs text-fr-ink-600">{picked.startDate === picked.endDate ? dayMonth(picked.startDate) : `${dayMonth(picked.startDate)} – ${dayMonth(picked.endDate)}`}{picked.sourceNote ? ` · ${picked.sourceNote}` : ""}</p>
+            {picked.href ? <Link href={picked.href} className="mt-1 inline-block text-xs font-semibold text-fr-green-700">Open</Link> : null}
+          </div>
+          <button type="button" onClick={() => setPicked(null)} aria-label="Close" className="grid size-8 place-items-center text-fr-ink-600"><X className="size-4" /></button>
+        </div>
+      ) : null}
       {months.map((m) => {
         const mEnd = addDays(addMonths(m, 1), -1);
         const items = all.filter((e) => e.kind !== "season" && e.status !== "cancelled" && e.startDate >= m && e.startDate <= mEnd);
         if (!items.length) return null;
         return (
           <div key={m}>
-            <p className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fr-ink-600">{fmt(m, { month: "long", year: "numeric" })}</p>
+            <Label>{fmt(m, { month: "long", year: "numeric" })}</Label>
             <ul className="space-y-1">
               {items.map((e) => (
                 <li key={e.id} className="flex items-center gap-2 text-sm">
                   <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: CATEGORY_COLOR[e.category] }} aria-hidden />
-                  <span className="w-16 shrink-0 font-mono text-xs tabular-nums text-fr-ink-600">{dayMonth(e.startDate)}</span>
-                  <span className={cn("truncate", e.status === "done" && "line-through opacity-60")}>{e.title}</span>
+                  <span className="w-14 shrink-0 font-mono text-xs tabular-nums text-fr-ink-600">{dayMonth(e.startDate)}</span>
+                  <span className={cn("truncate text-fr-ink-900", e.status === "done" && "line-through opacity-60")}>{e.title}</span>
                 </li>
               ))}
             </ul>
@@ -265,7 +415,7 @@ function MonthView({ all, monthOf, setMonthOf, selectedDay, setSelectedDay, ...r
   all: CalendarEntry[]; monthOf: string; setMonthOf: (d: string) => void; selectedDay: string; setSelectedDay: (d: string) => void;
 }) {
   const grid = monthGrid(monthOf);
-  const dayItems = all.filter((e) => e.status !== "cancelled" && overlaps(e, selectedDay, selectedDay));
+  const dayItems = all.filter((e) => e.kind !== "season" && e.status !== "cancelled" && overlaps(e, selectedDay, selectedDay));
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -277,33 +427,32 @@ function MonthView({ all, monthOf, setMonthOf, selectedDay, setSelectedDay, ...r
       <div className="grid grid-cols-7 gap-1">
         {grid.map((d) => {
           const items = all.filter((e) => e.kind !== "season" && e.status !== "cancelled" && overlaps(e, d, d));
-          const inSeason = all.some((e) => e.kind === "season" && overlaps(e, d, d));
           const inMonth = d.slice(0, 7) === monthOf.slice(0, 7);
           return (
             <button key={d} type="button" onClick={() => setSelectedDay(d)} aria-pressed={d === selectedDay} aria-label={`${fmt(d, { day: "numeric", month: "long" })}, ${items.length} entries`}
               className={cn("flex min-h-12 flex-col items-center rounded-[8px] pt-1 text-xs", inMonth ? "text-fr-ink-900" : "text-fr-ink-400",
-                inSeason && "bg-fr-surface-alt", d === selectedDay && "ring-2 ring-fr-green-700", d === row.today && "font-bold")}>
+                d === selectedDay && "ring-2 ring-fr-green-700", d === row.today && "font-bold")}>
               <span>{Number(d.slice(8))}</span>
               <span className="mt-1 flex gap-0.5">{items.slice(0, 3).map((e) => <span key={e.id} className="size-1.5 rounded-full" style={{ backgroundColor: CATEGORY_COLOR[e.category] }} />)}</span>
             </button>
           );
         })}
       </div>
-      <p className="pt-1 text-sm font-semibold text-fr-ink-900">{fmt(selectedDay, { weekday: "long", day: "numeric", month: "long" })}</p>
-      {dayItems.length ? <ul className="space-y-2">{dayItems.map((e) => <EntryRow key={e.id} entry={e} compact {...row} />)}</ul> : <p className="text-xs text-fr-ink-400">Nothing on this day.</p>}
+      <Label>{fmt(selectedDay, { weekday: "long", day: "numeric", month: "long" })}</Label>
+      {dayItems.length ? <ul className="space-y-1.5">{dayItems.map((e) => <EntryRow key={e.id} entry={e} {...row} />)}</ul> : <p className="text-xs text-fr-ink-400">Nothing on this day.</p>}
     </div>
   );
 }
 
 const inputClass = "mt-1 block min-h-11 w-full rounded-[10px] border border-fr-v2-cream-rule bg-white px-3 text-base text-fr-ink-900";
 
-function EntrySheet({ entry, defaultDate, fields, assignees, onClose, onSaved }: {
-  entry: CalendarEntry | null; defaultDate: string; fields: Props["fields"]; assignees: string[];
+function EntrySheet({ entry, preset, defaultDate, fields, assignees, onClose, onSaved }: {
+  entry: CalendarEntry | null; preset?: Preset; defaultDate: string; fields: Props["fields"]; assignees: string[];
   onClose: () => void; onSaved: (e: CalendarEntry) => void;
 }) {
-  const [kind, setKind] = useState<CalendarKind>(entry?.kind ?? "job");
-  const [title, setTitle] = useState(entry?.title ?? "");
-  const [category, setCategory] = useState<CalendarCategory>(entry?.category ?? "cattle");
+  const [kind, setKind] = useState<CalendarKind>(entry?.kind ?? preset?.kind ?? "job");
+  const [title, setTitle] = useState(entry?.title ?? preset?.title ?? "");
+  const [category, setCategory] = useState<CalendarCategory>(entry?.category ?? preset?.category ?? "cattle");
   const [startDate, setStartDate] = useState(entry?.startDate ?? defaultDate);
   const [endDate, setEndDate] = useState(entry?.endDate ?? addDays(defaultDate, 6));
   const [startTime, setStartTime] = useState(entry?.startTime ?? "10:00");
@@ -350,7 +499,7 @@ function EntrySheet({ entry, defaultDate, fields, assignees, onClose, onSaved }:
           ))}
         </div>
         <p className="mt-2 text-xs text-fr-ink-600">
-          {kind === "job" ? "Something to get done within a window of days." : kind === "appointment" ? "A set time, such as a vet visit or contractor." : kind === "deadline" ? "A date something must be done by." : "A period of the farm year, such as calving or housing."}
+          {kind === "job" ? "Something to get done within a window of days." : kind === "appointment" ? "A set time, such as a vet visit or contractor." : kind === "deadline" ? "A date something must be done by." : "A period of the farm year, such as calving or housing. It shows as a lane on the Year view."}
         </p>
         <div className="mt-4 space-y-3">
           <label className="block text-xs font-semibold text-fr-ink-900">Name

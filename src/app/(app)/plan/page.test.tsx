@@ -21,12 +21,18 @@ describe("PlanPage", () => {
     await waitFor(() => expect(screen.getByText(/no jobs are scheduled yet/i)).toBeTruthy());
   });
 
-  it("lists real genuine opportunities once mounted", async () => {
+  it("shows the app's own prompts as suggestions inside the week, not a separate list", async () => {
     renderPlan();
-    await waitFor(() => expect(screen.getByText("Genuine opportunities")).toBeTruthy());
     // Mock-mode seed data always has at least one field, so there is
-    // always at least one real (possibly evidence-gap) Prompt to show —
-    // never the "nothing to review" empty state for the seeded mock farm.
-    await waitFor(() => expect(screen.queryByText(/nothing to review right now/i)).toBeNull());
+    // always at least one real (possibly evidence-gap) Prompt to suggest.
+    await waitFor(() => expect(screen.getByText("Suggested")).toBeTruthy());
+    expect(screen.queryByText("Genuine opportunities")).toBeNull();
+  });
+
+  it("offers week, season, year and month views", async () => {
+    renderPlan();
+    for (const name of ["Week", "Season", "Year", "Month"]) {
+      expect(screen.getByRole("tab", { name })).toBeTruthy();
+    }
   });
 });

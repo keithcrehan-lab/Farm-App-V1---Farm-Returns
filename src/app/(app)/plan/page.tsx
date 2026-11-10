@@ -1,48 +1,28 @@
 "use client";
 
 /**
- * Plan — Farm Return Next v1.1, canonical screen #5 (§4/§9): "Review
- * Today / Tomorrow / This week, planned jobs, genuine opportunities and
- * windows... Separate committed planned work from genuine
- * opportunities/suggestions... Avoid a generic calendar-first
- * implementation."
+ * Plan: the farm's operations over time, built on one farm calendar.
  *
- * The orchestration `jobs` table still has no general date/window
- * contract, so this is deliberately not a generic calendar. Cattle group
- * Production Plans now provide the first real farmer-entered dated
- * milestones (target dates), which appear under Planned work alongside
- * the existing genuine opportunities. Recurring weighing, treatment and
- * review jobs remain absent until a real scheduling contract owns them —
- * no fake calendar rows are generated to make the screen look complete.
- *
- * Visual Alignment Phase V3 (2026-09-03): `media/image1.png`'s own Plan
- * panel is a literal colour/composition reference for this exact screen
- * (§0's "image1 is the only image whose colour treatment is canonical" —
- * and, uniquely among the six references, image1 shows Plan itself, not
- * just a mood board). Restyled from two stacked equal-weight bordered
- * `Card`s (the Visual Acceptance Contract's own avoid-list item) into
- * one continuous flow with plain uppercase section labels
- * (`FarmSectionHeading`, matching image1's "PLANNED WORK"/"OPPORTUNITIES"
- * labels) — no new behaviour, no Day/Week/Month tabs invented (still no
- * real dated data to filter by), same real Prompts, same honest empty
- * state text.
+ * Week (day strip and agenda), Season (now / next / later), Year (one lane
+ * per category) and Month views all read the same entries: the farmer's
+ * own jobs, appointments, deadlines and seasons, plus read-only entries
+ * the app already knows (statutory closed periods, cattle production
+ * targets). The app's own Prompts no longer sit in a separate list; they
+ * appear in the Week view as dashed suggestions the farmer can open or add
+ * to the calendar in one tap.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Flag } from "lucide-react";
 import { FarmCalendar } from "@/components/plan/FarmCalendar";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { Card } from "@/components/ui/Card";
 import { WeatherHeroChip } from "@/components/farm/WeatherHeroChip";
-import { FarmSectionHeading } from "@/components/next/FarmSectionHeading";
-import { PromptListRow } from "@/components/next/PromptCard";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
 import { AskAIButton } from "@/components/next/AskAI";
 import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/prompt/select-primary";
-import { promptStatusTone } from "@/lib/status";
 import type { Prompt } from "@/orchestration/prompt";
 import { farmerReadableText } from "@/lib/farmer-readable-codes";
+import { promptCategory, type CalendarSuggestion } from "@/domain/plan-views";
 import {
   loadCattleProductionMilestonesAction,
   type CattleProductionMilestone,
@@ -61,9 +41,7 @@ export default function PlanPage() {
   const [mounted, setMounted] = useState(false);
   const [cattleMilestones, setCattleMilestones] = useState<CattleProductionMilestone[] | null>(isRealMode ? null : []);
   useEffect(() => {
-    // Same sanctioned post-mount flag as Today's identical effect — see
-    // that page's own comment for the full reasoning.
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see Today's identical post-mount flag.
     setMounted(true);
   }, []);
 
@@ -79,158 +57,53 @@ export default function PlanPage() {
     };
   }, [mounted, isRealMode]);
 
-  const opportunities = useMemo(() => {
+  const prompts = useMemo(() => {
     if (!mounted) return [];
     return buildAllRealPrompts(farm, fields, livestockGroups, slurryAllocations, new Date().toISOString(), slurryCompositionRecords);
   }, [mounted, farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords]);
 
-  // Strict Visual Reproduction phase (2026-09-03): image1.png's own Plan
-  // panel leads with one featured callout ("Best spreading window") above
-  // its plain list — `selectPrimaryPrompt` already existed for exactly
-  // this "one strongest real Prompt, shown separately" shape (its own doc
-  // comment names Plan's "genuine opportunities" section as the intended
-  // second caller) but the previous phase's Plan never actually called
-  // it, re-deriving its own flat sort instead. Wired in now: the featured
-  // prompt is real (Today's own identical ranking, not a new one invented
-  // for this screen) and `selectSecondaryPrompts` drops it from the list
-  // below so it isn't shown twice.
-  const featuredPrompt = useMemo(() => selectPrimaryPrompt(opportunities), [opportunities]);
-  const secondaryOpportunities = useMemo(() => selectSecondaryPrompts(opportunities), [opportunities]);
+  // Strongest Prompt first (Today's own ranking), then the rest.
+  const ranked = useMemo(() => {
+    const primary = selectPrimaryPrompt(prompts);
+    return [...(primary ? [primary] : []), ...selectSecondaryPrompts(prompts)];
+  }, [prompts]);
+
+  const suggestions = useMemo<CalendarSuggestion[]>(() => ranked.map((p) => ({
+    id: `prompt-${p.id}`,
+    title: p.title,
+    detail: farmerReadableText(p.description),
+    category: promptCategory(p.kind, p.title),
+    kind: "job",
+    promptId: p.id,
+  })), [ranked]);
 
   const [openPrompt, setOpenPrompt] = useState<Prompt | undefined>(undefined);
-  const [visibleOpportunityCount, setVisibleOpportunityCount] = useState(5);
   const fieldNameFor = (prompt: Prompt | undefined) => fields.find((f) => f.id === prompt?.fieldId)?.name;
-
-  const askAIContext = { screen: "Plan", facts: { Farm: farm.name, Opportunities: String(opportunities.length) } };
-  const featuredTone = featuredPrompt ? promptStatusTone(featuredPrompt.basis.status) : undefined;
+  const askAIContext = { screen: "Plan", facts: { Farm: farm.name, Suggestions: String(suggestions.length) } };
 
   return (
     <>
-      {/* Codex audit round 4 (Strict Visual Reproduction, Plan): image1.png's
-          own header shows a real weather fact beside the title — the same
-          real farm-level pipeline `PageHeader`'s desktop bar now uses
-          (its own fabricated-default fix), reused here for the mobile
-          header this screen builds by hand rather than via `PageHeader`. */}
-      <div className="mb-6 flex items-start justify-between gap-3 lg:hidden">
+      <div className="mb-5 flex items-start justify-between gap-3 lg:hidden">
         <div>
           <h1 className="font-display text-title text-fr-ink-900">Plan</h1>
           <p className="text-sm text-fr-ink-600">What&apos;s ahead</p>
         </div>
         <WeatherHeroChip centroid={farm.location.centroid} light />
       </div>
-      {/* Codex audit MEDIUM (round 3): desktop needs a real Ask AI
-          affordance too — see Today's own identical fix. Desktop keeps
-          Ask AI in `PageHeader`'s own `actions` slot, the established
-          cross-screen convention (Records/Farm use the identical slot) —
-          image1 has no desktop mockup to reproduce here, only mobile. */}
       <PageHeader title="Plan" subtitle="What's ahead" actions={<AskAIButton context={askAIContext} />} />
 
-      {/* Codex audit round 1 (Strict Visual Reproduction, Plan): "vertical
-          gaps... substantially larger than in the reference, reducing
-          useful information density" — tightened gap-8 -> gap-6. */}
-      <div className="flex flex-col gap-6">
-        {/* Codex audit round 4 (Strict Visual Reproduction, Plan): image1's
-            own Plan panel leads with one featured callout ("Best spreading
-            window") above its plain list, not a flat, undifferentiated
-            feed. `featuredPrompt` is the same real ranked Prompt Today's
-            own primary card already uses — genuinely the single strongest
-            real opportunity right now, not a duplicate invented for this
-            screen's own visual hierarchy. */}
+      <FarmCalendar
+        county={farm.location.county}
+        fields={fields.map((f) => ({ id: f.id, name: f.name }))}
+        milestones={cattleMilestones}
+        signedIn={isRealMode}
+        suggestions={suggestions}
+        onOpenSuggestion={(s) => setOpenPrompt(prompts.find((p) => p.id === s.promptId))}
+      />
 
-        {/* The farm calendar is the single store under every Plan view.
-            Cattle production targets and statutory closed periods appear
-            in it as read-only entries; the farmer's own jobs sit beside them. */}
-        <FarmCalendar
-          county={farm.location.county}
-          fields={fields.map((f) => ({ id: f.id, name: f.name }))}
-          milestones={cattleMilestones}
-          signedIn={isRealMode}
-        />
+      {/* Scroll room for the fixed Ask AI pill on mobile. */}
+      <div className="h-20 lg:hidden" aria-hidden="true" />
 
-        <section>
-          <FarmSectionHeading>Genuine opportunities</FarmSectionHeading>
-          <div className="mb-3">
-            {featuredPrompt ? (
-          <button
-            type="button"
-            onClick={() => setOpenPrompt(featuredPrompt)}
-            className="flex items-start gap-3 rounded-fr-card border border-fr-border bg-fr-surface-alt p-4 text-left shadow-fr-card"
-          >
-            <span
-              className="flex size-9 shrink-0 items-center justify-center rounded-full"
-              style={{
-                backgroundColor: featuredTone === "risk" ? "#C0362C" : featuredTone === "attention" ? "#D98324" : "#2E7D4F",
-              }}
-            >
-              <Flag className="size-4 text-white" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-fr-ink-900">{featuredPrompt.title}</p>
-              <p className="mt-0.5 line-clamp-2 text-xs text-fr-ink-600">{farmerReadableText(featuredPrompt.description)}</p>
-            </div>
-          </button>
-        ) : null}
-          </div>
-          {!mounted ? (
-            <div className="animate-pulse py-2">
-              <div className="h-4 w-full rounded bg-fr-surface-alt" />
-            </div>
-          ) : secondaryOpportunities.length === 0 ? (
-            <p className="py-6 text-center text-sm text-fr-ink-400">
-              {fields.length === 0
-                ? "Map a field to start seeing real opportunities here."
-                : featuredPrompt
-                  ? "Nothing else to review right now."
-                  : "Nothing to review right now."}
-            </p>
-          ) : (
-            // Codex audit round 1 (Phase V3): an unbounded, fully-expanded
-            // list of every real opportunity (this farm genuinely has 15)
-            // "reads like an administrative queue" — grouped into one
-            // restrained surface (not one card per row) with progressive
-            // disclosure, same pattern Today's own secondary-Prompts list
-            // already uses.
-            // Codex audit round 1 (Strict Visual Reproduction, Plan): "one
-            // conspicuous bordered container with strong full-width
-            // dividers... feels more like a queue than the reference's
-            // lighter plain-row treatment" — border/shadow dropped so the
-            // surface is a quiet grouping, not a boxed admin panel.
-            <Card className="border-0 p-0 shadow-none">
-              <div>
-                {secondaryOpportunities.slice(0, visibleOpportunityCount).map((p) => (
-                  <PromptListRow key={p.id} prompt={p} onViewDetails={() => setOpenPrompt(p)} />
-                ))}
-              </div>
-              {secondaryOpportunities.length > visibleOpportunityCount ? (
-                <button
-                  type="button"
-                  onClick={() => setVisibleOpportunityCount((n) => n + 5)}
-                  className="flex w-full items-center justify-center gap-1.5 border-t border-fr-border py-3 text-sm font-medium text-fr-green-700"
-                >
-                  Show {Math.min(5, secondaryOpportunities.length - visibleOpportunityCount)} more
-                  <span className="text-fr-ink-400">({secondaryOpportunities.length - visibleOpportunityCount} left)</span>
-                </button>
-              ) : null}
-            </Card>
-          )}
-        </section>
-
-        {/* Reserves scroll room for the fixed Ask AI pill below — Plan's
-            own real content (up to 16 real opportunities, "Show more"
-            expandable) can genuinely grow past one screen, and image1's
-            own pill reads as *persistent*, not something that scrolls
-            away once a farmer expands the list. */}
-        <div className="h-16 lg:hidden" aria-hidden="true" />
-      </div>
-
-      {/* Codex audit round 4 (Strict Visual Reproduction, Plan): image1's
-          own Plan panel shows Ask AI as a persistent, full-width bottom
-          pill, not a header action — the phase's accepted "every image1
-          panel treats Ask AI this way" direction, applied here on mobile
-          (desktop keeps the header slot above, its own established
-          cross-screen convention with no image1 desktop mockup to follow
-          instead). Fixed above the real bottom nav — same real-estate
-          problem and same fix as Field detail's own persistent action. */}
       <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-20 px-4 lg:hidden">
         <AskAIButton context={askAIContext} className="w-full justify-center py-3 shadow-fr-card" />
       </div>

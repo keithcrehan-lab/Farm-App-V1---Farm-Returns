@@ -17,6 +17,15 @@ import {
   intersect,
   polygon as turfPolygon,
   union,
+  along,
+  booleanPointInPolygon,
+  length as turfLength,
+  lineIntersect,
+  lineSplit,
+  lineString,
+  multiLineString,
+  nearestPointOnLine,
+  point,
 } from "@turf/turf";
 import { isValidBoundaryPolygon } from "./field-boundary";
 
@@ -59,9 +68,9 @@ export function fenceSidePolygon(fence: readonly Position[]): GeoJSON.Polygon | 
   return { type: "Polygon", coordinates: [[start, ...pts, end, [end[0] + px, end[1] + py], [start[0] + px, start[1] + py], start]] };
 }
 
-/** Cuts one piece along a fence; returns it unchanged when the fence doesn't cross it. */
-export function splitByFence(piece: GeoJSON.Polygon, fence: readonly Position[]): GeoJSON.Polygon[] {
-  const side = fenceSidePolygon(fence);
+/** One straight-through cut of a piece along a fence segment that runs edge to edge across it. */
+function cutWithSide(piece: GeoJSON.Polygon, segment: readonly Position[]): GeoJSON.Polygon[] {
+  const side = fenceSidePolygon(segment);
   if (!side) return [piece];
   try {
     const fc = featureCollection([turfPolygon(piece.coordinates), turfPolygon(side.coordinates)]);
@@ -75,6 +84,73 @@ export function splitByFence(piece: GeoJSON.Polygon, fence: readonly Position[])
   } catch {
     return [piece];
   }
+}
+
+/** Cuts one piece along the parts of a fence that lie inside it; unchanged when the fence doesn't cross it. */
+export function splitByFence(piece: GeoJSON.Polygon, fence: readonly Position[]): GeoJSON.Polygon[] {
+  const pts = dedupe(fence);
+  if (pts.length < 2) return [piece];
+  const poly = turfPolygon(piece.coordinates);
+  let parts: Position[][];
+  try {
+    parts = lineSplit(lineString(pts), poly).features.map((f) => f.geometry.coordinates);
+  } catch {
+    return [piece];
+  }
+  if (!parts.length) parts = [pts];
+  const insideParts = parts.filter((c) => {
+    if (c.length < 2) return false;
+    const l = lineString(c);
+    const len = turfLength(l, { units: "meters" });
+    return len > 0.5 && booleanPointInPolygon(along(l, len / 2, { units: "meters" }), poly, { ignoreBoundary: true });
+  });
+  let result = [piece];
+  for (const seg of insideParts) result = result.flatMap((p) => cutWithSide(p, seg));
+  return result;
+}
+
+function dedupe(fence: readonly Position[]): Position[] {
+  return fence.filter((p, i) => i === 0 || p[0] !== fence[i - 1][0] || p[1] !== fence[i - 1][1]).map((p) => [p[0], p[1]]);
+}
+
+const planarDist = (a: Position, b: Position) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+/**
+ * Fits a drawn fence to the field: the fence never leaves the boundary. A fence end
+ * drawn inside the field is carried on to the nearest field edge or existing fence
+ * ahead of it; anything drawn past the boundary is trimmed back to where it crosses,
+ * and a middle point tapped outside is pulled onto the boundary.
+ */
+export function fitFence(field: GeoJSON.Polygon, prior: ReadonlyArray<readonly Position[]>, raw: readonly Position[]): Position[] | null {
+  let pts = dedupe(raw);
+  if (pts.length < 2) return null;
+  const poly = turfPolygon(field.coordinates);
+  const edges = multiLineString([field.coordinates[0], ...prior.map((f) => dedupe(f))].filter((l) => l.length >= 2));
+  const inside = (p: Position) => booleanPointInPolygon(point(p), poly, { ignoreBoundary: true });
+  const hits = (a: Position, b: Position) =>
+    lineIntersect(lineString([a, b]), edges).features.map((f) => f.geometry.coordinates).filter((h) => planarDist(a, h) > 1e-9).sort((x, y) => planarDist(a, x) - planarDist(a, y));
+
+  const fitStart = (line: Position[]): Position[] | null => {
+    if (inside(line[0])) {
+      const h = hits(line[0], beyond(line[1], line[0]));
+      return h.length ? [h[0], ...line] : null;
+    }
+    for (let i = 0; i < line.length - 1; i++) {
+      const h = hits(line[i], line[i + 1]);
+      if (h.length) return [h[0], ...line.slice(i + 1)];
+    }
+    return null;
+  };
+
+  const started = fitStart(pts);
+  if (!started) return null;
+  const ended = fitStart([...started].reverse());
+  if (!ended) return null;
+  pts = ended.reverse();
+  const ring = lineString(field.coordinates[0]);
+  pts = pts.map((p, i) => (i === 0 || i === pts.length - 1 || inside(p) ? p : nearestPointOnLine(ring, point(p)).geometry.coordinates));
+  const total = pts.slice(1).reduce((s, p, i) => s + planarDist(pts[i], p), 0);
+  return total > 1e-7 ? pts : null;
 }
 
 function checkPieces(field: GeoJSON.Polygon, pieces: GeoJSON.Polygon[]): SplitResult {
@@ -93,7 +169,7 @@ export function applyFences(field: GeoJSON.Polygon, fences: ReadonlyArray<readon
   for (const fence of fences) {
     const next = pieces.flatMap((p) => splitByFence(p, fence));
     if (next.length === pieces.length) {
-      return { ok: false, error: "A fence needs to cross the field from one edge to the other. Start and finish it outside the field." };
+      return { ok: false, error: "That fence doesn't divide the field. Draw it across the field, along where the fence runs." };
     }
     pieces = next;
   }

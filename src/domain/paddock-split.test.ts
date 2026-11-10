@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { area, polygon } from "@turf/turf";
-import { applyFences, evenFences, orderPaddocks, validatePaddockSplit } from "./paddock-split";
+import { applyFences, evenFences, fitFence, orderPaddocks, validatePaddockSplit } from "./paddock-split";
 
 // About 140 m x 110 m near Sixmilebridge.
 const FIELD: GeoJSON.Polygon = { type: "Polygon", coordinates: [[[-8.79, 52.74], [-8.788, 52.74], [-8.788, 52.741], [-8.79, 52.741], [-8.79, 52.74]]] };
@@ -45,5 +45,26 @@ describe("splitting a field into paddocks", () => {
     expect(validatePaddockSplit(FIELD, [{ name: "Top", polygon: a }, { name: "top", polygon: b }], [])).toMatch(/already used/);
     expect(validatePaddockSplit(FIELD, [{ name: "Martins", polygon: a }, { name: "B", polygon: b }], ["Martins"])).toMatch(/already used/);
     expect(validatePaddockSplit(FIELD, [{ name: "Only half", polygon: a }, { name: "Half again", polygon: a }], [])).toMatch(/exactly once/);
+  });
+
+  it("keeps fences inside the field: ends drawn inside join the edge, and nothing runs past it", () => {
+    const fitted = fitFence(FIELD, [], [[-8.789, 52.7403], [-8.789, 52.7407]]);
+    expect(fitted).not.toBeNull();
+    if (!fitted) return;
+    expect(fitted[0][1]).toBeCloseTo(52.74, 6);
+    expect(fitted[fitted.length - 1][1]).toBeCloseTo(52.741, 6);
+    const trimmed = fitFence(FIELD, [], [[-8.789, 52.7390], [-8.789, 52.7420]]);
+    expect(trimmed && Math.min(...trimmed.map((p) => p[1]))).toBeGreaterThanOrEqual(52.74 - 1e-9);
+    expect(trimmed && Math.max(...trimmed.map((p) => p[1]))).toBeLessThanOrEqual(52.741 + 1e-9);
+    const r = applyFences(FIELD, [fitted]);
+    expect(r.ok && r.paddocks.length).toBe(2);
+  });
+
+  it("stops a new fence at an existing one, so only that paddock is split", () => {
+    const first = fitFence(FIELD, [], [[-8.789, 52.7403], [-8.789, 52.7407]])!;
+    const second = fitFence(FIELD, [first], [[-8.7897, 52.7405], [-8.7893, 52.7405]])!;
+    expect(second[second.length - 1][0]).toBeCloseTo(-8.789, 6);
+    const r = applyFences(FIELD, [first, second]);
+    expect(r.ok && r.paddocks.length).toBe(3);
   });
 });

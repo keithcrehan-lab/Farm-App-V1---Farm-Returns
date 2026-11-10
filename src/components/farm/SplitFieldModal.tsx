@@ -15,7 +15,7 @@ import { PenLine, RotateCcw, Rows3, X } from "lucide-react";
 import { MAPBOX_SATELLITE_STYLE, MAPBOX_TOKEN, mapboxConfigured } from "@/lib/mapbox";
 import { formatHa } from "@/lib/format";
 import { computeBoundaryGeometry, boundingBox } from "@/domain/field-boundary";
-import { applyFences, evenFences, orderPaddocks } from "@/domain/paddock-split";
+import { applyFences, evenFences, fitFence, orderPaddocks } from "@/domain/paddock-split";
 import type { Field } from "@/domain/types";
 
 const COLOURS = ["#e3c77e", "#7fc4ad", "#e39a6f", "#a9cf6a", "#8fb0e3", "#d9a3cf", "#f0dd8c", "#6fb7c9"];
@@ -92,7 +92,12 @@ export function SplitFieldModal({ field, onClose, onSave }: {
     map.on("draw.create", (e: { features: Array<GeoJSON.Feature> }) => {
       const g = e.features[0]?.geometry;
       draw.deleteAll();
-      if (g?.type === "LineString" && g.coordinates.length >= 2) commitFences([...fencesRef.current, g.coordinates]);
+      if (g?.type === "LineString" && g.coordinates.length >= 2) {
+        // The fence is fitted to the field: ends join the nearest edge or fence, nothing runs outside.
+        const fitted = fitFence(field.polygon, fencesRef.current, g.coordinates);
+        if (fitted) commitFences([...fencesRef.current, fitted]);
+        else setError("Draw the fence inside the field, along where it runs.");
+      }
       // Ready for the next fence straight away.
       setTimeout(() => { try { draw.changeMode("draw_line_string"); } catch { /* map closing */ } }, 0);
     });
@@ -158,7 +163,7 @@ export function SplitFieldModal({ field, onClose, onSave }: {
           <p className="p-6 text-sm text-white/80">Mapping isn&apos;t configured on this deployment, so fences can&apos;t be drawn.</p>
         )}
         <p className="pointer-events-none absolute left-3 top-3 max-w-[70%] rounded-[10px] bg-black/60 px-3 py-2 text-xs leading-snug text-white" aria-live="polite">
-          {drawing ? "Tap where the fence starts, outside the field. Tap along it, then tap the last point again to finish." : "Tap Draw a fence to add another."}
+          {drawing ? "Tap along the fence inside the field, then tap the last point again to finish. Its ends join the field edge or another fence." : "Tap Draw a fence to add another."}
         </p>
       </div>
 

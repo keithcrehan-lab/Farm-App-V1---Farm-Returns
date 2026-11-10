@@ -123,11 +123,26 @@ export function PlanAssistant({ ctx, farmId, county, fields, prompts, milestones
 
   async function remember(r: Recommendation, status: RecommendationState["status"], snoozedUntil: string | null = null) {
     const next: RecommendationState = { key: r.key, status, fingerprint: r.fingerprint, snoozedUntil };
+    if (!signedIn) {
+      setError("Sign in to save changes to your recommendations.");
+      return;
+    }
+    setError("");
+    // Keep the previous value so a failed server write cannot masquerade as
+    // a successfully saved dismissal, snooze or completion.
+    const previous = states.find((s) => s.key === r.key);
     setStates((list) => [...list.filter((s) => s.key !== r.key), next]);
     setOpen(null);
-    if (!signedIn) return;
-    const res = await setRecommendationStateAction(next);
-    if (!res.ok) setError(res.error);
+    try {
+      const res = await setRecommendationStateAction(next);
+      if (!res.ok) throw new Error(res.error);
+    } catch {
+      setStates((list) => [
+        ...list.filter((s) => s.key !== r.key),
+        ...(previous ? [previous] : []),
+      ]);
+      setError("Could not save that change. Please try again.");
+    }
   }
 
   function act(r: Recommendation, planInstead = false) {

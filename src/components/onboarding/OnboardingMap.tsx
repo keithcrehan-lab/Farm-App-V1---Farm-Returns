@@ -101,7 +101,8 @@ export const OnboardingMap = forwardRef<
   useEffect(() => {
     if (!containerRef.current) return;
     mapboxgl.accessToken = MAPBOX_TOKEN;
-    const map = new mapboxgl.Map({ container: containerRef.current, style: STYLE_FOR[viewRef.current], center: initialCenter, zoom: initialZoom, maxBounds: MAX_BOUNDS });
+    const map = new mapboxgl.Map({ container: containerRef.current, style: STYLE_FOR[viewRef.current], center: initialCenter, zoom: initialZoom, maxBounds: MAX_BOUNDS, attributionControl: false });
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }), "bottom-right");
     mapRef.current = map;
     map.setPadding(padding);
     if (initialRadiusKm) {
@@ -183,6 +184,16 @@ export const OnboardingMap = forwardRef<
 
   useEffect(() => {
     mapRef.current?.setPadding(padding);
+    // Keep the zoom buttons, Mapbox logo and attribution in the visible part of the map, just clear of the
+    // setup panel (below on phones, beside on desktop), never on top of its text.
+    const root = containerRef.current;
+    if (!root) return;
+    root.querySelectorAll<HTMLElement>(".mapboxgl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-right").forEach((el) => {
+      el.style.bottom = `${padding.bottom}px`;
+      el.style.transition = "bottom 200ms ease";
+    });
+    root.querySelectorAll<HTMLElement>(".mapboxgl-ctrl-bottom-left").forEach((el) => { el.style.left = `${padding.left}px`; });
+    root.querySelectorAll<HTMLElement>(".mapboxgl-ctrl-bottom-right").forEach((el) => { el.style.right = `${padding.right}px`; });
   }, [padding]);
 
   useEffect(() => {

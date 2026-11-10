@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { FarmProvider } from "@/store/farm-store";
 import PlanPage from "./page";
 
@@ -21,12 +21,30 @@ describe("PlanPage", () => {
     await waitFor(() => expect(screen.getByText(/no jobs are scheduled yet/i)).toBeTruthy());
   });
 
-  it("shows the app's own prompts as suggestions inside today, not a separate list", async () => {
+  it("shows recommendations and one spreading-rules panel on today, not a list of per-field prompts", async () => {
     renderPlan();
-    // Mock-mode seed data always has at least one field, so there is
-    // always at least one real (possibly evidence-gap) Prompt to suggest.
-    await waitFor(() => expect(screen.getByText("Suggested")).toBeTruthy());
+    // Mock-mode seed data has four fields in Co. Cork during the closed period.
+    await waitFor(() => expect(screen.getByText("Recommended for you")).toBeTruthy());
+    expect(screen.getByText("This week")).toBeTruthy();
+    expect(screen.getAllByText("Spreading rules")).toHaveLength(1);
+    expect(screen.getByText("Prepare your 2027 fertiliser plan")).toBeTruthy();
+    expect(screen.queryByText(/Spreading window status needs review/i)).toBeNull();
     expect(screen.queryByText("Genuine opportunities")).toBeNull();
+    // No raw rule codes or engine identifiers on the primary screen.
+    expect(document.body.textContent).not.toMatch(/[A-Z]{3,}_[A-Z_]{3,}/);
+  });
+
+  it("opens a recommendation's details with the evidence, and offers snooze and dismiss", async () => {
+    renderPlan();
+    await waitFor(() => expect(screen.getByText("Prepare your 2027 fertiliser plan")).toBeTruthy());
+    const card = screen.getByText("Prepare your 2027 fertiliser plan").closest("li")!;
+    fireEvent.click(within(card).getByRole("button", { name: "Details" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("What this is based on")).toBeTruthy();
+    expect(within(dialog).getByText("How was this calculated?")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Not relevant" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByText(/Snoozed or dismissed \(1\)/)).toBeTruthy();
   });
 
   it("offers today, week, season and year views, with the month grid kept under week", async () => {

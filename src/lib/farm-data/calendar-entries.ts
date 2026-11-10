@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { CalendarEntry, CalendarEntryInput, CalendarStatus } from "@/domain/farm-calendar";
 
 const TABLE = "calendar_entries";
-const COLUMNS = "id,kind,category,title,start_date,end_date,start_time,end_time,status,assignee_name,notes,field_ids";
+const COLUMNS = "id,kind,category,title,start_date,end_date,start_time,end_time,status,assignee_name,notes,field_ids,source_key";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const toEntry = (r: any): CalendarEntry => ({
@@ -20,6 +20,7 @@ const toEntry = (r: any): CalendarEntry => ({
   notes: r.notes,
   fieldIds: r.field_ids ?? [],
   source: "farmer",
+  sourceKey: r.source_key ?? null,
 });
 
 export async function listCalendarEntries(farmId: string, from: string, to: string): Promise<CalendarEntry[]> {
@@ -47,6 +48,8 @@ export async function upsertCalendarEntry(farmId: string, e: CalendarEntryInput)
     assignee_name: e.assignee?.trim() || null,
     notes: e.notes?.trim() || null,
     field_ids: e.fieldIds,
+    // Only written when given, so editing an entry keeps its link.
+    ...(e.sourceKey !== undefined ? { source_key: e.sourceKey } : {}),
     completed_at: e.status === "done" ? new Date().toISOString() : null,
     updated_at: new Date().toISOString(),
   };

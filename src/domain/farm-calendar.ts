@@ -43,6 +43,8 @@ export interface CalendarEntry {
   source: "farmer" | "app";
   sourceNote?: string;
   href?: string;
+  /** The recommendation this entry was made from, if any. */
+  sourceKey?: string | null;
 }
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -178,6 +180,8 @@ export interface CalendarEntryInput {
   assignee: string | null;
   notes: string | null;
   fieldIds: string[];
+  /** Set when the entry is made from a recommendation. */
+  sourceKey?: string | null;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -202,5 +206,6 @@ export function validateCalendarEntry(e: CalendarEntryInput): string | null {
   if (e.assignee !== null && (typeof e.assignee !== "string" || e.assignee.trim().length > 80)) return "Keep the person's name under 80 characters.";
   if (e.notes !== null && (typeof e.notes !== "string" || e.notes.length > 2000)) return "Notes are too long.";
   if (!Array.isArray(e.fieldIds) || e.fieldIds.length > 100 || e.fieldIds.some((f) => !UUID.test(String(f)))) return "Check the fields.";
+  if (e.sourceKey != null && (typeof e.sourceKey !== "string" || !/^[a-z0-9:_.-]{1,200}$/i.test(e.sourceKey))) return "Something went wrong. Try again.";
   return null;
 }

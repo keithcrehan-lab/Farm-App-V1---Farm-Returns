@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import Link from "next/link";
-import { Beef, Check, ChevronLeft, ChevronRight, Circle, Clock, FlaskConical, Flag, Plus, ShieldCheck, Sparkles, Sprout, Tractor, User, X } from "lucide-react";
+import { Beef, Check, ChevronLeft, ChevronRight, Circle, Clock, FlaskConical, Flag, Plus, ShieldCheck, Sprout, Tractor, User, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   CALENDAR_CATEGORIES, CATEGORY_COLOR, CATEGORY_LABEL, KIND_LABEL,
@@ -10,8 +10,8 @@ import {
   type CalendarCategory, type CalendarEntry, type CalendarKind, type CalendarStatus,
 } from "@/domain/farm-calendar";
 import {
-  ACTIVITY_LANE_COLOR, ACTIVITY_LANE_LABEL, activeSeasons, activityLanes, bookingState, grassWalkSuggestion, isOverdue, nowNextLater, upNext,
-  type ActivityLane, type ActivityLaneRow, type CalendarSuggestion, type Horizon,
+  ACTIVITY_LANE_COLOR, ACTIVITY_LANE_LABEL, activeSeasons, activityLanes, bookingState, isOverdue, nowNextLater, upNext,
+  type ActivityLane, type ActivityLaneRow, type Horizon,
 } from "@/domain/plan-views";
 import { listCalendarEntriesAction, saveCalendarEntryAction, setCalendarEntryStatusAction } from "@/app/actions/calendar";
 import { listGrassSurveysAction } from "@/app/actions/grass-surveys";
@@ -39,19 +39,41 @@ function whenLabel(e: CalendarEntry, today: string): string {
   return `${dayMonth(e.startDate)} – ${dayMonth(e.endDate)}`;
 }
 
-interface Preset { title: string; category: CalendarCategory; kind: CalendarKind }
+/** What a new entry starts with: from the + button (nothing) or from a recommendation. */
+export interface Preset {
+  title: string;
+  category: CalendarCategory;
+  kind: CalendarKind;
+  startDate?: string;
+  endDate?: string;
+  fieldIds?: string[];
+  notes?: string;
+  /** The recommendation the entry is made from, so it can be tracked. */
+  sourceKey?: string;
+}
+
+/** What the Plan assistant (recommendations, overview, rules) is given to work with. */
+export interface PlanAssistantContext {
+  entries: CalendarEntry[];
+  today: string;
+  /** undefined while loading or unknown; null when no walk is on record. */
+  lastWalk: string | null | undefined;
+  signedIn: boolean;
+  loading: boolean;
+  addToPlan: (preset: Preset) => void;
+  setEntryStatus: (entryId: string, status: CalendarStatus) => void;
+}
 
 interface Props {
   county: string | null | undefined;
   fields: ReadonlyArray<{ id: string; name: string }>;
   milestones: ReadonlyArray<{ groupId: string; groupLabel: string; targetDate: string; targetWeightKg?: number }> | null;
   signedIn: boolean;
-  /** Suggestions the app has already worked out from the farm's own data. */
-  suggestions?: CalendarSuggestion[];
-  onOpenSuggestion?: (s: CalendarSuggestion) => void;
+  /** Renders the recommendations, weekly overview and rules on the Today view. */
+  assistant?: (ctx: PlanAssistantContext) => ReactNode;
 }
 
-export function FarmCalendar({ county, fields, milestones, signedIn, suggestions = [], onOpenSuggestion }: Props) {
+export function FarmCalendar({ county, fields, milestones, signedIn, assistant }: Props) {
   const [today] = useState(localToday);
   const [view, setView] = useState<View>("today");
   const [weekMode, setWeekMode] = useState<"week" | "month">("week");
@@ -94,11 +116,6 @@ export function FarmCalendar({ county, fields, milestones, signedIn, suggestions
     ...milestoneEntries(milestones ?? []),
   ].sort(compareEntries), [own, county, milestones, rangeFrom, rangeTo]);
 
-  const allSuggestions = useMemo(() => {
-    const walk = lastWalk === undefined ? null : grassWalkSuggestion(lastWalk, today);
-    return [...(walk ? [walk] : []), ...suggestions];
-  }, [lastWalk, today, suggestions]);
-
   const assignees = useMemo(() => [...new Set((own ?? []).map((e) => e.assignee).filter((a): a is string => Boolean(a)))], [own]);
   const ribbon = activeSeasons(all, today);
 
@@ -115,7 +132,18 @@ export function FarmCalendar({ county, fields, milestones, signedIn, suggestions
     onToggle: (e: CalendarEntry) => void setStatus(e, e.status === "done" ? "planned" : "done"),
     onBook: (e: CalendarEntry) => void setStatus(e, "booked"),
   };
-  const addSuggestion = (s: CalendarSuggestion) => setEditing({ entry: null, preset: { title: s.title, category: s.category, kind: s.kind } });
+  const assistantCtx: PlanAssistantContext = {
+    entries: all,
+    today,
+    lastWalk,
+    signedIn,
+    loading: own === null,
+    addToPlan: (preset) => setEditing({ entry: null, preset }),
+    setEntryStatus: (entryId, next) => {
+      const e = (own ?? []).find((x) => x.id === entryId);
+      if (e) void setStatus(e, next);
+    },
+  };
 
   return (
     <section aria-label="Farm calendar" className="lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-6">
@@ -141,7 +169,7 @@ export function FarmCalendar({ county, fields, milestones, signedIn, suggestions
 
         {view === "today" ? (
           <TodayView all={all} ribbon={ribbon} loading={own === null} {...row}
-            suggestions={allSuggestions} signedIn={signedIn} onOpenSuggestion={onOpenSuggestion} onAddSuggestion={addSuggestion} />
+            signedIn={signedIn} assistant={assistant?.(assistantCtx)} />
         ) : null}
         {view === "week" ? (
           <>
@@ -307,36 +335,12 @@ function SeasonRibbon({ seasons }: { seasons: CalendarEntry[] }) {
   );
 }
 
-function SuggestionRow({ s, signedIn, onOpen, onAdd }: { s: CalendarSuggestion; signedIn: boolean; onOpen?: (s: CalendarSuggestion) => void; onAdd: (s: CalendarSuggestion) => void }) {
-  const body = (
-    <>
-      <span className="block truncate text-sm font-semibold text-fr-ink-900">{s.title}</span>
-      <span className="mt-0.5 line-clamp-1 text-xs text-fr-ink-600">{s.detail}</span>
-    </>
-  );
-  return (
-    <li className="flex items-center gap-3 rounded-[12px] border border-dashed border-fr-v2-cream-rule bg-white/60 px-3 py-2.5">
-      <Sparkles className="size-5 shrink-0" style={{ color: CATEGORY_COLOR[s.category] }} aria-hidden />
-      {s.href ? <Link href={s.href} className="min-w-0 flex-1">{body}</Link>
-        : onOpen ? <button type="button" onClick={() => onOpen(s)} className="min-w-0 flex-1 text-left">{body}</button>
-          : <div className="min-w-0 flex-1">{body}</div>}
-      {signedIn ? (
-        <button type="button" onClick={() => onAdd(s)} aria-label={`Add ${s.title} to calendar`}
-          className="min-h-9 shrink-0 rounded-full bg-fr-v2-cream px-3 text-xs font-semibold text-fr-green-700">Add</button>
-      ) : null}
-    </li>
-  );
-}
-
-function TodayView({ all, ribbon, loading, suggestions, signedIn, onOpenSuggestion, onAddSuggestion, ...row }: RowProps & {
-  all: CalendarEntry[]; ribbon: CalendarEntry[]; loading: boolean;
-  suggestions: CalendarSuggestion[]; signedIn: boolean; onOpenSuggestion?: (s: CalendarSuggestion) => void; onAddSuggestion: (s: CalendarSuggestion) => void;
+function TodayView({ all, ribbon, loading, signedIn, assistant, ...row }: RowProps & {
+  all: CalendarEntry[]; ribbon: CalendarEntry[]; loading: boolean; signedIn: boolean; assistant?: ReactNode;
 }) {
-  const [showAll, setShowAll] = useState(false);
   const items = all.filter((e) => e.kind !== "season" && e.status !== "cancelled");
   const overdue = items.filter((e) => isOverdue(e, row.today));
   const todays = items.filter((e) => overlaps(e, row.today, row.today));
-  const shown = showAll ? suggestions : suggestions.slice(0, 3);
   return (
     <div className="space-y-4">
       <p className="font-display text-[22px] leading-tight text-fr-ink-900">{fmt(row.today, { weekday: "long", day: "numeric", month: "long" })}</p>
@@ -350,19 +354,7 @@ function TodayView({ all, ribbon, loading, suggestions, signedIn, onOpenSuggesti
           ) : null}
         </>
       )}
-      {suggestions.length ? (
-        <div>
-          <Label>Suggested</Label>
-          <ul className="space-y-1.5">
-            {shown.map((s) => <SuggestionRow key={s.id} s={s} signedIn={signedIn} onOpen={onOpenSuggestion} onAdd={onAddSuggestion} />)}
-          </ul>
-          {suggestions.length > 3 ? (
-            <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-1 min-h-10 w-full text-sm font-semibold text-fr-green-700">
-              {showAll ? "Show fewer" : `Show ${suggestions.length - 3} more`}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      {assistant}
     </div>
   );
 }
@@ -649,14 +641,14 @@ function EntrySheet({ entry, preset, defaultDate, fields, assignees, onClose, on
   const [kind, setKind] = useState<CalendarKind>(entry?.kind ?? preset?.kind ?? "job");
   const [title, setTitle] = useState(entry?.title ?? preset?.title ?? "");
   const [category, setCategory] = useState<CalendarCategory>(entry?.category ?? preset?.category ?? "cattle");
-  const [startDate, setStartDate] = useState(entry?.startDate ?? defaultDate);
-  const [endDate, setEndDate] = useState(entry?.endDate ?? addDays(defaultDate, 6));
+  const [startDate, setStartDate] = useState(entry?.startDate ?? preset?.startDate ?? defaultDate);
+  const [endDate, setEndDate] = useState(entry?.endDate ?? preset?.endDate ?? addDays(preset?.startDate ?? defaultDate, 6));
   const [startTime, setStartTime] = useState(entry?.startTime ?? "10:00");
   const [endTime, setEndTime] = useState(entry?.endTime ?? "");
   const [status, setStatus] = useState<CalendarStatus>(entry?.status ?? "planned");
   const [assignee, setAssignee] = useState(entry?.assignee ?? "");
-  const [notes, setNotes] = useState(entry?.notes ?? "");
-  const [fieldIds, setFieldIds] = useState<string[]>(entry?.fieldIds ?? []);
+  const [notes, setNotes] = useState(entry?.notes ?? preset?.notes ?? "");
+  const [fieldIds, setFieldIds] = useState<string[]>(entry?.fieldIds ?? preset?.fieldIds ?? []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [id] = useState(() => entry?.id ?? crypto.randomUUID());
@@ -680,6 +672,8 @@ function EntrySheet({ entry, preset, defaultDate, fields, assignees, onClose, on
       assignee: assignee.trim() || null,
       notes: notes.trim() || null,
       fieldIds,
+      // Editing keeps the existing link; a new entry carries its recommendation.
+      sourceKey: entry ? undefined : preset?.sourceKey ?? null,
     });
     setSaving(false);
     if (r.ok) onSaved(r.entry);

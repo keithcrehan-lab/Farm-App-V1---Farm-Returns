@@ -9,21 +9,22 @@
  * entries: the farmer's own jobs, appointments, deadlines and seasons,
  * plus read-only entries the app already knows (statutory closed periods,
  * cattle production targets). Vet and contractor work shows its booking
- * status. The app's own Prompts appear in the Today view as dashed
- * suggestions the farmer can open or add to the calendar in one tap.
+ * status.
+ *
+ * The Today view carries the Plan assistant: a weekly overview, a few
+ * recommendations from the shared recommendation engine (deduplicated
+ * across fields, each with one clear next step), and one consolidated
+ * spreading-rules panel. Statutory restrictions are information there,
+ * never jobs.
  */
 import { useEffect, useMemo, useState } from "react";
 import { FarmCalendar } from "@/components/plan/FarmCalendar";
+import { PlanAssistant } from "@/components/plan/PlanAssistant";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { WeatherHeroChip } from "@/components/farm/WeatherHeroChip";
-import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
 import { AskAIButton } from "@/components/next/AskAI";
-import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
+import { useFarm, useFields, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
-import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/prompt/select-primary";
-import type { Prompt } from "@/orchestration/prompt";
-import { farmerReadableText } from "@/lib/farmer-readable-codes";
-import { promptCategory, type CalendarSuggestion } from "@/domain/plan-views";
 import {
   loadCattleProductionMilestonesAction,
   type CattleProductionMilestone,
@@ -33,6 +34,7 @@ export default function PlanPage() {
   const farm = useFarm();
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
+  const housing = useHousingList();
   const slurryAllocations = useSlurryAllocations();
   const slurryCompositionRecords = useSlurryCompositionRecords();
   const isRealMode = useIsRealMode();
@@ -63,24 +65,8 @@ export default function PlanPage() {
     return buildAllRealPrompts(farm, fields, livestockGroups, slurryAllocations, new Date().toISOString(), slurryCompositionRecords);
   }, [mounted, farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords]);
 
-  // Strongest Prompt first (Today's own ranking), then the rest.
-  const ranked = useMemo(() => {
-    const primary = selectPrimaryPrompt(prompts);
-    return [...(primary ? [primary] : []), ...selectSecondaryPrompts(prompts)];
-  }, [prompts]);
-
-  const suggestions = useMemo<CalendarSuggestion[]>(() => ranked.map((p) => ({
-    id: `prompt-${p.id}`,
-    title: p.title,
-    detail: farmerReadableText(p.description),
-    category: promptCategory(p.kind, p.title),
-    kind: "job",
-    promptId: p.id,
-  })), [ranked]);
-
-  const [openPrompt, setOpenPrompt] = useState<Prompt | undefined>(undefined);
-  const fieldNameFor = (prompt: Prompt | undefined) => fields.find((f) => f.id === prompt?.fieldId)?.name;
-  const askAIContext = { screen: "Plan", facts: { Farm: farm.name, Suggestions: String(suggestions.length) } };
+  const fieldRefs = useMemo(() => fields.map((f) => ({ id: f.id, name: f.name })), [fields]);
+  const askAIContext = { screen: "Plan", facts: { Farm: farm.name, Fields: String(fields.length) } };
 
   return (
     <>
@@ -95,11 +81,22 @@ export default function PlanPage() {
 
       <FarmCalendar
         county={farm.location.county}
-        fields={fields.map((f) => ({ id: f.id, name: f.name }))}
+        fields={fieldRefs}
         milestones={cattleMilestones}
         signedIn={isRealMode}
-        suggestions={suggestions}
-        onOpenSuggestion={(s) => setOpenPrompt(prompts.find((p) => p.id === s.promptId))}
+        assistant={(ctx) => mounted ? (
+          <PlanAssistant
+            ctx={ctx}
+            farmId={farm.id}
+            county={farm.location.county}
+            fields={fieldRefs}
+            prompts={prompts}
+            milestones={cattleMilestones}
+            housing={housing}
+            livestockGroups={livestockGroups}
+            slurryAllocations={slurryAllocations}
+          />
+        ) : null}
       />
 
       {/* Scroll room for the fixed Ask AI pill on mobile. */}
@@ -108,14 +105,6 @@ export default function PlanPage() {
       <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-20 px-4 lg:hidden">
         <AskAIButton context={askAIContext} className="w-full justify-center py-3 shadow-fr-card" />
       </div>
-
-      <ExpandedPromptSheet
-        open={Boolean(openPrompt)}
-        onClose={() => setOpenPrompt(undefined)}
-        prompt={openPrompt}
-        fieldName={fieldNameFor(openPrompt)}
-        canRecord={isRealMode}
-      />
     </>
   );
 }

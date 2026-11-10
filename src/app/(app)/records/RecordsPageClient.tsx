@@ -42,7 +42,11 @@ export function RecordsPageClient({
   jobSessions = [],
   jobSessionsUnavailable = false,
   jobSessionsTruncated = false,
+  title = "Records",
+  subtitle = "Your farm history",
 }: {
+  title?: string;
+  subtitle?: string;
   jobs: JobWithDecision[];
   jobsUnavailable?: boolean;
   jobsTruncated?: boolean;
@@ -63,7 +67,7 @@ export function RecordsPageClient({
     ...jobSessions.map((session): TimelineEntry => ({ type: "job_session", session })),
   ].sort((a, b) => entryTimestamp(b).localeCompare(entryTimestamp(a)));
 
-  const askAIContext = { screen: "Records", facts: { "Activity entries": String(entries.length) } };
+  const askAIContext = { screen: title, facts: { "Activity entries": String(entries.length) } };
   // Pilot acceptance repair: decisions name their field (an archived field keeps its name, marked archived).
   const allFields = useAllFieldsIncludingArchived();
   const fieldNames = new Map(allFields.map((f) => [f.id, f.archivedAt ? `${f.name} (deleted)` : f.name] as const));
@@ -72,8 +76,8 @@ export function RecordsPageClient({
     <>
       <div className="mb-4 flex items-start justify-between gap-3 lg:hidden">
         <div>
-          <h1 className="font-display text-title text-fr-ink-900">Records</h1>
-          <p className="text-sm text-fr-ink-600">Your farm history</p>
+          <h1 className="font-display text-title text-fr-ink-900">{title}</h1>
+          <p className="text-sm text-fr-ink-600">{subtitle}</p>
         </div>
       </div>
       {/* Codex audit MEDIUM (round 3): desktop needs a real Ask AI
@@ -81,7 +85,7 @@ export function RecordsPageClient({
           Ask AI in `PageHeader`'s own `actions` slot, the established
           cross-screen convention (Farm/Plan use the identical slot) —
           image1 has no desktop mockup to reproduce here, only mobile. */}
-      <PageHeader title="Records" subtitle="Your farm history" actions={<AskAIButton context={askAIContext} />} />
+      <PageHeader title={title} subtitle={subtitle} actions={<AskAIButton context={askAIContext} />} />
 
       <ActivityTimelineCard
         entries={entries}

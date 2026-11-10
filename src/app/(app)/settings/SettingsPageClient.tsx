@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Check, Cloud, Database, LogOut, MapPin, Ruler, Sliders, User } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -90,6 +91,13 @@ export function SettingsPageClient({
         <p className="text-sm text-fr-ink-600">Farm profile, units, data permissions, integrations</p>
       </div>
       <PageHeader title="Settings" subtitle="Farm profile, units, data permissions, integrations, source preferences" />
+      <Link href="/settings/advice-history" className="mb-4 flex min-h-12 items-center justify-between rounded-[14px] border border-fr-v2-cream-rule bg-white px-4 py-3">
+        <span>
+          <span className="block text-sm font-semibold text-fr-ink-900">Advice history</span>
+          <span className="block text-xs text-fr-ink-600">What Farm Return suggested, how it was worked out, and what you decided</span>
+        </span>
+        <span aria-hidden className="text-fr-ink-400">›</span>
+      </Link>
 
       <div className="flex flex-col gap-4">
         <Card>

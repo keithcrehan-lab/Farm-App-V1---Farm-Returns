@@ -52,7 +52,12 @@ const BANDS = [
  * A single DOM tree is used for both, so nothing is duplicated for
  * assistive tech or tests.
  */
-export function FarmGrassMapOverlay({ summary }: { summary: FarmGrassMapSummary }) {
+export function FarmGrassMapOverlay({ summary, view = "today", onViewChange, estimateLabel }: {
+  summary: FarmGrassMapSummary;
+  view?: "today" | "measured";
+  onViewChange?: (view: "today" | "measured") => void;
+  estimateLabel?: string;
+}) {
   const target = DEFAULT_GRASS_PRESENTATION_TARGETS;
   const [expanded, setExpanded] = useState(false);
   const detailsId = useId();
@@ -83,6 +88,17 @@ export function FarmGrassMapOverlay({ summary }: { summary: FarmGrassMapSummary 
       </section>
 
       <section className="order-1 rounded-[14px] border border-white/15 bg-fr-v2-forest-deep/92 text-white shadow-[0_12px_30px_rgba(0,0,0,0.26)] backdrop-blur-md lg:order-none lg:rounded-[12px] lg:p-4">
+        {onViewChange ? (
+          <div className="flex items-center justify-between gap-2 px-3.5 pt-3 lg:px-0 lg:pb-3 lg:pt-0">
+            <div className="inline-flex shrink-0 rounded-full bg-white/10 p-0.5 text-[11px] font-semibold" role="group" aria-label="Cover shown on the map">
+              {([["today", "Today (est.)"], ["measured", "Last walk"]] as const).map(([value, label]) => (
+                <button key={value} type="button" aria-pressed={view === value} onClick={() => onViewChange(value)}
+                  className={cn("min-h-8 rounded-full px-3", view === value ? "bg-white text-fr-v2-forest-deep" : "text-white/75")}>{label}</button>
+              ))}
+            </div>
+            <span className="truncate text-[10.5px] text-white/60">{view === "today" ? (estimateLabel ? `Growth ${estimateLabel}` : "No growth rate yet") : "As measured"}</span>
+          </div>
+        ) : null}
         {/* Phone header doubles as the expand toggle. */}
         <button
           type="button"

@@ -438,6 +438,8 @@ export default function TodayPage() {
   // Farm Spatial V2 Phase 3: the active lens adds its own real marker text
   // (e.g. a recorded P/K index, pH or field use) and one uniform domain
   // colour for every pin. Uniform colour carries no per-field priority.
+  // Farm map grass lens: today's estimate (growth added, grazing removed) or the last walk as measured.
+  const [grassView, setGrassView] = useState<"today" | "measured">("today");
   const grassOkData = grassData?.status === "ok" ? grassData : undefined;
   const grassLatestByField = useMemo(
     () => latestGrassObservationByField(grassOkData?.coverObservations ?? [], grassAsOf),
@@ -481,26 +483,26 @@ export default function TodayPage() {
         fieldId: field.id,
         areaHa: field.areaHa,
         observation: grassLatestByField.get(field.id),
-        growth: grassGrowth,
+        growth: grassView === "today" ? grassGrowth : undefined,
         asOf: grassAsOf,
-        ...(demand ? {
+        ...(demand && grassView === "today" ? {
           demandWindows: demand.demandWindows,
           unresolvedDemandWindows: demand.unresolvedDemandWindows,
         } : {}),
       }));
     }
     return map;
-  }, [fields, grassLatestByField, grassGrowth, grassAsOf, grassDemandByField]);
+  }, [fields, grassLatestByField, grassGrowth, grassAsOf, grassDemandByField, grassView]);
   const grassFarmSummary = useMemo(
     () => buildFarmGrassSummary(
       grassOkData?.fields ?? [],
       grassOkData?.coverObservations ?? [],
-      grassOkData?.growthObservations ?? [],
+      grassView === "today" ? (grassOkData?.growthObservations ?? []) : [],
       grassAsOf,
       undefined,
-      grassDemandByField,
+      grassView === "today" ? grassDemandByField : new Map(),
     ),
-    [grassOkData?.fields, grassOkData?.coverObservations, grassOkData?.growthObservations, grassAsOf, grassDemandByField],
+    [grassOkData?.fields, grassOkData?.coverObservations, grassOkData?.growthObservations, grassAsOf, grassDemandByField, grassView],
   );
   const grassCurrentAnimalDemandKgDmDay = useMemo(
     () => (grassOkData?.openGrazingSessions ?? []).reduce(
@@ -775,6 +777,9 @@ export default function TodayPage() {
                   <div className="pointer-events-auto">
                     {lens === "grass" && !grassLoadFailed ? (
                       <FarmGrassMapOverlay
+                        view={grassView}
+                        onViewChange={setGrassView}
+                        estimateLabel={grassGrowth ? `${formatNumber(grassGrowth.growthRateKgDmHaDay, 0)} kg/day · ${grassGrowth.origin === "regional_estimate" ? "Teagasc county" : "your walks"}` : undefined}
                         summary={{
                           averageCoverKgDmHa: grassFarmSummary.averageCoverKgDmHa,
                           growthRateKgDmHaDay: grassFarmSummary.growthRateKgDmHaDay,

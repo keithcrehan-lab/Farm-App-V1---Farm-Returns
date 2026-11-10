@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronUp, Crosshair, Footprints, MapPin, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
+import { GrowthInsights } from "@/components/grass/GrowthInsights";
 import { MapHero } from "@/components/farm/MapHero";
 import type { MapTone } from "@/components/farm/FieldMap";
 import { cn } from "@/lib/cn";
@@ -529,6 +530,8 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
         <Link href="/grass/walk" className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-[16px] bg-fr-v2-forest px-5 text-base font-semibold text-white"><Footprints className="size-5" aria-hidden />Start grass walk</Link>
         <Link href="/grass/walks" className="flex min-h-14 items-center justify-center rounded-[16px] border border-fr-v2-cream-rule bg-fr-v2-cream px-5 text-sm font-semibold text-fr-v2-forest">Past walks</Link>
       </div>
+
+      <GrowthInsights forecasts={okData.growthForecasts} />
 
       <section className="border-y border-fr-v2-cream-rule py-4" aria-label="Grass summary">
         <div className="grid grid-cols-2 gap-x-5 gap-y-5 lg:grid-cols-5 lg:gap-0">

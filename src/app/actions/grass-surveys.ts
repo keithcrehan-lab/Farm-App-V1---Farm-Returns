@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { computeSurveyResults, isGrassSurveyMode, trackDistanceM, type SurveyTrackPoint, type SurveyWeather } from "@/domain/grass-survey";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
-import { listGrassCoverObservationsForFarm } from "@/lib/farm-data/grass-management";
+import { insertFarmGrassGrowthObservation, listGrassCoverObservationsForFarm } from "@/lib/farm-data/grass-management";
+import { isValidGrassGrowthKgDmHaDay } from "@/domain/grass-management";
 import { listGrazingFieldSessionsForFarm } from "@/lib/farm-data/grazing-field-sessions";
 import {
   appendGrassSurveyTrackPoints,
@@ -156,6 +157,17 @@ export async function finishGrassSurveyAction(surveyId: string): Promise<Result<
       previousFarmCoverKgDmHa: previous?.results?.farmCoverKgDmHa ?? null,
     });
     const updated = await updateGrassSurvey(farm.id, surveyId, { status: "finished", finished_at: finishedAt, distance_m: distanceM, results });
+    // The walk's calculated growth becomes the farm's growth evidence, so covers are brought forward daily.
+    if (results.farmGrowthKgDmHaDay !== null && isValidGrassGrowthKgDmHaDay(results.farmGrowthKgDmHaDay)) {
+      await insertFarmGrassGrowthObservation({
+        id: crypto.randomUUID(),
+        farmId: farm.id,
+        growthRateKgDmHaDay: results.farmGrowthKgDmHaDay,
+        origin: "farmer_entered",
+        observedAt: finishedAt,
+        source: `Grass walk ${finishedAt.slice(0, 10)}: calculated from ${results.farmGrowthFieldCount} ${results.farmGrowthFieldCount === 1 ? "field" : "fields"}`,
+      }).catch((err) => console.error("[Grass surveys] growth evidence not saved", err));
+    }
     revalidatePath("/grass");
     revalidatePath("/grass/walks");
     return { ok: true, survey: updated };

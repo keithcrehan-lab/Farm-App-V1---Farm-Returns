@@ -20,6 +20,7 @@ const farm = { id: FARM_ID, name: "Ballybeg Farm", ownerName: "Keith", location:
 const getData = vi.fn();
 const recordCover = vi.fn();
 const recordGrowth = vi.fn();
+vi.mock("@/app/actions/grass-surveys", () => ({ listGrassSurveysAction: vi.fn(async () => ({ ok: true, surveys: [] })) }));
 vi.mock("@/app/actions/grass-management", () => ({
   getGrassManagementDataAction: (...args: unknown[]) => getData(...args),
   recordGrassCoverObservationAction: (...args: unknown[]) => recordCover(...args),

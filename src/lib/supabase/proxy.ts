@@ -27,6 +27,8 @@ const PUBLIC_PATHS = [
 ];
 
 export function isPublicPath(pathname: string): boolean {
+  // Scheduled jobs authenticate with their own CRON_SECRET bearer token.
+  if (pathname.startsWith("/api/cron/")) return true;
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 

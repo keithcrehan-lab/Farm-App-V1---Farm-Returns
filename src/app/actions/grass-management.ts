@@ -26,6 +26,7 @@ import {
 import { listFarmGrassGrowthForecasts } from "@/lib/farm-data/grass-growth-forecasts";
 import { listGrazingFieldSessionsForFarm } from "@/lib/farm-data/grazing-field-sessions";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
+import { latestApprovedCountyGrowth, regionalGrowthEvidence } from "@/lib/farm-data/regional-grass-growth";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Device clock skew tolerance, same as `record_grazing_field_move`. */
@@ -229,12 +230,28 @@ export async function getGrassManagementDataAction(): Promise<GrassManagementDat
     };
   });
 
+  // Approved Teagasc county growth: always a forecast for projections; a
+  // stand-in growth rate only when the farm has no recent growth of its own.
+  let mergedForecasts = growthForecasts;
+  let mergedGrowth = growthObservations;
+  try {
+    const regional = await latestApprovedCountyGrowth(farm.location.county);
+    if (regional) {
+      const evidence = regionalGrowthEvidence(regional, farm.id);
+      if (evidence.forecast) mergedForecasts = [...growthForecasts, evidence.forecast];
+      const recentOwn = growthObservations.some((o) => Date.parse(o.observedAt) >= Date.now() - 21 * 86_400_000);
+      if (evidence.observation && !recentOwn) mergedGrowth = [...growthObservations, evidence.observation];
+    }
+  } catch (err) {
+    console.error("[Grass] regional growth unavailable", err);
+  }
+
   return {
     status: "ok",
     fields: activeFields.map((field) => ({ id: field.id, name: field.name, areaHa: field.areaHa })),
     coverObservations,
-    growthObservations,
-    growthForecasts,
+    growthObservations: mergedGrowth,
+    growthForecasts: mergedForecasts,
     grazingSessions,
     openGrazingSessions: grazingSessions.filter((session) => !session.endedAt),
   };

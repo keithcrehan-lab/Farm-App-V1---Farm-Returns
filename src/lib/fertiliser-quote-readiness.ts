@@ -289,12 +289,12 @@ export function buildFertiliserQuoteReadiness(input: {
       id: "farm:grazing-system",
       fieldId: "__farm__",
       fieldName: "Farm setup",
-      label: "Farm grazing system",
+      label: "What you do with the calves",
       complete: Boolean(input.farmGrazingProductionSystem),
       href: "/settings#grazing-production-system",
       detail: input.farmGrazingProductionSystem
         ? "Used as the farm baseline. Recorded cattle movements override it when they provide stronger field-specific evidence."
-        : "Choose this once for the farm. You will not need to enter it separately for every field.",
+        : "Tell us once whether you sell weanlings or keep calves to stores or beef. It sets the nitrogen table for your grazing fields.",
     });
   }
 

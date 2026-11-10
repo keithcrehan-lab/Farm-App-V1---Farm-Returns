@@ -24,9 +24,9 @@ const LABEL = "flex flex-col gap-1.5 text-xs font-semibold text-fr-v2-graphite";
 const cropOptions = Object.entries(CROP_SYSTEM_LABELS) as Array<[CropSystem, string]>;
 
 const GRAZING_SYSTEM_LABELS: Readonly<Record<GrazingProductionSystem, string>> = Object.freeze({
-  SUCKLER_CALF_TO_BEEF: "Suckler calf-to-beef",
-  SUCKLER_CALF_TO_WEANING: "Suckler calf-to-weaning",
-  OTHER_DRYSTOCK: "Other drystock",
+  SUCKLER_CALF_TO_BEEF: "Suckler cows, calves kept to stores or beef",
+  SUCKLER_CALF_TO_WEANING: "Suckler cows, calves sold as weanlings",
+  OTHER_DRYSTOCK: "Drystock only, no suckler cows",
 });
 
 const GRAZING_SYSTEM_CONTEXT: Readonly<Record<GrazingProductionSystem, string>> = Object.freeze({
@@ -255,9 +255,9 @@ export function FieldProductionCycleCard({
                   }}
                 >
                   <option value="">Use farm baseline</option>
-                  <option value="SUCKLER_CALF_TO_BEEF">Suckler calf-to-beef</option>
-                  <option value="SUCKLER_CALF_TO_WEANING">Suckler calf-to-weaning</option>
-                  <option value="OTHER_DRYSTOCK">Other drystock</option>
+                  <option value="SUCKLER_CALF_TO_WEANING">Suckler cows, calves sold as weanlings</option>
+                  <option value="SUCKLER_CALF_TO_BEEF">Suckler cows, calves kept to stores or beef</option>
+                  <option value="OTHER_DRYSTOCK">Drystock only, no suckler cows</option>
                 </select>
               </label>
               <span id={`grazing-system-context-${field.id}`} className="-mt-2 text-xs leading-relaxed text-fr-v2-muted">

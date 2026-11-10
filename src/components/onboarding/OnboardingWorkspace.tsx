@@ -488,7 +488,6 @@ function LocateStep({ confirming, mapAvailable, onPlace, onConfirm, onSkipMap }:
 function IdentityStep({ point, approximate, onBack, onCreated }: { point: [number, number]; approximate: boolean; onBack: () => void; onCreated: (farm: Farm) => void }) {
   const [name, setName] = useState("");
   const [farmTypes, setFarmTypes] = useState<string[]>([]);
-  const [grazingProductionSystem, setGrazingProductionSystem] = useState<"SUCKLER_CALF_TO_BEEF" | "SUCKLER_CALF_TO_WEANING" | "OTHER_DRYSTOCK" | "">("");
   const [county, setCounty] = useState<string>("");
   const [detected, setDetected] = useState<"PENDING" | "FOUND" | "NOT_FOUND">(approximate ? "NOT_FOUND" : "PENDING");
   const [error, setError] = useState<string | null>(null);
@@ -512,7 +511,7 @@ function IdentityStep({ point, approximate, onBack, onCreated }: { point: [numbe
     if (pending) return;
     setError(null);
     startTransition(async () => {
-      const r = await establishFarmStep({ name, farmTypes, county, centroid: point, ...(grazingProductionSystem ? { grazingProductionSystem } : {}) });
+      const r = await establishFarmStep({ name, farmTypes, county, centroid: point });
       if (r.ok) onCreated(r.value);
       else setError(r.error);
     });
@@ -556,22 +555,10 @@ function IdentityStep({ point, approximate, onBack, onCreated }: { point: [numbe
         </div>
       </fieldset>
 
-      {farmTypes.includes("suckler") ? (
-        <label className={cn(labelClass, "mt-5")} htmlFor="farm-grazing-system">
-          Normal grazing production system
-          <select id="farm-grazing-system" className={cn(inputClass, "mt-2")} value={grazingProductionSystem} onChange={(e) => setGrazingProductionSystem(e.target.value as typeof grazingProductionSystem)}>
-            <option value="">Choose system</option>
-            <option value="SUCKLER_CALF_TO_BEEF">Suckler calf-to-beef</option>
-            <option value="SUCKLER_CALF_TO_WEANING">Suckler calf-to-weaning</option>
-            <option value="OTHER_DRYSTOCK">Other drystock</option>
-          </select>
-          <span className="mt-1 block text-xs normal-case tracking-normal text-white/50">Set this once as the farm baseline. Farm Return will use recorded cattle movements to improve individual field evidence automatically.</span>
-        </label>
-      ) : null}
 
       <label className={cn(labelClass, "mt-5")} htmlFor="farm-county">
         County
-        <span className="ml-2 normal-case tracking-normal text-white/45">
+        <span className="ml-2 font-sans text-xs normal-case tracking-normal text-white/45">
           {detected === "PENDING" ? "Reading from the map…" : detected === "FOUND" ? "From your map location" : approximate ? "" : "Choose it below"}
         </span>
       </label>
@@ -583,7 +570,7 @@ function IdentityStep({ point, approximate, onBack, onCreated }: { point: [numbe
       </select>
 
       <ErrorLine text={error} />
-      <PrimaryButton type="submit" disabled={pending || !name.trim() || farmTypes.length === 0 || !county || (farmTypes.includes("suckler") && !grazingProductionSystem)}>
+      <PrimaryButton type="submit" disabled={pending || !name.trim() || farmTypes.length === 0 || !county}>
         {pending ? "Creating your farm…" : "Create farm"}
       </PrimaryButton>
       <div className="mt-2">

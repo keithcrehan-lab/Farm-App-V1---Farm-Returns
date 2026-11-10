@@ -138,11 +138,10 @@ export async function establishFarmStep(input: EstablishFarmInput): Promise<Onbo
   if (name.length > 80) return fail("Keep the farm name under 80 characters.");
   const enterprises = enterprisesForFarmTypes(input?.farmTypes);
   if (enterprises === null) return fail("Choose one or more farm types.");
-  const needsGrazingBaseline = input.farmTypes.includes("suckler");
-  const grazingProductionSystem = input.grazingProductionSystem;
-  if (needsGrazingBaseline && !["SUCKLER_CALF_TO_BEEF", "SUCKLER_CALF_TO_WEANING", "OTHER_DRYSTOCK"].includes(grazingProductionSystem ?? "")) {
-    return fail("Choose your normal grazing production system.");
-  }
+  // Optional: asked later in Fertiliser and Settings, never needed to create the farm.
+  const grazingProductionSystem = ["SUCKLER_CALF_TO_BEEF", "SUCKLER_CALF_TO_WEANING", "OTHER_DRYSTOCK"].includes(input.grazingProductionSystem ?? "")
+    ? input.grazingProductionSystem
+    : undefined;
   if (!isCounty(input?.county)) return fail("Choose your county.");
   const [lng, lat] = Array.isArray(input?.centroid) ? input.centroid : [];
   if (!isIrishPoint(lng, lat)) return fail("Find your farm on the map first.");

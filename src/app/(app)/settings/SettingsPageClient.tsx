@@ -171,18 +171,18 @@ export function SettingsPageClient({
               />
             </label>
             <label id="grazing-production-system" className="block scroll-mt-24">
-              <span className="mb-1 block text-xs text-fr-ink-600">Farm grazing system</span>
+              <span className="mb-1 block text-xs text-fr-ink-600">What do you usually do with the calves?</span>
               <select
                 value={grazingSystemInput}
                 onChange={(e) => setGrazingSystemInput(e.target.value)}
                 className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
               >
-                <option value="">Choose grazing system</option>
-                <option value="SUCKLER_CALF_TO_BEEF">Suckler calf-to-beef</option>
-                <option value="SUCKLER_CALF_TO_WEANING">Suckler calf-to-weaning</option>
-                <option value="OTHER_DRYSTOCK">Other drystock</option>
+                <option value="">Not set yet</option>
+                <option value="SUCKLER_CALF_TO_WEANING">Suckler cows, calves sold as weanlings</option>
+                <option value="SUCKLER_CALF_TO_BEEF">Suckler cows, calves kept to stores or beef</option>
+                <option value="OTHER_DRYSTOCK">Drystock only, no suckler cows</option>
               </select>
-              <span className="mt-1 block text-xs text-fr-ink-500">Default for grazing fields. Recorded cattle movements override this when they provide stronger field-specific evidence.</span>
+              <span className="mt-1 block text-xs text-fr-ink-500">Sets the Teagasc nitrogen table for your grazing fields. Fields grazed by a different system pick that up from recorded cattle moves. Drystock-only farms don&apos;t have a grass nitrogen table in Farm Return yet.</span>
             </label>
             <label className="block">
               <span className="mb-1 block text-xs text-fr-ink-600">Primary enterprise</span>

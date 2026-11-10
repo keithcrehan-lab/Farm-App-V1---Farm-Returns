@@ -353,7 +353,7 @@ describe("buildFertiliserQuoteReadiness", () => {
     });
     const item = result.items.find((row) => row.id === "farm:grazing-system");
     expect(item).toMatchObject({
-      label: "Farm grazing system",
+      label: "What you do with the calves",
       complete: false,
       href: "/settings#grazing-production-system",
     });

@@ -191,7 +191,6 @@ describe("establishFarmStep", () => {
   it("rejects a missing name, type, county or a point outside Ireland — with plain wording, nothing written", async () => {
     expect(await establishFarmStep({ name: " ", farmTypes: ["dairy"], county: "Cork", centroid: HERE })).toEqual({ ok: false, error: "Give your farm a name." });
     expect(await establishFarmStep({ name: "F", farmTypes: [], county: "Cork", centroid: HERE })).toEqual({ ok: false, error: "Choose one or more farm types." });
-    expect(await establishFarmStep({ name: "F", farmTypes: ["suckler"], county: "Cork", centroid: HERE })).toEqual({ ok: false, error: "Choose your normal grazing production system." });
     expect(await establishFarmStep({ name: "F", farmTypes: ["mixed", "dairy"], county: "Cork", centroid: HERE })).toEqual({ ok: false, error: "Choose one or more farm types." });
     expect(await establishFarmStep({ name: "F", farmTypes: ["dairy"], county: "Antrim", centroid: HERE })).toEqual({ ok: false, error: "Choose your county." });
     expect(await establishFarmStep({ name: "F", farmTypes: ["dairy"], county: "Cork", centroid: [0, 0] })).toEqual({ ok: false, error: "Find your farm on the map first." });
@@ -249,5 +248,9 @@ describe("finishOnboardingStep", () => {
     state.farm = { farm: { id: "farm-a" }, completed: true };
     await expect(finishOnboardingStep("explore")).rejects.toThrow("NEXT_REDIRECT");
     expect(state.completed).toEqual([]);
+  });
+  it("creates a suckler farm without asking the grazing system (it is asked later, in Fertiliser and Settings)", async () => {
+    const r = await establishFarmStep({ name: "Hill Farm", farmTypes: ["suckler"], county: "Clare", centroid: HERE });
+    expect(r.ok).toBe(true);
   });
 });

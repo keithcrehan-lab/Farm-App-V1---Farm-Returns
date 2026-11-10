@@ -57,7 +57,7 @@ describe("FieldProductionCycleCard — streamlined chemical-fertiliser evidence"
     openCard();
     await waitFor(() => expect(loadFieldProductionCycleAction).toHaveBeenCalled());
     expect(screen.getByText("Farm baseline")).toBeTruthy();
-    expect(screen.getByText("Suckler calf-to-beef")).toBeTruthy();
+    expect(screen.getByText("Suckler cows, calves kept to stores or beef")).toBeTruthy();
     expect(screen.queryByLabelText("Field exception")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /set field exception/i }));
     expect(screen.getByLabelText("Field exception")).toBeTruthy();

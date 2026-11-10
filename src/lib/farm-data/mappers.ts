@@ -126,6 +126,7 @@ export function rowToField(row: FieldRow): Field {
     ...(row.polygon_source ? { polygonSource: row.polygon_source } : {}),
     ...(row.polygon_captured_at ? { polygonCapturedAt: row.polygon_captured_at } : {}),
     ...(row.lpis_ref ? { lpisRef: row.lpis_ref } : {}),
+    ...(row.split_from_field_id ? { splitFromFieldId: row.split_from_field_id } : {}),
     ...(row.planned_use ? { plannedUse: row.planned_use } : {}),
     ...(row.mapped_soil ? { mappedSoil: row.mapped_soil } : {}),
     fertility: row.fertility,
@@ -158,6 +159,7 @@ export type NewFieldInput = Pick<Field, "name" | "fertility"> & {
   polygon: GeoJSON.Polygon;
   polygonSource?: NonNullable<Field["polygonSource"]>;
   lpisRef?: string;
+  splitFromFieldId?: string;
 };
 
 export function fieldToInsertRow(farmId: string, input: NewFieldInput): Omit<FieldRow, "id" | "created_at" | "updated_at"> {
@@ -188,6 +190,7 @@ export function fieldToInsertRow(farmId: string, input: NewFieldInput): Omit<Fie
     history: [],
     thumbnail: null,
     archived_at: null,
+    ...(input.splitFromFieldId ? { split_from_field_id: input.splitFromFieldId } : {}),
   };
 }
 

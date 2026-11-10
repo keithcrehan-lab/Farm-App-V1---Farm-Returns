@@ -92,6 +92,7 @@ export interface FieldRow {
   history: FieldSeasonRecord[];
   thumbnail: string | null;
   archived_at: string | null;
+  split_from_field_id?: string | null;
   created_at: string;
   updated_at: string;
 }

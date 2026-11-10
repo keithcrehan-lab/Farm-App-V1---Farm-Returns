@@ -294,6 +294,8 @@ export interface Field {
    * deleted while its historical evidence remains retained. Absent/undefined
    * means active. `useFields()` filters deleted fields out by default. */
   archivedAt?: string;
+  /** Set on a paddock split from a mapped field: the original parcel's field id. */
+  splitFromFieldId?: string;
 }
 
 /**

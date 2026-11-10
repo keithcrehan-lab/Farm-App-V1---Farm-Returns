@@ -1248,7 +1248,7 @@ describe("FieldDrawer — field workspace chapters (Farm + Fields redesign)", ()
     const field = mockFields[0];
     renderDrawer(field);
     fireEvent.click(screen.getByRole("button", { name: /manage field/i }));
-    expect(screen.getByText(/split and merge are not available yet/i)).toBeTruthy();
+    expect(screen.queryByText(/split and merge are not available yet/i)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete field" }));
     expect(screen.getByText(new RegExp(`delete ${field.name}\\?`, "i"))).toBeTruthy();

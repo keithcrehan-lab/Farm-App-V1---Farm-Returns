@@ -268,3 +268,19 @@ export async function updateFieldWaterBufferContext(
   if (error) throw error;
   return rowToField(data as FieldRow);
 }
+
+/** Carries the parcel's farmer-set land use and commonage status onto its new paddocks. */
+export async function copyParcelAttributesToPaddocks(parentId: string, childIds: readonly string[]): Promise<void> {
+  if (childIds.length === 0) return;
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("fields").select("planned_use, commonage_status").eq("id", parentId).single();
+  if (error) throw error;
+  const row = data as { planned_use: unknown; commonage_status: unknown };
+  const patch: Record<string, unknown> = {};
+  if (row.planned_use) patch.planned_use = row.planned_use;
+  if (row.commonage_status) patch.commonage_status = row.commonage_status;
+  if (Object.keys(patch).length === 0) return;
+  const { error: updateError } = await supabase.from("fields").update(patch).in("id", [...childIds]);
+  if (updateError) throw updateError;
+}
+

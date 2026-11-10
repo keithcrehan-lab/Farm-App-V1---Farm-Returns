@@ -109,6 +109,7 @@ import {
   addSlurryCompositionRecordAction,
   addSoilTestAction,
   archiveFieldAction,
+  splitFieldIntoPaddocksAction,
   restoreFieldAction,
   setFieldBoundaryAction,
   updateFarmProfileAction,
@@ -378,6 +379,8 @@ interface FarmActions {
    * The field leaves active planning immediately; self-service restore is
    * allowed for 30 days while historical/provenance records stay intact. */
   archiveField: (fieldId: string) => void;
+  /** Replaces a mapped field with paddocks cut from it (the parcel is archived, history kept). */
+  splitField: (fieldId: string, paddocks: Array<{ name: string; polygon: GeoJSON.Polygon }>) => Promise<Field[]>;
   restoreField: (fieldId: string) => void;
   /** Applies a server-returned canonical field row (e.g. automatic public spatial evidence) without rewriting provenance on the client. */
   replaceFieldFromServer: (field: Field) => void;
@@ -918,6 +921,34 @@ export function FarmProvider({
           }),
         }));
         persistRemote("updateFieldDetails", () => updateFieldDetailsAction(fieldId, patch, farmerName));
+      },
+
+      async splitField(fieldId, paddocks) {
+        if (remote) {
+          const result = await splitFieldIntoPaddocksAction(fieldId, paddocks);
+          setState((s) => ({
+            ...s,
+            fields: [...s.fields.map((f) => (f.id === fieldId ? { ...f, archivedAt: result.archivedAt } : f)), ...result.paddocks],
+          }));
+          markRecommendationInputSaved();
+          return result.paddocks;
+        }
+        const parent = state.fields.find((f) => f.id === fieldId);
+        if (!parent) throw new Error("Field not found.");
+        const now = new Date().toISOString();
+        const added = paddocks.map((p): Field => {
+          const { centroid, areaHa } = computeBoundaryGeometry(p.polygon);
+          return {
+            id: newId("field", p.name), farmId: state.farm.id, name: p.name.trim(), areaHa, centroid, polygon: p.polygon,
+            polygonSource: parent.polygonSource === "farmer_drawn" || !parent.polygonSource ? "farmer_drawn" : "lpis_farmer_refined",
+            polygonCapturedAt: now, ...(parent.lpisRef ? { lpisRef: parent.lpisRef } : {}),
+            ...(parent.plannedUse ? { plannedUse: parent.plannedUse } : {}),
+            ...(parent.commonageStatus ? { commonageStatus: parent.commonageStatus } : {}),
+            fertility: parent.fertility, history: [], splitFromFieldId: parent.id,
+          };
+        });
+        setState((s) => ({ ...s, fields: [...s.fields.map((f) => (f.id === fieldId ? { ...f, archivedAt: now } : f)), ...added] }));
+        return added;
       },
 
       archiveField(fieldId) {
@@ -1634,6 +1665,7 @@ export function useFarmActions(): FarmActions {
     setFieldBoundary,
     updateFieldDetails,
     archiveField,
+    splitField,
     restoreField,
     replaceFieldFromServer,
     updateFieldIndex,
@@ -1674,6 +1706,7 @@ export function useFarmActions(): FarmActions {
     setFieldBoundary,
     updateFieldDetails,
     archiveField,
+    splitField,
     restoreField,
     replaceFieldFromServer,
     updateFieldIndex,

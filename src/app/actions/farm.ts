@@ -1,5 +1,9 @@
 "use server";
 
+import { listFieldsForFarm as listFarmFieldsForSplit, createFields as createPaddockFields, copyParcelAttributesToPaddocks, archiveField as archivePaddockParcel } from "@/lib/farm-data/fields";
+import { validatePaddockSplit } from "@/domain/paddock-split";
+import { getFarmForCurrentUser as getFarmForPaddockSplit } from "@/lib/farm-data/farms";
+
 /**
  * Real Farm V1 Phase 6 — real-mode farm mutation Server Actions.
  *
@@ -594,3 +598,38 @@ function revalidateCattle() {
   revalidatePath("/cattle", "layout");
   revalidatePath("/livestock");
 }
+
+/** Splits a mapped field into paddocks: creates one field per paddock (same LPIS number, linked back to the
+ * parcel), carries over land use and commonage, then archives the parcel so nothing is counted twice. */
+export async function splitFieldIntoPaddocksAction(
+  fieldId: string,
+  paddocks: Array<{ name: string; polygon: GeoJSON.Polygon }>,
+): Promise<{ paddocks: Field[]; archivedAt: string }> {
+  const farm = await getFarmForPaddockSplit();
+  if (!farm) throw new Error("Set up your farm before splitting fields.");
+  const fields = await listFarmFieldsForSplit(farm.id);
+  const parent = fields.find((f) => f.id === fieldId && !f.archivedAt);
+  if (!parent?.polygon) throw new Error("This field has no mapped boundary to split.");
+  const problem = validatePaddockSplit(parent.polygon, paddocks, fields.filter((f) => !f.archivedAt && f.id !== parent.id).map((f) => f.name));
+  if (problem) throw new Error(problem);
+  const created = await createPaddockFields(farm.id, paddocks.map((p) => ({
+    name: p.name.trim(),
+    polygon: p.polygon,
+    polygonSource: !parent.polygonSource || parent.polygonSource === "farmer_drawn" ? ("farmer_drawn" as const) : ("lpis_farmer_refined" as const),
+    ...(parent.lpisRef ? { lpisRef: parent.lpisRef } : {}),
+    fertility: parent.fertility,
+    splitFromFieldId: parent.id,
+  })));
+  let archivedAt: string;
+  try {
+    await copyParcelAttributesToPaddocks(parent.id, created.map((f) => f.id));
+    archivedAt = (await archivePaddockParcel(parent.id)).archivedAt ?? new Date().toISOString();
+  } catch (err) {
+    await Promise.allSettled(created.map((f) => archivePaddockParcel(f.id)));
+    throw err;
+  }
+  const resolved = await Promise.all(created.map(async (f) => { try { return await persistAutomaticSpatialEvidence(f); } catch { return f; } }));
+  for (const path of ["/fields", "/today", "/fertiliser-plan", "/grass", "/quotes"]) revalidatePath(path);
+  return { paddocks: resolved, archivedAt };
+}
+

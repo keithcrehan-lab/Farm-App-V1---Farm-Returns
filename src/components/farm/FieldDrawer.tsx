@@ -22,6 +22,7 @@ import {
 import { formatHa, formatNumber } from "@/lib/format";
 import { nearestStationsForField } from "@/domain/weather-stations";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
+import { SplitFieldModal } from "@/components/farm/SplitFieldModal";
 import { FieldSatelliteHistory } from "@/components/farm/FieldSatelliteHistory";
 import { SpreadableAreaEvidencePanel } from "@/components/farm/SpreadableAreaEvidencePanel";
 import { CROP_SYSTEM_CONTEXT } from "@/lib/crop-system-context";
@@ -889,12 +890,13 @@ export function ManageField({
     });
   }, [focusBoundary, field.id]);
   const [mappingOpen, setMappingOpen] = useState(false);
+  const [splitOpen, setSplitOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [nameInput, setNameInput] = useState(field.name);
   const [areaInput, setAreaInput] = useState(String(field.areaHa));
-  const { setFieldBoundary, updateFieldDetails, archiveField } =
+  const { setFieldBoundary, updateFieldDetails, archiveField, splitField } =
     useFarmActions();
   const farm = useFarm();
 
@@ -1054,10 +1056,29 @@ export function ManageField({
               Delete field
             </button>
           )}
-          <p className="text-xs text-fr-v2-muted">
-            Split and merge are not available yet.
-          </p>
+          {field.polygon ? (
+            <button
+              type="button"
+              onClick={() => setSplitOpen(true)}
+              className="min-h-10 self-start text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-gold underline-offset-4"
+            >
+              Split into paddocks
+            </button>
+          ) : (
+            <p className="text-xs text-fr-v2-muted">Map this field&apos;s boundary to split it into paddocks.</p>
+          )}
         </div>
+      ) : null}
+
+      {splitOpen && field.polygon ? (
+        <SplitFieldModal
+          field={{ ...field, polygon: field.polygon }}
+          onClose={() => setSplitOpen(false)}
+          onSave={async (paddocks) => {
+            await splitField(field.id, paddocks);
+            setSplitOpen(false);
+          }}
+        />
       ) : null}
 
       {mappingOpen ? (

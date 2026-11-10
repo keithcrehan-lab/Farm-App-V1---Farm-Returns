@@ -28,8 +28,8 @@
  * state text.
  */
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { CalendarClock, Flag } from "lucide-react";
+import { Flag } from "lucide-react";
+import { FarmCalendar } from "@/components/plan/FarmCalendar";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { WeatherHeroChip } from "@/components/farm/WeatherHeroChip";
@@ -136,7 +136,21 @@ export default function PlanPage() {
             own primary card already uses — genuinely the single strongest
             real opportunity right now, not a duplicate invented for this
             screen's own visual hierarchy. */}
-        {featuredPrompt ? (
+
+        {/* The farm calendar is the single store under every Plan view.
+            Cattle production targets and statutory closed periods appear
+            in it as read-only entries; the farmer's own jobs sit beside them. */}
+        <FarmCalendar
+          county={farm.location.county}
+          fields={fields.map((f) => ({ id: f.id, name: f.name }))}
+          milestones={cattleMilestones}
+          signedIn={isRealMode}
+        />
+
+        <section>
+          <FarmSectionHeading>Genuine opportunities</FarmSectionHeading>
+          <div className="mb-3">
+            {featuredPrompt ? (
           <button
             type="button"
             onClick={() => setOpenPrompt(featuredPrompt)}
@@ -156,51 +170,7 @@ export default function PlanPage() {
             </div>
           </button>
         ) : null}
-
-        <section>
-          <FarmSectionHeading>Planned work</FarmSectionHeading>
-          {cattleMilestones === null ? (
-            <div className="flex items-start gap-3 py-1">
-              <CalendarClock className="mt-0.5 size-4 shrink-0 text-fr-ink-400" />
-              <p className="text-sm text-fr-ink-600">Cattle production milestones could not be loaded just now.</p>
-            </div>
-          ) : cattleMilestones.length > 0 ? (
-            <div className="divide-y divide-fr-border border-y border-fr-border">
-              {cattleMilestones.map((milestone) => (
-                <Link
-                  key={milestone.groupId}
-                  href={`/cattle/groups/${milestone.groupId}`}
-                  className="grid gap-2 py-3 sm:grid-cols-[112px_minmax(0,1fr)_auto] sm:items-center"
-                >
-                  <p className="font-mono text-xs font-semibold tabular-nums text-fr-green-700">
-                    {new Date(`${milestone.targetDate}T00:00:00Z`).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}
-                  </p>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-fr-ink-900">{milestone.groupLabel}</p>
-                    <p className="mt-0.5 text-xs text-fr-ink-600">
-                      Production target{milestone.targetWeightKg !== undefined ? ` · ${milestone.targetWeightKg} kg` : ""}
-                    </p>
-                  </div>
-                  <span className="text-xs font-semibold text-fr-green-700">Open group →</span>
-                </Link>
-              ))}
-              <p className="py-3 text-xs leading-relaxed text-fr-ink-500">
-                These are farmer-set cattle production target dates. Automatic weigh, health and economic-review jobs are not generated from them yet.
-              </p>
-            </div>
-          ) : (
-            <div className="flex items-start gap-3 py-1">
-              <CalendarClock className="mt-0.5 size-4 shrink-0 text-fr-ink-400" />
-              <p className="text-sm text-fr-ink-600">
-                No dated production milestones are scheduled yet. Set a target date on a cattle group to bring it into Planning. The separate Cattle demonstration engine may show test jobs that are not farm calendar entries.
-              </p>
-              <Link href="/cattle" className="ml-auto inline-flex min-h-11 shrink-0 items-center text-sm font-semibold text-fr-v2-forest underline underline-offset-4">Open cattle</Link>
-            </div>
-          )}
-        </section>
-
-        <section>
-          <FarmSectionHeading>Genuine opportunities</FarmSectionHeading>
+          </div>
           {!mounted ? (
             <div className="animate-pulse py-2">
               <div className="h-4 w-full rounded bg-fr-surface-alt" />

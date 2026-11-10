@@ -108,6 +108,16 @@ describe("scenario 6: incomplete soil information", () => {
     expect(soil.subject.ids).not.toContain("f-river");
     expect(soil.reliability).toBe("missing");
   });
+  it("says why an existing test can't be used and goes to that field", () => {
+    const prompts = corkPrompts().map((x) => (x.kind === "soil_test_age" && x.fieldId === "f-home"
+      ? { ...x, basis: { status: "BLOCKED_INSUFFICIENT_EVIDENCE", missingInputs: ["plannedUse"] } }
+      : x.kind === "soil_test_age" && x.fieldId === "f-road" ? { ...x, basis: { status: "AMBIGUOUS" } } : x));
+    const soil = candidateRecommendations(ctx({ prompts })).find((r) => r.key === "fields:soil-tests:farm")!;
+    expect(soil.title).toBe("Check soil tests for 3 fields");
+    expect(soil.explanation).toContain("Home Field: needs what the field is used for.");
+    expect(soil.explanation).toContain("Road Field: p result is on the Index 3/4 boundary.");
+    expect(soil.action).toMatchObject({ type: "open", href: "/fields?field=f-home&chapter=nutrients" });
+  });
 });
 
 describe("scenario 3: grass measurements are overdue", () => {

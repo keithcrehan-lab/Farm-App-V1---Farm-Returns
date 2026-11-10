@@ -265,12 +265,33 @@ function fertiliserSource(ctx: PlanningContext, fieldName: (id?: string) => stri
   return out;
 }
 
+/**
+ * Why a field's soil test can't be relied on, from the soil-test check
+ * (`checkFieldSoilTestAgeValidity`): no test at all, a missing input such as
+ * the field's planned use, an undated or future-dated test, or a P result on
+ * the statutory Index 3/4 boundary.
+ */
+export function soilTestReason(p: PromptLike): string {
+  const s = status(p);
+  if (s === "NOT_APPLICABLE") return "No soil test on record";
+  if (s === "AMBIGUOUS") return "P result is on the Index 3/4 boundary";
+  const m = missing(p);
+  if (m.length) return `Needs ${listNames(m.map(missingLabel))}`;
+  if (s === "BLOCKED_INSUFFICIENT_EVIDENCE") return "Test date is missing or not valid";
+  return "Test can't be used as it stands";
+}
+
 function soilSource(ctx: PlanningContext, fieldName: (id?: string) => string): Candidate[] {
   const soil = ctx.prompts.filter((p) => p.kind === "soil_test_age" && p.fieldId);
   const none = soil.filter((p) => status(p) === "NOT_APPLICABLE").map((p) => p.fieldId!);
-  const review = soil.filter((p) => !["OK", "NOT_APPLICABLE"].includes(status(p))).map((p) => p.fieldId!);
+  const reviewPrompts = soil.filter((p) => !["OK", "NOT_APPLICABLE"].includes(status(p)));
+  const review = reviewPrompts.map((p) => p.fieldId!);
   const ids = [...none, ...review];
   if (!ids.length) return [];
+  // Group the fields under each reason so the card reads as a short list.
+  const byReason = new Map<string, string[]>();
+  for (const p of reviewPrompts) byReason.set(soilTestReason(p), [...(byReason.get(soilTestReason(p)) ?? []), fieldName(p.fieldId)]);
+  const reasonText = [...byReason].map(([reason, names]) => `${listNames(names)}: ${reason.charAt(0).toLowerCase()}${reason.slice(1)}.`).join(" ");
   return [{
     key: "fields:soil-tests:farm",
     source: "fields",
@@ -281,17 +302,19 @@ function soilSource(ctx: PlanningContext, fieldName: (id?: string) => string): C
       : `Check soil tests for ${plural(ids.length, "field")}`,
     explanation: [
       none.length ? `${listNames(none.map(fieldName))} ${none.length === 1 ? "has" : "have"} no soil test on record.` : "",
-      review.length ? `${listNames(review.map(fieldName))} ${review.length === 1 ? "has a test that needs" : "have tests that need"} checking.` : "",
+      review.length ? reasonText : "",
     ].filter(Boolean).join(" "),
     why: "Soil tests set the phosphorus and lime advice, and a field without a valid test is treated at the most restrictive index.",
     evidence: [
       ...none.map((id) => ({ label: fieldName(id), value: "No soil test on record", reliability: "missing" as Reliability })),
-      ...review.map((id) => ({ label: fieldName(id), value: "Test needs checking", reliability: "missing" as Reliability })),
+      ...reviewPrompts.map((p) => ({ label: fieldName(p.fieldId), value: soilTestReason(p), reliability: "missing" as Reliability })),
     ],
-    action: {
-      type: "plan", label: "Add to plan", href: "/soil-sample",
-      plan: { title: "Take soil samples", category: "fields", kind: "job", startDate: ctx.today, endDate: addDays(ctx.today, 27), fieldIds: ids },
-    },
+    // Tests that exist but need a detail fixed go to the field; no test at all means sampling.
+    action: review.length
+      ? { type: "open", label: "Open field", href: `/fields?field=${encodeURIComponent(review[0])}&chapter=nutrients`,
+          plan: { title: "Sort out soil tests", category: "fields", kind: "job", startDate: ctx.today, endDate: addDays(ctx.today, 13), fieldIds: ids } }
+      : { type: "plan", label: "Add to plan", href: "/soil-sample",
+          plan: { title: "Take soil samples", category: "fields", kind: "job", startDate: ctx.today, endDate: addDays(ctx.today, 27), fieldIds: ids } },
     href: `/fields?field=${encodeURIComponent(ids[0])}`,
     reliability: "missing",
     fingerprint: fingerprintOf([...none.sort(), "/", ...review.sort()]),

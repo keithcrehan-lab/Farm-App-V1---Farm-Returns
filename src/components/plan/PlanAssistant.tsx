@@ -159,7 +159,6 @@ function Overview({ overview: o }: { overview: ReturnType<typeof weeklyOverview>
   });
   if (o.opportunities) rows.push({ icon: Lightbulb, tone: "text-fr-v2-forest", label: "Worth considering", text: `${o.opportunities} suggestion${o.opportunities === 1 ? "" : "s"} below` });
   if (o.canWait) rows.push({ icon: CalendarClock, tone: "text-fr-ink-400", label: "Can wait", text: `${o.canWait} later this month` });
-  if (o.restrictions.length) rows.push({ icon: ShieldCheck, tone: "text-fr-ink-600", label: "Rules", text: o.restrictions.join(" · ") });
   return (
     <section aria-label="This week" className="rounded-[14px] border border-fr-v2-cream-rule bg-white p-3.5">
       <h2 className="mb-2 font-display text-[18px] leading-none text-fr-ink-900">This week</h2>
@@ -188,7 +187,7 @@ function RecommendationCard({ r, signedIn, onAct, onDetails }: { r: Recommendati
         {RECOMMENDATION_CATEGORY_LABEL[r.category]}{r.reliability !== "verified" ? ` · ${RELIABILITY_LABEL[r.reliability]}` : ""}
       </p>
       <h3 className="mt-0.5 text-[15px] font-semibold leading-snug text-fr-ink-900">{r.title}</h3>
-      <p className="mt-1 line-clamp-2 text-sm text-fr-ink-600">{r.explanation}</p>
+      <p className="mt-1 text-sm text-fr-ink-600">{r.explanation}</p>
       <div className="mt-2.5 flex gap-2">
         {label ? (
           r.action.type === "open"
@@ -275,7 +274,7 @@ function CompliancePanel({ c }: { c: SpreadingCompliance }) {
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold text-fr-ink-900">Spreading rules</span>
           <span className="block text-xs text-fr-ink-600">
-            {active.length ? `${active.map((r) => r.label).join(", ")} closed` : "All spreading open"} · {c.county}, zone {c.zone}
+            {active.length ? "Reopening dates and conditions" : "All open · when the next closed periods start"} · {c.county}, zone {c.zone}
           </span>
         </span>
         <ChevronDown className="size-4 shrink-0 text-fr-ink-600 transition-transform group-open:rotate-180" aria-hidden />

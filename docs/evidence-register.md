@@ -2384,3 +2384,33 @@ P build-up to the second cut and so proposed chemical fertiliser (3 m buffer). W
 no chemical fertiliser is proposed, the organic 5 m buffer governs the slurry, and the result is now
 `LEGAL_PROHIBITION` — the same outcome as the audited F001 case. CC-B5 itself (the Index-1 placeholder choosing the
 buffer material when an index is missing) remains an open decision.
+
+## Fertiliser close-out, Phase A — canonical engine v2.1.0 and soil pH advice (2026-11-11)
+
+Keith's decisions (2026-11-11): converge on `grass-fertiliser-engine-v2.ts` as the one fertiliser engine; fail closed
+above the published stocking-rate table; grazing table rows use the farm's grassland stocking rate. **Status:
+implementation against registered sources; expected values pending agronomist sign-off.**
+
+| Change (`grass_fertiliser_engine_v2.1.0`) | Source | Before (v2.0.0) | After |
+|---|---|---|---|
+| Grazing P at Index 4 | Green Book §13 ("no P fertilizer is advised" at Index 4); S.I. 588/2025 Table 15a Index 4 max 0 | Table 13-3 maintenance added | 0 kg/ha |
+| Above the last Table 12-2/12-3 row (235 / 238 kg organic N/ha) | Tables publish no row above | Last row held | `UNSUPPORTED_PATHWAY`, no advice |
+| Grazing stocking input | Green Book Table 12-3 fn 3 (annual N excreted averaged over the net grassland area) | In-season paddock pressure from movement records, else holding | Holding statutory GSR only; field movement record disclosed as context (`fieldGrazingContext`) |
+| White-clover grazing | `TEAGASC_CLOVER_BEEF_2026` Table 1 — drystock farm at 170 kg organic N/ha, by April clover content | `UNSUPPORTED_PATHWAY` | Published annual total for the April class (low/none 150, ~5% 112, ~10% 75 kg N/ha) only at 170 kg organic N/ha and only for the published classes; otherwise `UNSUPPORTED_PATHWAY` — the grass-only table is never substituted. P/K as grass. |
+
+Field capture: the production-cycle card records white clover as one of the three Teagasc April classes (0 / 5 / 10%).
+
+**Soil pH advice** (`soil-ph-advice.ts`, `soil_ph_advice_v1.0.0`): compares laboratory (else recorded) pH with
+`TEAGASC_PH_LIME` targets (`soil_pH_targets.csv`: grass 6.3, grass-clover 6.5–6.8, cereals 6.5, peat 5.5–5.8; peat =
+>20% organic matter, else mapped peat). Below target with no laboratory lime requirement → "lime likely needed, get a
+lime requirement test". Never a rate from pH (the source's own rule). Shown on the farm lime card and the fertiliser
+plan overview.
+
+**Judgement calls for the agronomist (not resolved in code):**
+1. Holding stocking rate: statutory S.I. Table 7 excretion (v2, 100.3 kg N/ha on the test farm) vs the Green Book's own
+   LU → organic-N conversion (legacy engine, 109) — gives grazing N 54.5 vs 65 kg/ha on the test farm.
+2. Whether in-season field grazing records should ever adjust Green Book grazing advice (currently context only).
+3. Clover N at stocking rates other than 170 kg organic N/ha, and recorded clover contents between the published classes.
+4. First-cut silage: Teagasc 2026 first-cut table (v2) vs Green Book Table 14-2 (legacy) — K at Index 1 175 vs 185.
+5. Second-cut silage: v2 fails closed on the Teagasc yield-based vs soil-index source conflict.
+6. Holding the printed first Table 12-3 row (≤80 kg organic N/ha → 35 kg N/ha) for lightly stocked farms.

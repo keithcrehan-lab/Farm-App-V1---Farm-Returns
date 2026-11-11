@@ -507,7 +507,7 @@ describe("aggregateFarmLimeRequirement (Grassland Fertiliser Pilot Completion, C
   });
 
   it("returns a real, honest zero total with no fields at all — never fabricates a placeholder line", () => {
-    expect(aggregateFarmLimeRequirement([])).toEqual({ fields: [], farmTotalTonnes: 0, fieldsWithoutLimeEvidence: 0 });
+    expect(aggregateFarmLimeRequirement([])).toEqual({ fields: [], farmTotalTonnes: 0, fieldsWithoutLimeEvidence: 0, fieldsBelowPhTargetWithoutLimeRate: 0 });
   });
 
   // Codex audit round 2 HIGH — the farm total must sum each field's real,

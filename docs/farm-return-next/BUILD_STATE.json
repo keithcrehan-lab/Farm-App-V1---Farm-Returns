@@ -602,5 +602,19 @@
       "lint": "pass",
       "build": "pass"
     }
+  },
+  "fertiliser_close_out_v1": {
+    "task": "Fertiliser close-out (authorised by Keith, 2026-11-11): converge on engine v2; 3.0 LU/ha refusal; clover; lime from pH; per-field grazing",
+    "branch": "fix/nutrient-engine-orgn-index4-silage-buildup",
+    "decisions": {
+      "engine": "Converge on grass-fertiliser-engine-v2 as the single fertiliser engine (Keith, 2026-11-11)",
+      "above_table": "Fail closed above the last published stocking-rate row (Keith, 2026-11-11)",
+      "field_grazing": "Grazing table rows use the farm grassland stocking rate; field grazing records are context only (Keith, 2026-11-11)"
+    },
+    "phase_a": "IMPLEMENTED_PENDING_GATE_AND_AUDIT — grass_fertiliser_engine_v2.1.0 (Index 4 P, above-table refusal, clover pathway, holding stocking input), soil_ph_advice_v1.0.0",
+    "phase_b": "NOT_STARTED — move Today prompts, Nutrients/field plan, reports, finance, alerts, evidence report, what-matters and plan overview totals from calculateNutrientPlan to v2; then retire the legacy calculation (resolves nutrient_engine_v1_6_0 F001)",
+    "phase_c": "NOT_STARTED — clean final audit, agronomist pack",
+    "merged": false,
+    "deployed": false
   }
 }

@@ -1,10 +1,25 @@
 import type { Field } from "./types";
+import {
+  CLOVER_N_VERSION,
+  DRYSTOCK_CLOVER_REFERENCE_GSR_KG_N_HA,
+  checkCloverFertilityContext,
+  drystockCloverAnnualTotalKgNHa,
+  lookupDrystockCloverN,
+  type DrystockCloverClass,
+  type DrystockCloverTiming,
+} from "./clover-n";
 import type {
   FieldProductionCycle,
   GrazingProductionSystem,
 } from "./fertiliser-field-evidence";
 
-export const GRASS_ENGINE_V2_VERSION = "grass_fertiliser_engine_v2.0.0";
+// v2.1.0 (2026-11-11, fertiliser close-out): (a) no grazing P maintenance at
+// P Index 4 (Green Book §13; S.I. 588/2025 Table 15a Index 4 maximum 0);
+// (b) grazing fails closed above the last published Table 12-2/12-3 row
+// instead of holding it; (c) white-clover grazing pathway using the Teagasc
+// drystock clover strategy, only where it is published (170 kg organic N/ha,
+// April clover classes). Every other v2.0.0 result is unchanged.
+export const GRASS_ENGINE_V2_VERSION = "grass_fertiliser_engine_v2.1.0";
 
 export type GrassEngineStatus =
   "READY" | "INCOMPLETE_EVIDENCE" | "UNSUPPORTED_PATHWAY" | "SOURCE_CONFLICT";
@@ -49,11 +64,23 @@ export interface GrassFertiliserEngineInput {
   annualOrganicNStockingRateKgHa?: number;
   grazingProductionSystem?: GrazingProductionSystem;
   organicCreditsKgHa?: NutrientQuantity;
+  /**
+   * v2.1.0: grazing table rows always use the holding's grassland stocking
+   * rate (Green Book Table 12-3 footnote 3: total annual N excreted by
+   * grazing livestock averaged over the net grassland area). A field's own
+   * recorded grazing is carried as disclosed context only — it never selects
+   * a table row (v2.0.0 used in-season paddock pressure, which the source's
+   * definition does not support and which inflated N on heavily grazed
+   * paddocks).
+   */
   grazingStockingEvidence?: {
-    basis: "FIELD_GRAZING_SESSIONS" | "HOLDING_FALLBACK";
-    trackingStart?: string;
-    trackingDays?: number;
-    sourceSessionCount?: number;
+    basis: "HOLDING_GSR";
+    fieldGrazingContext?: {
+      averageStockingRateLUHa: number;
+      trackingStart?: string;
+      trackingDays?: number;
+      sourceSessionCount: number;
+    };
   };
 }
 
@@ -128,7 +155,11 @@ function pBuildUp(index: 1 | 2 | 3 | 4): number {
   return ({ 1: 20, 2: 10, 3: 0, 4: 0 } as const)[index];
 }
 
-function pMaintenanceDrystock(orgN: number): number {
+function pMaintenanceDrystock(orgN: number, index: 1 | 2 | 3 | 4): number {
+  // Green Book §13: "Grassland soils with P levels at Index 4 … no P
+  // fertilizer is advised until the soil P level reverts to the Index 3
+  // range" — Table 13-3 maintenance does not apply at Index 4.
+  if (index === 4) return 0;
   if (orgN <= 100) return 4;
   if (orgN <= 130) return 7;
   if (orgN <= 170) return 10;
@@ -165,6 +196,19 @@ function subtract(
     p: Math.max(0, gross.p - organic.p - prior.p),
     k: Math.max(0, gross.k - organic.k - prior.k),
   };
+}
+
+function grazingStockingLimitations(evidence: GrassFertiliserEngineInput["grazingStockingEvidence"]): string[] {
+  if (evidence?.basis !== "HOLDING_GSR") return [];
+  const context = evidence.fieldGrazingContext;
+  return [
+    "Grazing advice uses the farm's grassland stocking rate — total annual livestock N excreted, averaged over all grassland — as the Green Book defines it.",
+    ...(context
+      ? [
+          `This field's recorded grazing averaged ${context.averageStockingRateLUHa.toFixed(2)} LU/ha while stock were tracked; it is shown for context and does not change the table row.`,
+        ]
+      : []),
+  ];
 }
 
 function blocked(
@@ -227,6 +271,17 @@ export function calculateGrassFertiliserV2(
         [],
       );
     }
+    const lastPublishedRow = nRows[nRows.length - 1];
+    if (orgN > lastPublishedRow.organicN) {
+      return blocked(
+        input,
+        "UNSUPPORTED_PATHWAY",
+        [],
+        [
+          `This field's organic-N stocking rate (${Math.round(orgN)} kg N/ha) is above the last row Teagasc publishes for this grazing system (${lastPublishedRow.organicN} kg N/ha), so no grazing N, P or K advice is given rather than extending the table.`,
+        ],
+      );
+    }
     const nInterp = interpolatePublishedRows(orgN, nRows);
     const nTableNumber =
       input.grazingProductionSystem === "SUCKLER_CALF_TO_WEANING"
@@ -238,7 +293,7 @@ export function calculateGrassFertiliserV2(
         : "TEAGASC_GREEN_BOOK_2020_TABLE_12_3_SUCKLER_CALF_TO_BEEF";
     const gross: NutrientQuantity = {
       n: nInterp.value,
-      p: pBuildUp(pIndex!) + pMaintenanceDrystock(orgN),
+      p: pBuildUp(pIndex!) + pMaintenanceDrystock(orgN, pIndex!),
       k: kGrazingDrystock(kIndex!, orgN),
     };
     const stockingEvidence = input.grazingStockingEvidence;
@@ -254,15 +309,7 @@ export function calculateGrassFertiliserV2(
       missingInputs: [],
       limitations: [
         `Grazing N uses transparent linear interpolation between published Table ${nTableNumber} organic-N rows; this modelling policy is disclosed in the trace.`,
-        ...(stockingEvidence?.basis === "FIELD_GRAZING_SESSIONS"
-          ? [
-              "The organic-N stocking input is field-specific and annualised from the continuously recorded grazing-movement window; it is an agronomic demand input, not the statutory NAP GSR.",
-            ]
-          : stockingEvidence?.basis === "HOLDING_FALLBACK"
-            ? [
-                "Complete field movement history was not available, so the holding-level grazing stocking rate was used for this field.",
-              ]
-            : []),
+        ...grazingStockingLimitations(stockingEvidence),
       ],
       traces: {
         n: {
@@ -276,13 +323,14 @@ export function calculateGrassFertiliserV2(
             upperOrganicN: nInterp.upper.organicN,
             interpolationFraction: nInterp.fraction,
             stockingEvidenceBasis: stockingEvidence?.basis ?? null,
-            trackingStart: stockingEvidence?.trackingStart ?? null,
-            trackingDays: stockingEvidence?.trackingDays ?? null,
-            sourceSessionCount: stockingEvidence?.sourceSessionCount ?? null,
+            fieldAverageStockingRateLUHa: stockingEvidence?.fieldGrazingContext?.averageStockingRateLUHa ?? null,
+            trackingStart: stockingEvidence?.fieldGrazingContext?.trackingStart ?? null,
+            trackingDays: stockingEvidence?.fieldGrazingContext?.trackingDays ?? null,
+            sourceSessionCount: stockingEvidence?.fieldGrazingContext?.sourceSessionCount ?? null,
           },
           resultKgHa: gross.n,
           method:
-            "linear interpolation between published organic-N stocking-rate rows; clamped at published endpoints",
+            "linear interpolation between published organic-N stocking-rate rows; the printed first row covers lower stocking rates; no advice above the last row",
         },
         p: {
           ruleId: "TEAGASC_GREEN_BOOK_2020_TABLE_13_2_13_3_DRYSTOCK",
@@ -292,7 +340,7 @@ export function calculateGrassFertiliserV2(
             pIndex: pIndex!,
             annualOrganicNStockingRateKgHa: orgN,
             buildUpKgHa: pBuildUp(pIndex!),
-            maintenanceKgHa: pMaintenanceDrystock(orgN),
+            maintenanceKgHa: pMaintenanceDrystock(orgN, pIndex!),
             stockingEvidenceBasis: stockingEvidence?.basis ?? null,
           },
           resultKgHa: gross.p,
@@ -316,6 +364,9 @@ export function calculateGrassFertiliserV2(
     };
   }
 
+  if (cycle.cropSystem === "GRASS_WHITE_CLOVER_GRAZING") {
+    return calculateWhiteCloverGrazing(input, pIndex!, kIndex!, prior!, organic);
+  }
   if (cycle.cropSystem === "GRASS_FIRST_CUT_SILAGE") {
     const target = cycle.evidence.productionTargetTDMHa?.value;
     if (target === undefined || !Number.isFinite(target))
@@ -401,3 +452,125 @@ export function calculateGrassFertiliserV2(
     ["This grass pathway does not yet have a validated P3 rule pack."],
   );
 }
+
+// ---------------------------------------------------------------------------
+// v2.1.0 — white-clover grazing (Teagasc drystock clover strategy)
+// ---------------------------------------------------------------------------
+
+/**
+ * Teagasc, "Management of red and white clover in Irish beef grass-based
+ * systems" (2026), Table 1: "Nitrogen fertiliser application strategy for a
+ * drystock farm (stocking rate 170 kg organic N/ha) based on sward white
+ * clover contents in April" (`TEAGASC_CLOVER_BEEF_2026`,
+ * `advisory_teagasc/clover_n_drystock_2026.csv`). Only the published
+ * classes are recognised — no interpolation between them (`GFT139`).
+ */
+const APRIL_WHITE_CLOVER_CLASS_BY_PCT: Readonly<Record<number, DrystockCloverClass>> = Object.freeze({
+  0: "low_or_none",
+  5: "april_5pct_approx_10pct_annual",
+  10: "april_10pct_high_approx_15pct_annual",
+});
+
+const DRYSTOCK_CLOVER_TIMINGS: readonly DrystockCloverTiming[] = ["Feb_Mar", "Apr", "May", "Jun", "Jul", "Aug_Sep"];
+
+/**
+ * The white-clover grazing pathway. P and K follow the same Green Book
+ * drystock grazing rules as grass (Tables 13-2, 13-3, 14-1). N comes from
+ * the Teagasc drystock clover strategy, which is published at ONE stocking
+ * rate only (170 kg organic N/ha): at any other stocking rate no clover N
+ * rate is advised (`GFT140`) — and the grass-only Table 12-3 rate is never
+ * substituted, because it ignores clover N fixation and would over-advise N.
+ */
+function calculateWhiteCloverGrazing(
+  input: GrassFertiliserEngineInput,
+  pIndex: 1 | 2 | 3 | 4,
+  kIndex: 1 | 2 | 3 | 4,
+  prior: NutrientQuantity,
+  organic: NutrientQuantity,
+): GrassFertiliserResult {
+  const orgN = input.annualOrganicNStockingRateKgHa;
+  if (orgN === undefined || !Number.isFinite(orgN) || orgN < 0) {
+    return blocked(input, "INCOMPLETE_EVIDENCE", ["annualOrganicNStockingRateKgHa"], []);
+  }
+  const cloverPct = input.cycle.evidence.whiteCloverPct?.value;
+  if (cloverPct === undefined || !Number.isFinite(cloverPct)) {
+    return blocked(input, "INCOMPLETE_EVIDENCE", ["whiteCloverPct"], []);
+  }
+  const cloverClass = APRIL_WHITE_CLOVER_CLASS_BY_PCT[cloverPct];
+  if (cloverClass === undefined) {
+    return blocked(input, "UNSUPPORTED_PATHWAY", [], [
+      `Teagasc's clover N strategy is published for April sward white-clover contents of low/none, about 5% and about 10%; a recorded ${cloverPct}% is not one of those classes and is never interpolated between them.`,
+    ]);
+  }
+  if (Math.abs(orgN - DRYSTOCK_CLOVER_REFERENCE_GSR_KG_N_HA) >= 0.5) {
+    return blocked(input, "UNSUPPORTED_PATHWAY", [], [
+      `Teagasc publishes the drystock white-clover N strategy only for farms stocked at ${DRYSTOCK_CLOVER_REFERENCE_GSR_KG_N_HA} kg organic N/ha; this field is at ${Math.round(orgN)} kg N/ha, so no clover N rate is advised. The grass-only N table is not used for a clover sward because it ignores the N the clover fixes.`,
+    ]);
+  }
+  const schedule: Record<string, number> = {};
+  for (const timing of DRYSTOCK_CLOVER_TIMINGS) {
+    const value = lookupDrystockCloverN(cloverClass, timing, DRYSTOCK_CLOVER_REFERENCE_GSR_KG_N_HA);
+    if (value.status !== "OK") return blocked(input, "SOURCE_CONFLICT", [], ["The clover N schedule could not be read for every timing."]);
+    schedule[timing] = value.value;
+  }
+  const buildUp = pBuildUp(pIndex);
+  const maintenance = pMaintenanceDrystock(orgN, pIndex);
+  const gross: NutrientQuantity = {
+    n: drystockCloverAnnualTotalKgNHa(cloverClass),
+    p: buildUp + maintenance,
+    k: kGrazingDrystock(kIndex, orgN),
+  };
+  const fertility = checkCloverFertilityContext(pIndex, kIndex);
+  const stockingEvidence = input.grazingStockingEvidence;
+  return {
+    engineVersion: GRASS_ENGINE_V2_VERSION,
+    status: "READY",
+    fieldId: input.field.id,
+    cropSystem: input.cycle.cropSystem,
+    grossRequirementKgHa: gross,
+    organicCreditsKgHa: organic,
+    priorChemicalCreditsKgHa: prior,
+    remainingRequirementKgHa: subtract(gross, organic, prior),
+    missingInputs: [],
+    limitations: [
+      `Clover N follows the Teagasc drystock white-clover strategy at ${DRYSTOCK_CLOVER_REFERENCE_GSR_KG_N_HA} kg organic N/ha for the recorded April clover class; the legal N maximum still applies.`,
+      ...(fertility.status === "OK" && fertility.value === "FLAG_FERTILITY_CONTEXT_NOT_IDEAL"
+        ? ["Teagasc flags very low soil fertility (P and K both Index 1) as not ideal for clover; correct P and K to support clover persistence."]
+        : []),
+      ...grazingStockingLimitations(stockingEvidence),
+    ],
+    traces: {
+      n: {
+        ruleId: "TEAGASC_CLOVER_BEEF_2026_TABLE_1_DRYSTOCK",
+        source: "Teagasc, Management of red and white clover in Irish beef grass-based systems",
+        sourceVersion: `2026 (${CLOVER_N_VERSION})`,
+        inputs: {
+          aprilWhiteCloverPct: cloverPct,
+          cloverClass,
+          referenceOrganicNKgHa: DRYSTOCK_CLOVER_REFERENCE_GSR_KG_N_HA,
+          annualOrganicNStockingRateKgHa: orgN,
+          ...Object.fromEntries(DRYSTOCK_CLOVER_TIMINGS.map((t) => [`n_${t}`, schedule[t]])),
+        },
+        resultKgHa: gross.n,
+        method: "published annual total for the April clover class at the reference stocking rate; timings in inputs",
+      },
+      p: {
+        ruleId: "TEAGASC_GREEN_BOOK_2020_TABLE_13_2_13_3_DRYSTOCK",
+        source: "Teagasc Green Book",
+        sourceVersion: "5th Edition 2020",
+        inputs: { pIndex, annualOrganicNStockingRateKgHa: orgN, buildUpKgHa: buildUp, maintenanceKgHa: maintenance },
+        resultKgHa: gross.p,
+        method: "soil-index build-up plus drystock grazing maintenance band",
+      },
+      k: {
+        ruleId: "TEAGASC_GREEN_BOOK_2020_TABLE_14_1_DRYSTOCK",
+        source: "Teagasc Green Book",
+        sourceVersion: "5th Edition 2020",
+        inputs: { kIndex, annualOrganicNStockingRateKgHa: orgN, baselineOrganicN: 170 },
+        resultKgHa: gross.k,
+        method: "published drystock K baseline at 170 kg organic N/ha, adjusted 5 kg K/ha per 40 kg organic N/ha",
+      },
+    },
+  };
+}
+

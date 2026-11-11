@@ -73,4 +73,35 @@ describe("FarmLimeRequirementCard", () => {
     expect(screen.getByText(/couldn't check your farm-wide lime requirement/i)).toBeTruthy();
     consoleErrorSpy.mockRestore();
   });
+
+  it("lists fields whose pH is below the Teagasc target without inventing a lime rate", async () => {
+    mockAction.mockResolvedValue(
+      result({
+        fields: [
+          {
+            fieldId: "field-1",
+            fieldName: "Low Field",
+            areaHa: 8,
+            phAdvice: {
+              version: "soil_ph_advice_v1.0.0",
+              ph: 5.6,
+              landUse: "grass",
+              target: { min: 6.3 },
+              status: "BELOW_TARGET",
+              limeRate: "LABORATORY_LIME_REQUIREMENT_NEEDED",
+              sourceId: "TEAGASC_PH_LIME",
+            },
+          },
+        ],
+        fieldsWithoutLimeEvidence: 1,
+        fieldsBelowPhTargetWithoutLimeRate: 1,
+      }),
+    );
+    render(<FarmLimeRequirementCard canRecord />);
+    const advice = await screen.findByRole("region", { name: /lime likely needed/i });
+    expect(advice.textContent).toContain("Low Field");
+    expect(advice.textContent).toContain("pH 5.6 · target 6.3");
+    expect(advice.textContent).toMatch(/lime requirement/i);
+    expect(advice.textContent).not.toMatch(/t\/ha/);
+  });
 });

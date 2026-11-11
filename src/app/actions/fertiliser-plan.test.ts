@@ -1648,7 +1648,10 @@ describe("getFieldFertiliserStatusAction", () => {
     expect(result.remainingKgHa).toEqual({ n: 90, p: 30, k: 0 });
   });
 
-  it("uses continuous cattle movement history as the grazing field's stocking input instead of the holding fallback", async () => {
+  // Fertiliser close-out (2026-11-11): the Green Book table row is keyed on
+  // the holding's grassland stocking rate (Table 12-3 footnote 3); the
+  // field's own movement history is disclosed as context only.
+  it("keys the grazing table row on the holding stocking rate and discloses the field's movement history as context", async () => {
     const target = p3Field({ id: "field-1", areaHa: 4.2 });
     const other = p3Field({ id: "field-2", name: "Other Field", areaHa: 10 });
     const targetCycle = p3GrazingCycle("field-1");
@@ -1694,13 +1697,14 @@ describe("getFieldFertiliserStatusAction", () => {
     expect(result.status).toBe("ok");
     if (result.status !== "ok") throw new Error("expected ok");
     expect(result.ruleTraces.n?.inputs.stockingEvidenceBasis).toBe(
-      "FIELD_GRAZING_SESSIONS",
+      "HOLDING_GSR",
     );
     expect(result.ruleTraces.n?.inputs.sourceSessionCount).toBe(1);
     expect(
-      Number(result.ruleTraces.n?.inputs.annualOrganicNStockingRateKgHa),
-    ).toBeGreaterThan(80);
-    expect(result.limitations.join(" ")).toMatch(/field-specific.*movement/i);
+      Number(result.ruleTraces.n?.inputs.fieldAverageStockingRateLUHa),
+    ).toBeGreaterThan(0);
+    expect(result.limitations.join(" ")).toMatch(/farm's grassland stocking rate/i);
+    expect(result.limitations.join(" ")).toMatch(/does not change the table row/i);
   });
 
   it("lets clear field movement evidence override the farm grazing-system baseline in the P3 pathway", async () => {
@@ -2857,7 +2861,7 @@ describe("getFarmFertiliserDemandAction", () => {
     expect(demand.demand).toHaveLength(0);
   });
 
-  it("still sizes a grazing field from its own movement evidence when another field has no cycle, identically in both paths", async () => {
+  it("still sizes a grazing field (holding stocking rate, movement history as context) when another field has no cycle, identically in both paths", async () => {
     const grazing = p3Field({ id: "field-1", areaHa: 4.2 });
     const unclassified = p3Field({
       id: "field-2",
@@ -2905,7 +2909,7 @@ describe("getFarmFertiliserDemandAction", () => {
     expect(status.status).toBe("ok");
     if (status.status !== "ok") throw new Error("expected ok");
     expect(status.ruleTraces.n?.inputs.stockingEvidenceBasis).toBe(
-      "FIELD_GRAZING_SESSIONS",
+      "HOLDING_GSR",
     );
     const calculation = demand.fieldCalculations?.find(
       (row) => row.fieldId === "field-1",

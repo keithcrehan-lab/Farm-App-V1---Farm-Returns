@@ -1014,3 +1014,24 @@ Authorised by Keith after the test-farm run (Docs: "Farm Return — Fertiliser E
   182629a. Lint pass; build pass; typecheck pass after `next build` generated route types (a fresh clone lacks
   `LayoutProps` before the first build).
 
+## Fertiliser close-out, Phase A — engine v2.1.0, clover, pH advice, holding stocking input (2026-11-11)
+
+Keith chose to converge on `grass-fertiliser-engine-v2.ts` (the engine behind the Fertiliser Plan page, field status,
+lime and the RFQ basket). Phase A makes it correct and complete; Phase B moves the screens still on
+`calculateNutrientPlan` (Today prompts, Nutrients/field plan, reports, finance, alerts, evidence report, what-matters,
+plan overview totals) onto it.
+
+- `grass_fertiliser_engine_v2.1.0`: no grazing P maintenance at Index 4; grazing fails closed above the last published
+  Table 12-2/12-3 row; white-clover grazing pathway (Teagasc drystock clover strategy, only at 170 kg organic N/ha and
+  only for the published April classes); grazing stocking input is the holding statutory GSR with the field's movement
+  record disclosed as `fieldGrazingContext` (v2.0.0 keyed rows on in-season paddock pressure, which doubled N on the
+  test farm's rotation). `fertiliser-plan.ts` action and quote readiness route clover grazing cycles; the
+  production-cycle card records clover as the three Teagasc April classes.
+- `soil-ph-advice.ts`: pH vs Teagasc target by land use; lime-likely-needed advice without a rate;
+  `aggregateFarmLimeRequirement` attaches it per field and counts `fieldsBelowPhTargetWithoutLimeRate`; shown via
+  `SoilPhAdviceList` on the lime card and plan overview.
+- Tests: v2.1.0 engine cases; `soil-ph-advice.test.ts`; `fertiliser-engine-v2-test-farm.test.ts` (all seven test-farm
+  scenarios through v2, including the cattle rotation's LU-day allocation); two action tests updated to the holding
+  stocking basis. Run locally with a vitest-compatible runner for pure domain files; the full gate and Codex audit run
+  on Keith's MacBook.
+

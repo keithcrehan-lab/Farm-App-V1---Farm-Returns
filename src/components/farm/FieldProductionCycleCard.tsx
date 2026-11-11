@@ -18,6 +18,15 @@ import { useFarm } from "@/store/farm-store";
 import { FIELD_NUTRIENT_FOCUS_ATTRIBUTE } from "@/lib/field-nutrient-focus";
 import { CROP_SYSTEM_CONTEXT } from "@/lib/crop-system-context";
 
+/** Teagasc drystock clover strategy classes (April sward white-clover
+ * content) — stored as the class's own percentage (0 / 5 / 10), the only
+ * values the fertiliser engine's clover pathway recognises. */
+const WHITE_CLOVER_APRIL_CLASS_OPTIONS: readonly (readonly [string, string])[] = [
+  ["0", "Little or none"],
+  ["5", "About 5%"],
+  ["10", "About 10%"],
+];
+
 const INPUT = "min-h-10 w-full border border-fr-v2-cream-rule bg-white px-3 text-sm text-fr-v2-graphite outline-none focus:border-fr-v2-forest";
 const LABEL = "flex flex-col gap-1.5 text-xs font-semibold text-fr-v2-graphite";
 
@@ -294,7 +303,32 @@ export function FieldProductionCycleCard({
         </>
       ) : null}
 
-      {needsClover ? (
+      {cropSystem === "GRASS_WHITE_CLOVER_GRAZING" ? (
+        <fieldset className="flex flex-col gap-2" aria-describedby={`clover-context-${field.id}`}>
+          <legend className="text-xs font-semibold text-fr-v2-graphite">White clover in the sward in April</legend>
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="White clover in the sward in April">
+            {WHITE_CLOVER_APRIL_CLASS_OPTIONS.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={cloverPct === value}
+                onClick={() => setCloverPct(value)}
+                className={`min-h-11 border px-2 py-2 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-gold ${
+                  cloverPct === value ? "border-fr-v2-forest-deep bg-fr-v2-forest-deep text-white" : "border-fr-v2-cream-rule bg-white text-fr-v2-graphite"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <span id={`clover-context-${field.id}`} className="text-xs leading-relaxed text-fr-v2-muted">
+            {cloverPct !== "" && !WHITE_CLOVER_APRIL_CLASS_OPTIONS.some(([value]) => value === cloverPct)
+              ? `Recorded as ${cloverPct}%, which isn't one of Teagasc's clover classes — choose the closest one above.`
+              : "Teagasc's clover nitrogen advice is set by how much of the sward is white clover in April, judged by eye or from a sward assessment."}
+          </span>
+        </fieldset>
+      ) : needsClover ? (
         <>
         <label className={LABEL}>
           White clover content (%)

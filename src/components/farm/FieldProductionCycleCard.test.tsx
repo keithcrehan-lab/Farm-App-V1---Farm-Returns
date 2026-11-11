@@ -82,6 +82,22 @@ describe("FieldProductionCycleCard — streamlined chemical-fertiliser evidence"
     expect(context()).toMatch(/grazed early, closed for a June cut/);
   });
 
+  it("records white-clover grazing swards as one of the three Teagasc April clover classes", async () => {
+    vi.mocked(saveFieldProductionCycleAction).mockResolvedValue(readySaveResult());
+    renderCard();
+    openCard();
+    await waitFor(() => expect(loadFieldProductionCycleAction).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText(/crop system/i), { target: { value: "GRASS_WHITE_CLOVER_GRAZING" } });
+    const classes = screen.getByRole("radiogroup", { name: /white clover in the sward in april/i });
+    expect(classes.querySelectorAll('[role="radio"]')).toHaveLength(3);
+    expect(screen.queryByLabelText(/white clover content \(%\)/i)).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "About 5%" }));
+    fireEvent.click(screen.getByRole("radio", { name: "No" }));
+    fireEvent.click(screen.getByRole("button", { name: /save production evidence/i }));
+    await waitFor(() => expect(saveFieldProductionCycleAction).toHaveBeenCalled());
+    expect(vi.mocked(saveFieldProductionCycleAction).mock.calls[0][0]).toMatchObject({ whiteCloverPct: 5 });
+  });
+
   it("asks one farmer-facing question first and only shows N/P/K boxes after Yes", async () => {
     renderCard();
     openCard();

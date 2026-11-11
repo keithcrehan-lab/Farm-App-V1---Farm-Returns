@@ -996,3 +996,7 @@ audit not run.
   fix ≤ 30 s old and ≤ 50 m accuracy, and never attach the current location to a back-dated reading (> 10 min from
   now). The walk card shows "Saves where you're standing (±N m)".
 - No migration. Quality gate and Codex audit not run in the cloud session (no `node_modules`); run both on the Mac.
+- **Codex review (round 1) fixes.** High: the live distance counter could undercount after a rejected spike — it now
+  runs the same `trackDistanceM` over the session's fixes. Medium: Save could wait on an unanswered location prompt —
+  the fix now has an overall deadline. Medium: a vague stored reading location stretched the map — pins and framing
+  use only locations within 50 m (`isUsableReadingLocation`).

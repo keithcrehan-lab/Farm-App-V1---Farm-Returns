@@ -8,6 +8,7 @@ import { formatNumber } from "@/lib/format";
 import { useFields } from "@/store/farm-store";
 import { cleanSurveyTrack, type GrassSurveyMode, type SurveyFieldResult, type SurveyTrackPoint } from "@/domain/grass-survey";
 import { getGrassSurveyAction, type GrassSurveyReading } from "@/app/actions/grass-surveys";
+import { isUsableReadingLocation } from "@/lib/location/reading-location";
 import { WalkRouteMap, type WalkMapField, type WalkMapReading } from "@/components/grass/WalkRouteMap";
 import type { GrassSurveyRecord } from "@/lib/farm-data/grass-surveys";
 
@@ -22,7 +23,8 @@ function RouteMap({ track, mode, readings, fieldResults }: { track: SurveyTrackP
   }, [storeFields, fieldResults]);
   const pins = useMemo<WalkMapReading[]>(() => {
     const names = new Map(fieldResults.map((f) => [f.fieldId, f.name]));
-    return readings.flatMap((r) => (r.lat !== null && r.lng !== null ? [{ id: r.id, fieldName: names.get(r.fieldId) ?? "Field", coverKgDmHa: r.coverKgDmHa, lat: r.lat, lng: r.lng, accuracyM: r.accuracyM }] : []));
+    // Only locations accurate enough to place the reading; a vague one would stretch the map.
+    return readings.flatMap((r) => (isUsableReadingLocation(r) ? [{ id: r.id, fieldName: names.get(r.fieldId) ?? "Field", coverKgDmHa: r.coverKgDmHa, lat: r.lat, lng: r.lng, accuracyM: r.accuracyM }] : []));
   }, [readings, fieldResults]);
   return <WalkRouteMap route={route} readings={pins} fields={fields} />;
 }
@@ -61,7 +63,7 @@ export function GrassWalkSummaryClient({ id }: { id: string }) {
   if (!state.survey) return <p className="py-10 text-center text-sm text-fr-v2-muted">{state.error ?? "Walk not found."}</p>;
 
   const { survey, track = EMPTY_TRACK, readings = EMPTY_READINGS } = state;
-  const located = new Set(readings.filter((x) => x.lat !== null).map((x) => x.fieldId));
+  const located = new Set(readings.filter(isUsableReadingLocation).map((x) => x.fieldId));
   const r = survey.results;
   const w = survey.weather;
   const started = new Date(survey.startedAt);

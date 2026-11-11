@@ -9,7 +9,7 @@ import { formatNumber } from "@/lib/format";
 import { useFields } from "@/store/farm-store";
 import { suggestFieldFromPosition } from "@/domain/near-field";
 import { GRASS_COVER_METHODS, type GrassCoverMethod } from "@/domain/grass-management";
-import { haversineM, MAX_TRACK_ACCURACY_M, MAX_TRACK_SPEED_MPS, type SurveyTrackPoint } from "@/domain/grass-survey";
+import { haversineM, trackDistanceM, type SurveyTrackPoint } from "@/domain/grass-survey";
 import { captureReadingLocation, READING_FIX_MAX_ACCURACY_M } from "@/lib/location/reading-location";
 import { getGrassManagementDataAction, recordGrassCoverObservationAction, type GrassManagementData } from "@/app/actions/grass-management";
 import {
@@ -74,7 +74,7 @@ export function GrassWalkClient() {
   const [locating, setLocating] = useState(false);
 
   const pending = useRef<SurveyTrackPoint[]>([]);
-  const lastGood = useRef<Position | null>(null);
+  const sessionTrack = useRef<SurveyTrackPoint[]>([]);
   const autoSelect = useRef<(p: Position) => void>(() => undefined);
   const surveyId = survey?.id ?? null;
   const active = survey?.status === "in_progress";
@@ -178,18 +178,9 @@ export function GrassWalkClient() {
         setPosition(p);
         autoSelect.current(p);
         pending.current.push({ recordedAt: new Date(p.at).toISOString(), lat: p.lat, lng: p.lng, accuracyM: p.accuracyM });
-        if (p.accuracyM === null || p.accuracyM <= MAX_TRACK_ACCURACY_M) {
-          const prev = lastGood.current;
-          const d = prev ? haversineM(prev.lat, prev.lng, p.lat, p.lng) : 0;
-          const seconds = prev ? Math.max(1, (p.at - prev.at) / 1000) : 0;
-          // An impossible jump is a bad fix: the first one after a jump restarts the count from there.
-          if (prev && d > MAX_TRACK_SPEED_MPS[mode] * seconds + 15) {
-            lastGood.current = p;
-          } else if (!prev || d >= 3) {
-            if (prev) setDistanceM((m) => m + d);
-            lastGood.current = p;
-          }
-        }
+        // Live distance uses the same cleaning as the saved walk, so the two always agree.
+        sessionTrack.current.push({ recordedAt: new Date(p.at).toISOString(), lat: p.lat, lng: p.lng, accuracyM: p.accuracyM });
+        setDistanceM(trackDistanceM(sessionTrack.current, mode));
       },
       (err) => setGpsState(err.code === err.PERMISSION_DENIED ? "denied" : "off"),
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 30_000 },
@@ -229,7 +220,7 @@ export function GrassWalkClient() {
     safeStorage(() => window.localStorage.setItem(METHOD_KEY, method), undefined);
     const res = await startGrassSurveyAction({ id: crypto.randomUUID(), mode, startedAt: new Date().toISOString(), device: navigator.userAgent });
     setBusy(false);
-    if (res.ok) { setSurvey(res.survey); setDistanceM(0); lastGood.current = null; selectField(pickNext("")); }
+    if (res.ok) { setSurvey(res.survey); setDistanceM(0); sessionTrack.current = []; selectField(pickNext("")); }
     else setError(res.error);
   }
 

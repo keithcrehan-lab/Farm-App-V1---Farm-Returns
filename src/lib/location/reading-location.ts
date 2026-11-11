@@ -22,6 +22,11 @@ export const READING_FIX_MAX_ACCURACY_M = 50;
 /** A reading timed this far from now (a back-dated entry) gets no location. */
 export const READING_LIVE_WINDOW_MS = 10 * 60_000;
 
+/** Whether a saved reading location is good enough to pin on a map. */
+export function isUsableReadingLocation(r: { lat: number | null; lng: number | null; accuracyM: number | null }): r is { lat: number; lng: number; accuracyM: number | null } {
+  return r.lat !== null && r.lng !== null && Number.isFinite(r.lat) && Number.isFinite(r.lng) && (r.accuracyM === null || r.accuracyM <= READING_FIX_MAX_ACCURACY_M);
+}
+
 /** The best fix to save with a reading, or null when none is fresh and accurate enough. */
 export function pickReadingFix(candidates: ReadonlyArray<ReadingFix | null | undefined>, nowMs: number): ReadingFix | null {
   const usable = candidates.filter((f): f is ReadingFix =>
@@ -60,6 +65,9 @@ function freshFix(timeoutMs: number): Promise<ReadingFix | null> {
 export async function captureReadingLocation(live: ReadingFix | null, timeoutMs = 6_000): Promise<ReadingFix | null> {
   const now = Date.now();
   if (live && now - live.at <= 10_000 && live.accuracyM !== null && live.accuracyM <= 20) return live;
-  const fresh = await freshFix(timeoutMs);
+  // The geolocation timeout doesn't count time spent on a permission prompt, so
+  // cap the whole wait: saving never hangs on location.
+  const deadline = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs + 500));
+  const fresh = await Promise.race([freshFix(timeoutMs), deadline]);
   return pickReadingFix([fresh, live], Date.now());
 }

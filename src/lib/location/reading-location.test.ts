@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isLiveReading, pickReadingFix } from "./reading-location";
+import { isLiveReading, isUsableReadingLocation, pickReadingFix } from "./reading-location";
 
 const NOW = Date.UTC(2026, 10, 11, 8, 0, 0);
 const fix = (ageS: number, accuracyM: number | null) => ({ lat: 52.7, lng: -8.78, accuracyM, at: NOW - ageS * 1000 });
@@ -24,5 +24,13 @@ describe("isLiveReading", () => {
   it("treats a reading timed now as live and a back-dated one as not", () => {
     expect(isLiveReading(NOW - 60_000, NOW)).toBe(true);
     expect(isLiveReading(NOW - 3 * 3_600_000, NOW)).toBe(false);
+  });
+});
+
+describe("isUsableReadingLocation", () => {
+  it("pins accurate locations only", () => {
+    expect(isUsableReadingLocation({ lat: 52.7, lng: -8.78, accuracyM: 8 })).toBe(true);
+    expect(isUsableReadingLocation({ lat: 52.7, lng: -8.78, accuracyM: 900 })).toBe(false);
+    expect(isUsableReadingLocation({ lat: null, lng: null, accuracyM: null })).toBe(false);
   });
 });

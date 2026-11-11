@@ -994,5 +994,8 @@ Authorised by Keith after the test-farm run (Docs: "Farm Return — Fertiliser E
 - Tests: new `fertiliser-engine-test-farm.test.ts` (scenarios 1–4 asserted; clover, tillage, lime-from-pH and
   per-field grazing recorded as `it.todo`); one new prompt test; engine-version assertions moved to v1.6.0 in domain
   tests that read the real engine output (UI/fixture strings left as fixtures).
-- Evidence register entry added. Independent Codex audit not run from this environment (no Codex CLI); an
-  independent review agent reviewed the diff instead — see BUILD_STATE `nutrient_engine_v1_6_0`.
+- Two frozen CC-B5 buffer regressions updated: the K Index 4 second-cut mirror moves from OK to
+  LEGAL_PROHIBITION (organic 5 m buffer) because its chemical blend existed only through the repeated build-up
+  (evidence register 2026-11-11). The calculateGrasslandStockingRateKgHa unit test now asserts the organic-N column.
+- Evidence register entry added. Quality gate and `scripts/codex-audit.sh` run on Keith's MacBook in a fresh clone of
+  this branch — results in BUILD_STATE `nutrient_engine_v1_6_0`.

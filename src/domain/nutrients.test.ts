@@ -26,6 +26,7 @@ import {
   NATIONAL_AVG_SLURRY_DM_PCT,
   nGrazingSucklerToBeefKgHa,
   nSilageKgHa,
+  organicNStockingRateFromLUHaKgHa,
   pBuildUpKgHa,
   pIndexFromMgL,
   pMaintenanceGrazingKgHa,
@@ -1478,7 +1479,9 @@ describe("isEligibleForElevatedNRate / napMaxAvailableNGrazingKgHaEligibilityGat
 
 describe("calculateGrasslandStockingRateKgHa", () => {
   it("derives organic-N stocking rate from headcount and area", () => {
-    // 56.2 LU over 27 ha => ~2.081 LU/ha => interpolated N between 2.0(132) and 2.25(162).
+    // 56.2 LU over 27 ha => ~2.081 LU/ha => interpolated organic N (Table
+    // 12-3 kg/ha N excreted column) between 2.0 (158) and 2.25 (176).
+    // v1.6.0: v1.5.0 asserted the fertiliser Total N column (132-162) here.
     const groups: LivestockGroup[] = [
       { id: "a", farmId: "f", category: "suckler_cow", label: "Cows", count: tracked(32, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
       { id: "b", farmId: "f", category: "weanling", label: "Weanlings", count: tracked(18, "verified", "Keith"), system: "housed", value: tracked(0, "estimated", "x") },
@@ -1488,9 +1491,11 @@ describe("calculateGrasslandStockingRateKgHa", () => {
     ];
     const luHa = totalLivestockUnits(groups) / 27;
     const result = calculateGrasslandStockingRateKgHa(groups, 27);
-    expect(result).toBeCloseTo(nGrazingSucklerToBeefKgHa(luHa), 5);
-    expect(result).toBeGreaterThan(132);
-    expect(result).toBeLessThan(162);
+    expect(result).toBeCloseTo(organicNStockingRateFromLUHaKgHa(luHa), 5);
+    expect(result).toBeCloseTo(158 + ((luHa - 2.0) / 0.25) * (176 - 158), 5);
+    expect(result).toBeGreaterThan(158);
+    expect(result).toBeLessThan(176);
+    expect(result).not.toBeCloseTo(nGrazingSucklerToBeefKgHa(luHa), 0);
   });
 
   it("returns 0 for zero grassland area rather than dividing by zero", () => {
@@ -3954,9 +3959,19 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
   // The blend is sized from the Index-1 stand-in with no slurry P/K credit
   // (the paired assessment is blocked). Audited case: the Index-1 K blend
   // is empty, so the organic 5 m buffer applies (LEGAL_PROHIBITION at 4 m,
-  // the bfdad74 result the F001 audit recorded). Mirror: the Index-1 P
-  // blend (P build-up) is not empty, so the chemical 3 m buffer applies
-  // (OK at 4 m, as at bfdad74).
+  // the bfdad74 result the F001 audit recorded). Mirror: at bfdad74 the
+  // Index-1 P blend for this SECOND cut was not empty only because Table
+  // 13-2 build-up was added to every cut, so the chemical 3 m buffer applied
+  // (OK at 4 m). nutrient_engine_v1.6.0 applies build-up to the first cut
+  // only (Green Book §13), the second-cut blend is empty here too, and the
+  // organic 5 m buffer now applies to the 100 m3/ha slurry: LEGAL_PROHIBITION
+  // at 4 m, the same result as the audited case (evidence register,
+  // 2026-11-11 entry — a deliberate, stricter statutory output change).
+  const organicBufferProhibition = {
+    status: "LEGAL_PROHIBITION",
+    reasonCode: "NATIONAL_BUFFER_DISTANCE_NOT_MET",
+    consequence: "Proposed application at 4m to surface_water is below the statutory 5m buffer for organic_fertiliser_or_soiled_water.",
+  } as const;
   for (const [label, f, expectedBuffer] of [
     [
       "K missing, P Index 4 (audited F001 case)",
@@ -3967,9 +3982,9 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
         consequence: "Proposed application at 4m to surface_water is below the statutory 5m buffer for organic_fertiliser_or_soiled_water.",
       },
     ],
-    ["P missing, K Index 4 (mirror)", { k: 4 as Idx }, { status: "OK", value: "BOUNDARY_MET_SUBJECT_TO_OTHER_RULES", evidenceState: "DERIVED" }],
+    ["P missing, K Index 4 (mirror; v1.6.0 changed from OK — see above)", { k: 4 as Idx }, organicBufferProhibition],
   ] as const) {
-    it(`CC-B5 buffer regression — ${label}: second cut, yield 0, 100 m3/ha spring LESS at 6% DM, water 4 m keeps the bfdad74 result`, () => {
+    it(`CC-B5 buffer regression — ${label}: second cut, yield 0, 100 m3/ha spring LESS at 6% DM, water 4 m`, () => {
       const waterBufferContext = tracked({ featureType: "surface_water" as const, distanceM: 4, localOverrideStatus: "verified_none" as const }, "farmer_adjusted", "Keith");
       const allocation = { ...allocationFor(methods[1][1], "2027-03-15"), volumeM3: 100 * field.areaHa };
       const plan = calculateNutrientPlan({
@@ -4218,11 +4233,14 @@ describe("requirementByNutrient / netRequirementByNutrient (per-nutrient P/K Inc
     expect(none.requirementByNutrient.k).toEqual(missingIndex("fertility.kIndex"));
   });
 
-  it("CC-B5 buffer regression cases keep the bfdad74 result and the unknown arms carry no number", () => {
+  // v1.6.0: the K Index 4 mirror moved from OK to LEGAL_PROHIBITION once
+  // second-cut P build-up stopped being added (see the CC-B5 buffer
+  // regression comment above).
+  it("CC-B5 buffer regression cases (organic 5 m buffer at 4 m) and the unknown arms carry no number", () => {
     const waterBufferContext = tracked({ featureType: "surface_water" as const, distanceM: 4, localOverrideStatus: "verified_none" as const }, "farmer_adjusted", "Keith");
     for (const [f, unknownArm, expectedStatus] of [
       [{ p: 4 as Idx }, "k", "LEGAL_PROHIBITION"],
-      [{ k: 4 as Idx }, "p", "OK"],
+      [{ k: 4 as Idx }, "p", "LEGAL_PROHIBITION"],
     ] as const) {
       const plan = calculateNutrientPlan({
         field: { ...field, waterBufferContext, fertility: fertilityOf(f) },

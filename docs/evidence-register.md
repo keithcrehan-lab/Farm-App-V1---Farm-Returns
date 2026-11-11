@@ -2372,3 +2372,10 @@ the organic-N stocking rate is scaled by that end row's own kg-N-per-LU ratio (8
 **Not changed:** grazing N (Table 12-3 Total N), first-cut silage N/P/K, second-cut N/K, the statutory NAP stocking rate
 (`statutory-excretion.ts`), slurry credits. Second-cut P maintenance still applies Table 13-4's 5 t DM/ha yield
 adjustment; whether that baseline applies to second cuts is an open agronomist question.
+
+**Statutory output change (stricter):** the CC-B5 buffer regression "P missing, K Index 4 (mirror)" — a *second* cut
+with 100 m3/ha slurry 4 m from surface water — was OK at bfdad74 only because the Index-1 placeholder blend added
+P build-up to the second cut and so proposed chemical fertiliser (3 m buffer). With build-up on the first cut only,
+no chemical fertiliser is proposed, the organic 5 m buffer governs the slurry, and the result is now
+`LEGAL_PROHIBITION` — the same outcome as the audited F001 case. CC-B5 itself (the Index-1 placeholder choosing the
+buffer material when an index is missing) remains an open decision.

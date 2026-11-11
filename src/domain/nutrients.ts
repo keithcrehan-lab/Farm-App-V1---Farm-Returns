@@ -57,7 +57,13 @@ import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_MURIATE_OF_POTASH_50K, C
 // `requirementByNutrient` / `netRequirementByNutrient` (a known P or K gross
 // and net requirement on a field whose other index is missing); every v1.3.0
 // output is otherwise unchanged (the Index-1 placeholder stays — CC-B5).
-export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.5.0";
+// v1.6.0 (2026-11-11): three scientific corrections found by the fertiliser
+// engine test plan, run 1 — (a) the grazing P/K organic-N stocking rate now
+// reads Table 12-3's kg/ha N (excreted) column, not its fertiliser Total N
+// column; (b) no grazing P maintenance at P Index 4; (c) silage P build-up
+// on the first cut only. Grazing N and every first-cut silage figure are
+// unchanged.
+export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.6.0";
 
 // ---------------------------------------------------------------------------
 // Soil P/K Index classification — Green Book Table 6-4 / 13-1 (P, grassland
@@ -1976,6 +1982,26 @@ export function allocatePurchasedProductsPConstrained(
   return { products: lines, totalCostEur: lines.reduce((sum, l) => sum + l.costEur, 0), deliveredKgHa };
 }
 
+/**
+ * v1.6.0 — the product blend for one field. At soil P Index 4 the Green
+ * Book advises no P fertiliser (§13: "no P fertilizer is advised until the
+ * soil P level reverts to the Index 3 range") and S.I. 588/2025 Table 15a
+ * allows 0 kg/ha available P, so no P-bearing compound may be proposed
+ * even as a by-product of meeting a K requirement: the existing P-free
+ * allocation (`allocatePurchasedProductsPConstrained` with a 0 P target —
+ * Muriate of Potash for K, Protected Urea for N) is used instead. Every
+ * other field keeps the unchanged default waterfall.
+ */
+function allocateFieldProducts(
+  n: number,
+  p: number,
+  k: number,
+  areaHa: number,
+  noPhosphorusProducts: boolean,
+): ReturnType<typeof allocatePurchasedProducts> {
+  return noPhosphorusProducts ? allocatePurchasedProductsPConstrained(n, 0, k, areaHa) : allocatePurchasedProducts(n, p, k, areaHa);
+}
+
 // ---------------------------------------------------------------------------
 // Campaign B regulatory interpretation — home-produced grazing manure
 // ---------------------------------------------------------------------------
@@ -2224,6 +2250,8 @@ function buildFieldPurchase(args: {
   compositionUnresolved: boolean;
   commonageProhibited: boolean;
   bufferProhibited: boolean;
+  /** v1.6.0 — soil P Index 4: no P-bearing product (`allocateFieldProducts`). */
+  noPhosphorusProducts: boolean;
 }): { status: FieldPurchaseStatus; products: FertiliserProduct[]; totalCostEur: number; deliveredKgHa: { n: number; p: number; k: number } } {
   const { fieldRequirement: req, fieldRemainingRequirement: rem } = args;
   const none = { products: [], totalCostEur: 0, deliveredKgHa: { n: 0, p: 0, k: 0 } };
@@ -2259,7 +2287,7 @@ function buildFieldPurchase(args: {
     operands = { n: req.n.kgHa, p: req.p.kgHa, k: req.k.kgHa };
     sized = { status: "RECOMMENDED_CREDIT_NOT_COUNTED", reasonCode, missingInputs };
   }
-  const allocation = allocatePurchasedProducts(operands.n, operands.p, operands.k, args.areaHa);
+  const allocation = allocateFieldProducts(operands.n, operands.p, operands.k, args.areaHa, args.noPhosphorusProducts);
   if (allocation.products.length === 0) {
     const allZero = operands.n === 0 && operands.p === 0 && operands.k === 0;
     return { status: { status: "NONE_NEEDED", basis: allZero ? "REMAINING_ZERO" : "BELOW_PRODUCT_THRESHOLD" }, ...none };
@@ -2390,18 +2418,83 @@ export function soilTestAgeValidityForFertility(fertility: Pick<Field["fertility
 }
 
 /**
- * AGRONOMIC ledger only (Green Book Table 12-3's LU-based N-requirement
- * curve) — feeds the grazing N/P/K *requirement* below (`grossN` etc.),
- * never the statutory compliance ceiling. V3 FIX (audit conflict #1): this
+ * Green Book Table 12-3, "Stocking rate — kg/ha N" column: the organic-N
+ * stocking rate (footnote 3: total annual N excreted by grazing livestock
+ * averaged over the net grassland area) at each published LU/ha row. This
+ * is the SAME table as `N_GRAZING_SUCKLER_TO_BEEF_TABLE` above, but a
+ * different column — that one is the *fertiliser* N advice ("Total N"),
+ * this one is the *manure* N the P (Table 13-3) and K (Table 14-1) grazing
+ * tables are keyed on. Transcription:
+ * `docs/scientific-engine/v3/reference_greenbook_2020/All_Table_Rows.csv`
+ * (Seq 34, rows 7-15).
+ */
+const ORG_N_STOCKING_RATE_TABLE_12_3: { stockingRateLUHa: number; orgNKgHa: number }[] = [
+  { stockingRateLUHa: 1.0, orgNKgHa: 80 },
+  { stockingRateLUHa: 1.25, orgNKgHa: 99 },
+  { stockingRateLUHa: 1.5, orgNKgHa: 118 },
+  { stockingRateLUHa: 1.75, orgNKgHa: 138 },
+  { stockingRateLUHa: 2.0, orgNKgHa: 158 },
+  { stockingRateLUHa: 2.25, orgNKgHa: 176 },
+  { stockingRateLUHa: 2.5, orgNKgHa: 196 },
+  { stockingRateLUHa: 2.75, orgNKgHa: 215 },
+  { stockingRateLUHa: 3.0, orgNKgHa: 235 },
+];
+
+/**
+ * LU/ha → organic-N stocking rate (kg N/ha) via Table 12-3's own LU and
+ * kg/ha N columns. Linear interpolation between the published 0.25 LU/ha
+ * rows (the same reading `nGrazingSucklerToBeefKgHa` already applies to
+ * this table). Outside the published range (the first row is printed as
+ * "≤1.0 / ≤80", and the table stops at 3.0 LU/ha) the value is scaled by
+ * that end row's own kg-N-per-LU ratio (80/1.0 and 235/3.0), rather than
+ * clamped: excreted N scales with the animals present, and clamping would
+ * overstate it for lightly stocked farms and understate it for heavily
+ * stocked ones. This out-of-range scaling is an interpretation pending
+ * agronomist sign-off (evidence register, 2026-11-11 entry).
+ */
+export function organicNStockingRateFromLUHaKgHa(stockingRateLUHa: number): number {
+  if (!(stockingRateLUHa > 0)) return 0;
+  const table = ORG_N_STOCKING_RATE_TABLE_12_3;
+  const first = table[0];
+  const last = table[table.length - 1];
+  if (stockingRateLUHa <= first.stockingRateLUHa) return stockingRateLUHa * (first.orgNKgHa / first.stockingRateLUHa);
+  if (stockingRateLUHa >= last.stockingRateLUHa) return stockingRateLUHa * (last.orgNKgHa / last.stockingRateLUHa);
+  for (let i = 0; i < table.length - 1; i++) {
+    const a = table[i];
+    const b = table[i + 1];
+    if (stockingRateLUHa >= a.stockingRateLUHa && stockingRateLUHa <= b.stockingRateLUHa) {
+      const t = (stockingRateLUHa - a.stockingRateLUHa) / (b.stockingRateLUHa - a.stockingRateLUHa);
+      return a.orgNKgHa + t * (b.orgNKgHa - a.orgNKgHa);
+    }
+  }
+  return last.orgNKgHa;
+}
+
+/**
+ * AGRONOMIC ledger only — the Green Book organic-N grassland stocking rate
+ * (kg N excreted/ha, Table 12-3 LU → kg/ha N columns) that keys the grazing
+ * P maintenance (Table 13-3) and K (Table 14-1) advice below, never the
+ * statutory compliance ceiling.
+ *
+ * v1.6.0 CORRECTION (2026-11-11, fertiliser engine test plan run 1): this
+ * function previously returned `nGrazingSucklerToBeefKgHa` — Table 12-3's
+ * *fertiliser* "Total N" column (35, 53, 75 …) — and fed it to the P/K
+ * tables as if it were the organic-N stocking rate. Tables 13-3/14-1
+ * footnotes define their stocking rate as N *excreted* (Table 12-3's
+ * 80, 99, 118 … column), so every grazing field's P maintenance band and
+ * K adjustment were computed from a figure ~40% too low. Grazing N advice
+ * itself was never affected (it reads `nGrazingCalculationTrace` directly).
+ *
+ * Historical note — V3 FIX (audit conflict #1): this
  * function used to ALSO be passed to `checkNapCompliance` as the
  * statutory "stocking rate" that selects the NAP N/P ceiling band — it
- * is not that figure (it's an agronomic N-fertiliser-requirement-by-LU-
- * density curve, not S.I. 119/2026 Table 7's per-animal-category
- * excretion total) and never should have been. The real statutory GSR
+ * is not that figure (it is the Green Book's agronomic LU-density
+ * conversion, not S.I. 119/2026 Table 7's per-animal-category excretion
+ * total) and never should have been. The real statutory GSR
  * (`calculateStatutoryGrasslandStockingRateKgHa`,
- * `src/domain/statutory-excretion.ts`) is now what `calculateNutrientPlan`
- * passes to `checkNapCompliance` instead — this function's role is now
- * exactly, and only, the agronomic grazing-N-requirement curve.
+ * `src/domain/statutory-excretion.ts`) is what `calculateNutrientPlan`
+ * passes to `checkNapCompliance` — this function only keys the agronomic
+ * grazing P/K advice.
  */
 export function calculateGrasslandStockingRateKgHa(
   livestockGroups: LivestockGroup[],
@@ -2409,11 +2502,7 @@ export function calculateGrasslandStockingRateKgHa(
 ): number {
   if (farmGrasslandAreaHa <= 0) return 0;
   const stockingRateLUHa = totalLivestockUnits(livestockGroups) / farmGrasslandAreaHa;
-  // Table 12-3's own LU→kg N mapping doubles as the organic-N stocking
-  // rate used by the P/K tables (same "grassland stocking rate" concept
-  // throughout the document) — reusing it here rather than introducing a
-  // second, undocumented N-per-LU conversion.
-  return nGrazingSucklerToBeefKgHa(stockingRateLUHa);
+  return organicNStockingRateFromLUHaKgHa(stockingRateLUHa);
 }
 
 /**
@@ -2494,7 +2583,13 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   if (silage) {
     const { cutNumber, expectedYieldTDMha, wasGrazedPreviousYear = false } = silage;
     grossN = nSilageKgHa(cutNumber, wasGrazedPreviousYear);
-    grossP = pBuildUpKgHa(pIndex) + pMaintenanceSilageKgHa(cutNumber, pIndex, expectedYieldTDMha);
+    // v1.6.0: Green Book §13 (P maintenance for silage and hay) — "Where two
+    // or more cuts of silage are taken in one year on soils with soil P
+    // levels at Index 1 or 2, the additional 'soil P build-up' portion of
+    // the fertilizer should be applied prior to the first cut." Build-up is
+    // an annual amount applied once, so later cuts get maintenance only;
+    // v1.5.0 added the full build-up again on every cut.
+    grossP = (cutNumber === 1 ? pBuildUpKgHa(pIndex) : 0) + pMaintenanceSilageKgHa(cutNumber, pIndex, expectedYieldTDMha);
     grossK = kSilageKgHa(cutNumber, kIndex, expectedYieldTDMha);
     calculationTrace = { basis: "silage" };
   } else {
@@ -2510,7 +2605,12 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
 
     const pBuildUp = pBuildUpKgHa(pIndex);
     const pBand = P_GRAZING_MAINTENANCE_BANDS.find((band) => agronomicStockingRateKgHa <= band.maxOrgNKgHa)!;
-    const pMaintenance = pBand[system];
+    // v1.6.0: Green Book §13 — "Grassland soils with P levels at Index 4 …
+    // no P fertilizer is advised until the soil P level reverts to the
+    // Index 3 range" (and S.I. 588/2025 Table 15a's Index 4 maximum is 0).
+    // The silage path (`pMaintenanceSilageKgHa`) already returned 0 at
+    // Index 4; v1.5.0's grazing path still added Table 13-3 maintenance.
+    const pMaintenance = pIndex === 4 ? 0 : pBand[system];
     grossP = pBuildUp + pMaintenance;
 
     const kBase = K_GRAZING_BASE_KG_HA[kIndex][system];
@@ -2647,11 +2747,12 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // total (both unchanged, D4 / CC-B5); the published products come from
   // `buildFieldPurchase` over the canonical remaining requirement, which
   // equals this blend for every fully indexed grassland field.
-  const { products: allocatedProducts, deliveredKgHa: allocatedDeliveredKgHa } = allocatePurchasedProducts(
+  const { products: allocatedProducts, deliveredKgHa: allocatedDeliveredKgHa } = allocateFieldProducts(
     remainingN,
     remainingP,
     remainingK,
     field.areaHa,
+    pIndexKnown === 4,
   );
 
   // V3 closure pass — Priority 11 (AF010, national buffer half) built the
@@ -3173,6 +3274,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     compositionUnresolved,
     commonageProhibited: chemicalFertiliserProhibitedByCommonage,
     bufferProhibited: chemicalFertiliserProhibitedByBuffer,
+    noPhosphorusProducts: pIndexKnown === 4,
   });
 
   // Slurry Timing Evidence Patch V1, brief §6 ("Unsupported credit

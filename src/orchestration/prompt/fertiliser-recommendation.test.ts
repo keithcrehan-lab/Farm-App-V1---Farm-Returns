@@ -333,6 +333,39 @@ describe("promptForFertiliserRecommendation", () => {
     expect(nap.value.nWithinCeiling).toBe(true);
     expect(nap.value.pWithinCeiling).toBe(true);
     expect(prompt.description).not.toMatch(/NAP ceiling/i);
+    expect(prompt.description).not.toMatch(/have not been checked/i);
+  });
+
+  it("fertiliser engine test plan run 1: says the Nitrates (NAP) limits were not checked when the statutory stocking rate is unknown (a group with no age)", () => {
+    const f = field({ fertility: { pIndex: index(1), kIndex: index(1) } });
+    const groups: LivestockGroup[] = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "suckler_cow",
+        label: "Cows",
+        count: { value: 20, status: "verified", source: "Farmer" },
+        system: "grazing",
+        value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
+      },
+      {
+        id: "g2",
+        farmId: "farm-1",
+        category: "weanling",
+        label: "Weanlings",
+        count: { value: 18, status: "verified", source: "Farmer" },
+        system: "grazing",
+        value: { value: 15000, status: "estimated", source: "Farm Return estimate" },
+      },
+    ];
+    const prompt = promptForFertiliserRecommendation(f, 20, groups, undefined, undefined, undefined, createdAt);
+    expect(prompt.basis.status).toBe("OK");
+    if (prompt.basis.status !== "OK") throw new Error("expected OK");
+    // The recommendation is still issued (spec Section A2: the agronomic
+    // and compliance ledgers never gate each other) …
+    expect((prompt.basis.value as FertiliserRecommendationSummary).napCompliance.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    // … but never as an unqualified recommendation.
+    expect(prompt.description).toMatch(/Nitrates \(NAP\) limits have not been checked for this field yet/);
   });
 
   it("Codex audit HIGH (round 14): threads the real farm-level pBuildUpCompliance evidence through to calculateNutrientPlan's own Article 17(6) P ceiling", () => {

@@ -2352,3 +2352,23 @@ Implied cost = quantity × reference €/t, labelled as an indication, never as 
 | Concentrate €/t | Inputs Market catalogue (Teagasc €350/t published benchmark, 2026-07) or the farmer's own override price | Labelled benchmark / "your price"; concentrate only — forage and housing are not costed |
 
 Not covered (fail closed): finishing-bull feeding rates, store/suckler/dairy classes, at-grass and non-grass-silage diets, unknown silage quality (a published-row planning scenario may be chosen and is always labelled as such, never as a lab result).
+
+## Nutrient engine v1.6.0 — three Green Book corrections (2026-11-11)
+
+Found by the fertiliser engine test plan, run 1 (an assumed Co Clare suckler test farm run straight through
+`calculateNutrientPlan`; `src/domain/fertiliser-engine-test-farm.test.ts`). Sources re-read from the repository
+transcription `docs/scientific-engine/v3/reference_greenbook_2020/` (`All_Table_Rows.csv` Seq 34; `Page_Text.csv`
+chapters 13 and 14). **Status: implementation corrections against already-registered sources; expected values
+pending agronomist sign-off.** No new source, no AI-derived value.
+
+| Correction | Source text | Before (v1.5.0) | After (v1.6.0) |
+|---|---|---|---|
+| Organic-N stocking rate for grazing P (Table 13-3) and K (Table 14-1) | Table 12-3 has two columns: "Stocking rate LU/ha – kg/ha N" (fn 3: total annual N *excreted*, 80/99/118/138/158/176/196/215/235 at 1.0–3.0 LU/ha) and the fertiliser "Total N" advice (35/53/75/103/132/162/193/215/241). Tables 13-3 fn 5 and 14-1 fn 1–2 key on N excreted. | `calculateGrasslandStockingRateKgHa` returned the Total N column | Returns the kg/ha N (excreted) column (`organicNStockingRateFromLUHaKgHa`), linear between rows |
+| Grazing P at Index 4 | §13: "Grassland soils with P levels at Index 4 … no P fertilizer is advised until the soil P level reverts to the Index 3 range"; S.I. 588/2025 Table 15a Index 4 maximum 0 | Table 13-3 maintenance still added (e.g. 4 kg/ha), and P-bearing compounds proposed for K | 0 kg/ha P; products from the P-free allocation (Muriate of Potash + Protected Urea) |
+| Silage P build-up on later cuts | §13: "Where two or more cuts … at Index 1 or 2, the additional 'soil P build-up' portion … should be applied prior to the first cut" | Table 13-2 build-up added to every cut | First cut only |
+
+**Interpretation pending sign-off:** outside Table 12-3's printed range (first row "≤1.0 / ≤80", last row 3.0 LU/ha)
+the organic-N stocking rate is scaled by that end row's own kg-N-per-LU ratio (80/1.0, 235/3.0) instead of clamped.
+**Not changed:** grazing N (Table 12-3 Total N), first-cut silage N/P/K, second-cut N/K, the statutory NAP stocking rate
+(`statutory-excretion.ts`), slurry credits. Second-cut P maintenance still applies Table 13-4's 5 t DM/ha yield
+adjustment; whether that baseline applies to second cuts is an open agronomist question.

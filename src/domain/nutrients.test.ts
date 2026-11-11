@@ -1532,7 +1532,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
     });
 
     expect(plan.fieldId).toBe(field.id);
-    expect(plan.calculationVersion).toBe("nutrient_engine_v1.5.0");
+    expect(plan.calculationVersion).toBe("nutrient_engine_v1.6.0");
     expect(plan.requirement.status).toBe("estimated");
     expect(plan.requirement.source).toContain("Teagasc");
     // Gross: N=125 (Table 12-7), P=0(buildup,idx3)+20(maint)=20, K=125 (Table 14-2, idx3 cut1).
@@ -1897,7 +1897,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
       it("F002: the corrected LESS behaviour carries a new engine version, distinct from the pre-fix v1.0.0", () => {
         const plan = lessPlan({ pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(1, "verified", "Lab") });
         // CC-B4A (v1.2.0) and per-nutrient P/K Increments 2 (v1.3.0) and 3 (v1.4.0) moved the engine on; the LESS correction carries forward.
-        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.5.0");
+        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.6.0");
         expect(plan.calculationVersion).not.toBe("nutrient_engine_v1.0.0");
         expect(plan.calculationVersion).toBe(NUTRIENT_ENGINE_VERSION);
         expect(plan.requirement.calculationVersion).toBe(NUTRIENT_ENGINE_VERSION);
@@ -1975,9 +1975,9 @@ describe("calculateNutrientPlan (orchestration)", () => {
 
       it("the splashplate correction carries forward into engine version v1.4.0", () => {
         const plan = splashplatePlan({});
-        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.5.0");
-        expect(plan.calculationVersion).toBe("nutrient_engine_v1.5.0");
-        expect(plan.requirement.calculationVersion).toBe("nutrient_engine_v1.5.0");
+        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.6.0");
+        expect(plan.calculationVersion).toBe("nutrient_engine_v1.6.0");
+        expect(plan.requirement.calculationVersion).toBe("nutrient_engine_v1.6.0");
       });
     });
 
@@ -3535,7 +3535,7 @@ describe("Campaign C verified rules within the existing engine", () => {
   it("no rate selector exists in the engine (AI_PROVISIONAL_RATE_SELECTOR_V1 is not implemented)", async () => {
     const engine = await import("./nutrients");
     expect(Object.keys(engine).filter((k) => /rate.?selector|selectSlurryRate/i.test(k))).toEqual([]);
-    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.5.0");
+    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.6.0");
   });
 });
 
@@ -3600,7 +3600,8 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
   // version change). Fertiliser Vertical Increment 1 also excludes the
   // additive canonical `fieldRequirement` (no version change), and
   // Increment 2b the additive `fieldRemainingRequirement` (no version
-  // change). Session 2b excludes the new `purchaseStatus` and maps v1.5.0
+  // change). Session 2b excludes the new `purchaseStatus` and maps v1.5.0 (now
+  // v1.6.0, whose corrections do not touch first-cut silage)
   // back to v1.2.0 instead: products, delivered supply and cost are sized
   // from the canonical remaining requirement and must be unchanged here.
   // Nothing else is normalised.
@@ -3618,7 +3619,7 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
     delete organicApplication.availableNutrientBasis;
     existing.organicApplication = organicApplication as NutrientPlan["organicApplication"];
     const json = JSON.stringify(existing, (key, value) =>
-      key === "calculationVersion" && value === "nutrient_engine_v1.5.0" ? "nutrient_engine_v1.2.0" : value,
+      key === "calculationVersion" && value === "nutrient_engine_v1.6.0" ? "nutrient_engine_v1.2.0" : value,
     );
     return createHash("sha256").update(json).digest("hex");
   };
@@ -3657,7 +3658,7 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
             // for missing-index cases) equals the pre-change engine.
             expect(baseline[key]).toBeDefined();
             expect(digestWithoutNewField(plan)).toBe(baseline[key]);
-            expect(plan.calculationVersion).toBe("nutrient_engine_v1.5.0");
+            expect(plan.calculationVersion).toBe("nutrient_engine_v1.6.0");
           });
         }
       }

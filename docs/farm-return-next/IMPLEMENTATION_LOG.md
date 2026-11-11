@@ -977,3 +977,22 @@ audit not run.
 - **Migration** `20261105120000_cattle_housing_move_and_identity_corrections.sql` (additive) is NOT applied to any
   database: until it is applied to Farm Return V1 Dev, the real cattle read (which now reads the corrections table)
   fails closed as unavailable and the housing move can't save. No frozen C0–C9 engine changed. Codex audit not run.
+
+## Nutrient engine v1.6.0 — fertiliser engine test plan run 1 corrections (2026-11-11)
+
+Branch `fix/nutrient-engine-orgn-index4-silage-buildup` from `release/farm-return-current-2026-11-07` (`182629a`).
+Authorised by Keith after the test-farm run (Docs: "Farm Return — Fertiliser Engine Test Plan").
+
+- `nutrients.ts` → `nutrient_engine_v1.6.0`: (a) `calculateGrasslandStockingRateKgHa` now returns Table 12-3's organic-N
+  (excreted) column via new export `organicNStockingRateFromLUHaKgHa` — it previously returned the fertiliser Total N
+  column, understating every grazing field's P maintenance band and K adjustment; (b) no grazing P maintenance at
+  P Index 4, and Index 4 fields are sized with the existing P-free allocation (`allocateFieldProducts` →
+  `allocatePurchasedProductsPConstrained`, 0 P target) in both the published purchase and the legacy NAP blend;
+  (c) silage P build-up on the first cut only. No exported signature changed; no migration.
+- `fertiliser-recommendation.ts`: the Today prompt now says Nitrates limits were not checked when `napCompliance`
+  is not OK (e.g. herd ages missing) — the recommendation is still issued (spec Section A2).
+- Tests: new `fertiliser-engine-test-farm.test.ts` (scenarios 1–4 asserted; clover, tillage, lime-from-pH and
+  per-field grazing recorded as `it.todo`); one new prompt test; engine-version assertions moved to v1.6.0 in domain
+  tests that read the real engine output (UI/fixture strings left as fixtures).
+- Evidence register entry added. Independent Codex audit not run from this environment (no Codex CLI); an
+  independent review agent reviewed the diff instead — see BUILD_STATE `nutrient_engine_v1_6_0`.

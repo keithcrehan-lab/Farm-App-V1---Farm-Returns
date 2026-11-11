@@ -141,11 +141,19 @@ function describeFertiliserRecommendationOk(
   // provisional grazing route. Qualified to match the engine's own
   // regulatory confidence.
   const napConfirmed = value.napCompliance.status === "OK" && value.napCompliance.value.regulatory === "compliance_value";
+  // 2026-11-11 (fertiliser engine test plan, run 1): when the NAP check
+  // itself could not run (most often: no animal ages recorded, so the
+  // statutory stocking rate is unknown), the recommendation is still
+  // issued — spec Section A2 keeps the agronomic and compliance ledgers
+  // independent — but the farmer must be told the limits were not checked,
+  // instead of seeing an unqualified "Fertiliser recommended".
   const napWarning = napExceeded
     ? napConfirmed
       ? " This exceeds the statutory NAP ceiling for this field — check compliance before applying (see NAP compliance on the Nutrients screen)."
       : " This may exceed the NAP ceiling, but that classification isn't confirmed yet — see NAP compliance on the Nutrients screen before relying on it."
-    : "";
+    : value.napCompliance.status !== "OK"
+      ? " Nitrates (NAP) limits have not been checked for this field yet — see NAP compliance on the Nutrients screen for what is missing before applying."
+      : "";
   const provisionalNote = value.provisional ? ` Provisional — ${value.provisional.headline}: ${value.provisional.detail}` : "";
   return {
     title: `Fertiliser recommended — ${fieldName}`,

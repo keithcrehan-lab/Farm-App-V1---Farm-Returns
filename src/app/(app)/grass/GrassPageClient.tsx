@@ -9,6 +9,7 @@ import { MapHero } from "@/components/farm/MapHero";
 import type { MapTone } from "@/components/farm/FieldMap";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
+import { captureReadingLocation, isLiveReading } from "@/lib/location/reading-location";
 import { useFarm, useFields } from "@/store/farm-store";
 import { createWebLocationTrackingProvider } from "@/lib/location/web-location-tracking-provider";
 import type { LocationPosition, LocationTrackingProvider } from "@/lib/location/location-tracking-provider";
@@ -433,13 +434,16 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
     if (!Number.isFinite(cover) || cover <= 0) { setCoverError("Enter the grass cover in kg DM/ha."); return; }
     setCoverSaving(true);
     try {
+      // A reading taken now is pinned where the farmer is standing; a back-dated one gets no location.
+      const live = livePosition ? { lat: livePosition.lat, lng: livePosition.lng, accuracyM: livePosition.accuracyMeters ?? null, at: Date.parse(livePosition.recordedAt) } : null;
+      const fix = isLiveReading(Date.parse(observedAt), Date.now()) ? await captureReadingLocation(live).catch(() => null) : null;
       const result = await recordGrassCoverObservationAction({
         id: globalThis.crypto.randomUUID(),
         fieldId,
         coverKgDmHa: cover,
         method,
         observedAt,
-        ...(livePosition ? { lat: livePosition.lat, lng: livePosition.lng, accuracyM: livePosition.accuracyMeters } : {}),
+        ...(fix ? { lat: fix.lat, lng: fix.lng, accuracyM: fix.accuracyM } : {}),
       });
       if (result.status === "rejected") {
         setCoverError(rejectionMessage(result.reasonCode));

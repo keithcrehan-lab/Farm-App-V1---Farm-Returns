@@ -9,7 +9,8 @@ import { formatNumber } from "@/lib/format";
 import { useFields } from "@/store/farm-store";
 import { suggestFieldFromPosition } from "@/domain/near-field";
 import { GRASS_COVER_METHODS, type GrassCoverMethod } from "@/domain/grass-management";
-import { haversineM, MAX_TRACK_ACCURACY_M, type SurveyTrackPoint } from "@/domain/grass-survey";
+import { haversineM, MAX_TRACK_ACCURACY_M, MAX_TRACK_SPEED_MPS, type SurveyTrackPoint } from "@/domain/grass-survey";
+import { captureReadingLocation, READING_FIX_MAX_ACCURACY_M } from "@/lib/location/reading-location";
 import { getGrassManagementDataAction, recordGrassCoverObservationAction, type GrassManagementData } from "@/app/actions/grass-management";
 import {
   appendGrassSurveyTrackAction,
@@ -36,7 +37,7 @@ const REJECTION: Record<string, string> = {
   OBSERVED_AT_IN_FUTURE: "Check your phone's date and time.",
 };
 
-interface Position { lat: number; lng: number; accuracyM: number | null }
+interface Position { lat: number; lng: number; accuracyM: number | null; at: number }
 
 function safeStorage<T>(fn: () => T, fallback: T): T {
   try { return fn(); } catch { return fallback; }
@@ -70,6 +71,7 @@ export function GrassWalkClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [choosing, setChoosing] = useState(false);
+  const [locating, setLocating] = useState(false);
 
   const pending = useRef<SurveyTrackPoint[]>([]);
   const lastGood = useRef<Position | null>(null);
@@ -171,15 +173,19 @@ export function GrassWalkClient() {
     pending.current = safeStorage(() => JSON.parse(window.localStorage.getItem(pendingKey(surveyId)) ?? "[]") as SurveyTrackPoint[], []);
     const watch = navigator.geolocation.watchPosition(
       (pos) => {
-        const p: Position = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracyM: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null };
+        const p: Position = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracyM: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null, at: pos.timestamp || Date.now() };
         setGpsState("on");
         setPosition(p);
         autoSelect.current(p);
-        pending.current.push({ recordedAt: new Date(pos.timestamp || Date.now()).toISOString(), ...p });
+        pending.current.push({ recordedAt: new Date(p.at).toISOString(), lat: p.lat, lng: p.lng, accuracyM: p.accuracyM });
         if (p.accuracyM === null || p.accuracyM <= MAX_TRACK_ACCURACY_M) {
           const prev = lastGood.current;
           const d = prev ? haversineM(prev.lat, prev.lng, p.lat, p.lng) : 0;
-          if (!prev || d >= 3) {
+          const seconds = prev ? Math.max(1, (p.at - prev.at) / 1000) : 0;
+          // An impossible jump is a bad fix: the first one after a jump restarts the count from there.
+          if (prev && d > MAX_TRACK_SPEED_MPS[mode] * seconds + 15) {
+            lastGood.current = p;
+          } else if (!prev || d >= 3) {
             if (prev) setDistanceM((m) => m + d);
             lastGood.current = p;
           }
@@ -189,7 +195,7 @@ export function GrassWalkClient() {
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 30_000 },
     );
     return () => navigator.geolocation.clearWatch(watch);
-  }, [active, surveyId]);
+  }, [active, surveyId, mode]);
 
   const flush = useCallback(async () => {
     if (!surveyId || !pending.current.length) return;
@@ -234,15 +240,20 @@ export function GrassWalkClient() {
     setBusy(true);
     setError("");
     safeStorage(() => window.localStorage.setItem(METHOD_KEY, method), undefined);
+    const observedAt = new Date().toISOString();
+    // Pin the reading where it was taken: a fresh fix, never a stale or vague one.
+    setLocating(true);
+    const fix = await captureReadingLocation(position).catch(() => null);
+    setLocating(false);
     const res = await recordGrassCoverObservationAction({
       id: crypto.randomUUID(),
       fieldId: currentFieldId,
       coverKgDmHa: Math.round(value),
       method,
-      observedAt: new Date().toISOString(),
-      lat: position?.lat ?? null,
-      lng: position?.lng ?? null,
-      accuracyM: position?.accuracyM ?? null,
+      observedAt,
+      lat: fix?.lat ?? null,
+      lng: fix?.lng ?? null,
+      accuracyM: fix?.accuracyM ?? null,
       surveyId,
     }).catch(() => null);
     setBusy(false);
@@ -351,8 +362,16 @@ export function GrassWalkClient() {
             </div>
           </div>
           <button type="button" onClick={() => void save()} disabled={busy} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-[14px] bg-fr-v2-forest text-base font-semibold text-white disabled:opacity-60">
-            <Check className="size-5" aria-hidden />{busy ? "Saving…" : "Save and next field"}
+            <Check className="size-5" aria-hidden />{locating ? "Getting location…" : busy ? "Saving…" : "Save and next field"}
           </button>
+          <p className="-mt-2 flex items-center justify-center gap-1 text-xs text-fr-v2-muted">
+            <MapPin className="size-3.5" aria-hidden />
+            {gpsState === "denied"
+              ? "Location is blocked, so this reading saves without a location."
+              : position && position.accuracyM !== null && position.accuracyM <= READING_FIX_MAX_ACCURACY_M
+                ? `Saves where you're standing (±${formatNumber(position.accuracyM, 0)} m)`
+                : "Saves where you're standing once GPS has a fix"}
+          </p>
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => void mark("grazed")} disabled={busy} className="min-h-11 rounded-[12px] border border-fr-v2-cream-rule bg-white text-sm font-semibold text-fr-v2-charcoal">Just grazed</button>
             <button type="button" onClick={() => void mark("skipped")} disabled={busy} className="min-h-11 rounded-[12px] border border-fr-v2-cream-rule bg-white text-sm font-semibold text-fr-v2-charcoal">Skip field</button>

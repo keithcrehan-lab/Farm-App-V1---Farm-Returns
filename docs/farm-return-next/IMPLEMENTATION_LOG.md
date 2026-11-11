@@ -977,3 +977,22 @@ audit not run.
 - **Migration** `20261105120000_cattle_housing_move_and_identity_corrections.sql` (additive) is NOT applied to any
   database: until it is applied to Farm Return V1 Dev, the real cattle read (which now reads the corrections table)
   fails closed as unavailable and the housing move can't save. No frozen C0–C9 engine changed. Codex audit not run.
+
+## 2026-11-11 — Grass walk route map and reading locations
+
+- **Why.** A test walk's summary showed a blank panel with one dot: the schematic map framed every raw GPS fix and
+  every field polygon, so a bad fix (or fields far from the walk) shrank the route to a few pixels, and there was no
+  imagery behind it.
+- **Track cleaning (domain).** `cleanSurveyTrack(points, mode)` in `src/domain/grass-survey.ts`: time order, drop
+  fixes worse than 50 m, drop jumps faster than the mode allows (walk 4 m/s, quad 20 m/s, +15 m slack); a run of 3
+  agreeing fixes outvotes a shorter kept stretch (a bad first fix). `trackDistanceM` now uses it and the walk's mode,
+  so the distance and the drawn route agree. `surveyMapView` frames the walk (route + reading spots) and only the
+  fields within 300 m of it; if none are, it reports how far away the nearest is. Tests added.
+- **Summary map.** `src/components/grass/WalkRouteMap.tsx`: Mapbox plain satellite, route with casing, start/finish
+  dots, a pin with the cover value wherever a reading was taken, field polygons by cover band. Schematic SVG fallback
+  when no Mapbox token. `getGrassSurveyAction` now also returns the walk's readings with their lat/lng/accuracy.
+- **Reading locations.** Readings already stored lat/lng/accuracy (`grass_cover_observations`). Now, on Save, the
+  walk and the quick-record form take a fresh fix (`src/lib/location/reading-location.ts`, max 6 s wait), save only a
+  fix ≤ 30 s old and ≤ 50 m accuracy, and never attach the current location to a back-dated reading (> 10 min from
+  now). The walk card shows "Saves where you're standing (±N m)".
+- No migration. Quality gate and Codex audit not run in the cloud session (no `node_modules`); run both on the Mac.

@@ -78,12 +78,59 @@ export function haversineM(aLat: number, aLng: number, bLat: number, bLng: numbe
   return 2 * r * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/** Route length in metres. Ignores inaccurate fixes and sub-3 m GPS jitter. */
-export function trackDistanceM(points: readonly SurveyTrackPoint[]): number {
+/**
+ * Fastest believable movement between two fixes, by how the farmer is
+ * getting around. A jump faster than this is a bad fix (a phone's first
+ * wifi/cell-tower guess, or a reflection off a shed), not real movement.
+ */
+export const MAX_TRACK_SPEED_MPS: Record<GrassSurveyMode, number> = { walk: 4, quad: 20, drone: 25 };
+/** Allowance for ordinary GPS wobble on top of the speed limit. */
+const JUMP_SLACK_M = 15;
+/** Consecutive agreeing fixes that outvote the point before them. */
+const OUTVOTE_RUN = 3;
+
+function plausibleStep(a: SurveyTrackPoint, b: SurveyTrackPoint, maxSpeed: number): boolean {
+  const seconds = Math.max(1, (Date.parse(b.recordedAt) - Date.parse(a.recordedAt)) / 1000);
+  return haversineM(a.lat, a.lng, b.lat, b.lng) <= maxSpeed * seconds + JUMP_SLACK_M;
+}
+
+/**
+ * The route as it should be drawn and measured: in time order, without
+ * inaccurate fixes and without impossible jumps. A lone bad fix is dropped;
+ * if the bad fix came first (so everything after it looks like a jump), a
+ * run of fixes that agree with each other replaces it.
+ */
+export function cleanSurveyTrack(points: readonly SurveyTrackPoint[], mode: GrassSurveyMode = "walk"): SurveyTrackPoint[] {
+  const maxSpeed = MAX_TRACK_SPEED_MPS[mode];
   const good = points
+    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) && Number.isFinite(Date.parse(p.recordedAt)))
     .filter((p) => p.accuracyM === null || p.accuracyM <= MAX_TRACK_ACCURACY_M)
     .slice()
     .sort((a, b) => Date.parse(a.recordedAt) - Date.parse(b.recordedAt));
+  let kept: SurveyTrackPoint[] = [];
+  let rejected: SurveyTrackPoint[] = [];
+  for (const p of good) {
+    const last = kept.at(-1);
+    if (!last || plausibleStep(last, p, maxSpeed)) {
+      kept.push(p);
+      rejected = [];
+      continue;
+    }
+    // Rejected: start or extend a run of rejected fixes that agree with each other.
+    if (rejected.length && !plausibleStep(rejected.at(-1)!, p, maxSpeed)) rejected = [];
+    rejected.push(p);
+    // Enough agreeing fixes outvote a shorter kept stretch: that stretch was the bad one.
+    if (rejected.length >= OUTVOTE_RUN && rejected.length > kept.length) {
+      kept = rejected;
+      rejected = [];
+    }
+  }
+  return kept;
+}
+
+/** Route length in metres. Ignores inaccurate fixes, impossible jumps and sub-3 m GPS jitter. */
+export function trackDistanceM(points: readonly SurveyTrackPoint[], mode: GrassSurveyMode = "walk"): number {
+  const good = cleanSurveyTrack(points, mode);
   if (good.length < 2) return 0;
   let total = 0;
   let last = good[0];
@@ -179,5 +226,73 @@ export function computeSurveyResults(input: SurveyResultsInput): SurveyResults {
     farmGrowthKgDmHaDay: farmGrowth === null ? null : Math.round(farmGrowth * 10) / 10,
     farmGrowthFieldCount: growthValues.length,
     fields,
+  };
+}
+
+export type LngLat = [number, number];
+export type LngLatBounds = [LngLat, LngLat];
+
+export interface SurveyMapViewInput {
+  /** Cleaned route (see `cleanSurveyTrack`). */
+  route: ReadonlyArray<{ lat: number; lng: number }>;
+  /** Where readings were taken. */
+  readings: ReadonlyArray<{ lat: number; lng: number }>;
+  fields: ReadonlyArray<{ id: string; ring: ReadonlyArray<readonly number[]> }>;
+}
+
+export interface SurveyMapView {
+  bounds: LngLatBounds | null;
+  /** Fields close enough to the walk to draw without shrinking it. */
+  fieldIds: string[];
+  /** Set when the walk is nowhere near any mapped field: how far away the nearest one is. */
+  nearestFieldKm: number | null;
+}
+
+/** Fields further than this from the walk are left out of the view. */
+const FIELD_VIEW_MARGIN_M = 300;
+
+function boundsOf(points: ReadonlyArray<{ lat: number; lng: number }>): LngLatBounds | null {
+  if (!points.length) return null;
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  for (const p of points) {
+    if (p.lng < minLng) minLng = p.lng;
+    if (p.lng > maxLng) maxLng = p.lng;
+    if (p.lat < minLat) minLat = p.lat;
+    if (p.lat > maxLat) maxLat = p.lat;
+  }
+  return [[minLng, minLat], [maxLng, maxLat]];
+}
+
+/**
+ * What a walk's map should show. The walk itself (route and reading spots)
+ * sets the view; mapped fields are added only when they are near it, so a
+ * distant out-farm (or a walk somewhere else entirely) never shrinks the
+ * route to a dot. With no route or readings, the view is the farm's fields.
+ */
+export function surveyMapView(input: SurveyMapViewInput): SurveyMapView {
+  const walk = [...input.route, ...input.readings];
+  const fieldPoints = input.fields.map((f) => ({ id: f.id, points: f.ring.map((c) => ({ lng: c[0], lat: c[1] })) })).filter((f) => f.points.length > 0);
+  const walkBounds = boundsOf(walk);
+  if (!walkBounds) {
+    return { bounds: boundsOf(fieldPoints.flatMap((f) => f.points)), fieldIds: fieldPoints.map((f) => f.id), nearestFieldKm: null };
+  }
+  const midLat = (walkBounds[0][1] + walkBounds[1][1]) / 2;
+  const dLat = FIELD_VIEW_MARGIN_M / 111_320;
+  const dLng = dLat / Math.max(0.01, Math.cos((midLat * Math.PI) / 180));
+  const [[w, s], [e, n]] = walkBounds;
+  const near = fieldPoints.filter((f) => {
+    const b = boundsOf(f.points)!;
+    return b[0][0] <= e + dLng && b[1][0] >= w - dLng && b[0][1] <= n + dLat && b[1][1] >= s - dLat;
+  });
+  let nearestFieldKm: number | null = null;
+  if (!near.length && fieldPoints.length) {
+    const cLat = (s + n) / 2, cLng = (w + e) / 2;
+    const nearestM = Math.min(...fieldPoints.flatMap((f) => f.points.map((p) => haversineM(cLat, cLng, p.lat, p.lng))));
+    nearestFieldKm = Math.round(nearestM / 100) / 10;
+  }
+  return {
+    bounds: boundsOf([...walk, ...near.flatMap((f) => f.points)]),
+    fieldIds: near.map((f) => f.id),
+    nearestFieldKm,
   };
 }

@@ -143,7 +143,7 @@ export async function finishGrassSurveyAction(surveyId: string): Promise<Result<
     ]);
     const finishedAt = new Date().toISOString();
     const previous = finished.find((s) => s.startedAt < survey.startedAt && s.results?.farmCoverKgDmHa != null);
-    const distanceM = trackDistanceM(track);
+    const distanceM = trackDistanceM(track, survey.mode);
     const results = computeSurveyResults({
       fields: fields.filter((f) => !f.archivedAt).map((f) => ({ id: f.id, name: f.name, areaHa: f.areaHa })),
       observations: observations.map((o) => ({ id: o.id, fieldId: o.fieldId, coverKgDmHa: o.coverKgDmHa, observedAt: o.observedAt })),
@@ -177,14 +177,35 @@ export async function finishGrassSurveyAction(surveyId: string): Promise<Result<
   }
 }
 
-export async function getGrassSurveyAction(surveyId: string): Promise<Result<{ survey: GrassSurveyRecord; track: SurveyTrackPoint[] }>> {
+/** A reading taken during a walk, with where it was taken (when the phone had a fix). */
+export interface GrassSurveyReading {
+  id: string;
+  fieldId: string;
+  coverKgDmHa: number;
+  observedAt: string;
+  lat: number | null;
+  lng: number | null;
+  accuracyM: number | null;
+}
+
+export async function getGrassSurveyAction(surveyId: string): Promise<Result<{ survey: GrassSurveyRecord; track: SurveyTrackPoint[]; readings: GrassSurveyReading[] }>> {
   if (!UUID.test(String(surveyId))) return { ok: false, error: "Walk not found." };
   const farm = await getFarmForCurrentUser();
   if (!farm) return { ok: false, error: "Sign in to see your walks." };
   try {
     const survey = await getGrassSurvey(farm.id, surveyId);
     if (!survey) return { ok: false, error: "Walk not found." };
-    return { ok: true, survey, track: await listGrassSurveyTrackPoints(farm.id, surveyId) };
+    const [track, readingIds, observations] = await Promise.all([
+      listGrassSurveyTrackPoints(farm.id, surveyId),
+      listGrassSurveyObservationIds(farm.id, surveyId),
+      listGrassCoverObservationsForFarm(farm.id),
+    ]);
+    const inWalk = new Set(readingIds);
+    const readings: GrassSurveyReading[] = observations
+      .filter((o) => inWalk.has(o.id))
+      .map((o) => ({ id: o.id, fieldId: o.fieldId, coverKgDmHa: o.coverKgDmHa, observedAt: o.observedAt, lat: o.lat ?? null, lng: o.lng ?? null, accuracyM: o.accuracyM ?? null }))
+      .sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt));
+    return { ok: true, survey, track, readings };
   } catch (err) {
     console.error("[Grass surveys] load failed", err);
     return { ok: false, error: "This walk couldn't be loaded just now." };

@@ -157,6 +157,10 @@ function makeFakeClient(options: {
     if (table === "farms") return { select: farmsSelect };
     if (table === "fields") return { select: fieldsSelect };
     if (table === "job_actuals") return { select };
+    // listFieldsForFarm reads the season's production cycles to derive each
+    // field's grazing sward (fertiliser close-out); none are recorded here.
+    if (table === "field_production_cycles")
+      return { select: () => ({ in: () => ({ eq: async () => ({ data: [], error: null }) }) }) };
     throw new Error(`unexpected table ${table}`);
   });
 

@@ -1126,3 +1126,6 @@ rather than rewritten. It stays `false` until the PR is merged and its final aud
   sward's N (Green Book for P and K); the Nutrients card shows it. Rendered test.
 - F012 (PRE-EXISTING): callers never pass the resolved grazing production system — **deferred** with reason in
   `BLOCKERS.md` (FCO-F012).
+- Audit 182629a..a9bfcfe: 1 HIGH (F013) — `soil-ph-advice.ts` and the close-out's other contract changes are now
+  registered in `DOMAIN_CONTRACTS.md` ("Fertiliser close-out"). Mac at a9bfcfe: typecheck and lint pass; 2590 tests
+  pass, 1 failure (`SlurryFirstPlanningPanel` F010, a mocked-UI test untouched by this work that passes on its own).

@@ -2499,7 +2499,7 @@ function grazingEvidenceBlockFor(
 function grazingRequirementUnavailableMessage(grazingRequirement: GrazingRequirementOutcome | undefined, farmGrasslandAreaHa: number): string {
   if (grazingRequirement === undefined || grazingRequirement.status === "READY") return "";
   if (!(Number.isFinite(farmGrasslandAreaHa) && farmGrasslandAreaHa > 0))
-    return "This farm's grassland area isn't recorded yet, so its grazing stocking rate — and this field's grazing fertiliser requirement — can't be worked out.";
+    return "This farm has no usable grassland area recorded, so the grazing stocking rate this field's requirement depends on can't be worked out — no fertiliser products can be recommended yet.";
   if (grazingRequirement.limitations.length > 0) return grazingRequirement.limitations[0];
   return grazingRequirement.missingInputs.includes("annualOrganicNStockingRateKgHa")
     ? "This farm's grassland stocking rate can't be worked out yet — record every livestock group's age (and sex for 1-2 year olds) to unlock a grazing fertiliser plan."

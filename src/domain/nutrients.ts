@@ -3088,8 +3088,10 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // the per-nutrient gross/net arms are blocked too (never an OK zero); a
   // missing grassland area carries its own established reason.
   const grasslandAreaUsable = Number.isFinite(farmGrasslandAreaHa) && farmGrasslandAreaHa > 0;
+  // A tillage field has no grazing requirement to block: its canonical arms
+  // are NOT_APPLICABLE and its paired path keeps its legacy behaviour.
   const grazingEvidenceBlock: EngineOutcome<number> | undefined =
-    grazingRequirement === undefined || grazingRequirement.status === "READY"
+    grazingRequirement === undefined || grazingRequirement.status === "READY" || field.plannedUse?.value === "tillage"
       ? undefined
       : !grasslandAreaUsable
         ? blockedInsufficientEvidence("MISSING_GRASSLAND_AREA", ["farmGrasslandAreaHa"])

@@ -567,8 +567,11 @@ describe("canonical remap — tillage and grazing without livestock or grassland
             plannedUse: tracked("grazing", "farmer_adjusted", "Keith"),
             silage: false,
           });
-          // The paired legacy path still carries a figure (LEGACY_COMPATIBILITY_PATH).
-          expect(plan.requirementByNutrient.p.status, caseLabel).toBe("OK");
+          // No livestock: the paired legacy path still carries a figure
+          // (LEGACY_COMPATIBILITY_PATH). No grassland area: no grazing
+          // requirement exists, so the per-nutrient arms are blocked too
+          // (fertiliser close-out, Codex audit F007 — UNKNOWN is never 0).
+          expect(plan.requirementByNutrient.p.status, caseLabel).toBe(label === "no livestock" ? "OK" : "BLOCKED_INSUFFICIENT_EVIDENCE");
           const allocation = buildSlurryRateAllocation({ plan, plannedUse: "grazing" });
           for (const nutrient of ["n", "p", "k"] as const) {
             expect(allocation.requirement[nutrient], caseLabel).toMatchObject({ status: "UNKNOWN", reasonCode });

@@ -1103,3 +1103,6 @@ rather than rewritten. It stays `false` until the PR is merged and its final aud
 - F005/F006: `soil_ph_advice_v1.1.0` — the pH target comes from the field's canonical production-cycle crop (never the
   legacy planned use) and fails closed with no cycle or no matchable published row; each reading carries its provenance
   (lab, sample date, reference; or recorded status, source, date), shown on the lime card.
+- Follow-up from the Mac run at 64baa76: the F007 block no longer applies to tillage fields (their canonical arms are
+  `NOT_APPLICABLE`; the mixed-index Evidence Report section keeps its slurry basis), and the slurry-rate allocation
+  test now expects blocked per-nutrient arms when there is no grassland area. typecheck and lint pass at 64baa76.

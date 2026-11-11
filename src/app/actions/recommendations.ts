@@ -26,7 +26,7 @@ export async function listRecommendationStatesAction(): Promise<{ status: "ok"; 
 export async function setRecommendationStateAction(input: RecommendationState): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!input || !KEY.test(String(input.key)) || !(STATUSES as readonly string[]).includes(input.status)
     || typeof input.fingerprint !== "string" || !/^[a-z0-9]{1,64}$/.test(input.fingerprint)
-    || (input.status === "snoozed" && !isFutureSnoozeDate(input.snoozedUntil))) {
+    || (input.status === "snoozed" ? !isFutureSnoozeDate(input.snoozedUntil) : input.snoozedUntil !== null)) {
     return { ok: false, error: "Invalid request." };
   }
   const farm = await getFarmForCurrentUser();

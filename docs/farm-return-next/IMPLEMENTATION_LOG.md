@@ -1132,3 +1132,5 @@ rather than rewritten. It stays `false` until the PR is merged and its final aud
 - Audit 182629a..23b0c64: 1 HIGH (F008, mixed-index) — the mixed-index card and CSV/Evidence report name the clover
   strategy for a clover sward's N (Green Book for the known P or K); tests with either index missing.
   `SlurryFirstPlanningPanel` passes on its own on the Mac (7/7).
+- **Final task audit 182629a..9d0f9d3: 0 Critical / 0 High / 0 Medium / 0 Low** (`audit-20261111T165350Z-31123`).
+  `contracts_frozen` stays `false` until the PR is merged. Not merged, not deployed.

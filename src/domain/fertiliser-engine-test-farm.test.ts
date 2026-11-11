@@ -5,6 +5,7 @@ import {
   knownFertiliserProductComposition,
   NUTRIENT_ENGINE_VERSION,
   organicNStockingRateFromLUHaKgHa,
+  stockingRateBeyondGreenBookTable12_3,
 } from "./nutrients";
 import { tracked } from "./types";
 import type { Field, LivestockGroup, SlurryAllocation } from "./types";
@@ -124,10 +125,12 @@ describe("fertiliser engine test farm — run 1 (Teagasc Green Book 2020)", () =
       expect(organicNStockingRateFromLUHaKgHa(1.5)).not.toBe(75);
     });
 
-    it("scales by the end row's own kg-N-per-LU ratio outside the published range", () => {
-      expect(organicNStockingRateFromLUHaKgHa(0.5)).toBeCloseTo(40, 6);
+    it("never extrapolates: ≤1.0 LU/ha uses the printed '≤1.0 / ≤80' row; above 3.0 the last row is display-only", () => {
+      expect(organicNStockingRateFromLUHaKgHa(0.5)).toBe(80);
       expect(organicNStockingRateFromLUHaKgHa(0)).toBe(0);
-      expect(organicNStockingRateFromLUHaKgHa(3.3)).toBeCloseTo(3.3 * (235 / 3), 6);
+      expect(organicNStockingRateFromLUHaKgHa(3.3)).toBe(235);
+      expect(stockingRateBeyondGreenBookTable12_3(3.0)).toBe(false);
+      expect(stockingRateBeyondGreenBookTable12_3(3.01)).toBe(true);
     });
 
     it("gives 109.3 kg N/ha for the test farm herd", () => {
@@ -204,6 +207,25 @@ describe("fertiliser engine test farm — run 1 (Teagasc Green Book 2020)", () =
       expect(plan.napCompliance.value.pCeilingKgHa).toBe(0);
       expect(plan.napCompliance.value.pWithinCeiling).toBe(true);
     });
+  });
+
+  it("fails the grazing P and K requirement closed above Table 12-3's last row (3.0 LU/ha) — no products", () => {
+    // 33 bulls (1.0 LU each) on 10 ha = 3.3 LU/ha (Codex audit F001 case).
+    const bulls = [group("bulls", "bull", 33)];
+    const plan = calculateNutrientPlan({ ...base, farmGrasslandAreaHa: 10, field: testField("FX", 5, "grazing", 2, 2), livestockGroups: bulls });
+    expect(plan.fieldRequirement.p).toMatchObject({ status: "UNKNOWN", reasonCode: "STOCKING_RATE_BEYOND_PUBLISHED_TABLE" });
+    expect(plan.fieldRequirement.k).toMatchObject({ status: "UNKNOWN", reasonCode: "STOCKING_RATE_BEYOND_PUBLISHED_TABLE" });
+    expect(plan.purchaseStatus.status).toBe("UNKNOWN");
+    expect(plan.purchasedProducts).toEqual([]);
+  });
+
+  it("a lightly stocked farm (≤1.0 LU/ha) still gets a recommendation, on the published first row", () => {
+    // 20 suckler cows (18 LU) on 40 ha = 0.45 LU/ha → organic N read as 80 (P band ≤100).
+    const cows = [group("cows", "suckler_cow", 20)];
+    const plan = calculateNutrientPlan({ ...base, field: testField("FL", 8, "grazing", 1, 1), livestockGroups: cows });
+    expect(plan.fieldRequirement.p.status).toBe("KNOWN");
+    expect(plan.calculationTrace?.grazing?.p).toMatchObject({ buildUpKgHa: 20, maintenanceKgHa: 4, resultKgHa: 24 });
+    expect(plan.calculationTrace?.grazing?.k.stockingRateKgNHa).toBe(80);
   });
 
   it("other P indices still use the default product blend (the P-free allocation is Index 4 only)", () => {

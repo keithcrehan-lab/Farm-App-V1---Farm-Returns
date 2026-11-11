@@ -2092,6 +2092,8 @@ function buildFieldNutrientRequirement(args: {
   silage: CalculateNutrientPlanInput["silage"];
   livestockGroups: readonly LivestockGroup[];
   agronomicStockingRateKgHa: number;
+  /** v1.6.0 — grazing stocking rate above Table 12-3's last row (3.0 LU/ha). */
+  stockingRateBeyondPublishedTable: boolean;
   farmGrasslandAreaHa: number;
   gross: { n: number; p: number; k: number };
   requirementByNutrient: NutrientPlan["requirementByNutrient"];
@@ -2118,11 +2120,23 @@ function buildFieldNutrientRequirement(args: {
   const grasslandAreaMissing = basis === "grazing" && !(Number.isFinite(args.farmGrasslandAreaHa) && args.farmGrasslandAreaHa > 0);
   const commonLimitations = cropContext.plannedUseAssumed ? ["PLANNED_USE_NOT_RECORDED_GRAZING_ASSUMED"] : [];
 
-  const arm = (kgHa: number, outcome: EngineOutcome<number>, ruleRefs: string[], limitations: string[]): FieldNutrientRequirementArm => {
+  // v1.6.0: the grazing P (Table 13-3) and K (Table 14-1) advice is keyed on
+  // the organic-N stocking rate, which Table 12-3 does not publish above
+  // 3.0 LU/ha — fail closed rather than extrapolate (Codex audit F001,
+  // 2026-11-11). Grazing N keeps its pre-existing Table 12-3 handling.
+  const stockingRateUnsupported = basis === "grazing" && args.stockingRateBeyondPublishedTable;
+  const arm = (
+    kgHa: number,
+    outcome: EngineOutcome<number>,
+    ruleRefs: string[],
+    limitations: string[],
+    keyedOnOrganicNStockingRate = false,
+  ): FieldNutrientRequirementArm => {
     if (basis === "tillage") return { status: "NOT_APPLICABLE", reasonCode: "TILLAGE_FIELD_NOT_SUPPORTED" };
     if (outcome.status === "OK") {
       if (livestockMissing) return { status: "UNKNOWN", reasonCode: "MISSING_LIVESTOCK_DATA", missingInputs: ["livestockGroups"] };
       if (grasslandAreaMissing) return { status: "UNKNOWN", reasonCode: "MISSING_GRASSLAND_AREA", missingInputs: ["farmGrasslandAreaHa"] };
+      if (keyedOnOrganicNStockingRate && stockingRateUnsupported) return { status: "UNKNOWN", reasonCode: "STOCKING_RATE_BEYOND_PUBLISHED_TABLE", missingInputs: [] };
       return {
         status: "KNOWN",
         kgHa,
@@ -2155,11 +2169,11 @@ function buildFieldNutrientRequirement(args: {
       silageBasis ? ["N_YIELD_SCALING_NOT_APPLIED"] : [],
     ),
     p: {
-      ...arm(gross.p, requirementByNutrient.p, ["Teagasc Green Book Table 13-2", silageBasis ? "Teagasc Green Book Table 13-4" : "Teagasc Green Book Table 13-3"], []),
+      ...arm(gross.p, requirementByNutrient.p, ["Teagasc Green Book Table 13-2", silageBasis ? "Teagasc Green Book Table 13-4" : "Teagasc Green Book Table 13-3"], [], true),
       soilIndex: fertilityEvidenceByNutrient.p,
     },
     k: {
-      ...arm(gross.k, requirementByNutrient.k, [silageBasis ? "Teagasc Green Book Table 14-2" : "Teagasc Green Book Table 14-1"], []),
+      ...arm(gross.k, requirementByNutrient.k, [silageBasis ? "Teagasc Green Book Table 14-2" : "Teagasc Green Book Table 14-1"], [], true),
       soilIndex: fertilityEvidenceByNutrient.k,
     },
   };
@@ -2440,25 +2454,37 @@ const ORG_N_STOCKING_RATE_TABLE_12_3: { stockingRateLUHa: number; orgNKgHa: numb
   { stockingRateLUHa: 3.0, orgNKgHa: 235 },
 ];
 
+/** The highest stocking rate Table 12-3 publishes a row for. */
+export const GREEN_BOOK_TABLE_12_3_MAX_STOCKING_RATE_LU_HA = 3.0;
+
+/** Whether a grazing stocking rate lies beyond Table 12-3's last published
+ * row — the grazing P/K requirement then fails closed
+ * (`STOCKING_RATE_BEYOND_PUBLISHED_TABLE`) rather than extrapolating. */
+export function stockingRateBeyondGreenBookTable12_3(stockingRateLUHa: number): boolean {
+  return stockingRateLUHa > GREEN_BOOK_TABLE_12_3_MAX_STOCKING_RATE_LU_HA;
+}
+
 /**
  * LU/ha → organic-N stocking rate (kg N/ha) via Table 12-3's own LU and
  * kg/ha N columns. Linear interpolation between the published 0.25 LU/ha
  * rows (the same reading `nGrazingSucklerToBeefKgHa` already applies to
- * this table). Outside the published range (the first row is printed as
- * "≤1.0 / ≤80", and the table stops at 3.0 LU/ha) the value is scaled by
- * that end row's own kg-N-per-LU ratio (80/1.0 and 235/3.0), rather than
- * clamped: excreted N scales with the animals present, and clamping would
- * overstate it for lightly stocked farms and understate it for heavily
- * stocked ones. This out-of-range scaling is an interpretation pending
- * agronomist sign-off (evidence register, 2026-11-11 entry).
+ * this table). No extrapolation:
+ * - At or below 1.0 LU/ha the table's first row is printed "≤1.0 / ≤80",
+ *   so the published row value 80 is used — the same treatment the Total
+ *   N column already gets (`nGrazingSucklerToBeefKgHa` → 35). It is an
+ *   upper bound on N excreted: Table 13-3's P band (≤100) is exact, and
+ *   Table 14-1's K can only be advised slightly above, never below.
+ * - Above 3.0 LU/ha there is no published row. This returns the last
+ *   row's 235 for display only; `calculateNutrientPlan` fails the grazing
+ *   P/K requirement closed there (`stockingRateBeyondGreenBookTable12_3`).
  */
 export function organicNStockingRateFromLUHaKgHa(stockingRateLUHa: number): number {
   if (!(stockingRateLUHa > 0)) return 0;
   const table = ORG_N_STOCKING_RATE_TABLE_12_3;
   const first = table[0];
   const last = table[table.length - 1];
-  if (stockingRateLUHa <= first.stockingRateLUHa) return stockingRateLUHa * (first.orgNKgHa / first.stockingRateLUHa);
-  if (stockingRateLUHa >= last.stockingRateLUHa) return stockingRateLUHa * (last.orgNKgHa / last.stockingRateLUHa);
+  if (stockingRateLUHa <= first.stockingRateLUHa) return first.orgNKgHa;
+  if (stockingRateLUHa >= last.stockingRateLUHa) return last.orgNKgHa;
   for (let i = 0; i < table.length - 1; i++) {
     const a = table[i];
     const b = table[i + 1];
@@ -3255,6 +3281,8 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     silage,
     livestockGroups,
     agronomicStockingRateKgHa,
+    stockingRateBeyondPublishedTable:
+      farmGrasslandAreaHa > 0 && stockingRateBeyondGreenBookTable12_3(totalLivestockUnits(livestockGroups) / farmGrasslandAreaHa),
     farmGrasslandAreaHa,
     gross: { n: grossN, p: grossP, k: grossK },
     requirementByNutrient,

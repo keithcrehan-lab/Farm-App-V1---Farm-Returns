@@ -999,3 +999,6 @@ Authorised by Keith after the test-farm run (Docs: "Farm Return — Fertiliser E
   (evidence register 2026-11-11). The calculateGrasslandStockingRateKgHa unit test now asserts the organic-N column.
 - Evidence register entry added. Quality gate and `scripts/codex-audit.sh` run on Keith's MacBook in a fresh clone of
   this branch — results in BUILD_STATE `nutrient_engine_v1_6_0`.
+- Codex campaign audit (182629a..fb5c050, Keith's MacBook): HIGH F001 out-of-range organic-N extrapolation → removed
+  (≤1.0 LU/ha uses the printed first row; >3.0 LU/ha fails grazing P/K closed with
+  `STOCKING_RATE_BEYOND_PUBLISHED_TABLE`, farmer message added); MEDIUM F002 BUILD_STATE drift → entry added.

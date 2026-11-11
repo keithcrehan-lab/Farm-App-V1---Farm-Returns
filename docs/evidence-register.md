@@ -2367,8 +2367,10 @@ pending agronomist sign-off.** No new source, no AI-derived value.
 | Grazing P at Index 4 | §13: "Grassland soils with P levels at Index 4 … no P fertilizer is advised until the soil P level reverts to the Index 3 range"; S.I. 588/2025 Table 15a Index 4 maximum 0 | Table 13-3 maintenance still added (e.g. 4 kg/ha), and P-bearing compounds proposed for K | 0 kg/ha P; products from the P-free allocation (Muriate of Potash + Protected Urea) |
 | Silage P build-up on later cuts | §13: "Where two or more cuts … at Index 1 or 2, the additional 'soil P build-up' portion … should be applied prior to the first cut" | Table 13-2 build-up added to every cut | First cut only |
 
-**Interpretation pending sign-off:** outside Table 12-3's printed range (first row "≤1.0 / ≤80", last row 3.0 LU/ha)
-the organic-N stocking rate is scaled by that end row's own kg-N-per-LU ratio (80/1.0, 235/3.0) instead of clamped.
+**No extrapolation (Codex audit F001, 2026-11-11):** at or below 1.0 LU/ha the printed first row "≤1.0 / ≤80" is used
+(80 — an upper bound on N excreted; the Table 13-3 P band is exact and Table 14-1 K can only be advised slightly high,
+never low — the same treatment the Total N column already gets). Above 3.0 LU/ha (no printed row) the grazing P and K
+requirement fails closed (`STOCKING_RATE_BEYOND_PUBLISHED_TABLE`, no products).
 **Not changed:** grazing N (Table 12-3 Total N), first-cut silage N/P/K, second-cut N/K, the statutory NAP stocking rate
 (`statutory-excretion.ts`), slurry credits. Second-cut P maintenance still applies Table 13-4's 5 t DM/ha yield
 adjustment; whether that baseline applies to second cuts is an open agronomist question.

@@ -104,11 +104,11 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
     ro.observe(containerRef.current);
     let styleLoaded = false;
     let removed = false;
-    let loadDeadline: ReturnType<typeof setTimeout> | undefined;
+    const timer: { deadline?: ReturnType<typeof setTimeout> } = {};
     const teardown = () => {
       if (removed) return;
       removed = true;
-      clearTimeout(loadDeadline);
+      clearTimeout(timer.deadline);
       ro.disconnect();
       markers.forEach((m) => m.remove());
       map.remove();
@@ -121,7 +121,7 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
       teardown();
       setMapFailed(true);
     };
-    loadDeadline = setTimeout(() => fallBack("timed out"), 15_000);
+    timer.deadline = setTimeout(() => fallBack("timed out"), 15_000);
     map.on("error", (e) => {
       console.error("[Walk map]", e.error);
       fallBack(e.error);
@@ -129,7 +129,7 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
 
     map.on("style.load", () => {
       styleLoaded = true;
-      clearTimeout(loadDeadline);
+      clearTimeout(timer.deadline);
       map.addSource("walk-fields", {
         type: "geojson",
         data: {
@@ -169,7 +169,7 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
     <div>
       <div className="relative h-64 w-full bg-[#e9e4d8] sm:h-72">
         {mapboxConfigured && !mapFailed ? (
-          <div ref={containerRef} className="absolute inset-0" aria-label="Walk route over your fields" role="region" />
+          <div ref={containerRef} className="absolute inset-0 h-full w-full" aria-label="Walk route over your fields" role="region" />
         ) : (
           <SchematicRoute bounds={view.bounds} route={route} readings={readings} fields={shown} />
         )}

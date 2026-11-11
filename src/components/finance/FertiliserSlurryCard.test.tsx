@@ -30,7 +30,7 @@ function field(overrides: Partial<Field> = {}): Field {
 }
 
 const LIVESTOCK_GROUPS: LivestockGroup[] = [
-  { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
+  { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 4, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
 ];
 
 function renderCard(fields: Field[], livestockGroups: LivestockGroup[], slurryAllocations: SlurryAllocation[] = []) {

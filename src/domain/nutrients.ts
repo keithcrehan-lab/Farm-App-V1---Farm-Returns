@@ -472,37 +472,6 @@ export function nGrazingSucklerToBeefKgHa(stockingRateLUHa: number): number {
   return last.totalNKgHa;
 }
 
-function nGrazingCalculationTrace(stockingRateLUHa: number): NonNullable<NonNullable<NutrientPlan["calculationTrace"]>["grazing"]>["n"] {
-  const table = N_GRAZING_SUCKLER_TO_BEEF_TABLE;
-  if (stockingRateLUHa <= table[0].stockingRateLUHa) {
-    return {
-      lowerRow: table[0],
-      upperRow: table[0],
-      interpolationFraction: 0,
-      resultKgHa: table[0].totalNKgHa,
-    };
-  }
-  const last = table[table.length - 1];
-  if (stockingRateLUHa >= last.stockingRateLUHa) {
-    return { lowerRow: last, upperRow: last, interpolationFraction: 0, resultKgHa: last.totalNKgHa };
-  }
-  for (let i = 0; i < table.length - 1; i++) {
-    const lowerRow = table[i];
-    const upperRow = table[i + 1];
-    if (stockingRateLUHa >= lowerRow.stockingRateLUHa && stockingRateLUHa <= upperRow.stockingRateLUHa) {
-      const interpolationFraction =
-        (stockingRateLUHa - lowerRow.stockingRateLUHa) / (upperRow.stockingRateLUHa - lowerRow.stockingRateLUHa);
-      return {
-        lowerRow,
-        upperRow,
-        interpolationFraction,
-        resultKgHa: lowerRow.totalNKgHa + interpolationFraction * (upperRow.totalNKgHa - lowerRow.totalNKgHa),
-      };
-    }
-  }
-  return { lowerRow: last, upperRow: last, interpolationFraction: 0, resultKgHa: last.totalNKgHa };
-}
-
 /**
  * Table 12-3 footnote 2 — standard Livestock Unit (LU) definitions used to
  * convert a headcount into a grazing stocking rate. Sourced, not invented:
@@ -2459,7 +2428,7 @@ export function soilTestAgeValidityForFertility(fertility: Pick<Field["fertility
  * footnotes define their stocking rate as N *excreted* (Table 12-3's
  * 80, 99, 118 … column), so every grazing field's P maintenance band and
  * K adjustment were computed from a figure ~40% too low. Grazing N advice
- * itself was never affected (it reads `nGrazingCalculationTrace` directly).
+ * itself was never affected (it reads the shared v2 grazing requirement directly).
  *
  * Historical note — V3 FIX (audit conflict #1): this
  * function used to ALSO be passed to `checkNapCompliance` as the

@@ -1816,7 +1816,7 @@ describe("getFarmFertiliserDemandAction", () => {
     expect(mockGetFarmFertiliserDemand).not.toHaveBeenCalled();
     expect(result.fieldsWithBlockedEvidence).toBe(0);
     expect(result.aggregation.engineVersions).toEqual([
-      "grass_fertiliser_engine_v2.0.0",
+      "grass_fertiliser_engine_v2.1.0",
     ]);
     expect(result.aggregation.status).toBe("READY");
     expect(result.demand.map((row) => row.product).sort()).toEqual(

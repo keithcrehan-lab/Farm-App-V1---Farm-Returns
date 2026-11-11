@@ -44,7 +44,7 @@ const livestockGroups: LivestockGroup[] = [
     farmId: "farm-test",
     category: "suckler_cow",
     label: "g1",
-    count: tracked(20, "verified", "Farmer"),
+    count: tracked(12, "verified", "Farmer"), // nutrient_engine_v1.7.0: 12 suckler cows (≈60–156 kg organic N/ha across these fixtures), inside Table 12-3; 20 on a single 5 ha field is above its last row
     system: "grazing",
     value: tracked(20_000, "estimated", "Farm Return assumption"),
   },

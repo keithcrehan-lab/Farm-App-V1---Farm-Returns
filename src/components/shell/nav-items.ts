@@ -78,9 +78,10 @@ export const primaryNavItems: NavItem[] = [
 ];
 
 /** Mobile keeps five slots: these four primary destinations plus More.
+ * Grass took Records' slot (2026-11-11, product owner); Records moved into More.
  * Housing and Finance lead the More sheet on mobile (`mobileMoreNavItems`)
  * so no primary destination is lost and the bar never overflows. */
-const MOBILE_PRIMARY_HREFS = new Set(["/today", "/plan", "/cattle", "/records"]);
+const MOBILE_PRIMARY_HREFS = new Set(["/today", "/plan", "/cattle", "/grass"]);
 
 export const moreNavItems: NavItem[] = [
   // Transitional: What Matters stays reachable here until the Plan redesign.

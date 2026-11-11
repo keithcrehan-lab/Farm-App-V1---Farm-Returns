@@ -214,8 +214,8 @@ describe("Primary navigation (Farm + Fields redesign)", () => {
   });
 
   it("mobile keeps four primary slots plus More, and More leads with the remaining first-level destinations including Schemes", () => {
-    expect(mobileNavItems.map((i) => i.label)).toEqual(["Farm", "Plan", "Cattle", "Records"]);
-    expect(mobileMoreNavItems.slice(0, 6).map((i) => i.label)).toEqual(["Fertiliser", "Inputs Market", "Grass", "Housing", "Finance", "Schemes"]);
+    expect(mobileNavItems.map((i) => i.label)).toEqual(["Farm", "Plan", "Cattle", "Grass"]);
+    expect(mobileMoreNavItems.slice(0, 6).map((i) => i.label)).toEqual(["Fertiliser", "Inputs Market", "Housing", "Finance", "Records", "Schemes"]);
     const reachable = new Set([...mobileNavItems, ...mobileMoreNavItems].map((i) => i.href));
     for (const item of [...primaryNavItems, ...moreNavItems]) expect(reachable).toContain(item.href);
   });

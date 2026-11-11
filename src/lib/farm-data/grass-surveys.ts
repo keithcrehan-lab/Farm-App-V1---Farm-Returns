@@ -97,7 +97,7 @@ export async function listFinishedGrassSurveys(farmId: string, limit = 60): Prom
 export async function updateGrassSurvey(
   farmId: string,
   id: string,
-  patch: Partial<{ status: "finished"; finished_at: string; distance_m: number; results: SurveyResults; marked_grazed_field_ids: string[]; skipped_field_ids: string[] }>,
+  patch: Partial<{ status: "finished"; finished_at: string; distance_m: number; results: SurveyResults; weather: SurveyWeather | null; marked_grazed_field_ids: string[]; skipped_field_ids: string[] }>,
 ): Promise<GrassSurveyRecord> {
   const supabase = await createClient();
   const { data, error } = await supabase.from(TABLE).update(patch).eq("farm_id", farmId).eq("id", id).select(COLUMNS).single();

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { computeSurveyResults, isGrassSurveyMode, trackDistanceM, type SurveyTrackPoint, type SurveyWeather } from "@/domain/grass-survey";
+import { cleanSurveyTrack, computeSurveyResults, isGrassSurveyMode, trackDistanceM, type SurveyTrackPoint, type SurveyWeather } from "@/domain/grass-survey";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { insertFarmGrassGrowthObservation, listGrassCoverObservationsForFarm, listGrassCoverObservationsForSurvey } from "@/lib/farm-data/grass-management";
@@ -84,8 +84,8 @@ export async function startGrassSurveyAction(input: { id: string; mode: string; 
   const farm = await getFarmForCurrentUser();
   if (!farm) return { ok: false, error: "Sign in to record a walk." };
   try {
-    // Weather comes from the station nearest the farm's mapped fields — where the walk
-    // actually happens — not the farm's sign-up location, which is only approximate.
+    // Provisional weather at the start, from the middle of the mapped fields; replaced at Finish
+    // by the station nearest the recorded route.
     const weather = await weatherSnapshot(await walkWeatherCentroid(farm.id, farm.location.centroid));
     const device = typeof input.device === "string" ? input.device.slice(0, 200) : null;
     const survey = await createGrassSurvey(farm.id, { id: input.id, mode: input.mode, startedAt: new Date(started).toISOString(), weather, device });
@@ -177,7 +177,19 @@ export async function finishGrassSurveyAction(surveyId: string): Promise<Result<
       distanceM,
       previousFarmCoverKgDmHa: previous?.results?.farmCoverKgDmHa ?? null,
     });
-    const updated = await updateGrassSurvey(farm.id, surveyId, { status: "finished", finished_at: finishedAt, distance_m: distanceM, results });
+    // Weather from where the walk actually happened: the station nearest the middle of the
+    // recorded route. A farm's fields can be far apart, so neither the sign-up location nor the
+    // middle of all fields is reliable. Keeps the start-of-walk snapshot if there's no route.
+    const route = cleanSurveyTrack(track, survey.mode);
+    const routeMiddle = route.length ? route[Math.floor(route.length / 2)] : null;
+    const routeWeather = routeMiddle ? await weatherSnapshot([routeMiddle.lng, routeMiddle.lat]) : null;
+    const updated = await updateGrassSurvey(farm.id, surveyId, {
+      status: "finished",
+      finished_at: finishedAt,
+      distance_m: distanceM,
+      results,
+      ...(routeWeather ? { weather: routeWeather } : {}),
+    });
     // The walk's calculated growth becomes the farm's growth evidence, so covers are brought forward daily.
     if (results.farmGrowthKgDmHaDay !== null && isValidGrassGrowthKgDmHaDay(results.farmGrowthKgDmHaDay)) {
       await insertFarmGrassGrowthObservation({

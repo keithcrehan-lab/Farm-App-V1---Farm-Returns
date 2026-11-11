@@ -11,20 +11,20 @@ afterEach(() => {
 });
 
 describe("MobileBottomNav (Farm + Fields redesign)", () => {
-  it("keeps a compact five-slot bar: Farm, Plan, Cattle, Records and More", () => {
+  it("keeps a compact five-slot bar: Farm, Plan, Cattle, Grass and More", () => {
     render(<MobileBottomNav />);
     const nav = screen.getByRole("navigation", { name: "Primary" });
-    expect(within(nav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Farm", "Plan", "Cattle", "Records"]);
+    expect(within(nav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Farm", "Plan", "Cattle", "Grass"]);
     expect(within(nav).getByRole("button", { name: /more/i })).toBeTruthy();
     expect(within(nav).queryByText("What Matters")).toBeNull();
   });
 
-  it("reaches Fertiliser, Inputs Market, Grass, Housing, Finance and What Matters through More", () => {
+  it("reaches Fertiliser, Inputs Market, Housing, Finance, Records and What Matters through More", () => {
     render(<MobileBottomNav />);
     fireEvent.click(screen.getByRole("button", { name: /more/i }));
     const more = screen.getByRole("navigation", { name: "More" });
     const hrefs = within(more).getAllByRole("link").map((a) => a.getAttribute("href"));
-    expect(hrefs.slice(0, 5)).toEqual(["/fertiliser-plan", "/inputs-market", "/grass", "/housing", "/finance"]);
+    expect(hrefs.slice(0, 5)).toEqual(["/fertiliser-plan", "/inputs-market", "/housing", "/finance", "/records"]);
     expect(hrefs).toContain("/what-matters");
     expect(hrefs).toContain("/fields");
   });

@@ -119,8 +119,11 @@ describe("FieldNutrientPlanPageClient — real engine output, end to end", () =>
   });
 
   it("surfaces the engine's LESS prohibition and commonage prohibition in Legal status", () => {
-    const { container } = renderPlan([field({ commonageStatus: tracked("commonage", "farmer_adjusted", "Farmer") })]);
-    const plan = calculateNutrientPlan({ field: field({ commonageStatus: tracked("commonage", "farmer_adjusted", "Farmer") }), farmGrasslandAreaHa: 4, livestockGroups: HERD, slurryAllocation: SPLASH, nonGrassPct: 0 });
+    // nutrient_engine_v1.7.0: 10 suckler cows on 4 ha (≈162 kg organic N/ha, inside Table 12-3) so the
+    // field still needs purchased fertiliser after slurry — the commonage gate only prohibits a real purchase.
+    const heavyHerd = [{ ...HERD[0], count: { value: 10, status: "verified", source: "Farmer" } }] as LivestockGroup[];
+    const { container } = renderPlan([field({ commonageStatus: tracked("commonage", "farmer_adjusted", "Farmer") })], [SPLASH], heavyHerd);
+    const plan = calculateNutrientPlan({ field: field({ commonageStatus: tracked("commonage", "farmer_adjusted", "Farmer") }), farmGrasslandAreaHa: 4, livestockGroups: heavyHerd, slurryAllocation: SPLASH, nonGrassPct: 0 });
     expect(plan.lessMethodCompliance).toMatchObject({ status: "LEGAL_PROHIBITION", reasonCode: "LESS_REQUIRED_GSR100" });
     expect(plan.commonageFertiliserGate.status).toBe("LEGAL_PROHIBITION");
     fireEvent.click(screen.getByRole("button", { name: /legal status/i }));

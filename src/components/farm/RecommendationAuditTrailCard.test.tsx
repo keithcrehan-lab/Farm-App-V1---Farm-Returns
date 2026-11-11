@@ -198,7 +198,7 @@ describe("RecommendationAuditTrailCard — discloses fields skipped for missing 
 
   it("never discloses a skip when every real field's evidence is complete", async () => {
     const groups: LivestockGroup[] = [
-      { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
+      { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 4, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
     ];
     render(
       <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: groups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
@@ -218,7 +218,7 @@ describe("RecommendationAuditTrailCard — discloses fields skipped for missing 
   it("discloses a real silage-planned field skipped for missing silage evidence, even with real livestock recorded", async () => {
     const silageField = field({ plannedUse: { value: "silage_1st_cut", status: "verified", source: "Farmer" } });
     const groups: LivestockGroup[] = [
-      { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
+      { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 4, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
     ];
     render(
       <FarmProvider remote initialState={{ farm, fields: [silageField], livestockGroups: groups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
@@ -260,7 +260,7 @@ describe("RecommendationAuditTrailCard — carries real slurry allocation and Ar
 
   it("records a BLOCKED statutory manure N/P ledger decision (never a physical-m³ estimate) when the field has a real slurry allocation but no neat-slurry evidence — none at all when it doesn't", async () => {
     const groups: LivestockGroup[] = [
-      { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
+      { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 4, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
     ];
     const slurryAllocation: SlurryAllocation = { fieldId: "field-1", housingId: "h1", priority: "high", volumeM3: 100, score: 1 };
 
@@ -283,7 +283,7 @@ describe("RecommendationAuditTrailCard — carries real slurry allocation and Ar
 
   it("never records a statutory manure N/P ledger decision when the field has no real slurry allocation", async () => {
     const groups: LivestockGroup[] = [
-      { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
+      { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 4, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
     ];
 
     render(
@@ -301,7 +301,7 @@ describe("RecommendationAuditTrailCard — carries real slurry allocation and Ar
   it("records the enhanced Table 15b P_BUILD_UP_ELIGIBILITY check as PASS when the farm's real Article 17(6) evidence is supplied — FAIL without it", async () => {
     // Empirically verified fixture (see fertiliser-recommendation.test.ts's
     // and recompute.test.ts's identical fixture): resolves a real
-    // statutory GSR of 460 kg N/ha with every other P-build-up condition
+    // statutory GSR of ≈230 kg N/ha with every other P-build-up condition
     // satisfied.
     const dairyField = field({
       areaHa: 10,
@@ -324,7 +324,7 @@ describe("RecommendationAuditTrailCard — carries real slurry allocation and Ar
         farmId: "farm-1",
         category: "dairy_cow",
         label: "Cows",
-        count: { value: 50, status: "verified", source: "Farmer" },
+        count: { value: 25, status: "verified", source: "Farmer" }, // nutrient_engine_v1.7.0: 25 dairy cows on 10 ha (≈230 kg organic N/ha), inside Table 12-3; 50 (460) is above its last row
         system: "grazing",
         avgAgeMonths: 48,
         sex: "female",

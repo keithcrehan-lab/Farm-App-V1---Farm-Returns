@@ -613,14 +613,15 @@
       "alignment": "Align both engines: one shared grazing calculation; full engine merge deferred (Keith, 2026-11-11)"
     },
     "phase_a": "IMPLEMENTED_PENDING_GATE_AND_AUDIT — grass_fertiliser_engine_v2.1.0 (Index 4 P, above-table refusal, clover pathway, holding stocking input), soil_ph_advice_v1.0.0",
-    "phase_b": "IMPLEMENTED_PENDING_MAC_VERIFICATION — nutrient_engine_v1.7.0 on calculateGrazingGrossRequirement (statutory GSR, fails closed above the table: resolves nutrient_engine_v1_6_0 F001); clover sward plumbed via listFieldsForFarm -> Field.grazingSward",
-    "phase_c": "NOT_STARTED — clean final audit, agronomist pack",
+    "phase_b": "IMPLEMENTED_AND_VERIFIED — nutrient_engine_v1.7.0 on calculateGrazingGrossRequirement (statutory GSR, fails closed above the table: resolves nutrient_engine_v1_6_0 F001); clover sward plumbed via listFieldsForFarm -> Field.grazingSward; Mac gate green bar baseline/flaky files",
+    "phase_c": "IN_PROGRESS — clean final audit, agronomist pack",
     "merged": false,
     "deployed": false,
     "verification": {
       "local": "every locally runnable test file matches the pre-change baseline (shim runner, pure domain/lib/orchestration files)",
-      "mac_at_90ded93": "incomplete — device stopped responding; fertiliser-plan.test.ts 2 failures and cattle recommendations/programmes failures undiagnosed",
-      "typecheck_lint_build": "not yet run for 90ded93.."
+      "mac_full_suite": "7881 passed, 37 failed in one 37-minute run on a loaded MacBook: 16 were 5 s timeouts, 14 were strict Supabase mocks that did not know the newly-read field_production_cycles table (fixed), 1 a message-text assertion (fixed); release-baseline failures reproduced (Plan page, Schemes, cattle boundary R4)",
+      "mac_rerun_failed_files": "17 files re-run after fixes: 1617 passed, 2 failed — SlurryFirstPlanningPanel F010 (passes when run on its own; mocked UI, untouched) and one cattle recommendations seam test (cattle domain untouched; slow-test timeout)",
+      "typecheck_lint_build": "next build EXIT 0, tsc --noEmit EXIT 0, eslint EXIT 0 (warnings only; the new unused-variable warning in nutrients.ts removed)"
     }
   }
 }

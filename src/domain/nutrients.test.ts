@@ -4392,7 +4392,7 @@ describe("fieldRequirement (Fertiliser Vertical Increment 1)", () => {
       // nutrient_engine_v1.7.0: the legacy paired output no longer reads a
       // table row off an unusable stocking rate — it is unavailable too.
       expect(plan.requirement.status).toBe("unavailable");
-      expect(plan.requirement.source).toMatch(/grassland area isn't recorded/);
+      expect(plan.requirement.source).toMatch(/no usable grassland area recorded/);
     }
     // Silage does not read the stocking rate, so it is unaffected.
     const silage = calculateNutrientPlan({

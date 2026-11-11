@@ -93,7 +93,7 @@ describe("recomputePromptByKind — fertiliser_recommendation", () => {
 
   it("Codex audit HIGH (round 14): threads the real farm.pBuildUpCompliance through to calculateNutrientPlan's own Article 17(6) P ceiling", () => {
     // Empirically verified fixture (see fertiliser-recommendation.test.ts's
-    // identical fixture): resolves a real statutory GSR of 460 kg N/ha
+    // identical fixture): resolves a real statutory GSR of ≈230 kg N/ha
     // with every other P-build-up condition satisfied — supplying
     // pBuildUpCompliance moves the real P ceiling from Table 15a's 39
     // kg/ha to Table 15b's enhanced 69 kg/ha.
@@ -110,7 +110,7 @@ describe("recomputePromptByKind — fertiliser_recommendation", () => {
         farmId: "farm-1",
         category: "dairy_cow",
         label: "Cows",
-        count: { value: 50, status: "verified", source: "Farmer" },
+        count: { value: 25, status: "verified", source: "Farmer" }, // nutrient_engine_v1.7.0: 25 dairy cows on 10 ha (≈230 kg organic N/ha), inside Table 12-3; 50 (460) is above its last row
         system: "grazing",
         avgAgeMonths: 48,
         sex: "female",

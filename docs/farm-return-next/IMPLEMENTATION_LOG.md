@@ -1065,3 +1065,22 @@ engine v2 and rebuilding the NAP/buffer/product layers — is withdrawn).
   failures and two cattle files slow-test failures, not yet diagnosed. Typecheck/lint/build not yet run on this
   commit range.
 
+
+## Fertiliser close-out — Mac verification and fixes (2026-11-11)
+
+- Typecheck: removed the dead `nGrazingCalculationTrace` helper (its return shape no longer matched the new grazing
+  trace type) and the now-unused `system` variable in `calculateNutrientPlan`.
+- The no-grassland-area message now uses the same wording as the purchase-status card, so the card shows the reason.
+- Test fixtures that still put a herd above Table 12-3's last row moved inside it: reports (4 suckler cows on 5 ha;
+  25 dairy cows on 10 ha), finance unknown-cost (12 suckler cows), purchase/slurry/audit-trail cards (4 cows on 4 ha),
+  canonical aggregation (4 cows), recompute and audit-trail P build-up cases (25 dairy cows on 10 ha), Nutrients page
+  commonage/LESS case (10 cows on 4 ha so a purchase still exists to prohibit).
+- `PurchasedFertiliserCard` no-area case now expects the legacy requirement `unavailable` (fail closed).
+- The action test that expected a grazing field to be sized from its movement history while another field had no
+  production cycle now expects `MISSING_FARM_PRODUCTION_CYCLES_FOR_GRASSLAND_AREA` in both paths, per Keith's decision
+  that field grazing records are context only.
+- `listFieldsForFarm` now reads `field_production_cycles`; the strict Supabase mocks in `job-actuals.test.ts` and
+  `farm-slurry-allocation.test.ts` were taught that table (empty).
+- Mac results: next build, `tsc --noEmit` and lint pass. Full suite: every failure either fixed above, a release
+  baseline failure, or a slow-test timeout; the 17 affected files re-run green except `SlurryFirstPlanningPanel` F010
+  (passes alone) and one cattle recommendations seam test (cattle code untouched).

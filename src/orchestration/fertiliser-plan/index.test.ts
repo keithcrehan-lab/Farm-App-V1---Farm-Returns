@@ -1063,7 +1063,7 @@ describe("getFarmFertiliserDemand — canonical aggregation (Session 3b)", () =>
       farmId: "farm-1",
       category: "suckler_cow" as const,
       label: "Cows",
-      count: { value: 20, status: "verified" as const, source: "Farmer" },
+      count: { value: 4, status: "verified" as const, source: "Farmer" },
       system: "grazing" as const,
       value: { value: 30000, status: "estimated" as const, source: "Farm Return estimate" },
     },

@@ -122,6 +122,13 @@ export function GrassWalkSummaryClient({ id }: { id: string }) {
                 )}
                 {weatherBits ? <Row label="Weather" value={weatherBits} /> : <Row label="Weather" value="Unavailable" tone="unknown" />}
                 {w?.stationName ? <Row label="Station" value={`Met Éireann ${w.stationName}${w.distanceKm !== null ? ` · ${formatNumber(w.distanceKm, 0)} km` : ""}`} /> : null}
+                {w?.nearestStationName ? (
+                  <Row
+                    label="Nearer"
+                    tone="unknown"
+                    value={`${w.nearestStationName}${w.nearestStationDistanceKm !== undefined ? ` · ${formatNumber(w.nearestStationDistanceKm, 0)} km` : ""} has no live data feed`}
+                  />
+                ) : null}
               </dl>
             </>
           ) : (

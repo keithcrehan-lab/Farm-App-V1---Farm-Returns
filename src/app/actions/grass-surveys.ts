@@ -50,10 +50,29 @@ async function weatherSnapshot(centroid: [number, number]): Promise<SurveyWeathe
       soilTemperatureC: latest("soilTemperatureC"),
       rainfall7dMm: rain7 && rain7.totalMm !== null ? Math.round(rain7.totalMm * 10) / 10 : null,
       ...(result.reason ? { reason: result.reason } : {}),
+      ...(result.fallbackUsed && result.nearestGeographicStation
+        ? { nearestStationName: result.nearestGeographicStation.canonicalName, nearestStationDistanceKm: Math.round(result.nearestGeographicStation.distanceKm * 10) / 10 }
+        : {}),
     };
   } catch (err) {
     console.error("[Grass surveys] weather snapshot failed", err);
     return null;
+  }
+}
+
+/** Middle of the farm's mapped fields ([lng, lat]); the farm's sign-up location only if none are mapped. */
+async function walkWeatherCentroid(farmId: string, fallback: [number, number]): Promise<[number, number]> {
+  try {
+    const mapped = (await listFieldsForFarm(farmId)).filter(
+      (f) => !f.archivedAt && f.polygon && Number.isFinite(f.centroid?.[0]) && Number.isFinite(f.centroid?.[1]),
+    );
+    if (!mapped.length) return fallback;
+    const lng = mapped.reduce((sum, f) => sum + f.centroid[0], 0) / mapped.length;
+    const lat = mapped.reduce((sum, f) => sum + f.centroid[1], 0) / mapped.length;
+    return [lng, lat];
+  } catch (err) {
+    console.error("[Grass surveys] field location lookup failed", err);
+    return fallback;
   }
 }
 
@@ -65,7 +84,9 @@ export async function startGrassSurveyAction(input: { id: string; mode: string; 
   const farm = await getFarmForCurrentUser();
   if (!farm) return { ok: false, error: "Sign in to record a walk." };
   try {
-    const weather = await weatherSnapshot(farm.location.centroid);
+    // Weather comes from the station nearest the farm's mapped fields — where the walk
+    // actually happens — not the farm's sign-up location, which is only approximate.
+    const weather = await weatherSnapshot(await walkWeatherCentroid(farm.id, farm.location.centroid));
     const device = typeof input.device === "string" ? input.device.slice(0, 200) : null;
     const survey = await createGrassSurvey(farm.id, { id: input.id, mode: input.mode, startedAt: new Date(started).toISOString(), weather, device });
     return { ok: true, survey };

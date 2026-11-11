@@ -33,6 +33,10 @@ export interface SurveyWeather {
   soilTemperatureC: number | null;
   rainfall7dMm: number | null;
   reason?: string;
+  /** Set when a nearer Met Éireann station exists but publishes no live
+   * data feed, so a farther station had to be used. Shown, never hidden. */
+  nearestStationName?: string;
+  nearestStationDistanceKm?: number;
 }
 
 export type SurveyFieldStatus = "measured" | "grazed" | "skipped" | "not_visited";

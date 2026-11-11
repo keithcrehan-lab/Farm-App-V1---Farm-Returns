@@ -930,7 +930,19 @@ export function FarmProvider({
       },
 
       replaceFieldFromServer(field) {
-        setState((s) => ({ ...s, fields: s.fields.map((candidate) => (candidate.id === field.id ? field : candidate)) }));
+        // A single-field server read carries no derived `grazingSward`
+        // (only `listFieldsForFarm` attaches it) — keep the one already held
+        // so a clover sward is never dropped back to grass by an edit.
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((candidate) =>
+            candidate.id === field.id
+              ? field.grazingSward === undefined && candidate.grazingSward !== undefined
+                ? { ...field, grazingSward: candidate.grazingSward }
+                : field
+              : candidate,
+          ),
+        }));
       },
 
       restoreField(fieldId) {

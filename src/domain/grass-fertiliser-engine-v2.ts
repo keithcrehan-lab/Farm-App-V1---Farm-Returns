@@ -1,4 +1,4 @@
-import type { Field } from "./types";
+import type { Field, GrazingSward } from "./types";
 import {
   CLOVER_N_VERSION,
   DRYSTOCK_CLOVER_REFERENCE_GSR_KG_N_HA,
@@ -399,10 +399,23 @@ const DRYSTOCK_CLOVER_TIMINGS: readonly DrystockCloverTiming[] = ["Feb_Mar", "Ap
  * rate is advised (`GFT140`) — and the grass-only Table 12-3 rate is never
  * substituted, because it ignores clover N fixation and would over-advise N.
  */
-/** The grazing sward a requirement is calculated for. */
-export type GrazingSward =
-  | { kind: "GRASS" }
-  | { kind: "WHITE_CLOVER"; aprilWhiteCloverPct?: number };
+export type { GrazingSward };
+
+/**
+ * The grazing sward a field's production cycle records (fertiliser
+ * close-out, 2026-11-11): the single mapping both engines use, so a clover
+ * cycle is never read as grass by one and clover by the other. Non-grazing
+ * cycles (silage, cereals, …) have no grazing sward.
+ */
+export function grazingSwardForCycle(cycle: FieldProductionCycle | undefined): GrazingSward | undefined {
+  if (cycle === undefined) return undefined;
+  if (cycle.cropSystem === "GRASS_GRAZING") return { kind: "GRASS" };
+  if (cycle.cropSystem === "GRASS_WHITE_CLOVER_GRAZING") {
+    const pct = cycle.evidence.whiteCloverPct?.value;
+    return pct !== undefined ? { kind: "WHITE_CLOVER", aprilWhiteCloverPct: pct } : { kind: "WHITE_CLOVER" };
+  }
+  return undefined;
+}
 
 export interface GrazingRequirementInput {
   pIndex: 1 | 2 | 3 | 4;

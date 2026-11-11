@@ -26,12 +26,12 @@
  * `system: "drystock"` until a dairy enterprise exists in the data model.
  */
 
-import type { DataStatus, Field, FertiliserProduct, FieldPurchaseStatus, FieldNutrientRemainingArm, FieldNutrientRemainingRequirement, FieldNutrientRequirement, FieldNutrientRequirementArm, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
+import type { DataStatus, Field, FertiliserProduct, GrazingSward, FieldPurchaseStatus, FieldNutrientRemainingArm, FieldNutrientRemainingRequirement, FieldNutrientRequirement, FieldNutrientRequirementArm, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
 import type { SlurryComposition, SlurryCompositionStatus } from "./slurry-composition";
 import { ambiguous, blockedInsufficientEvidence, notApplicable, ok, weakestEvidenceState, type EngineOutcome, type EvidenceState } from "./evidence";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
-import { calculateGrazingGrossRequirement, type GrazingRequirementOutcome, type GrazingSward } from "./grass-fertiliser-engine-v2";
+import { calculateGrazingGrossRequirement, type GrazingRequirementOutcome } from "./grass-fertiliser-engine-v2";
 import type { GrazingProductionSystem } from "./fertiliser-field-evidence";
 import { statutoryManureNutrientValuePerHa } from "./statutory-manure-value";
 import { evaluatePBuildUpEligibility } from "./p-build-up-eligibility";
@@ -2623,7 +2623,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     // never a held or extended table row (Codex audit F001).
     const livestockUnitsTotal = totalLivestockUnits(livestockGroups);
     const stockingRateLUHa = farmGrasslandAreaHa > 0 ? livestockUnitsTotal / farmGrasslandAreaHa : 0;
-    const sward: GrazingSward = input.grazingSward ?? { kind: "GRASS" };
+    const sward: GrazingSward = input.grazingSward ?? field.grazingSward ?? { kind: "GRASS" };
     // A field recorded as a silage cut with no silage plan is blocked for
     // that reason (MISSING_SILAGE_PLAN_DATA) — it is never assessed as
     // grazing, so no grazing reason can mask the real gap.

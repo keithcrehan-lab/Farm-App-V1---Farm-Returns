@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { calculateNutrientPlan, knownFertiliserProductComposition, NUTRIENT_ENGINE_VERSION } from "./nutrients";
-import { calculateGrazingGrossRequirement, type GrazingSward } from "./grass-fertiliser-engine-v2";
+import { calculateGrazingGrossRequirement, grazingSwardForCycle, type GrazingSward } from "./grass-fertiliser-engine-v2";
+import { createFarmerEvidence, type FieldProductionCycle } from "./fertiliser-field-evidence";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
 import { tracked } from "./types";
 import type { Field, LivestockGroup, SlurryAllocation } from "./types";
@@ -216,6 +217,42 @@ describe("fertiliser engine test farm (Teagasc Green Book 2020) — Nutrients en
       expect(clover.grossRequirementKgHa.n).toBeLessThan(grass.grossRequirementKgHa.n);
       expect(clover.grossRequirementKgHa.p).toBe(grass.grossRequirementKgHa.p);
       expect(clover.grossRequirementKgHa.k).toBe(grass.grossRequirementKgHa.k);
+    });
+  });
+
+  describe("the field's own production-cycle sward reaches the Nutrients engine (listFieldsForFarm → Field.grazingSward)", () => {
+    const cycleOf = (cropSystem: FieldProductionCycle["cropSystem"], whiteCloverPct?: number): FieldProductionCycle => ({
+      id: "cycle",
+      fieldId: "F5",
+      season: "2026",
+      cropSystem,
+      status: "active",
+      evidence: {
+        cropSystem: createFarmerEvidence(cropSystem, "Test farm"),
+        ...(whiteCloverPct !== undefined ? { whiteCloverPct: createFarmerEvidence(whiteCloverPct, "Test farm") } : {}),
+      },
+      createdAt: "2026-02-01T00:00:00.000Z",
+      updatedAt: "2026-02-01T00:00:00.000Z",
+    });
+
+    it("maps production cycles to grazing swards", () => {
+      expect(grazingSwardForCycle(undefined)).toBeUndefined();
+      expect(grazingSwardForCycle(cycleOf("GRASS_GRAZING"))).toEqual({ kind: "GRASS" });
+      expect(grazingSwardForCycle(cycleOf("GRASS_WHITE_CLOVER_GRAZING", 10))).toEqual({ kind: "WHITE_CLOVER", aprilWhiteCloverPct: 10 });
+      expect(grazingSwardForCycle(cycleOf("GRASS_WHITE_CLOVER_GRAZING"))).toEqual({ kind: "WHITE_CLOVER" });
+      expect(grazingSwardForCycle(cycleOf("GRASS_FIRST_CUT_SILAGE"))).toBeUndefined();
+    });
+
+    it("a field recorded as a white-clover sward is never given the grass-only N table", () => {
+      const cloverField: Field = { ...testField("F5", 8, "grazing", 3, 3), grazingSward: grazingSwardForCycle(cycleOf("GRASS_WHITE_CLOVER_GRAZING", 10)) };
+      const plan = grazingPlan(cloverField);
+      expect(plan.requirement.status).toBe("unavailable");
+      expect(plan.fieldRequirement.n).toMatchObject({ status: "UNKNOWN", reasonCode: "GRAZING_PATHWAY_NOT_SUPPORTED" });
+    });
+
+    it("a clover sward with no recorded April clover content asks for it", () => {
+      const cloverField: Field = { ...testField("F5", 8, "grazing", 3, 3), grazingSward: { kind: "WHITE_CLOVER" } };
+      expect(grazingPlan(cloverField).fieldRequirement.n).toMatchObject({ status: "UNKNOWN", reasonCode: "MISSING_WHITE_CLOVER_CONTENT" });
     });
   });
 

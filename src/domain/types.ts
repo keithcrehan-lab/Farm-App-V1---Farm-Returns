@@ -205,6 +205,12 @@ export interface FieldSeasonRecord {
   fieldCost?: number;
 }
 
+/** The grazing sward a field carries this season (fertiliser close-out,
+ * 2026-11-11) — from its production cycle (`grazingSwardForCycle`). */
+export type GrazingSward =
+  | { kind: "GRASS" }
+  | { kind: "WHITE_CLOVER"; aprilWhiteCloverPct?: number };
+
 export interface Field {
   id: string;
   farmId: string;
@@ -294,6 +300,14 @@ export interface Field {
    * deleted while its historical evidence remains retained. Absent/undefined
    * means active. `useFields()` filters deleted fields out by default. */
   archivedAt?: string;
+  /**
+   * Derived, not stored on the field: the current season's grazing sward
+   * from the field's production cycle, attached by `listFieldsForFarm`.
+   * `calculateNutrientPlan` reads it so a white-clover sward follows the
+   * Teagasc clover strategy on every screen, as on the Fertiliser Plan.
+   * Absent = no grazing cycle recorded (treated as a grass sward).
+   */
+  grazingSward?: GrazingSward;
 }
 
 /**

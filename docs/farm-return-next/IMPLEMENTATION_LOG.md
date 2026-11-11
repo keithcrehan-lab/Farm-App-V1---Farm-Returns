@@ -1055,4 +1055,13 @@ engine v2 and rebuilding the NAP/buffer/product layers — is withdrawn).
   Every locally runnable test file matches the pre-change baseline; the mock/UI files run on Keith's MacBook.
 - Still to do in the close-out: pass the field's clover sward and the farm's grazing production system from the
   production cycles into the Nutrients engine's callers; clean final audit; agronomist pack.
+- Clover plumbing: `GrazingSward` moved to `types.ts`; `grazingSwardForCycle` (engine v2) maps a production cycle to
+  its sward; `listFieldsForFarm` attaches the current season's sward to each `Field` (one choke point for the farm
+  store, prompts, reports, finance and alerts); `calculateNutrientPlan` reads `input.grazingSward ?? field.grazingSward`;
+  `replaceFieldFromServer` keeps the derived sward. Known limit: after the farmer edits a field's production cycle the
+  Today/Nutrients screens pick up the new sward on the next page load.
+- Mac verification at 90ded93 (before the clover plumbing) was cut short when the MacBook stopped responding: the
+  release-baseline failures (Plan page, Schemes, cattle boundary) reproduced; `fertiliser-plan.test.ts` showed 2
+  failures and two cattle files slow-test failures, not yet diagnosed. Typecheck/lint/build not yet run on this
+  commit range.
 

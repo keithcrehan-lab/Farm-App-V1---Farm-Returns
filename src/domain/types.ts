@@ -205,6 +205,12 @@ export interface FieldSeasonRecord {
   fieldCost?: number;
 }
 
+/** The grazing sward a field carries this season (fertiliser close-out,
+ * 2026-11-11) — from its production cycle (`grazingSwardForCycle`). */
+export type GrazingSward =
+  | { kind: "GRASS" }
+  | { kind: "WHITE_CLOVER"; aprilWhiteCloverPct?: number };
+
 export interface Field {
   id: string;
   farmId: string;
@@ -294,6 +300,14 @@ export interface Field {
    * deleted while its historical evidence remains retained. Absent/undefined
    * means active. `useFields()` filters deleted fields out by default. */
   archivedAt?: string;
+  /**
+   * Derived, not stored on the field: the current season's grazing sward
+   * from the field's production cycle, attached by `listFieldsForFarm`.
+   * `calculateNutrientPlan` reads it so a white-clover sward follows the
+   * Teagasc clover strategy on every screen, as on the Fertiliser Plan.
+   * Absent = no grazing cycle recorded (treated as a grass sward).
+   */
+  grazingSward?: GrazingSward;
 }
 
 /**
@@ -782,28 +796,42 @@ export interface NutrientPlan {
    * recreate the agronomy maths independently. */
   calculationTrace?: {
     basis: "grazing" | "silage";
+    /** nutrient_engine_v1.7.0: present only when the grazing requirement
+     * was calculated (`calculateGrazingGrossRequirement` READY). */
     grazing?: {
       totalLivestockUnits: number;
       farmGrasslandAreaHa: number;
+      /** Context only — the tables are keyed on `organicNStockingRateKgHa`. */
       stockingRateLUHa: number;
+      /** Statutory grassland stocking rate (S.I. 588/2025 Table 7 total N
+       * excreted / net grassland ha) — Table 12-3 footnote 3's definition. */
+      organicNStockingRateKgHa: number;
+      stockingBasis: "STATUTORY_GSR";
       n: {
-        lowerRow: { stockingRateLUHa: number; totalNKgHa: number };
-        upperRow: { stockingRateLUHa: number; totalNKgHa: number };
-        interpolationFraction: number;
+        ruleId: string;
+        /** The publication the N figure actually comes from (Green Book
+         * Table 12-3 for grass; the 2026 Teagasc clover strategy for a
+         * clover sward) and its version — audit F008. */
+        source: string;
+        sourceVersion: string;
+        /** Every material input of the shared calculation, verbatim
+         * (e.g. the April clover class and the per-timing N schedule). */
+        inputs: Readonly<Record<string, string | number | boolean | null>>;
+        /** Grass swards: the published organic-N rows interpolated between. */
+        lowerRowOrganicNKgHa?: number;
+        upperRowOrganicNKgHa?: number;
+        interpolationFraction?: number;
         resultKgHa: number;
       };
       p: {
         soilIndex: 1 | 2 | 3 | 4;
         buildUpKgHa: number;
-        maintenanceBandMaxOrgNKgHa: number | null;
         maintenanceKgHa: number;
         resultKgHa: number;
       };
       k: {
         soilIndex: 1 | 2 | 3 | 4;
-        baseAt170KgOrgNHa: number;
         stockingRateKgNHa: number;
-        adjustmentKgHa: number;
         resultKgHa: number;
       };
     };

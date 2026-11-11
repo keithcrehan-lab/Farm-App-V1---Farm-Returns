@@ -154,7 +154,7 @@ describe("promptForFertiliserRecommendation", () => {
         value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
       },
     ];
-    const prompt = promptForFertiliserRecommendation(f, 4, groups, undefined, undefined, "2026-09-09", createdAt);
+    const prompt = promptForFertiliserRecommendation(f, 20, groups, undefined, undefined, "2026-09-09", createdAt);
 
     expect(prompt.basis.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
     if (prompt.basis.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") throw new Error("expected blocked");
@@ -176,7 +176,7 @@ describe("promptForFertiliserRecommendation", () => {
     ];
     const allocation = { fieldId: "field-1", housingId: "multiple", volumeM3: 100, applicationMethod: { value: "splashplate" as const, status: "farmer_adjusted" as const, source: "Farmer" } };
     const unresolved = { housingIds: ["h1", "h2"], compositionRecordIds: ["c1", "c2"] };
-    const prompt = promptForFertiliserRecommendation(f, 4, groups, allocation, undefined, "2026-09-09", createdAt, undefined, undefined, unresolved);
+    const prompt = promptForFertiliserRecommendation(f, 20, groups, allocation, undefined, "2026-09-09", createdAt, undefined, undefined, unresolved);
 
     expect(prompt.basis.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
     if (prompt.basis.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") throw new Error("expected blocked");
@@ -253,7 +253,7 @@ describe("promptForFertiliserRecommendation", () => {
         farmId: "farm-1",
         category: "dairy_cow",
         label: "Cows",
-        count: { value: 50, status: "verified", source: "Farmer" },
+        count: { value: 25, status: "verified", source: "Farmer" },
         system: "grazing",
         avgAgeMonths: 48,
         sex: "female",
@@ -291,7 +291,7 @@ describe("promptForFertiliserRecommendation", () => {
         farmId: "farm-1",
         category: "dairy_cow",
         label: "Cows",
-        count: { value: 50, status: "verified", source: "Farmer" },
+        count: { value: 25, status: "verified", source: "Farmer" },
         system: "grazing",
         avgAgeMonths: 48,
         sex: "female",
@@ -333,6 +333,38 @@ describe("promptForFertiliserRecommendation", () => {
     expect(nap.value.nWithinCeiling).toBe(true);
     expect(nap.value.pWithinCeiling).toBe(true);
     expect(prompt.description).not.toMatch(/NAP ceiling/i);
+    expect(prompt.description).not.toMatch(/have not been checked/i);
+  });
+
+  it("fertiliser close-out (nutrient_engine_v1.7.0): an unknown statutory stocking rate (a group with no age) withholds the grazing recommendation and asks for the ages", () => {
+    const f = field({ fertility: { pIndex: index(1), kIndex: index(1) } });
+    const groups: LivestockGroup[] = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "suckler_cow",
+        label: "Cows",
+        count: { value: 20, status: "verified", source: "Farmer" },
+        system: "grazing",
+        value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
+      },
+      {
+        id: "g2",
+        farmId: "farm-1",
+        category: "weanling",
+        label: "Weanlings",
+        count: { value: 18, status: "verified", source: "Farmer" },
+        system: "grazing",
+        value: { value: 15000, status: "estimated", source: "Farm Return estimate" },
+      },
+    ];
+    const prompt = promptForFertiliserRecommendation(f, 20, groups, undefined, undefined, undefined, createdAt);
+    // v1.6.0 issued the recommendation with a "limits not checked" warning;
+    // v1.7.0 keys the grazing tables on the statutory stocking rate (as the
+    // Fertiliser Plan engine does), so without it there is no recommendation.
+    expect(prompt.basis.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (prompt.basis.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") throw new Error("expected blocked");
+    expect(prompt.basis.reasonCode).toBe("MISSING_LIVESTOCK_CATEGORISATION_FOR_GSR");
   });
 
   it("Codex audit HIGH (round 14): threads the real farm-level pBuildUpCompliance evidence through to calculateNutrientPlan's own Article 17(6) P ceiling", () => {
@@ -358,7 +390,7 @@ describe("promptForFertiliserRecommendation", () => {
         farmId: "farm-1",
         category: "dairy_cow",
         label: "Cows",
-        count: { value: 50, status: "verified", source: "Farmer" },
+        count: { value: 25, status: "verified", source: "Farmer" },
         system: "grazing",
         avgAgeMonths: 48,
         sex: "female",
@@ -536,14 +568,14 @@ describe("promptForFertiliserRecommendation — Session 2b purchase status", () 
       createdAt,
     );
     expect(tillage.basis).toEqual({ status: "NOT_APPLICABLE", reasonCode: "TILLAGE_FIELD_NOT_SUPPORTED" });
-    const mixed = promptForFertiliserRecommendation(field({ fertility: { pIndex: index(2) } }), 4, herd, undefined, undefined, "2026-09-09", createdAt);
+    const mixed = promptForFertiliserRecommendation(field({ fertility: { pIndex: index(2) } }), 20, herd, undefined, undefined, "2026-09-09", createdAt);
     expect(mixed.basis.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
   });
 
   it("slurry credit not assessable (late-summer LESS): OK with the products, disclosed as provisional", () => {
     const f = field({ fertility: { pIndex: index(2), kIndex: index(2) } });
-    const prompt = promptForFertiliserRecommendation(f, 4, herd, lateSummerLess, undefined, "2026-09-09", createdAt);
-    const noSlurry = promptForFertiliserRecommendation(f, 4, herd, undefined, undefined, "2026-09-09", createdAt);
+    const prompt = promptForFertiliserRecommendation(f, 20, herd, lateSummerLess, undefined, "2026-09-09", createdAt);
+    const noSlurry = promptForFertiliserRecommendation(f, 20, herd, undefined, undefined, "2026-09-09", createdAt);
     if (prompt.basis.status !== "OK" || noSlurry.basis.status !== "OK") throw new Error("expected OK");
     const value = prompt.basis.value as FertiliserRecommendationSummary;
     const noSlurryValue = noSlurry.basis.value as FertiliserRecommendationSummary;

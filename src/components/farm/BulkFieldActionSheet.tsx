@@ -15,6 +15,7 @@ import { CROP_SYSTEM_LABELS, P2_SUPPORTED_CROP_SYSTEMS, type CropSystem } from "
 import type { Field } from "@/domain/types";
 import { CROP_SYSTEM_CONTEXT } from "@/lib/crop-system-context";
 import { formatNumber } from "@/lib/format";
+import { useFarmActions } from "@/store/farm-store";
 
 export type BulkFieldAction = "set-crop" | "carry-forward";
 
@@ -80,6 +81,7 @@ function BulkFieldActionBody({ action, fields, onClose }: { action: BulkFieldAct
   const nextSeason = String(Number(thisSeason) + 1);
   const carrying = action === "carry-forward";
 
+  const { applySavedProductionCycle } = useFarmActions();
   const [season, setSeason] = useState(carrying ? nextSeason : thisSeason);
   const [cropSystem, setCropSystem] = useState<CropSystem | "">("");
   const [step, setStep] = useState<"choose" | "confirm" | "result">(carrying ? "confirm" : "choose");
@@ -124,6 +126,11 @@ function BulkFieldActionBody({ action, fields, onClose }: { action: BulkFieldAct
       if (result.status === "rejected") {
         setSaveError(result.message);
         return;
+      }
+      // Codex audit F010: each saved cycle updates the farm store's grazing
+      // sward at once (the store ignores seasons other than the current one).
+      for (const outcome of result.outcomes) {
+        if (outcome.outcome === "saved" && outcome.savedCycle) applySavedProductionCycle(outcome.fieldId, result.season, outcome.savedCycle);
       }
       // A retry replaces only the fields it was asked to retry.
       setOutcomes((previous) => [...previous.filter((item) => !ids.includes(item.fieldId)), ...result.outcomes]);

@@ -272,7 +272,10 @@ describe("calculateNutrientPlanWithTrace", () => {
     // driven high, but the requirement figure exceeds even the
     // elevated ceiling band.
     const groups: LivestockGroup[] = [
-      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(300, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+      // nutrient_engine_v1.7.0: 85 cows on 27 ha (≈205 kg organic N/ha) is
+      // inside Table 12-3 and still over the 185 kg N ceiling; 300 cows
+      // (≈720 kg N/ha) is beyond the table, where no requirement is given.
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(85, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_007", "REC_TEST_007", {
       field: grazingField,

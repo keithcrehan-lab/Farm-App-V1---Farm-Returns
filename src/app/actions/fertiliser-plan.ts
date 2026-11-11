@@ -194,13 +194,17 @@ function grazingStockingInputForField(args: {
   holdingFallbackKgHa?: number;
 }): {
   annualOrganicNStockingRateKgHa?: number;
-  grazingStockingEvidence?: {
-    basis: "FIELD_GRAZING_SESSIONS" | "HOLDING_FALLBACK";
-    trackingStart?: string;
-    trackingDays?: number;
-    sourceSessionCount?: number;
-  };
+  grazingStockingEvidence?: NonNullable<
+    Parameters<typeof calculateGrassFertiliserV2>[0]["grazingStockingEvidence"]
+  >;
 } {
+  // Fertiliser close-out (2026-11-11, Keith's decision): the Green Book
+  // grazing tables are keyed on the holding's grassland stocking rate
+  // (Table 12-3 footnote 3), so only that figure selects a table row. The
+  // field's own recorded grazing is disclosed as context; with no holding
+  // figure the caller blocks with its own reason rather than substituting
+  // in-season paddock pressure.
+  if (args.holdingFallbackKgHa === undefined) return {};
   const pressure = calculateFieldGrazingPressure({
     fieldId: args.field.id,
     fieldAreaHa: args.field.areaHa,
@@ -209,31 +213,22 @@ function grazingStockingInputForField(args: {
     seasonStart: `${args.season}-01-01T00:00:00.000Z`,
     asOf: args.asOf,
   });
-  if (
-    pressure.status === "READY" &&
-    pressure.annualOrganicNStockingRateKgHa !== undefined
-  ) {
-    return {
-      annualOrganicNStockingRateKgHa: pressure.annualOrganicNStockingRateKgHa,
-      grazingStockingEvidence: {
-        basis: "FIELD_GRAZING_SESSIONS",
-        ...(pressure.trackingStart
-          ? { trackingStart: pressure.trackingStart }
-          : {}),
-        ...(pressure.trackingDays !== undefined
-          ? { trackingDays: pressure.trackingDays }
-          : {}),
-        sourceSessionCount: pressure.sourceSessionIds.length,
-      },
-    };
-  }
-  if (args.holdingFallbackKgHa !== undefined) {
-    return {
-      annualOrganicNStockingRateKgHa: args.holdingFallbackKgHa,
-      grazingStockingEvidence: { basis: "HOLDING_FALLBACK" },
-    };
-  }
-  return {};
+  const fieldGrazingContext =
+    pressure.status === "READY" && pressure.averageStockingRateLUHa !== undefined
+      ? {
+          averageStockingRateLUHa: pressure.averageStockingRateLUHa,
+          ...(pressure.trackingStart ? { trackingStart: pressure.trackingStart } : {}),
+          ...(pressure.trackingDays !== undefined ? { trackingDays: pressure.trackingDays } : {}),
+          sourceSessionCount: pressure.sourceSessionIds.length,
+        }
+      : undefined;
+  return {
+    annualOrganicNStockingRateKgHa: args.holdingFallbackKgHa,
+    grazingStockingEvidence: {
+      basis: "HOLDING_GSR",
+      ...(fieldGrazingContext ? { fieldGrazingContext } : {}),
+    },
+  };
 }
 
 /**
@@ -1343,7 +1338,7 @@ function calculateP3FieldPlan(
     {};
   let grazingSystem: ReturnType<typeof resolveGrazingProductionSystem> | null =
     null;
-  if (cycle.cropSystem === "GRASS_GRAZING") {
+  if (cycle.cropSystem === "GRASS_GRAZING" || cycle.cropSystem === "GRASS_WHITE_CLOVER_GRAZING") {
     grazingStockingInput = grazingStockingInputForField({
       field,
       livestockGroups: context.livestockGroups,
@@ -3323,5 +3318,15 @@ export async function getFarmLimeRequirementAction(): Promise<FarmLimeRequiremen
   // total, the same rule every other farm-wide aggregation in this app
   // now applies.
   const fields = activeFields(await listFieldsForFarm(farm.id));
-  return aggregateFarmLimeRequirement(fields);
+  // Audit F006: the pH target follows each field's canonical crop for the
+  // current season (production cycles); a field without one gets no advice.
+  const currentSeason = new Date().toISOString().slice(0, 4);
+  const cycles = await listFieldProductionCyclesForSeason(
+    fields.map((field) => field.id),
+    currentSeason,
+  );
+  const cropSystemByFieldId = new Map(
+    cycles.map((cycle) => [cycle.fieldId, cycle.cropSystem] as const),
+  );
+  return aggregateFarmLimeRequirement(fields, { cropSystemByFieldId });
 }

@@ -34,6 +34,9 @@ export interface BulkFieldOutcome {
   outcome: BulkFieldOutcomeKind;
   /** Evidence gate for the saved cycle, on the season's own planning basis. */
   gateStatus?: FertiliserInputGateStatus;
+  /** The cycle as saved (`outcome: "saved"`), so the client store can update
+   * the field's derived grazing sward at once (Codex audit F010). */
+  savedCycle?: FieldProductionCycle;
 }
 
 export type BulkProductionCycleResult =
@@ -165,7 +168,7 @@ export async function setBulkFieldCropSystemAction(input: { fieldIds: string[]; 
         outcomes.push({ fieldId, fieldName: field.name, outcome: "failed" });
         continue;
       }
-      outcomes.push({ fieldId, fieldName: field.name, outcome: "saved", gateStatus: gateStatusFor(field, saved, input.season) });
+      outcomes.push({ fieldId, fieldName: field.name, outcome: "saved", gateStatus: gateStatusFor(field, saved, input.season), savedCycle: saved });
     } catch (error) {
       console.error("[bulk-production-cycles] set crop failed", fieldId, error);
       outcomes.push({ fieldId, fieldName: field.name, outcome: "failed" });

@@ -56,6 +56,18 @@ export type RequirementCardPresentation =
  * silage evidence). `mixed` shows N and the known nutrient from
  * `requirementByNutrient` and no NPK total.
  */
+/**
+ * Codex audit F008 (fertiliser close-out): the mixed card's source names the
+ * publication that actually produced each shown figure — a clover sward's N
+ * comes from the 2026 Teagasc clover strategy (carried on the canonical N
+ * arm), the known P or K from the Green Book.
+ */
+function mixedRequirementSource(plan: NutrientPlan, known: "p" | "k"): string {
+  const n = plan.fieldRequirement.n;
+  if (n.status !== "KNOWN" || n.source === REQUIREMENT_SOURCE) return REQUIREMENT_SOURCE;
+  return `${n.source} for N; ${REQUIREMENT_SOURCE} for ${upper(known)}`;
+}
+
 export function requirementCardPresentation(plan: NutrientPlan): RequirementCardPresentation {
   const mixed = mixedSoilIndex(plan.fertilityEvidenceByNutrient);
   if (!mixed) return { kind: "paired" };
@@ -69,7 +81,7 @@ export function requirementCardPresentation(plan: NutrientPlan): RequirementCard
     kind: "mixed",
     values,
     status: "estimated",
-    source: REQUIREMENT_SOURCE,
+    source: mixedRequirementSource(plan, mixed.known),
     calculationVersion: plan.requirement.calculationVersion,
     pill: `${upper(mixed.known)} shown · ${upper(mixed.missing)} needs a soil test`,
     line: `${upper(mixed.missing)} requirement isn't shown because this field's soil ${upper(mixed.missing)} Index is missing. Add a soil test to complete the plan.`,

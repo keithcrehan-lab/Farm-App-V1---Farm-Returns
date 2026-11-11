@@ -45,7 +45,7 @@ function makeGroup(id: string, count: number): LivestockGroup {
 describe("buildNutrientPlanReportCsv", () => {
   it("one row per field, real N/P/K requirement matching calculateNutrientPlan directly", () => {
     const field = makeField("f1");
-    const livestockGroups = [makeGroup("g1", 20)];
+    const livestockGroups = [makeGroup("g1", 4)];
     const csv = buildNutrientPlanReportCsv([field], livestockGroups, [], []);
 
     const directPlan = calculateNutrientPlan({
@@ -70,7 +70,7 @@ describe("buildNutrientPlanReportCsv", () => {
   // cell reads the engine's purchase status, never an empty list.
   it("Session 2b: an UNKNOWN purchase exports INSUFFICIENT_EVIDENCE, never NOT_APPLICABLE or zero-kg products", () => {
     const field = makeField("f1", { areaHa: 0 });
-    const csv = buildNutrientPlanReportCsv([field], [makeGroup("g1", 20)], [], []);
+    const csv = buildNutrientPlanReportCsv([field], [makeGroup("g1", 4)], [], []);
     const [header, row] = csv.split("\r\n").map((line) => line.split(","));
     expect(row[header.indexOf("Purchased products")]).toBe("INSUFFICIENT_EVIDENCE");
   });
@@ -86,8 +86,8 @@ describe("buildNutrientPlanReportCsv", () => {
       applicationMethod: tracked("LESS", "farmer_adjusted", "Farmer"),
       applicationDate: tracked("2026-09-10", "farmer_adjusted", "Farmer"),
     };
-    const withSlurry = buildNutrientPlanReportCsv([field], [makeGroup("g1", 20)], [lateSummer], []);
-    const noSlurry = buildNutrientPlanReportCsv([field], [makeGroup("g1", 20)], [], []);
+    const withSlurry = buildNutrientPlanReportCsv([field], [makeGroup("g1", 4)], [lateSummer], []);
+    const noSlurry = buildNutrientPlanReportCsv([field], [makeGroup("g1", 4)], [], []);
     const cell = (csv: string) => {
       const [header, row] = csv.split("\r\n").map((line) => line.split(","));
       return row[header.indexOf("Purchased products")];
@@ -108,7 +108,7 @@ describe("buildNutrientPlanReportCsv", () => {
   // or export a grassland-based recommendation.
   it("labels a tillage field 'Tillage' and exports NOT_APPLICABLE, never a grazing-based recommendation", () => {
     const tillageField = makeField("f1", { plannedUse: tracked("tillage", "verified", "Farmer") });
-    const csv = buildNutrientPlanReportCsv([tillageField], [makeGroup("g1", 20)], [], []);
+    const csv = buildNutrientPlanReportCsv([tillageField], [makeGroup("g1", 4)], [], []);
     const lines = csv.split("\r\n");
     expect(lines[1]).toContain("f1,5,Tillage,NOT_APPLICABLE,NOT_APPLICABLE,NOT_APPLICABLE");
     expect(lines[1]).not.toMatch(/Grazing/);
@@ -121,7 +121,7 @@ describe("buildNutrientPlanReportCsv", () => {
   // regulatory classification derived from a fabricated requirement.
   it("exports NOT_APPLICABLE for every NAP compliance column on a tillage row, never a real-looking Yes/No", () => {
     const tillageField = makeField("f1", { plannedUse: tracked("tillage", "verified", "Farmer") });
-    const csv = buildNutrientPlanReportCsv([tillageField], [makeGroup("g1", 20)], [], []);
+    const csv = buildNutrientPlanReportCsv([tillageField], [makeGroup("g1", 4)], [], []);
     const lines = csv.split("\r\n");
     const cells = lines[1].split(",");
     // N within NAP ceiling, P within NAP ceiling, Regulatory status,
@@ -137,7 +137,7 @@ describe("buildNutrientPlanReportCsv", () => {
   // lower ceiling. Empirically-derived fixture: a silage cut not
   // intended for sale (so the ordinary grazing-style P ceiling gate
   // applies, not the sale-route Table 16/17 one) with a real statutory
-  // GSR of 460 kg N/ha and a P requirement of 50 kg/ha — squarely
+  // GSR of ≈230 kg N/ha and a P requirement of 50 kg/ha — squarely
   // between Table 15a's 39 kg/ha and Table 15b's enhanced 69 kg/ha.
   it("exports 'P within NAP ceiling: Yes' when the farm's real recorded Article 17(6) evidence unlocks the enhanced Table 15b ceiling, not Table 15a's lower one", () => {
     const field = makeField("f1", {
@@ -160,7 +160,7 @@ describe("buildNutrientPlanReportCsv", () => {
       farmId: "farm-test",
       category: "dairy_cow",
       label: "Cows",
-      count: tracked(50, "verified", "Farmer"),
+      count: tracked(25, "verified", "Farmer"), // nutrient_engine_v1.7.0: 25 dairy cows on 10 ha (≈230 kg organic N/ha), inside Table 12-3; 50 (460) is above its last row
       system: "grazing",
       avgAgeMonths: 48,
       sex: "female",
@@ -253,7 +253,7 @@ describe("buildNutrientPlanReportCsv", () => {
   it("excludes tillage area from the real grassland stocking-rate denominator, matching computeFarmGrasslandAggregates", () => {
     const grassField = makeField("f1", { areaHa: 10 });
     const tillageField = makeField("f2", { areaHa: 5, plannedUse: tracked("tillage", "verified", "Farmer") });
-    const livestockGroups = [makeGroup("g1", 20)];
+    const livestockGroups = [makeGroup("g1", 4)];
     const csv = buildNutrientPlanReportCsv([grassField, tillageField], livestockGroups, [], []);
 
     const directPlan = calculateNutrientPlan({
@@ -280,7 +280,7 @@ describe("buildNutrientPlanReportCsv", () => {
       fertility: { pIndex: tracked(4, "verified", "Farmer"), kIndex: tracked(4, "verified", "Farmer") },
       commonageStatus: tracked("commonage", "verified", "Farmer"),
     });
-    const livestockGroups = [makeGroup("g1", 20)];
+    const livestockGroups = [makeGroup("g1", 4)];
     const csv = buildNutrientPlanReportCsv([commonageField], livestockGroups, [], []);
 
     const directPlan = calculateNutrientPlan({
@@ -307,7 +307,7 @@ describe("buildNutrientPlanReportCsv", () => {
   // failure round 9/10 already fixed for the tillage/fertility cases.
   it("labels a real silage-cut field with no real cut/yield plan honestly, and never exports its blocked zero as a real requirement", () => {
     const silageField = makeField("f1", { plannedUse: tracked("silage_1st_cut", "verified", "Farmer") });
-    const livestockGroups = [makeGroup("g1", 20)];
+    const livestockGroups = [makeGroup("g1", 4)];
     const csv = buildNutrientPlanReportCsv([silageField], livestockGroups, [], []);
     const lines = csv.split("\r\n");
     expect(lines[1]).not.toMatch(/^f1,5,Grazing/);
@@ -316,7 +316,7 @@ describe("buildNutrientPlanReportCsv", () => {
 
   it("exports the real silage-cut requirement once a matching real SilagePlan is supplied", () => {
     const silageField = makeField("f1", { plannedUse: tracked("silage_1st_cut", "verified", "Farmer") });
-    const livestockGroups = [makeGroup("g1", 20)];
+    const livestockGroups = [makeGroup("g1", 4)];
     const silagePlan = {
       id: "sp1",
       fieldId: "f1",
@@ -341,7 +341,7 @@ describe("buildNutrientPlanReportCsv", () => {
   // carried the real, specific reason for the downgrade.
   it("labels a field with unrecorded plannedUse as an assumption, and discloses the real regulatory-note reason", () => {
     const unresolvedField = makeField("f1", { plannedUse: undefined });
-    const livestockGroups = [makeGroup("g1", 20)];
+    const livestockGroups = [makeGroup("g1", 4)];
     const csv = buildNutrientPlanReportCsv([unresolvedField], livestockGroups, [], []);
     const lines = csv.split("\r\n");
     expect(lines[0]).toContain("Regulatory note");
@@ -352,7 +352,7 @@ describe("buildNutrientPlanReportCsv", () => {
 
   it("never adds the 'assumed' qualifier when plannedUse is explicitly recorded as grazing", () => {
     const grazingField = makeField("f1", { fertility: { pIndex: tracked(3, "verified", "Soil test lab"), kIndex: tracked(3, "estimated", "Farm Return assumption") } }); // plannedUse: "grazing", explicitly set by makeField's own default
-    const livestockGroups = [makeGroup("g1", 20)];
+    const livestockGroups = [makeGroup("g1", 4)];
     const csv = buildNutrientPlanReportCsv([grazingField], livestockGroups, [], []);
     const lines = csv.split("\r\n");
     expect(lines[1]).toContain("f1,5,Grazing,");
@@ -367,7 +367,7 @@ describe("buildNutrientPlanReportCsv", () => {
   // "planning_advice".
   it("exports 'Unknown' for the N/P within-ceiling columns, never a definitive Yes/No, when the classification is unconfirmed", () => {
     const unresolvedField = makeField("f1", { plannedUse: undefined });
-    const livestockGroups = [makeGroup("g1", 20)];
+    const livestockGroups = [makeGroup("g1", 4)];
     const csv = buildNutrientPlanReportCsv([unresolvedField], livestockGroups, [], []);
     const line = csv.split("\r\n")[1];
     // The regulatory-note text (round 29) contains its own commas inside
@@ -377,7 +377,7 @@ describe("buildNutrientPlanReportCsv", () => {
   });
 
   it("Campaign B: a non-laboratory P Index exports planning advice with its plain-language reason, never a compliance value", () => {
-    const csv = buildNutrientPlanReportCsv([makeField("f1")], [makeGroup("g1", 20)], [], []);
+    const csv = buildNutrientPlanReportCsv([makeField("f1")], [makeGroup("g1", 4)], [], []);
     const line = csv.split("\r\n")[1];
     expect(line).toContain(",Unknown,Unknown,planning_advice,");
     expect(line).toMatch(/not a laboratory soil-test result/);
@@ -385,7 +385,7 @@ describe("buildNutrientPlanReportCsv", () => {
 
   it("still exports a definitive Yes/No when the classification is confirmed", () => {
     const grazingField = makeField("f1", { fertility: { pIndex: tracked(3, "verified", "Soil test lab"), kIndex: tracked(3, "estimated", "Farm Return assumption") } });
-    const livestockGroups = [makeGroup("g1", 20)];
+    const livestockGroups = [makeGroup("g1", 4)];
     const csv = buildNutrientPlanReportCsv([grazingField], livestockGroups, [], []);
     const line = csv.split("\r\n")[1];
     expect(line).not.toMatch(/,Unknown,/);
@@ -397,7 +397,7 @@ describe("buildNutrientPlanReportCsv", () => {
 // columns for a field with exactly one soil index, driven by real
 // `calculateNutrientPlan` output.
 describe("buildNutrientPlanReportCsv — per-nutrient P/K (Increment 5b)", () => {
-  const livestockGroups = [makeGroup("g1", 20)];
+  const livestockGroups = [makeGroup("g1", 4)];
   const allocation: SlurryAllocation = {
     fieldId: "f1",
     housingId: "housing-1",

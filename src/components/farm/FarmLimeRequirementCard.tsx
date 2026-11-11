@@ -22,6 +22,7 @@ import { IconChip } from "@/components/ui/IconChip";
 import { formatNumber } from "@/lib/format";
 import { getFarmLimeRequirementAction } from "@/app/actions/fertiliser-plan";
 import type { FarmLimeRequirement } from "@/domain/fertiliser-plan";
+import { SoilPhAdviceList } from "@/components/farm/SoilPhAdviceList";
 
 function formatTonnes(value: number): string {
   return `${formatNumber(value, 2)} t`;
@@ -114,6 +115,8 @@ export function FarmLimeRequirementCard({ canRecord }: { canRecord: boolean }) {
           laboratory lime figure on file — the total above is real but partial, not this farm&apos;s complete lime requirement.
         </p>
       ) : null}
+
+      <SoilPhAdviceList lime={result} className="mt-3" />
     </Card>
   );
 }

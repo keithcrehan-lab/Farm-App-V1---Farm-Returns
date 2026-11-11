@@ -176,7 +176,7 @@ export function buildFertiliserQuoteReadiness(input: {
       );
     }
 
-    if (cycle.cropSystem === "GRASS_GRAZING") {
+    if (cycle.cropSystem === "GRASS_GRAZING" || cycle.cropSystem === "GRASS_WHITE_CLOVER_GRAZING") {
       add(
         items,
         field,

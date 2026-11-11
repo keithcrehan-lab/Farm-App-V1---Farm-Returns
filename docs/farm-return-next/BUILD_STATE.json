@@ -3,7 +3,7 @@
   "baseline_tag": "v1-baseline-2026-08-29",
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
-  "contracts_frozen": true,
+  "contracts_frozen": false,
   "schema_version": 2,
   "current_checkpoint": "campaign-c-slurry-science-freeze",
   "checkpoint_status": "ai_adjudicated_expert_validation_pending",
@@ -576,5 +576,59 @@
     "migration": "none",
     "pushed_or_deployed": false,
     "final_audit": ".agent/history/audit-20261107T143809Z-56048.md (CRITICAL=0 HIGH=0 MEDIUM=1 LOW=0 at a7e6d76)"
+  },
+  "nutrient_engine_v1_6_0": {
+    "task": "Fertiliser engine test plan run 1 corrections (authorised by Keith, 2026-11-11)",
+    "branch": "fix/nutrient-engine-orgn-index4-silage-buildup",
+    "base": "182629a7aff8fba3e160fa49e237b88ffbc5fc96",
+    "engine_version": "nutrient_engine_v1.6.0",
+    "status": "SUPERSEDED_BY_nutrient_engine_v1.7.0 (F001 resolved by fail-closed refusal; F002/F003 remediated)",
+    "scientific_status": "implementation corrections against registered Green Book sources; expected values pending agronomist sign-off",
+    "primary_audit": ".agent/history/audit-20261111T081825Z-394.md on Keith's MacBook (range 182629a..fb5c050; CRITICAL=0 HIGH=1 MEDIUM=1 LOW=0)",
+    "findings": {
+      "F001": "HIGH UNSUPPORTED_SCIENTIFIC_EXTRAPOLATION: ratio extrapolation removed; the canonical conversion holds the end rows (as the Total N column does). OPEN: hold vs fail grazing P/K closed above 3.0 LU/ha (fail-closed variant 8bcf137 broke 41 tests on 4.5 LU/ha fixtures) — decision for Keith/agronomist before merge",
+      "F002": "MEDIUM BUILD_STATE_DRIFT: this entry added",
+      "F003": "HIGH DUPLICATED_DOMAIN_CALCULATION: duplicate Table 12-3 conversion removed; nutrients.ts calls grazing-field-pressure.ts organicNStockingRateFromLUHa"
+    },
+    "merged": false,
+    "deployed": false,
+    "open_decision_ref": "docs/evidence-register.md (Nutrient engine v1.6.0 entry)",
+    "final_audit": ".agent/history/audit-20261111T093432Z-18990.md on Keith's MacBook (range 182629a..435ed0e; CRITICAL=0 HIGH=2 MEDIUM=0 LOW=0: F001 open, F003 remediated after it)",
+    "quality_gate": {
+      "at": "435ed0ee97c7039cd4d4c0d2c65f631c1bf0b28e",
+      "where": "Keith's MacBook, fresh clone /tmp/fr-gate, steps run individually",
+      "test": "7868 passed, 3 failed (pre-existing: identical at 182629a), 5 todo; src/tooling/agent-run.test.ts excluded (harness shell test hangs on this machine; untouched by branch)",
+      "typecheck": "pass after next build generated route types",
+      "lint": "pass",
+      "build": "pass"
+    }
+  },
+  "fertiliser_close_out_v1": {
+    "task": "Fertiliser close-out (authorised by Keith, 2026-11-11): converge on engine v2; 3.0 LU/ha refusal; clover; lime from pH; per-field grazing",
+    "branch": "fix/nutrient-engine-orgn-index4-silage-buildup",
+    "decisions": {
+      "engine": "Converge on grass-fertiliser-engine-v2 as the single fertiliser engine (Keith, 2026-11-11)",
+      "above_table": "Fail closed above the last published stocking-rate row (Keith, 2026-11-11)",
+      "field_grazing": "Grazing table rows use the farm grassland stocking rate; field grazing records are context only (Keith, 2026-11-11)",
+      "alignment": "Align both engines: one shared grazing calculation; full engine merge deferred (Keith, 2026-11-11)"
+    },
+    "phase_a": "IMPLEMENTED — grass_fertiliser_engine_v2.1.0 (Index 4 P, above-table refusal, clover pathway at exactly 170 kg organic N/ha, holding stocking input), soil_ph_advice_v1.1.0 (canonical crop target, reading provenance)",
+    "phase_b": "IMPLEMENTED_AND_VERIFIED — nutrient_engine_v1.7.0 on calculateGrazingGrossRequirement (statutory GSR, fails closed above the table: resolves nutrient_engine_v1_6_0 F001); clover sward plumbed via listFieldsForFarm -> Field.grazingSward; Mac gate green bar baseline/flaky files",
+    "phase_c": "AUDITED_CLEAN_AWAITING_REVIEW — PR for Keith's review; agronomist review pack drafted (Claude doc 'Farm Return — Fertiliser Engine: Agronomist Review Pack')",
+    "merged": false,
+    "deployed": false,
+    "verification": {
+      "local": "every locally runnable test file matches the pre-change baseline (shim runner, pure domain/lib/orchestration files)",
+      "mac_full_suite": "7881 passed, 37 failed in one 37-minute run on a loaded MacBook: 16 were 5 s timeouts, 14 were strict Supabase mocks that did not know the newly-read field_production_cycles table (fixed), 1 a message-text assertion (fixed); release-baseline failures reproduced (Plan page, Schemes, cattle boundary R4)",
+      "mac_rerun_failed_files": "17 files re-run after fixes: 1617 passed, 2 failed — SlurryFirstPlanningPanel F010 (passes when run on its own; mocked UI, untouched) and one cattle recommendations seam test (cattle domain untouched; slow-test timeout)",
+      "typecheck_lint_build": "next build EXIT 0, tsc --noEmit EXIT 0, eslint EXIT 0 (warnings only; the new unused-variable warning in nutrients.ts removed)",
+      "mac_at_9d0f9d3": "lib, Nutrients card and evidence-report tests 772/772; tsc and lint pass. Earlier at a9bfcfe: 2590 pass, 1 flaky mocked-UI test (passes alone)"
+    },
+    "contracts": {
+      "contracts_frozen": "false from this commit until the close-out PR is merged and its final audit is clean (DOMAIN_CONTRACTS.md step 4)",
+      "omission": "Codex audit F009: the earlier close-out commits (161fa1c..f6e4a86) changed frozen contracts with contracts_frozen left true — recorded, not rewritten",
+      "affected": "calculateNutrientPlan (grazing fails closed above Table 12-3 and without a grazing requirement; per-nutrient arms blocked), NutrientPlan.calculationTrace.grazing (organic-N basis with source/version/inputs; LU-row fields removed), FieldNutrientRequirement n.source/ruleRefs (clover strategy), Field.grazingSward (additive, derived), listFieldsForFarm (reads field_production_cycles), aggregateFarmLimeRequirement options (cropSystemByFieldId replaces cloverFieldIds), grass-fertiliser-engine-v2 calculateGrazingGrossRequirement/grazingSwardForCycle (new exports)"
+    },
+    "audit": "Final task audit 182629a..9d0f9d3 (audit-20261111T165350Z-31123): CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0. Earlier rounds' findings F004–F013 fixed; F012 (pre-existing) deferred in BLOCKERS.md FCO-F012"
   }
 }

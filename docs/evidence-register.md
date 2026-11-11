@@ -2352,3 +2352,99 @@ Implied cost = quantity × reference €/t, labelled as an indication, never as 
 | Concentrate €/t | Inputs Market catalogue (Teagasc €350/t published benchmark, 2026-07) or the farmer's own override price | Labelled benchmark / "your price"; concentrate only — forage and housing are not costed |
 
 Not covered (fail closed): finishing-bull feeding rates, store/suckler/dairy classes, at-grass and non-grass-silage diets, unknown silage quality (a published-row planning scenario may be chosen and is always labelled as such, never as a lab result).
+
+## Nutrient engine v1.6.0 — three Green Book corrections (2026-11-11)
+
+Found by the fertiliser engine test plan, run 1 (an assumed Co Clare suckler test farm run straight through
+`calculateNutrientPlan`; `src/domain/fertiliser-engine-test-farm.test.ts`). Sources re-read from the repository
+transcription `docs/scientific-engine/v3/reference_greenbook_2020/` (`All_Table_Rows.csv` Seq 34; `Page_Text.csv`
+chapters 13 and 14). **Status: implementation corrections against already-registered sources; expected values
+pending agronomist sign-off.** No new source, no AI-derived value.
+
+| Correction | Source text | Before (v1.5.0) | After (v1.6.0) |
+|---|---|---|---|
+| Organic-N stocking rate for grazing P (Table 13-3) and K (Table 14-1) | Table 12-3 has two columns: "Stocking rate LU/ha – kg/ha N" (fn 3: total annual N *excreted*, 80/99/118/138/158/176/196/215/235 at 1.0–3.0 LU/ha) and the fertiliser "Total N" advice (35/53/75/103/132/162/193/215/241). Tables 13-3 fn 5 and 14-1 fn 1–2 key on N excreted. | `calculateGrasslandStockingRateKgHa` returned the Total N column | Returns the kg/ha N (excreted) column via the canonical `organicNStockingRateFromLUHa` (`grazing-field-pressure.ts`, already in the repo), linear between rows |
+| Grazing P at Index 4 | §13: "Grassland soils with P levels at Index 4 … no P fertilizer is advised until the soil P level reverts to the Index 3 range"; S.I. 588/2025 Table 15a Index 4 maximum 0 | Table 13-3 maintenance still added (e.g. 4 kg/ha), and P-bearing compounds proposed for K | 0 kg/ha P; products from the P-free allocation (Muriate of Potash + Protected Urea) |
+| Silage P build-up on later cuts | §13: "Where two or more cuts … at Index 1 or 2, the additional 'soil P build-up' portion … should be applied prior to the first cut" | Table 13-2 build-up added to every cut | First cut only |
+
+**No extrapolation (Codex audit F001, 2026-11-11):** outside Table 12-3's printed rows the end row's value is held,
+exactly as the Total N column already is (35 at or below 1.0 LU/ha, 241 above 3.0), and exactly as the canonical
+`organicNStockingRateFromLUHa` already did before this change. At or below 1.0 LU/ha the printed
+"≤1.0 / ≤80" row gives 80 — an upper bound on N excreted, so the Table 13-3 P band is exact and Table 14-1 K is never
+under-advised. Above 3.0 LU/ha 235 is held — the P band (≥210) is exact, K is a lower bound. **Open decision:** keep
+holding the last row, or fail the grazing P/K requirement closed above 3.0 LU/ha (tried at `8bcf137`: correct for real
+farms, but ~40 existing tests use 4.5 LU/ha fixtures and would need rework).
+**Not changed:** grazing N (Table 12-3 Total N), first-cut silage N/P/K, second-cut N/K, the statutory NAP stocking rate
+(`statutory-excretion.ts`), slurry credits. Second-cut P maintenance still applies Table 13-4's 5 t DM/ha yield
+adjustment; whether that baseline applies to second cuts is an open agronomist question.
+
+**Statutory output change (stricter):** the CC-B5 buffer regression "P missing, K Index 4 (mirror)" — a *second* cut
+with 100 m3/ha slurry 4 m from surface water — was OK at bfdad74 only because the Index-1 placeholder blend added
+P build-up to the second cut and so proposed chemical fertiliser (3 m buffer). With build-up on the first cut only,
+no chemical fertiliser is proposed, the organic 5 m buffer governs the slurry, and the result is now
+`LEGAL_PROHIBITION` — the same outcome as the audited F001 case. CC-B5 itself (the Index-1 placeholder choosing the
+buffer material when an index is missing) remains an open decision.
+
+## Fertiliser close-out, Phase A — canonical engine v2.1.0 and soil pH advice (2026-11-11)
+
+Keith's decisions (2026-11-11): converge on `grass-fertiliser-engine-v2.ts` as the one fertiliser engine; fail closed
+above the published stocking-rate table; grazing table rows use the farm's grassland stocking rate. **Status:
+implementation against registered sources; expected values pending agronomist sign-off.**
+
+| Change (`grass_fertiliser_engine_v2.1.0`) | Source | Before (v2.0.0) | After |
+|---|---|---|---|
+| Grazing P at Index 4 | Green Book §13 ("no P fertilizer is advised" at Index 4); S.I. 588/2025 Table 15a Index 4 max 0 | Table 13-3 maintenance added | 0 kg/ha |
+| Above the last Table 12-2/12-3 row (235 / 238 kg organic N/ha) | Tables publish no row above | Last row held | `UNSUPPORTED_PATHWAY`, no advice |
+| Grazing stocking input | Green Book Table 12-3 fn 3 (annual N excreted averaged over the net grassland area) | In-season paddock pressure from movement records, else holding | Holding statutory GSR only; field movement record disclosed as context (`fieldGrazingContext`) |
+| White-clover grazing | `TEAGASC_CLOVER_BEEF_2026` Table 1 — drystock farm at 170 kg organic N/ha, by April clover content | `UNSUPPORTED_PATHWAY` | Published annual total for the April class (low/none 150, ~5% 112, ~10% 75 kg N/ha) only at 170 kg organic N/ha and only for the published classes; otherwise `UNSUPPORTED_PATHWAY` — the grass-only table is never substituted. P/K as grass. |
+
+Field capture: the production-cycle card records white clover as one of the three Teagasc April classes (0 / 5 / 10%).
+
+**Soil pH advice** (`soil-ph-advice.ts`, `soil_ph_advice_v1.0.0`): compares laboratory (else recorded) pH with
+`TEAGASC_PH_LIME` targets (`soil_pH_targets.csv`: grass 6.3, grass-clover 6.5–6.8, cereals 6.5, peat 5.5–5.8; peat =
+>20% organic matter, else mapped peat). Below target with no laboratory lime requirement → "lime likely needed, get a
+lime requirement test". Never a rate from pH (the source's own rule). Shown on the farm lime card and the fertiliser
+plan overview.
+
+`soil_ph_advice_v1.1.0` (Codex audit F005/F006): the target follows the field's canonical production-cycle crop for
+the season, never the legacy planned use — grass systems (grazing, silage cuts, hay, mixed) → grass 6.3; white-clover
+grazing/silage → grass-clover 6.5–6.8. No production cycle, or a crop whose published row can't be matched with
+confidence (other cereal — oats 6.0 vs cereals 6.5; forage rape/kale — not oilseed rape; red clover; horticulture;
+other), gives no advice (`MISSING_FIELD_PRODUCTION_CYCLE` / `PH_TARGET_NOT_PUBLISHED_FOR_CROP`). Each reading keeps
+its provenance (laboratory test with lab, sample date and reference; or recorded value with status, source and date)
+and the lime card shows it beside the pH.
+
+**Judgement calls for the agronomist (not resolved in code):**
+1. Holding stocking rate: statutory S.I. Table 7 excretion (v2, 100.3 kg N/ha on the test farm) vs the Green Book's own
+   LU → organic-N conversion (legacy engine, 109) — gives grazing N 54.5 vs 65 kg/ha on the test farm.
+2. Whether in-season field grazing records should ever adjust Green Book grazing advice (currently context only).
+3. Clover N at stocking rates other than 170 kg organic N/ha, and recorded clover contents between the published classes.
+4. First-cut silage: Teagasc 2026 first-cut table (v2) vs Green Book Table 14-2 (legacy) — K at Index 1 175 vs 185.
+5. Second-cut silage: v2 fails closed on the Teagasc yield-based vs soil-index source conflict.
+6. Holding the printed first Table 12-3 row (≤80 kg organic N/ha → 35 kg N/ha) for lightly stocked farms.
+7. (pH v1.1.0) Whether peat's 5.5–5.8 target should override every crop (currently it does), and which crop rows
+   should cover red clover and forage brassicas (currently no advice).
+8. (Clover N) The clover strategy is published only at 170 kg organic N/ha; the engine now applies it only at exactly
+   170.0 (Codex audit F004) — whether a band around 170 is defensible is for the agronomist.
+
+## Nutrient engine v1.7.0 — one grazing calculation for both engines (2026-11-11)
+
+Fertiliser close-out, Keith's choice "align both". `calculateNutrientPlan` (Today prompts, Nutrients and field pages,
+reports, finance, alerts) now takes its grazing N/P/K requirement from `calculateGrazingGrossRequirement`
+(`grass-fertiliser-engine-v2.ts`), the same function behind the Fertiliser Plan page and RFQ basket. No new source and
+no new number: the Green Book Tables 12-2/12-3, 13-2/13-3 and 14-1 rows and the Teagasc 2026 drystock clover strategy
+already registered for engine v2 are reused; the regulatory, slurry, buffer and product layers are unchanged.
+
+| Change | Before (v1.6.0) | After (v1.7.0) |
+|---|---|---|
+| Grazing table key | Table 12-3 LU/ha via Green Book LU factors (test farm: 1.385 LU/ha ≈ 109 kg N/ha) | Statutory grassland stocking rate, S.I. 588/2025 Table 7 excretion / net grassland ha (test farm: 100.3 kg N/ha) — Table 12-3 footnote 3's definition |
+| Stocking rate unknown (an age band missing) | LU route still gave a requirement | Requirement unavailable; prompt asks for the ages (`MISSING_LIVESTOCK_CATEGORISATION_FOR_GSR`) |
+| Above the last published row | Last row held (Codex audit F001 open) | Requirement unavailable (`STOCKING_RATE_BEYOND_PUBLISHED_TABLE`), no products — **F001 resolved** |
+| White-clover sward (when the caller supplies it) | Grass table | Teagasc drystock clover strategy, only at 170 kg organic N/ha and the published April classes; otherwise unavailable |
+| No grassland area | Legacy figures from the first row | Legacy requirement unavailable too |
+
+Test farm (with ages): grazing P1 K1 = N 55, P 27, K 66 in both engines (was N 65 / P 27 / K 67 on the LU basis).
+**Agronomist judgement items:** the statutory-excretion basis versus the Green Book LU factors (≈8% lower organic N on
+the test farm); K below the first published row (Table 14-1 footnote applied linearly); second-cut silage, which the
+Nutrients engine advises and the Fertiliser Plan engine refuses (`SOURCE_CONFLICT`) — still divergent.
+

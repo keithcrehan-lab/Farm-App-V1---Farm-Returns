@@ -583,14 +583,18 @@ function whiteCloverGrazingRequirement(
       `Teagasc's clover N strategy is published for April sward white-clover contents of low/none, about 5% and about 10%; a recorded ${cloverPct}% is not one of those classes and is never interpolated between them.`,
     ]);
   }
-  if (Math.abs(orgN - DRYSTOCK_CLOVER_REFERENCE_GSR_KG_N_HA) >= 0.5) {
+  // GFT140 (audit F004): the canonical lookup is the gate — it is given the
+  // field's actual stocking rate, never a substituted 170, and refuses any
+  // rate other than the published reference.
+  const referenceCheck = lookupDrystockCloverN(cloverClass, DRYSTOCK_CLOVER_TIMINGS[0], orgN);
+  if (referenceCheck.status !== "OK") {
     return grazingBlocked("UNSUPPORTED_PATHWAY", [], [
-      `Teagasc publishes the drystock white-clover N strategy only for farms stocked at ${DRYSTOCK_CLOVER_REFERENCE_GSR_KG_N_HA} kg organic N/ha; this field is at ${Math.round(orgN)} kg N/ha, so no clover N rate is advised. The grass-only N table is not used for a clover sward because it ignores the N the clover fixes.`,
+      `Teagasc publishes the drystock white-clover N strategy only for farms stocked at ${DRYSTOCK_CLOVER_REFERENCE_GSR_KG_N_HA} kg organic N/ha; this field is at ${Number(orgN.toFixed(1))} kg N/ha, so no clover N rate is advised. The grass-only N table is not used for a clover sward because it ignores the N the clover fixes.`,
     ]);
   }
   const schedule: Record<string, number> = {};
   for (const timing of DRYSTOCK_CLOVER_TIMINGS) {
-    const value = lookupDrystockCloverN(cloverClass, timing, DRYSTOCK_CLOVER_REFERENCE_GSR_KG_N_HA);
+    const value = lookupDrystockCloverN(cloverClass, timing, orgN);
     if (value.status !== "OK") return grazingBlocked("SOURCE_CONFLICT", [], ["The clover N schedule could not be read for every timing."]);
     schedule[timing] = value.value;
   }

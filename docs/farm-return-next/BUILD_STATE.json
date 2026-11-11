@@ -3,7 +3,7 @@
   "baseline_tag": "v1-baseline-2026-08-29",
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
-  "contracts_frozen": true,
+  "contracts_frozen": false,
   "schema_version": 2,
   "current_checkpoint": "campaign-c-slurry-science-freeze",
   "checkpoint_status": "ai_adjudicated_expert_validation_pending",
@@ -612,7 +612,7 @@
       "field_grazing": "Grazing table rows use the farm grassland stocking rate; field grazing records are context only (Keith, 2026-11-11)",
       "alignment": "Align both engines: one shared grazing calculation; full engine merge deferred (Keith, 2026-11-11)"
     },
-    "phase_a": "IMPLEMENTED_PENDING_GATE_AND_AUDIT — grass_fertiliser_engine_v2.1.0 (Index 4 P, above-table refusal, clover pathway, holding stocking input), soil_ph_advice_v1.0.0",
+    "phase_a": "IMPLEMENTED — grass_fertiliser_engine_v2.1.0 (Index 4 P, above-table refusal, clover pathway at exactly 170 kg organic N/ha, holding stocking input), soil_ph_advice_v1.1.0 (canonical crop target, reading provenance)",
     "phase_b": "IMPLEMENTED_AND_VERIFIED — nutrient_engine_v1.7.0 on calculateGrazingGrossRequirement (statutory GSR, fails closed above the table: resolves nutrient_engine_v1_6_0 F001); clover sward plumbed via listFieldsForFarm -> Field.grazingSward; Mac gate green bar baseline/flaky files",
     "phase_c": "IN_PROGRESS — clean final audit, agronomist pack",
     "merged": false,
@@ -622,6 +622,12 @@
       "mac_full_suite": "7881 passed, 37 failed in one 37-minute run on a loaded MacBook: 16 were 5 s timeouts, 14 were strict Supabase mocks that did not know the newly-read field_production_cycles table (fixed), 1 a message-text assertion (fixed); release-baseline failures reproduced (Plan page, Schemes, cattle boundary R4)",
       "mac_rerun_failed_files": "17 files re-run after fixes: 1617 passed, 2 failed — SlurryFirstPlanningPanel F010 (passes when run on its own; mocked UI, untouched) and one cattle recommendations seam test (cattle domain untouched; slow-test timeout)",
       "typecheck_lint_build": "next build EXIT 0, tsc --noEmit EXIT 0, eslint EXIT 0 (warnings only; the new unused-variable warning in nutrients.ts removed)"
-    }
+    },
+    "contracts": {
+      "contracts_frozen": "false from this commit until the close-out PR is merged and its final audit is clean (DOMAIN_CONTRACTS.md step 4)",
+      "omission": "Codex audit F009: the earlier close-out commits (161fa1c..f6e4a86) changed frozen contracts with contracts_frozen left true — recorded, not rewritten",
+      "affected": "calculateNutrientPlan (grazing fails closed above Table 12-3 and without a grazing requirement; per-nutrient arms blocked), NutrientPlan.calculationTrace.grazing (organic-N basis with source/version/inputs; LU-row fields removed), FieldNutrientRequirement n.source/ruleRefs (clover strategy), Field.grazingSward (additive, derived), listFieldsForFarm (reads field_production_cycles), aggregateFarmLimeRequirement options (cropSystemByFieldId replaces cloverFieldIds), grass-fertiliser-engine-v2 calculateGrazingGrossRequirement/grazingSwardForCycle (new exports)"
+    },
+    "audit": "182629a..f6e4a86: CRITICAL=0 HIGH=6 (F004 clover tolerance, F005 pH provenance, F006 pH crop target, F007 unknown-to-zero arms, F008 clover provenance, F009 contracts_frozen) — all fixed in the following commit; re-audit pending"
   }
 }

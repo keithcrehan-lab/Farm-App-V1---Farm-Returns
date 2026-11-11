@@ -1084,3 +1084,22 @@ engine v2 and rebuilding the NAP/buffer/product layers — is withdrawn).
 - Mac results: next build, `tsc --noEmit` and lint pass. Full suite: every failure either fixed above, a release
   baseline failure, or a slow-test timeout; the 17 affected files re-run green except `SlurryFirstPlanningPanel` F010
   (passes alone) and one cattle recommendations seam test (cattle code untouched).
+
+## Fertiliser close-out — Codex audit 182629a..f6e4a86 (6 HIGH) fixed (2026-11-11)
+
+**In-flight worktree agents: `contracts_frozen` is now `false` — rebase before continuing.** The close-out changes
+frozen contracts (`calculateNutrientPlan`'s grazing behaviour and `calculationTrace.grazing` shape,
+`FieldNutrientRequirement` provenance, `aggregateFarmLimeRequirement`'s options, `listFieldsForFarm` now reading
+production cycles). The earlier close-out commits left the flag `true` — a real process omission (F009), recorded here
+rather than rewritten. It stays `false` until the PR is merged and its final audit is clean.
+
+- F004: clover N passes the field's actual stocking rate to the canonical `lookupDrystockCloverN` gate — advice only at
+  exactly 170 kg organic N/ha; regression tests at 169.6/169.99/170.01/170.4.
+- F008: a clover sward's N requirement cites the 2026 Teagasc clover strategy (source, version, rule), not Table 12-3;
+  `calculationTrace.grazing.n` keeps source, version and every input (April class, timing schedule); the Evidence
+  Report shows them.
+- F007: when the shared calculation gives no grazing requirement (e.g. no grassland area), the per-nutrient gross and
+  net arms are blocked too — the mixed-index card and CSV/Evidence report no longer show N/P of 0.
+- F005/F006: `soil_ph_advice_v1.1.0` — the pH target comes from the field's canonical production-cycle crop (never the
+  legacy planned use) and fails closed with no cycle or no matchable published row; each reading carries its provenance
+  (lab, sample date, reference; or recorded status, source, date), shown on the lime card.

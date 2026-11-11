@@ -5,7 +5,7 @@
  * (`assessSoilPh`). It never shows a lime rate derived from pH — the rate
  * must come from a laboratory lime requirement test (`TEAGASC_PH_LIME`).
  */
-import { formatPhTarget } from "@/domain/soil-ph-advice";
+import { formatPhReading, formatPhTarget } from "@/domain/soil-ph-advice";
 import type { FarmLimeRequirement } from "@/domain/fertiliser-plan";
 
 export function SoilPhAdviceList({ lime, className = "" }: { lime: FarmLimeRequirement; className?: string }) {
@@ -24,7 +24,7 @@ export function SoilPhAdviceList({ lime, className = "" }: { lime: FarmLimeRequi
           <li key={line.fieldId} className="flex items-center justify-between gap-3 border-t border-fr-border py-1.5 text-sm first:border-t-0">
             <span className="min-w-0 flex-1 truncate text-fr-ink-900">{line.fieldName}</span>
             <span className="shrink-0 text-fr-ink-600">
-              pH {line.phAdvice!.ph.toFixed(1)} · target {formatPhTarget(line.phAdvice!.target)}
+              pH {line.phAdvice!.ph.toFixed(1)} ({formatPhReading(line.phAdvice!.reading)}) · target {formatPhTarget(line.phAdvice!.target)}
             </span>
           </li>
         ))}

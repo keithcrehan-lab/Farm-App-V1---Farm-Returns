@@ -266,3 +266,30 @@ describe("mixedRequirementReport", () => {
     expect(mixedRequirementReport(blocked)?.evidence.availableNutrientBasis).toEqual(blocked.organicApplication.availableNutrientAssessment);
   });
 });
+
+// Audit F007 (fertiliser close-out): a grazing field on a farm with no usable
+// grassland area has no grazing requirement — the mixed-index card and the
+// CSV/Evidence report must not publish a calculated-looking N or P of 0.
+describe("no usable grassland area, only P indexed (audit F007)", () => {
+  const grazingField: Field = {
+    ...field,
+    plannedUse: tracked("grazing", "farmer_adjusted", "Farmer"),
+    fertility: { pIndex: idx(2) },
+  };
+  const cows = [
+    { id: "g1", farmId: "farm-5a", category: "suckler_cow" as const, label: "Cows", count: tracked(10, "verified", "Farmer"), system: "grazing" as const, value: tracked(0, "estimated", "x") },
+  ];
+  it("blocks every per-nutrient arm and shows no mixed figures", () => {
+    for (const area of [0, -1]) {
+      const plan = calculateNutrientPlan({ field: grazingField, farmGrasslandAreaHa: area, livestockGroups: cows, asOfDate: "2026-10-02" });
+      for (const nutrient of ["n", "p", "k"] as const) {
+        expect(plan.requirementByNutrient[nutrient].status, `${area} gross ${nutrient}`).not.toBe("OK");
+        expect(plan.netRequirementByNutrient[nutrient].status, `${area} net ${nutrient}`).not.toBe("OK");
+      }
+      expect(plan.requirementByNutrient.n).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_GRASSLAND_AREA" });
+      expect(requirementCardPresentation(plan)).toEqual({ kind: "paired" });
+      expect(mixedRequirementReport(plan)).toBeUndefined();
+      expect(plan.requirement.status).toBe("unavailable");
+    }
+  });
+});

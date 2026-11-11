@@ -321,7 +321,7 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
                 const n = trace.n;
                 const nFormula =
                   n.lowerRowOrganicNKgHa === undefined || n.upperRowOrganicNKgHa === undefined
-                    ? `${n.ruleId} → ${n.resultKgHa.toFixed(2)} kg N/ha`
+                    ? `${n.source} (${n.sourceVersion}), ${n.ruleId}${n.inputs.cloverClass !== undefined ? `, April clover class ${String(n.inputs.cloverClass)}` : ""} → ${n.resultKgHa.toFixed(2)} kg N/ha`
                     : n.lowerRowOrganicNKgHa === n.upperRowOrganicNKgHa
                       ? `Published row ${n.lowerRowOrganicNKgHa} kg organic N/ha → ${n.resultKgHa.toFixed(2)} kg N/ha`
                       : `Between published rows ${n.lowerRowOrganicNKgHa} and ${n.upperRowOrganicNKgHa} kg organic N/ha (fraction ${(n.interpolationFraction ?? 0).toFixed(4)}) → ${n.resultKgHa.toFixed(2)} kg N/ha`;
@@ -333,7 +333,7 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
                         label="Stocking rate input"
                         value={`${trace.organicNStockingRateKgHa.toFixed(2)} kg organic N/ha (statutory grassland stocking rate; ${trace.totalLivestockUnits.toFixed(3)} livestock units ÷ ${trace.farmGrasslandAreaHa.toFixed(3)} ha = ${trace.stockingRateLUHa.toFixed(4)} LU/ha, for context)`}
                       />
-                      <Row label="N — Table 12-3" value={nFormula} />
+                      <Row label={n.lowerRowOrganicNKgHa === undefined ? "N — clover strategy" : "N — Table 12-3"} value={nFormula} />
                       <Row
                         label="P — Tables 13-2 + 13-3"
                         value={`Index ${trace.p.soilIndex}: build-up ${trace.p.buildUpKgHa.toFixed(2)} + drystock maintenance ${trace.p.maintenanceKgHa.toFixed(2)} = ${trace.p.resultKgHa.toFixed(2)} kg P/ha`}

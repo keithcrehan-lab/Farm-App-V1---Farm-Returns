@@ -809,6 +809,14 @@ export interface NutrientPlan {
       stockingBasis: "STATUTORY_GSR";
       n: {
         ruleId: string;
+        /** The publication the N figure actually comes from (Green Book
+         * Table 12-3 for grass; the 2026 Teagasc clover strategy for a
+         * clover sward) and its version — audit F008. */
+        source: string;
+        sourceVersion: string;
+        /** Every material input of the shared calculation, verbatim
+         * (e.g. the April clover class and the per-timing N schedule). */
+        inputs: Readonly<Record<string, string | number | boolean | null>>;
         /** Grass swards: the published organic-N rows interpolated between. */
         lowerRowOrganicNKgHa?: number;
         upperRowOrganicNKgHa?: number;

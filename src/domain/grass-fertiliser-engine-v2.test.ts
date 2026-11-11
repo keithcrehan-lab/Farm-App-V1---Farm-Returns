@@ -241,6 +241,15 @@ describe("grass fertiliser engine v2.1.0 — fertiliser close-out", () => {
       expect(result.limitations.join(" ")).toMatch(/only for farms stocked at 170 kg organic N\/ha/);
     });
 
+    it("refuses clover N just either side of 170 kg organic N/ha — the canonical gate gets the actual rate, never a rounded one (audit F004, GFT140)", () => {
+      for (const rate of [169.6, 169.99, 170.01, 170.4]) {
+        const result = calculateGrassFertiliserV2({ field: field(3, 3), cycle: clover(10), annualOrganicNStockingRateKgHa: rate });
+        expect(result.status, String(rate)).toBe("UNSUPPORTED_PATHWAY");
+        expect(result.grossRequirementKgHa, String(rate)).toBeUndefined();
+      }
+      expect(calculateGrassFertiliserV2({ field: field(3, 3), cycle: clover(10), annualOrganicNStockingRateKgHa: 170 }).status).toBe("READY");
+    });
+
     it("never interpolates between clover classes (GFT139)", () => {
       const result = calculateGrassFertiliserV2({ field: field(3, 3), cycle: clover(7), annualOrganicNStockingRateKgHa: 170 });
       expect(result.status).toBe("UNSUPPORTED_PATHWAY");

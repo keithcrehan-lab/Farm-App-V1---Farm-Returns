@@ -2074,6 +2074,9 @@ function buildFieldNutrientRequirement(args: {
   /** nutrient_engine_v1.7.0: the statutory organic-N stocking rate the
    * grazing tables were keyed on; undefined when it is unknown. */
   grazingOrganicNStockingRateKgHa?: number;
+  /** Audit F008: the shared grazing calculation's N provenance, so a clover
+   * sward's requirement cites the clover strategy, not Table 12-3. */
+  grazingNProvenance?: { ruleId: string; source: string; sourceVersion: string };
   farmGrasslandAreaHa: number;
   gross: { n: number; p: number; k: number };
   requirementByNutrient: NutrientPlan["requirementByNutrient"];
@@ -2102,7 +2105,7 @@ function buildFieldNutrientRequirement(args: {
   const grasslandAreaMissing = basis === "grazing" && !(Number.isFinite(args.farmGrasslandAreaHa) && args.farmGrasslandAreaHa > 0);
   const commonLimitations = cropContext.plannedUseAssumed ? ["PLANNED_USE_NOT_RECORDED_GRAZING_ASSUMED"] : [];
 
-  const arm = (kgHa: number, outcome: EngineOutcome<number>, ruleRefs: string[], limitations: string[]): FieldNutrientRequirementArm => {
+  const arm = (kgHa: number, outcome: EngineOutcome<number>, ruleRefs: string[], limitations: string[], source = "Teagasc Green Book (5th Ed., 2020)"): FieldNutrientRequirementArm => {
     if (basis === "tillage") return { status: "NOT_APPLICABLE", reasonCode: "TILLAGE_FIELD_NOT_SUPPORTED" };
     if (outcome.status === "OK") {
       if (livestockMissing) return { status: "UNKNOWN", reasonCode: "MISSING_LIVESTOCK_DATA", missingInputs: ["livestockGroups"] };
@@ -2112,18 +2115,22 @@ function buildFieldNutrientRequirement(args: {
         kgHa,
         totalKg: areaUsable ? ok(kgHa * field.areaHa, outcome.evidenceState) : blockedInsufficientEvidence("MISSING_FIELD_AREA", ["field.areaHa"]),
         evidenceState: outcome.evidenceState,
-        source: "Teagasc Green Book (5th Ed., 2020)",
+        source,
         ruleRefs,
         limitations: [...commonLimitations, ...limitations],
       };
     }
     const missingInputs = outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? [...outcome.missingInputs] : [];
-    if (livestockMissing) missingInputs.push("livestockGroups");
-    if (grasslandAreaMissing) missingInputs.push("farmGrasslandAreaHa");
+    if (livestockMissing && !missingInputs.includes("livestockGroups")) missingInputs.push("livestockGroups");
+    if (grasslandAreaMissing && !missingInputs.includes("farmGrasslandAreaHa")) missingInputs.push("farmGrasslandAreaHa");
     return { status: "UNKNOWN", reasonCode: outcome.reasonCode, missingInputs };
   };
 
   const silageBasis = basis === "silage";
+  const cloverN =
+    basis === "grazing" && args.grazingNProvenance !== undefined && !args.grazingNProvenance.ruleId.startsWith("TEAGASC_GREEN_BOOK")
+      ? args.grazingNProvenance
+      : undefined;
   return {
     contractVersion: "field_nutrient_requirement_v1",
     engineVersion: NUTRIENT_ENGINE_VERSION,
@@ -2133,10 +2140,11 @@ function buildFieldNutrientRequirement(args: {
     n: arm(
       gross.n,
       requirementByNutrient.n,
-      [silageBasis ? "Teagasc Green Book Table 12-7" : "Teagasc Green Book Table 12-3"],
+      [cloverN !== undefined ? cloverN.ruleId : silageBasis ? "Teagasc Green Book Table 12-7" : "Teagasc Green Book Table 12-3"],
       // First-cut N ±25 kg per t DM (`CLM-TGC-YIELD-SCALE`) stays
       // IMPLEMENTATION_DEFERRED_SUPPORTED_RANGE_UNCLEAR: N ignores yield.
       silageBasis ? ["N_YIELD_SCALING_NOT_APPLIED"] : [],
+      cloverN !== undefined ? `${cloverN.source} (${cloverN.sourceVersion})` : undefined,
     ),
     p: {
       ...arm(gross.p, requirementByNutrient.p, ["Teagasc Green Book Table 13-2", silageBasis ? "Teagasc Green Book Table 13-4" : "Teagasc Green Book Table 13-3"], []),
@@ -2621,9 +2629,12 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
           stockingBasis: "STATUTORY_GSR",
           n:
             sward.kind === "WHITE_CLOVER"
-              ? { ruleId: traces.n.ruleId, resultKgHa: gross.n }
+              ? { ruleId: traces.n.ruleId, source: traces.n.source, sourceVersion: traces.n.sourceVersion, inputs: { ...traces.n.inputs }, resultKgHa: gross.n }
               : {
                   ruleId: traces.n.ruleId,
+                  source: traces.n.source,
+                  sourceVersion: traces.n.sourceVersion,
+                  inputs: { ...traces.n.inputs },
                   lowerRowOrganicNKgHa: Number(nInputs.lowerOrganicN),
                   upperRowOrganicNKgHa: Number(nInputs.upperOrganicN),
                   interpolationFraction: Number(nInputs.interpolationFraction),
@@ -3073,10 +3084,18 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // canonical reasons (MISSING_LIVESTOCK_DATA / MISSING_GRASSLAND_AREA,
   // `buildFieldNutrientRequirement`'s arms) rather than the statutory
   // stocking-rate calculation's restatement of the same gap.
+  // Audit F007: whenever the shared calculation gave no grazing requirement,
+  // the per-nutrient gross/net arms are blocked too (never an OK zero); a
+  // missing grassland area carries its own established reason.
+  const grasslandAreaUsable = Number.isFinite(farmGrasslandAreaHa) && farmGrasslandAreaHa > 0;
   const grazingEvidenceBlock: EngineOutcome<number> | undefined =
-    livestockGroups.length === 0 || !(Number.isFinite(farmGrasslandAreaHa) && farmGrasslandAreaHa > 0)
+    grazingRequirement === undefined || grazingRequirement.status === "READY"
       ? undefined
-      : grazingEvidenceBlockFor(grazingRequirement, statutoryGsrOutcome);
+      : !grasslandAreaUsable
+        ? blockedInsufficientEvidence("MISSING_GRASSLAND_AREA", ["farmGrasslandAreaHa"])
+        : livestockGroups.length === 0
+          ? blockedInsufficientEvidence("MISSING_LIVESTOCK_DATA", ["livestockGroups"])
+          : grazingEvidenceBlockFor(grazingRequirement, statutoryGsrOutcome);
   const evidenceOk = fertilityEvidenceOk && silageEvidenceOk && grazingRequirementOk;
   const requirement = evidenceOk
     ? tracked(
@@ -3281,6 +3300,9 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     livestockGroups,
     ...(statutoryGsrOutcome.status === "OK" && grazingRequirement !== undefined
       ? { grazingOrganicNStockingRateKgHa: statutoryGsrOutcome.value.gsrKgNHa }
+      : {}),
+    ...(grazingRequirement?.status === "READY"
+      ? { grazingNProvenance: { ruleId: grazingRequirement.traces.n.ruleId, source: grazingRequirement.traces.n.source, sourceVersion: grazingRequirement.traces.n.sourceVersion } }
       : {}),
     farmGrasslandAreaHa,
     gross: { n: grossN, p: grossP, k: grossK },

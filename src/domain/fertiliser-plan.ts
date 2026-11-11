@@ -29,6 +29,7 @@
  */
 import { blockedInsufficientEvidence, isOk, ok, type EngineOutcome } from "./evidence";
 import { assessSoilPh, type SoilPhAdvice } from "./soil-ph-advice";
+import type { CropSystem } from "./fertiliser-field-evidence";
 import { knownFertiliserProductComposition } from "./nutrients";
 import type { Field, FieldPurchaseStatus, NutrientPlan } from "./types";
 
@@ -965,14 +966,17 @@ export function aggregateFarmNutrientRequirementKg(
 
 export function aggregateFarmLimeRequirement(
   fields: readonly Field[],
-  options: { cloverFieldIds?: ReadonlySet<string> } = {},
+  options: { cropSystemByFieldId?: ReadonlyMap<string, CropSystem> } = {},
 ): FarmLimeRequirement {
   let farmTotalTonnesExact = 0;
   let fieldsWithoutLimeEvidence = 0;
   let fieldsBelowPhTargetWithoutLimeRate = 0;
 
   const lines: FieldLimeRequirement[] = fields.map((field) => {
-    const ph = assessSoilPh(field, { cloverSward: options.cloverFieldIds?.has(field.id) ?? false });
+    // Audit F006: the pH target comes from the field's canonical production
+    // cycle crop; no cycle (or a crop with no published target) gives no
+    // advice rather than a guessed target.
+    const ph = assessSoilPh(field, options.cropSystemByFieldId?.get(field.id));
     const phAdvice = ph.status === "OK" ? { phAdvice: ph.value } : {};
     const rateTHa = field.fertility.verifiedTest?.limeRequirement;
     const validRate = rateTHa !== undefined && Number.isFinite(rateTHa) && rateTHa >= 0;

@@ -3318,21 +3318,15 @@ export async function getFarmLimeRequirementAction(): Promise<FarmLimeRequiremen
   // total, the same rule every other farm-wide aggregation in this app
   // now applies.
   const fields = activeFields(await listFieldsForFarm(farm.id));
-  // Clover swards have their own Teagasc pH target (6.5–6.8); the current
-  // season's production cycle is the canonical record of a clover sward.
+  // Audit F006: the pH target follows each field's canonical crop for the
+  // current season (production cycles); a field without one gets no advice.
   const currentSeason = new Date().toISOString().slice(0, 4);
   const cycles = await listFieldProductionCyclesForSeason(
     fields.map((field) => field.id),
     currentSeason,
   );
-  const cloverFieldIds = new Set(
-    cycles
-      .filter(
-        (cycle) =>
-          cycle.cropSystem === "GRASS_WHITE_CLOVER_GRAZING" ||
-          cycle.cropSystem === "GRASS_WHITE_CLOVER_SILAGE",
-      )
-      .map((cycle) => cycle.fieldId),
+  const cropSystemByFieldId = new Map(
+    cycles.map((cycle) => [cycle.fieldId, cycle.cropSystem] as const),
   );
-  return aggregateFarmLimeRequirement(fields, { cloverFieldIds });
+  return aggregateFarmLimeRequirement(fields, { cropSystemByFieldId });
 }

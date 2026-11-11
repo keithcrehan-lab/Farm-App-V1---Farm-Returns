@@ -2406,6 +2406,14 @@ Field capture: the production-cycle card records white clover as one of the thre
 lime requirement test". Never a rate from pH (the source's own rule). Shown on the farm lime card and the fertiliser
 plan overview.
 
+`soil_ph_advice_v1.1.0` (Codex audit F005/F006): the target follows the field's canonical production-cycle crop for
+the season, never the legacy planned use — grass systems (grazing, silage cuts, hay, mixed) → grass 6.3; white-clover
+grazing/silage → grass-clover 6.5–6.8. No production cycle, or a crop whose published row can't be matched with
+confidence (other cereal — oats 6.0 vs cereals 6.5; forage rape/kale — not oilseed rape; red clover; horticulture;
+other), gives no advice (`MISSING_FIELD_PRODUCTION_CYCLE` / `PH_TARGET_NOT_PUBLISHED_FOR_CROP`). Each reading keeps
+its provenance (laboratory test with lab, sample date and reference; or recorded value with status, source and date)
+and the lime card shows it beside the pH.
+
 **Judgement calls for the agronomist (not resolved in code):**
 1. Holding stocking rate: statutory S.I. Table 7 excretion (v2, 100.3 kg N/ha on the test farm) vs the Green Book's own
    LU → organic-N conversion (legacy engine, 109) — gives grazing N 54.5 vs 65 kg/ha on the test farm.
@@ -2414,6 +2422,10 @@ plan overview.
 4. First-cut silage: Teagasc 2026 first-cut table (v2) vs Green Book Table 14-2 (legacy) — K at Index 1 175 vs 185.
 5. Second-cut silage: v2 fails closed on the Teagasc yield-based vs soil-index source conflict.
 6. Holding the printed first Table 12-3 row (≤80 kg organic N/ha → 35 kg N/ha) for lightly stocked farms.
+7. (pH v1.1.0) Whether peat's 5.5–5.8 target should override every crop (currently it does), and which crop rows
+   should cover red clover and forage brassicas (currently no advice).
+8. (Clover N) The clover strategy is published only at 170 kg organic N/ha; the engine now applies it only at exactly
+   170.0 (Codex audit F004) — whether a band around 170 is defensible is for the agronomist.
 
 ## Nutrient engine v1.7.0 — one grazing calculation for both engines (2026-11-11)
 

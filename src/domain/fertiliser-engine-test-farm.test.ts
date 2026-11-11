@@ -195,8 +195,8 @@ describe("fertiliser engine test farm (Teagasc Green Book 2020) — Nutrients en
 
     it("at the strategy's 170 kg organic N/ha, a 10% April clover sward gets the Teagasc clover N total, not the grass table", () => {
       // Teagasc publishes the drystock clover strategy only at 170 kg organic
-      // N/ha (within ±0.5), which a whole-number herd rarely lands on exactly,
-      // so the shared calculation is pinned there directly.
+      // N/ha exactly (GFT140), which a whole-number herd rarely lands on, so
+      // the shared calculation is pinned there directly.
       const clover = calculateGrazingGrossRequirement({
         pIndex: 3,
         kIndex: 3,
@@ -248,6 +248,25 @@ describe("fertiliser engine test farm (Teagasc Green Book 2020) — Nutrients en
       const plan = grazingPlan(cloverField);
       expect(plan.requirement.status).toBe("unavailable");
       expect(plan.fieldRequirement.n).toMatchObject({ status: "UNKNOWN", reasonCode: "GRAZING_PATHWAY_NOT_SUPPORTED" });
+    });
+
+    it("a clover sward at exactly 170 kg organic N/ha cites the clover strategy, not Table 12-3, and keeps its class and timings (audit F008)", () => {
+      // 34 suckler cows (65 kg N each, S.I. 588/2025 Table 7) on 13 ha = 170.0 exactly.
+      const cows = [group("cows", "suckler_cow", 34, 60, "female")];
+      const cloverField: Field = { ...testField("F5", 13, "grazing", 3, 3), grazingSward: grazingSwardForCycle(cycleOf("GRASS_WHITE_CLOVER_GRAZING", 10)) };
+      const plan = grazingPlan(cloverField, cows, { farmGrasslandAreaHa: 13, nonGrassPct: 0 });
+      const n = plan.fieldRequirement.n;
+      if (n.status !== "KNOWN") throw new Error(`expected KNOWN, got ${JSON.stringify(n)}`);
+      expect(n.source).toMatch(/clover/i);
+      expect(n.source).not.toMatch(/Green Book/);
+      expect(n.ruleRefs).toEqual(["TEAGASC_CLOVER_BEEF_2026_TABLE_1_DRYSTOCK"]);
+      const trace = plan.calculationTrace?.grazing?.n;
+      expect(trace?.ruleId).toBe("TEAGASC_CLOVER_BEEF_2026_TABLE_1_DRYSTOCK");
+      expect(trace?.source).toMatch(/clover/i);
+      expect(trace?.inputs).toMatchObject({ aprilWhiteCloverPct: 10, referenceOrganicNKgHa: 170, annualOrganicNStockingRateKgHa: 170 });
+      expect(Object.keys(trace?.inputs ?? {}).some((key) => key.startsWith("n_"))).toBe(true);
+      // P and K stay on the Green Book tables.
+      expect(plan.fieldRequirement.p).toMatchObject({ status: "KNOWN", source: "Teagasc Green Book (5th Ed., 2020)" });
     });
 
     it("a clover sward with no recorded April clover content asks for it", () => {

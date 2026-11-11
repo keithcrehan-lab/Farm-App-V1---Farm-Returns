@@ -3108,11 +3108,21 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
           ? blockedInsufficientEvidence("MISSING_LIVESTOCK_DATA", ["livestockGroups"])
           : grazingEvidenceBlockFor(grazingRequirement, statutoryGsrOutcome);
   const evidenceOk = fertilityEvidenceOk && silageEvidenceOk && grazingRequirementOk;
+  // Codex audit F008: a clover sward's N comes from the 2026 clover strategy,
+  // so the displayed source names it; P and K stay on the Green Book.
+  const cloverNTrace =
+    grazingRequirement?.status === "READY" && !grazingRequirement.traces.n.ruleId.startsWith("TEAGASC_GREEN_BOOK")
+      ? grazingRequirement.traces.n
+      : undefined;
+  const requirementSource =
+    cloverNTrace !== undefined
+      ? `${cloverNTrace.source} (${cloverNTrace.sourceVersion}) for N; Teagasc Green Book (5th Ed., 2020) for P and K`
+      : "Teagasc Green Book (5th Ed., 2020)";
   const requirement = evidenceOk
     ? tracked(
         { n: Math.round(grossN), p: Math.round(grossP), k: Math.round(grossK) },
         "estimated",
-        "Teagasc Green Book (5th Ed., 2020)",
+        requirementSource,
         { calculationVersion: NUTRIENT_ENGINE_VERSION },
       )
     : tracked(
@@ -3261,7 +3271,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
           k: Math.round(remainingK),
         },
         "estimated",
-        "Teagasc Green Book (5th Ed., 2020) requirement, less organic nutrient credit (S.I. 588/2025 slurry availability)",
+        `${requirementSource} requirement, less organic nutrient credit (S.I. 588/2025 slurry availability)`,
         { calculationVersion: NUTRIENT_ENGINE_VERSION },
       )
     : tracked({ n: 0, p: 0, k: 0 }, "unavailable", requirement.source, { calculationVersion: NUTRIENT_ENGINE_VERSION });

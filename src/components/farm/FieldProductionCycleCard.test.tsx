@@ -206,7 +206,7 @@ describe("FieldProductionCycleCard — the saved sward reaches the farm store", 
     return <output data-testid="sward">{JSON.stringify(current?.grazingSward ?? null)}</output>;
   }
 
-  it("a saved 10% April clover cycle sets the field's sward without a reload; saving grass again clears it", async () => {
+  it("a saved 10% April clover cycle sets the field's sward without a reload", async () => {
     const clover = readySaveResult();
     clover.cycle = {
       ...clover.cycle,
@@ -229,8 +229,19 @@ describe("FieldProductionCycleCard — the saved sward reaches the farm store", 
     fireEvent.click(screen.getByRole("radio", { name: "No" }));
     fireEvent.click(screen.getByRole("button", { name: /save production evidence/i }));
     await waitFor(() => expect(screen.getByTestId("sward").textContent).toBe(JSON.stringify({ kind: "WHITE_CLOVER", aprilWhiteCloverPct: 10 })));
+  });
 
+  it("a saved grass cycle sets a grass sward", async () => {
     vi.mocked(saveFieldProductionCycleAction).mockResolvedValue(readySaveResult());
+    render(
+      <FarmProvider>
+        <FieldProductionCycleCard field={field} />
+        <SwardProbe />
+      </FarmProvider>,
+    );
+    openCard();
+    await waitFor(() => expect(loadFieldProductionCycleAction).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("radio", { name: "No" }));
     fireEvent.click(screen.getByRole("button", { name: /save production evidence/i }));
     await waitFor(() => expect(screen.getByTestId("sward").textContent).toBe(JSON.stringify({ kind: "GRASS" })));
   });

@@ -1117,3 +1117,12 @@ rather than rewritten. It stays `false` until the PR is merged and its final aud
 - F008 (follow-up): every grazing pathway's N requirement cites the table that produced it — Table 12-2 for
   calf-to-weaning, 12-3 for calf-to-beef, the clover strategy for clover.
 - F005 (MEDIUM): the lime card labels verified, farmer-adjusted and estimated pH readings distinctly.
+
+## Fertiliser close-out — Codex audit 182629a..12c48b3 (3 HIGH) (2026-11-11)
+
+- F010 (bulk): `setBulkFieldCropSystemAction` returns each saved cycle; the bulk sheet applies it to the store, so a
+  bulk crop change updates the grazing sward at once. Test on the Fields page.
+- F008 (legacy outputs): `requirement.source` and `netRequirement.source` name the 2026 clover strategy for a clover
+  sward's N (Green Book for P and K); the Nutrients card shows it. Rendered test.
+- F012 (PRE-EXISTING): callers never pass the resolved grazing production system — **deferred** with reason in
+  `BLOCKERS.md` (FCO-F012).

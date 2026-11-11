@@ -178,8 +178,11 @@ export function GrassWalkClient() {
     setDistanceM(trackDistanceM(sessionTrack.current, mode));
     void getGrassSurveyAction(surveyId).then((r) => {
       if (!live || !r.ok) return;
-      const seen = new Set(sessionTrack.current.map((p) => `${p.recordedAt}|${p.lat}|${p.lng}`));
-      sessionTrack.current = [...r.track.filter((p) => !seen.has(`${p.recordedAt}|${p.lat}|${p.lng}`)), ...sessionTrack.current];
+      // Stored points come back as "+00:00", pending ones are "Z": compare instants, not strings,
+      // so a point that was uploaded but whose reply was lost isn't counted twice.
+      const key = (p: SurveyTrackPoint) => `${Date.parse(p.recordedAt)}|${p.lat}|${p.lng}`;
+      const seen = new Set(sessionTrack.current.map(key));
+      sessionTrack.current = [...r.track.filter((p) => !seen.has(key(p))), ...sessionTrack.current];
       setDistanceM(trackDistanceM(sessionTrack.current, mode));
     }).catch(() => undefined);
     const watch = navigator.geolocation.watchPosition(

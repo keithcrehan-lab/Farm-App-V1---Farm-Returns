@@ -99,12 +99,37 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
       void Promise.resolve().then(() => setMapFailed(true));
       return;
     }
-    map.on("error", (e) => console.error("[Walk map]", e.error));
     const markers: mapboxgl.Marker[] = [];
     const ro = new ResizeObserver(() => map.resize());
     ro.observe(containerRef.current);
+    let styleLoaded = false;
+    let removed = false;
+    let loadDeadline: ReturnType<typeof setTimeout> | undefined;
+    const teardown = () => {
+      if (removed) return;
+      removed = true;
+      clearTimeout(loadDeadline);
+      ro.disconnect();
+      markers.forEach((m) => m.remove());
+      map.remove();
+    };
+    // If the satellite style never loads (blocked request, bad network, GPU lost),
+    // drop the map and show the plain route drawing instead of a blank box.
+    const fallBack = (reason: unknown) => {
+      if (styleLoaded || removed) return;
+      console.error("[Walk map] satellite map failed to load", reason);
+      teardown();
+      setMapFailed(true);
+    };
+    loadDeadline = setTimeout(() => fallBack("timed out"), 15_000);
+    map.on("error", (e) => {
+      console.error("[Walk map]", e.error);
+      fallBack(e.error);
+    });
 
     map.on("style.load", () => {
+      styleLoaded = true;
+      clearTimeout(loadDeadline);
       map.addSource("walk-fields", {
         type: "geojson",
         data: {
@@ -133,11 +158,7 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
       markers.push(new mapboxgl.Marker({ element: readingElement(r), anchor: "bottom" }).setLngLat([r.lng, r.lat]).addTo(map));
     }
 
-    return () => {
-      ro.disconnect();
-      markers.forEach((m) => m.remove());
-      map.remove();
-    };
+    return teardown;
   }, [boundsKey, shownKey, route, readings]);
 
   if (!view.bounds) {

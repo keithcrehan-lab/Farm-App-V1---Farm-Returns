@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { computeSurveyResults, isGrassSurveyMode, trackDistanceM, type SurveyTrackPoint, type SurveyWeather } from "@/domain/grass-survey";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
-import { insertFarmGrassGrowthObservation, listGrassCoverObservationsForFarm } from "@/lib/farm-data/grass-management";
+import { insertFarmGrassGrowthObservation, listGrassCoverObservationsForFarm, listGrassCoverObservationsForSurvey } from "@/lib/farm-data/grass-management";
 import { isValidGrassGrowthKgDmHaDay } from "@/domain/grass-management";
 import { listGrazingFieldSessionsForFarm } from "@/lib/farm-data/grazing-field-sessions";
 import {
@@ -195,14 +195,13 @@ export async function getGrassSurveyAction(surveyId: string): Promise<Result<{ s
   try {
     const survey = await getGrassSurvey(farm.id, surveyId);
     if (!survey) return { ok: false, error: "Walk not found." };
-    const [track, readingIds, observations] = await Promise.all([
+    // Query this walk's readings directly: a farm-wide list is capped by the API row limit,
+    // so on a farm with a long history an older walk's pins would silently disappear.
+    const [track, observations] = await Promise.all([
       listGrassSurveyTrackPoints(farm.id, surveyId),
-      listGrassSurveyObservationIds(farm.id, surveyId),
-      listGrassCoverObservationsForFarm(farm.id),
+      listGrassCoverObservationsForSurvey(farm.id, surveyId),
     ]);
-    const inWalk = new Set(readingIds);
     const readings: GrassSurveyReading[] = observations
-      .filter((o) => inWalk.has(o.id))
       .map((o) => ({ id: o.id, fieldId: o.fieldId, coverKgDmHa: o.coverKgDmHa, observedAt: o.observedAt, lat: o.lat ?? null, lng: o.lng ?? null, accuracyM: o.accuracyM ?? null }))
       .sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt));
     return { ok: true, survey, track, readings };

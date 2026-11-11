@@ -193,6 +193,29 @@ export async function listGrassCoverObservationsForFarm(farmId: string): Promise
   return ((data ?? []) as GrassCoverObservationRow[]).map(parseGrassCoverObservationRow);
 }
 
+/** Cover readings taken during one grass walk, oldest first. Paginated so a
+ * long-running farm's history can never push a walk's readings past the API row cap. */
+export async function listGrassCoverObservationsForSurvey(farmId: string, surveyId: string): Promise<GrassCoverObservation[]> {
+  const supabase = await createClient();
+  const page = 1000;
+  const out: GrassCoverObservation[] = [];
+  for (let from = 0; ; from += page) {
+    const { data, error } = await supabase
+      .from(COVER_TABLE)
+      .select("*")
+      .eq("farm_id", farmId)
+      .eq("survey_id", surveyId)
+      .order("observed_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + page - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as GrassCoverObservationRow[];
+    out.push(...rows.map(parseGrassCoverObservationRow));
+    if (rows.length < page) break;
+  }
+  return out;
+}
+
 /**
  * Inserts one cover observation. Retry-safe by client id: a duplicate id
  * with identical content returns the stored row; a duplicate id with

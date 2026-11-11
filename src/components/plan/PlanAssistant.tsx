@@ -17,6 +17,7 @@ import {
   RECOMMENDATION_CATEGORY_LABEL, RELIABILITY_LABEL, buildRecommendations, weeklyOverview,
   type GrazingContext, type PlanningContext, type PromptLike, type Recommendation, type RecommendationState, type SchemeActionLike,
 } from "@/domain/recommendations";
+import { prioritisePlanningCards } from "@/domain/planning-ui-classifier";
 import { buildFarmSlurryForecast } from "@/domain/slurry-storage-forecast";
 import { buildGrassFieldState, latestGrassGrowthObservation, latestGrassObservationByField } from "@/domain/grass-management";
 import { getGrassManagementDataAction, type GrassManagementData } from "@/app/actions/grass-management";
@@ -117,7 +118,7 @@ export function PlanAssistant({ ctx, farmId, county, fields, prompts, milestones
   const overview = useMemo(() => weeklyOverview(recs, entries, compliance, today), [recs, entries, compliance, today]);
   // Overdue jobs and bookings already sit in the Today and Up next lists; they
   // count in the overview but aren't repeated as cards.
-  const listed = recs.filter((r) => r.status === "active" && r.source !== "calendar");
+  const listed = prioritisePlanningCards(recs, today);
   const hidden = recs.filter((r) => r.status === "snoozed" || r.status === "dismissed");
   const shown = showAll ? listed : listed.slice(0, SHOWN);
 

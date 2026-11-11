@@ -582,7 +582,7 @@
     "branch": "fix/nutrient-engine-orgn-index4-silage-buildup",
     "base": "182629a7aff8fba3e160fa49e237b88ffbc5fc96",
     "engine_version": "nutrient_engine_v1.6.0",
-    "status": "F001_OPEN_SCIENTIFIC_DECISION_REQUIRED_F002_F003_REMEDIATED",
+    "status": "SUPERSEDED_BY_nutrient_engine_v1.7.0 (F001 resolved by fail-closed refusal; F002/F003 remediated)",
     "scientific_status": "implementation corrections against registered Green Book sources; expected values pending agronomist sign-off",
     "primary_audit": ".agent/history/audit-20261111T081825Z-394.md on Keith's MacBook (range 182629a..fb5c050; CRITICAL=0 HIGH=1 MEDIUM=1 LOW=0)",
     "findings": {
@@ -609,10 +609,11 @@
     "decisions": {
       "engine": "Converge on grass-fertiliser-engine-v2 as the single fertiliser engine (Keith, 2026-11-11)",
       "above_table": "Fail closed above the last published stocking-rate row (Keith, 2026-11-11)",
-      "field_grazing": "Grazing table rows use the farm grassland stocking rate; field grazing records are context only (Keith, 2026-11-11)"
+      "field_grazing": "Grazing table rows use the farm grassland stocking rate; field grazing records are context only (Keith, 2026-11-11)",
+      "alignment": "Align both engines: one shared grazing calculation; full engine merge deferred (Keith, 2026-11-11)"
     },
     "phase_a": "IMPLEMENTED_PENDING_GATE_AND_AUDIT — grass_fertiliser_engine_v2.1.0 (Index 4 P, above-table refusal, clover pathway, holding stocking input), soil_ph_advice_v1.0.0",
-    "phase_b": "NOT_STARTED — move Today prompts, Nutrients/field plan, reports, finance, alerts, evidence report, what-matters and plan overview totals from calculateNutrientPlan to v2; then retire the legacy calculation (resolves nutrient_engine_v1_6_0 F001)",
+    "phase_b": "IN_PROGRESS — nutrient_engine_v1.7.0 uses calculateGrazingGrossRequirement on the statutory GSR, fails closed above the table (resolves nutrient_engine_v1_6_0 F001); remaining: clover sward and grazing system plumbing into Nutrients-engine callers",
     "phase_c": "NOT_STARTED — clean final audit, agronomist pack",
     "merged": false,
     "deployed": false

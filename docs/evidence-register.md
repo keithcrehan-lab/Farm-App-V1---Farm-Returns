@@ -2414,3 +2414,25 @@ plan overview.
 4. First-cut silage: Teagasc 2026 first-cut table (v2) vs Green Book Table 14-2 (legacy) — K at Index 1 175 vs 185.
 5. Second-cut silage: v2 fails closed on the Teagasc yield-based vs soil-index source conflict.
 6. Holding the printed first Table 12-3 row (≤80 kg organic N/ha → 35 kg N/ha) for lightly stocked farms.
+
+## Nutrient engine v1.7.0 — one grazing calculation for both engines (2026-11-11)
+
+Fertiliser close-out, Keith's choice "align both". `calculateNutrientPlan` (Today prompts, Nutrients and field pages,
+reports, finance, alerts) now takes its grazing N/P/K requirement from `calculateGrazingGrossRequirement`
+(`grass-fertiliser-engine-v2.ts`), the same function behind the Fertiliser Plan page and RFQ basket. No new source and
+no new number: the Green Book Tables 12-2/12-3, 13-2/13-3 and 14-1 rows and the Teagasc 2026 drystock clover strategy
+already registered for engine v2 are reused; the regulatory, slurry, buffer and product layers are unchanged.
+
+| Change | Before (v1.6.0) | After (v1.7.0) |
+|---|---|---|
+| Grazing table key | Table 12-3 LU/ha via Green Book LU factors (test farm: 1.385 LU/ha ≈ 109 kg N/ha) | Statutory grassland stocking rate, S.I. 588/2025 Table 7 excretion / net grassland ha (test farm: 100.3 kg N/ha) — Table 12-3 footnote 3's definition |
+| Stocking rate unknown (an age band missing) | LU route still gave a requirement | Requirement unavailable; prompt asks for the ages (`MISSING_LIVESTOCK_CATEGORISATION_FOR_GSR`) |
+| Above the last published row | Last row held (Codex audit F001 open) | Requirement unavailable (`STOCKING_RATE_BEYOND_PUBLISHED_TABLE`), no products — **F001 resolved** |
+| White-clover sward (when the caller supplies it) | Grass table | Teagasc drystock clover strategy, only at 170 kg organic N/ha and the published April classes; otherwise unavailable |
+| No grassland area | Legacy figures from the first row | Legacy requirement unavailable too |
+
+Test farm (with ages): grazing P1 K1 = N 55, P 27, K 66 in both engines (was N 65 / P 27 / K 67 on the LU basis).
+**Agronomist judgement items:** the statutory-excretion basis versus the Green Book LU factors (≈8% lower organic N on
+the test farm); K below the first published row (Table 14-1 footnote applied linearly); second-cut silage, which the
+Nutrients engine advises and the Fertiliser Plan engine refuses (`SOURCE_CONFLICT`) — still divergent.
+

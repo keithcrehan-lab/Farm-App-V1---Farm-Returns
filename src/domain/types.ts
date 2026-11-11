@@ -782,28 +782,34 @@ export interface NutrientPlan {
    * recreate the agronomy maths independently. */
   calculationTrace?: {
     basis: "grazing" | "silage";
+    /** nutrient_engine_v1.7.0: present only when the grazing requirement
+     * was calculated (`calculateGrazingGrossRequirement` READY). */
     grazing?: {
       totalLivestockUnits: number;
       farmGrasslandAreaHa: number;
+      /** Context only — the tables are keyed on `organicNStockingRateKgHa`. */
       stockingRateLUHa: number;
+      /** Statutory grassland stocking rate (S.I. 588/2025 Table 7 total N
+       * excreted / net grassland ha) — Table 12-3 footnote 3's definition. */
+      organicNStockingRateKgHa: number;
+      stockingBasis: "STATUTORY_GSR";
       n: {
-        lowerRow: { stockingRateLUHa: number; totalNKgHa: number };
-        upperRow: { stockingRateLUHa: number; totalNKgHa: number };
-        interpolationFraction: number;
+        ruleId: string;
+        /** Grass swards: the published organic-N rows interpolated between. */
+        lowerRowOrganicNKgHa?: number;
+        upperRowOrganicNKgHa?: number;
+        interpolationFraction?: number;
         resultKgHa: number;
       };
       p: {
         soilIndex: 1 | 2 | 3 | 4;
         buildUpKgHa: number;
-        maintenanceBandMaxOrgNKgHa: number | null;
         maintenanceKgHa: number;
         resultKgHa: number;
       };
       k: {
         soilIndex: 1 | 2 | 3 | 4;
-        baseAt170KgOrgNHa: number;
         stockingRateKgNHa: number;
-        adjustmentKgHa: number;
         resultKgHa: number;
       };
     };

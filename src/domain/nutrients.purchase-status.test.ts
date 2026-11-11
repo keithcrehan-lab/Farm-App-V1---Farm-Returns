@@ -73,8 +73,8 @@ describe("Session 2b — canonical product recommendation (purchaseStatus)", () 
   };
 
   it("engine version is bumped to v1.5.0", () => {
-    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.6.0");
-    expect(plan(indexed(2, 2)).calculationVersion).toBe("nutrient_engine_v1.6.0");
+    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.7.0");
+    expect(plan(indexed(2, 2)).calculationVersion).toBe("nutrient_engine_v1.7.0");
   });
 
   const creditAssessed: [string, Allocation][] = [

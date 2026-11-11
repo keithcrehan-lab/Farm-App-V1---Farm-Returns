@@ -20,7 +20,7 @@
 import { calculateNutrientPlan, NUTRIENT_ENGINE_VERSION, type CalculateNutrientPlanInput } from "@/domain/nutrients";
 import { blockedInsufficientEvidence, notApplicable, ok, type EngineOutcome } from "@/domain/evidence";
 import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
-import type { Field, FertiliserProduct, LivestockGroup, NapComplianceCheck, SlurryAllocation } from "@/domain/types";
+import type { Field, FertiliserProduct, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "@/domain/types";
 import type { SlurryComposition } from "@/domain/slurry-composition";
 import { purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
 import { buildPrompt, type Prompt } from "./index";
@@ -291,6 +291,20 @@ function basisFromPurchaseStatus(
   }
 }
 
+/**
+ * nutrient_engine_v1.7.0: the requirement can now be unavailable for more
+ * than a missing silage plan (an unknown statutory stocking rate, a
+ * stocking rate above the published table, a clover sward outside the
+ * Teagasc strategy, no grassland area). The canonical per-nutrient arms
+ * carry the exact reason, so the prompt asks for the right thing.
+ */
+function unavailableRequirementBasis(plan: NutrientPlan): EngineOutcome<FertiliserRecommendationSummary> {
+  for (const arm of [plan.fieldRequirement.n, plan.fieldRequirement.p, plan.fieldRequirement.k]) {
+    if (arm.status === "UNKNOWN") return blockedInsufficientEvidence(arm.reasonCode, arm.missingInputs);
+  }
+  return blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["silage"]);
+}
+
 export function promptForFertiliserRecommendation(
   field: Field,
   farmGrasslandAreaHa: number,
@@ -355,7 +369,7 @@ export function promptForFertiliserRecommendation(
           // vanished from farm-wide Recommended/Planned totals with
           // nothing disclosing it.
           plan.requirement.status !== "estimated"
-          ? blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["silage"])
+          ? unavailableRequirementBasis(plan)
           : basisFromPurchaseStatus(plan, field, livestockGroups);
   }
 

@@ -9,7 +9,7 @@ function makeField(id: string, overrides: Partial<Field> = {}): Field {
     id,
     farmId: "farm-test",
     name: id,
-    areaHa: 5,
+    areaHa: 20, // nutrient_engine_v1.7.0: 20 suckler cows on 20 ha (65 kg organic N/ha) — 5 ha put the herd above Table 12-3's last row
     centroid: [0, 0],
     plannedUse: tracked("grazing", "estimated", "Farm Return assumption"),
     mappedSoil: {

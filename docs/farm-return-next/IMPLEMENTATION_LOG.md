@@ -1035,3 +1035,24 @@ plan overview totals) onto it.
   stocking basis. Run locally with a vitest-compatible runner for pure domain files; the full gate and Codex audit run
   on Keith's MacBook.
 
+## Fertiliser close-out — "align both": nutrient_engine_v1.7.0 (2026-11-11)
+
+Keith chose to align the two engines rather than merge them (Phase B as first written — moving every screen onto
+engine v2 and rebuilding the NAP/buffer/product layers — is withdrawn).
+
+- `grass-fertiliser-engine-v2.ts`: grazing and clover requirement extracted into the exported
+  `calculateGrazingGrossRequirement` (behaviour-neutral: all v2, test-farm, plan and quote-readiness tests unchanged).
+- `nutrients.ts` → `nutrient_engine_v1.7.0`: grazing requirement from that function on the statutory grassland
+  stocking rate; fails closed (per-nutrient `UNKNOWN`, legacy requirement `unavailable`, NAP blocked, no products)
+  when the rate is unknown, above the last published row, or a clover sward is outside the Teagasc strategy; optional
+  `grazingSward` / `grazingProductionSystem` inputs; a silage-cut field with no silage plan keeps its own reason.
+  `calculationTrace.grazing` now records the organic-N basis; the Evidence Report page shows it.
+- `fertiliser-recommendation.ts`: an unavailable requirement takes its reason from the canonical arms (was always
+  "missing silage plan").
+- Tests: fixtures that put 20 suckler cows on 4–5 ha (≈260–325 kg N/ha, above the table) moved to realistic stocking;
+  NAP-breach cases rebuilt inside the table (85 cows on 27 ha; 40 cows on 13 ha; 22 dairy cows on 10 ha for the
+  elevated-ceiling window); `fertiliser-engine-test-farm.test.ts` rewritten for v1.7.0 with a both-engines-agree block.
+  Every locally runnable test file matches the pre-change baseline; the mock/UI files run on Keith's MacBook.
+- Still to do in the close-out: pass the field's clover sward and the farm's grazing production system from the
+  production cycles into the Nutrients engine's callers; clean final audit; agronomist pack.
+

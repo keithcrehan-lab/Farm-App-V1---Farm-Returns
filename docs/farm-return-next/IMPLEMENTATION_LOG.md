@@ -1129,3 +1129,6 @@ rather than rewritten. It stays `false` until the PR is merged and its final aud
 - Audit 182629a..a9bfcfe: 1 HIGH (F013) — `soil-ph-advice.ts` and the close-out's other contract changes are now
   registered in `DOMAIN_CONTRACTS.md` ("Fertiliser close-out"). Mac at a9bfcfe: typecheck and lint pass; 2590 tests
   pass, 1 failure (`SlurryFirstPlanningPanel` F010, a mocked-UI test untouched by this work that passes on its own).
+- Audit 182629a..23b0c64: 1 HIGH (F008, mixed-index) — the mixed-index card and CSV/Evidence report name the clover
+  strategy for a clover sward's N (Green Book for the known P or K); tests with either index missing.
+  `SlurryFirstPlanningPanel` passes on its own on the Mac (7/7).

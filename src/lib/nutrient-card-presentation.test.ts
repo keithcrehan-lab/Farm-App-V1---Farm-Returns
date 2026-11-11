@@ -293,3 +293,33 @@ describe("no usable grassland area, only P indexed (audit F007)", () => {
     }
   });
 });
+
+// Codex audit F008: a clover sward's N comes from the 2026 Teagasc clover
+// strategy — the mixed-index card and report must say so, with either index
+// missing.
+describe("mixed-index clover provenance (audit F008)", () => {
+  // 34 suckler cows (65 kg N each, S.I. 588/2025 Table 7) on 13 ha = 170.0.
+  const cows = [
+    { id: "g1", farmId: "farm-5a", category: "suckler_cow" as const, label: "Cows", count: tracked(34, "verified", "Farmer"), avgAgeMonths: 60, sex: "female" as const, system: "grazing" as const, value: tracked(0, "estimated", "x") },
+  ];
+  for (const fertility of [{ pIndex: idx(3) }, { kIndex: idx(3) }]) {
+    const known = "pIndex" in fertility ? "P" : "K";
+    it(`cites the clover strategy for N and the Green Book for ${known}`, () => {
+      const cloverField: Field = { ...field, areaHa: 13, plannedUse: tracked("grazing", "farmer_adjusted", "Farmer"), fertility, grazingSward: { kind: "WHITE_CLOVER", aprilWhiteCloverPct: 10 } };
+      const plan = calculateNutrientPlan({ field: cloverField, farmGrasslandAreaHa: 13, livestockGroups: cows, nonGrassPct: 0, asOfDate: "2026-10-02" });
+      const card = requirementCardPresentation(plan);
+      if (card.kind !== "mixed") throw new Error(`expected mixed, got ${card.kind}`);
+      expect(card.values.n).toBe(75);
+      expect(card.source).toMatch(/clover/i);
+      expect(card.source).toContain(`${REQUIREMENT_SOURCE} for ${known}`);
+      expect(mixedRequirementReport(plan)?.source).toBe(card.source);
+    });
+  }
+  it("keeps the plain Green Book source for a grass sward", () => {
+    const grassField: Field = { ...field, areaHa: 13, plannedUse: tracked("grazing", "farmer_adjusted", "Farmer"), fertility: { pIndex: idx(3) } };
+    const plan = calculateNutrientPlan({ field: grassField, farmGrasslandAreaHa: 13, livestockGroups: cows, nonGrassPct: 0, asOfDate: "2026-10-02" });
+    const card = requirementCardPresentation(plan);
+    if (card.kind !== "mixed") throw new Error("expected mixed");
+    expect(card.source).toBe(REQUIREMENT_SOURCE);
+  });
+});

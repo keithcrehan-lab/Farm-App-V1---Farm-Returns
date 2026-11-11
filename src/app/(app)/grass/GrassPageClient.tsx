@@ -428,7 +428,8 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
   async function saveCover() {
     setCoverError(null);
     setCoverMessage(null);
-    const observedAt = toIso(coverObservedAt);
+    // An untouched time means "now" (resolved at Save), so the time and the location match.
+    const observedAt = coverTimeEdited ? toIso(coverObservedAt) : new Date().toISOString();
     const cover = Number(coverInput);
     const fieldId = walk ? walk.currentFieldId : selectedRecordFieldId;
     if (!fieldId) { setCoverError("Choose the field this reading belongs to."); return; }
@@ -438,7 +439,7 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
     try {
       // A reading taken now is pinned where the farmer is standing; one the farmer back-dated gets no location.
       const live = livePosition ? { lat: livePosition.lat, lng: livePosition.lng, accuracyM: livePosition.accuracyMeters ?? null, at: Date.parse(livePosition.recordedAt) } : null;
-      const fix = !coverTimeEdited || isLiveReading(Date.parse(observedAt), Date.now()) ? await captureReadingLocation(live).catch(() => null) : null;
+      const fix = isLiveReading(Date.parse(observedAt), Date.now()) ? await captureReadingLocation(live).catch(() => null) : null;
       const result = await recordGrassCoverObservationAction({
         id: globalThis.crypto.randomUUID(),
         fieldId,

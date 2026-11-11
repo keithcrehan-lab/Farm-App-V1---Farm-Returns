@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { MAPBOX_PLAIN_SATELLITE_STYLE, MAPBOX_TOKEN, mapboxConfigured } from "@/lib/mapbox";
@@ -67,6 +67,8 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
   const view = useMemo(() => surveyMapView({ route, readings, fields }), [route, readings, fields]);
   const shown = useMemo(() => fields.filter((f) => view.fieldIds.includes(f.id)), [fields, view.fieldIds]);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // Set when this phone can't run the satellite map (e.g. no WebGL): the plain drawing is shown instead.
+  const [mapFailed, setMapFailed] = useState(false);
   // The farm store hands back new field arrays on every render, so the map is
   // keyed on what it actually draws, not on array identity: it is built once
   // per walk, not on every re-render.
@@ -81,15 +83,23 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
     const { route, readings, shown, bounds } = latest.current;
     if (!mapboxConfigured || !containerRef.current || !bounds) return;
     mapboxgl.accessToken = MAPBOX_TOKEN;
-    const map = new mapboxgl.Map({
-      container: containerRef.current,
-      style: MAPBOX_PLAIN_SATELLITE_STYLE,
-      bounds: bounds as mapboxgl.LngLatBoundsLike,
-      fitBoundsOptions: { padding: 36, maxZoom: 17.5 },
-      cooperativeGestures: true,
-      pitchWithRotate: false,
-      dragRotate: false,
-    });
+    let map: mapboxgl.Map;
+    try {
+      map = new mapboxgl.Map({
+        container: containerRef.current,
+        style: MAPBOX_PLAIN_SATELLITE_STYLE,
+        bounds: bounds as mapboxgl.LngLatBoundsLike,
+        fitBoundsOptions: { padding: 36, maxZoom: 17.5 },
+        cooperativeGestures: true,
+        pitchWithRotate: false,
+        dragRotate: false,
+      });
+    } catch (err) {
+      console.error("[Walk map] satellite map unavailable", err);
+      void Promise.resolve().then(() => setMapFailed(true));
+      return;
+    }
+    map.on("error", (e) => console.error("[Walk map]", e.error));
     const markers: mapboxgl.Marker[] = [];
     const ro = new ResizeObserver(() => map.resize());
     ro.observe(containerRef.current);
@@ -137,7 +147,7 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
   return (
     <div>
       <div className="relative h-64 w-full bg-[#e9e4d8] sm:h-72">
-        {mapboxConfigured ? (
+        {mapboxConfigured && !mapFailed ? (
           <div ref={containerRef} className="absolute inset-0" aria-label="Walk route over your fields" role="region" />
         ) : (
           <SchematicRoute bounds={view.bounds} route={route} readings={readings} fields={shown} />

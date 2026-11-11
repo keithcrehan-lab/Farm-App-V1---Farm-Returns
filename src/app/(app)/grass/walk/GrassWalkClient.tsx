@@ -16,6 +16,7 @@ import {
   appendGrassSurveyTrackAction,
   finishGrassSurveyAction,
   getActiveGrassSurveyAction,
+  getGrassSurveyAction,
   markGrassSurveyFieldAction,
   startGrassSurveyAction,
 } from "@/app/actions/grass-surveys";
@@ -171,6 +172,16 @@ export function GrassWalkClient() {
     if (!active || !surveyId) return;
     if (!("geolocation" in navigator)) return;
     pending.current = safeStorage(() => JSON.parse(window.localStorage.getItem(pendingKey(surveyId)) ?? "[]") as SurveyTrackPoint[], []);
+    // Resuming a walk: start the live distance from the route already recorded, not from zero.
+    let live = true;
+    sessionTrack.current = [...pending.current];
+    setDistanceM(trackDistanceM(sessionTrack.current, mode));
+    void getGrassSurveyAction(surveyId).then((r) => {
+      if (!live || !r.ok) return;
+      const seen = new Set(sessionTrack.current.map((p) => `${p.recordedAt}|${p.lat}|${p.lng}`));
+      sessionTrack.current = [...r.track.filter((p) => !seen.has(`${p.recordedAt}|${p.lat}|${p.lng}`)), ...sessionTrack.current];
+      setDistanceM(trackDistanceM(sessionTrack.current, mode));
+    }).catch(() => undefined);
     const watch = navigator.geolocation.watchPosition(
       (pos) => {
         const p: Position = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracyM: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null, at: pos.timestamp || Date.now() };
@@ -185,7 +196,7 @@ export function GrassWalkClient() {
       (err) => setGpsState(err.code === err.PERMISSION_DENIED ? "denied" : "off"),
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 30_000 },
     );
-    return () => navigator.geolocation.clearWatch(watch);
+    return () => { live = false; navigator.geolocation.clearWatch(watch); };
   }, [active, surveyId, mode]);
 
   const flush = useCallback(async () => {

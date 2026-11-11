@@ -1004,3 +1004,7 @@ audit not run.
   field arrays each render) — the map is now keyed on what it draws. Medium: quick record treated a reading as
   back-dated once the page had been open 10 minutes — an untouched time now counts as "now". Low: a short burst of
   agreeing bad fixes could replace a real walk start — it now takes 3 more agreeing fixes than the kept stretch.
+- **Codex review (round 2) fixes.** High: resuming a walk restarted the live distance from zero — it now seeds from
+  the saved route plus unsent points. Medium: an untouched quick-record time is now resolved to "now" at Save, so the
+  saved time matches the captured location. Medium: if the phone can't start the satellite map (e.g. no WebGL), the
+  summary shows the plain drawing instead of crashing.

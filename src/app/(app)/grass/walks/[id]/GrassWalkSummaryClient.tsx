@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { CloudRain, MapPin, Sprout, Thermometer, Wind } from "lucide-react";
+import { ArrowRight, MapPin } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { useFields } from "@/store/farm-store";
@@ -29,14 +29,12 @@ function RouteMap({ track, mode, readings, fieldResults }: { track: SurveyTrackP
   return <WalkRouteMap route={route} readings={pins} fields={fields} />;
 }
 
-function Stat({ label, value, extra, tone }: { label: string; value: string; extra?: string; tone?: "up" | "down" }) {
+/** One quiet label/value row on the dark panel, as on the selected-field panel. */
+function Row({ label, value, tone = "fact" }: { label: string; value: ReactNode; tone?: "fact" | "unknown" }) {
   return (
-    <div className="rounded-[12px] bg-fr-surface-alt px-3 py-2.5">
-      <p className="text-[11px] text-fr-v2-muted">{label}</p>
-      <p className="font-mono text-lg font-semibold tabular-nums text-fr-v2-charcoal">
-        {value}
-        {extra ? <span className={cn("ml-1.5 text-xs", tone === "up" ? "text-fr-v2-forest" : tone === "down" ? "text-fr-red-700" : "text-fr-v2-muted")}>{extra}</span> : null}
-      </p>
+    <div className="flex items-baseline justify-between gap-4 py-1">
+      <dt className="shrink-0 font-mono text-[10.5px] uppercase tracking-[0.12em] text-white/50">{label}</dt>
+      <dd className={cn("min-w-0 text-right text-[13px] tabular-nums", tone === "unknown" ? "italic text-white/50" : "text-white/90")}>{value}</dd>
     </div>
   );
 }
@@ -73,59 +71,104 @@ export function GrassWalkSummaryClient({ id }: { id: string }) {
   const title = `${hour < 12 ? "Morning" : hour < 17 ? "Afternoon" : "Evening"} grass ${survey.mode === "quad" ? "run" : survey.mode === "drone" ? "flight" : "walk"}`;
   const sorted = [...(r?.fields ?? [])].sort((a, b) => Number(b.status === "measured") - Number(a.status === "measured") || (b.coverKgDmHa ?? -1) - (a.coverKgDmHa ?? -1));
 
+  const kind = survey.mode === "quad" ? "run" : survey.mode === "drone" ? "flight" : "walk";
+  const weatherBits = w
+    ? [
+        w.airTemperatureC !== null ? `${formatNumber(w.airTemperatureC, 1)}°C air` : null,
+        w.soilTemperatureC !== null ? `${formatNumber(w.soilTemperatureC, 1)}°C soil` : null,
+        w.rainfall7dMm !== null ? `${formatNumber(w.rainfall7dMm, 1)} mm / 7 days` : null,
+        w.windSpeedKmh !== null ? `${w.windSpeedKmh} km/h wind` : null,
+      ].filter(Boolean).join(" · ")
+    : "";
+
   return (
-    <div className="mx-auto max-w-xl space-y-4 pb-12 text-fr-v2-graphite">
-      <div className="overflow-hidden rounded-[20px] border border-fr-v2-cream-rule bg-fr-v2-cream">
-        <div className="px-4 pb-3 pt-4">
-          <p className="text-xs text-fr-v2-muted">{dateLabel} · {timeLabel}</p>
-          <h1 className="font-display text-[26px] leading-tight">{title}</h1>
+    <div className="mx-auto max-w-xl pb-12 text-fr-v2-graphite">
+      {/* The farm is the hero: the walk drawn on the real satellite map, edge to edge. */}
+      <RouteMap track={track} mode={survey.mode} readings={readings} fieldResults={r?.fields ?? EMPTY_RESULTS} />
+
+      {/* The walk comes forward from the map: deep forest surface, thin straw/gold rule. */}
+      <section aria-label={title} className="flex bg-fr-v2-forest-deep text-white">
+        <span aria-hidden className="w-[3px] shrink-0 bg-fr-v2-gold" />
+        <div className="min-w-0 flex-1 px-5 pb-5 pt-4">
+          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-fr-v2-straw">
+            Grass {kind} <span className="text-white/45">· {dateLabel} · {timeLabel}</span>
+          </p>
+          <h1 className="mt-1 text-balance font-display text-[30px] leading-[1.02] tracking-[-0.015em]">{title}</h1>
+          {r ? (
+            <>
+              <p className="mt-2 font-mono text-[12px] tabular-nums text-white/70">
+                {(r.distanceM / 1000).toFixed(1)} km · {r.durationMin} min<span className="text-white/50"> · {r.fieldsMeasured} of {r.fieldsTotal} fields measured</span>
+              </p>
+              <p className="mt-4 text-[15px] leading-snug text-white">
+                {r.farmCoverKgDmHa === null ? (
+                  <span className="text-white/70">Farm cover couldn&apos;t be worked out from this {kind}.</span>
+                ) : (
+                  <>
+                    Farm cover is <span className="font-mono tabular-nums">{formatNumber(r.farmCoverKgDmHa, 0)}</span> kg DM/ha
+                    {r.farmCoverChange !== null ? (
+                      <span className={r.farmCoverChange >= 0 ? "text-fr-v2-straw" : "text-fr-v2-clay-tint"}>
+                        {" "}({r.farmCoverChange >= 0 ? "+" : ""}{formatNumber(r.farmCoverChange, 0)} since last {kind})
+                      </span>
+                    ) : null}
+                    .
+                  </>
+                )}
+              </p>
+              <dl className="mt-4 border-t border-white/10 pt-3">
+                {r.farmGrowthKgDmHaDay === null ? (
+                  <Row label="Growth" value="Needs a second walk" tone="unknown" />
+                ) : (
+                  <Row label="Growth" value={`${formatNumber(r.farmGrowthKgDmHaDay, 0)} kg DM/ha/day · ${r.farmGrowthFieldCount} ${r.farmGrowthFieldCount === 1 ? "field" : "fields"}`} />
+                )}
+                {weatherBits ? <Row label="Weather" value={weatherBits} /> : <Row label="Weather" value="Unavailable" tone="unknown" />}
+                {w?.stationName ? <Row label="Station" value={`Met Éireann ${w.stationName}${w.distanceKm !== null ? ` · ${formatNumber(w.distanceKm, 0)} km` : ""}`} /> : null}
+              </dl>
+            </>
+          ) : (
+            <p className="mt-4 text-[15px] leading-snug text-white/70">This {kind} hasn&apos;t been finished yet.</p>
+          )}
+          <Link
+            href="/grass"
+            className="mt-4 flex min-h-11 w-full items-center justify-between gap-3 bg-fr-v2-cream px-4 text-sm font-semibold text-fr-v2-forest-deep transition-colors duration-[160ms] hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-straw motion-reduce:transition-none"
+          >
+            Done
+            <ArrowRight className="size-4" />
+          </Link>
+          <p className="mt-3">
+            <Link href="/grass/walks" className="text-xs font-semibold text-white/75 underline decoration-white/25 underline-offset-[3px] transition-colors duration-[160ms] hover:text-white hover:decoration-fr-v2-straw motion-reduce:transition-none">
+              Past walks
+            </Link>
+          </p>
         </div>
-        <RouteMap track={track} mode={survey.mode} readings={readings} fieldResults={r?.fields ?? EMPTY_RESULTS} />
-        {r ? (
-          <div className="grid grid-cols-2 gap-2 p-4">
-            <Stat label="Distance · time" value={`${(r.distanceM / 1000).toFixed(1)} km · ${r.durationMin} min`} />
-            <Stat label="Fields measured" value={`${r.fieldsMeasured} of ${r.fieldsTotal}`} />
-            <Stat label="Farm cover (kg DM/ha)" value={r.farmCoverKgDmHa === null ? "—" : formatNumber(r.farmCoverKgDmHa, 0)}
-              extra={r.farmCoverChange === null ? undefined : `${r.farmCoverChange >= 0 ? "+" : ""}${formatNumber(r.farmCoverChange, 0)}`} tone={r.farmCoverChange === null ? undefined : r.farmCoverChange >= 0 ? "up" : "down"} />
-            <Stat label="Growth (kg DM/ha/day)" value={r.farmGrowthKgDmHaDay === null ? "—" : formatNumber(r.farmGrowthKgDmHaDay, 0)}
-              extra={r.farmGrowthKgDmHaDay === null ? "needs 2 walks" : `${r.farmGrowthFieldCount} ${r.farmGrowthFieldCount === 1 ? "field" : "fields"}`} />
-          </div>
-        ) : <p className="p-4 text-sm text-fr-v2-muted">This walk hasn&apos;t been finished yet.</p>}
-        {w ? (
-          <div className="flex flex-wrap gap-x-4 gap-y-1.5 px-4 pb-3 text-xs text-fr-v2-muted">
-            {w.airTemperatureC !== null ? <span className="inline-flex items-center gap-1"><Thermometer className="size-3.5" aria-hidden />{formatNumber(w.airTemperatureC, 1)}°C</span> : null}
-            {w.soilTemperatureC !== null ? <span className="inline-flex items-center gap-1"><Sprout className="size-3.5" aria-hidden />Soil {formatNumber(w.soilTemperatureC, 1)}°C</span> : null}
-            {w.rainfall7dMm !== null ? <span className="inline-flex items-center gap-1"><CloudRain className="size-3.5" aria-hidden />{formatNumber(w.rainfall7dMm, 1)} mm / 7 days</span> : null}
-            {w.windSpeedKmh !== null ? <span className="inline-flex items-center gap-1"><Wind className="size-3.5" aria-hidden />{w.windSpeedKmh} km/h</span> : null}
-            <span className="w-full">{w.stationName ? `Met Éireann ${w.stationName}${w.distanceKm !== null ? `, ${formatNumber(w.distanceKm, 0)} km away` : ""}` : "Weather unavailable for this walk"}</span>
-          </div>
-        ) : <p className="px-4 pb-3 text-xs text-fr-v2-muted">Weather unavailable for this walk.</p>}
-        {sorted.length ? (
-          <ul className="divide-y divide-fr-v2-cream-rule border-t border-fr-v2-cream-rule px-4 text-sm">
+      </section>
+
+      {sorted.length ? (
+        <section aria-label="Fields" className="px-5 pt-6">
+          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-fr-v2-muted">Fields · kg DM/ha</p>
+          <ul className="mt-2 divide-y divide-fr-v2-cream-rule border-y border-fr-v2-cream-rule">
             {sorted.map((f) => (
-              <li key={f.fieldId} className="flex items-baseline justify-between gap-3 py-2.5">
-                <span className={cn("inline-flex items-center gap-1 font-semibold", f.status !== "measured" && "font-normal text-fr-v2-muted")}>
+              <li key={f.fieldId} className="flex items-baseline justify-between gap-3 py-3">
+                <span className={cn("inline-flex items-center gap-1.5 font-display text-[19px] leading-tight text-fr-v2-charcoal", f.status !== "measured" && "text-fr-v2-muted")}>
                   {f.name}
                   {f.status === "measured" && located.has(f.fieldId) ? <MapPin className="size-3.5 text-fr-v2-muted" aria-label="Location recorded" /> : null}
                 </span>
-                <span className="text-right text-xs text-fr-v2-muted">
+                <span className="text-right">
                   {f.status === "measured" ? (
                     <>
-                      <span className="font-mono text-sm tabular-nums text-fr-v2-charcoal">{f.coverKgDmHa === null ? "—" : formatNumber(f.coverKgDmHa, 0)}</span>
-                      {" · "}
-                      {f.growthKgDmHaDay !== null ? <span className="font-semibold text-fr-v2-forest">+{formatNumber(f.growthKgDmHaDay, 0)}/day</span> : f.growthNote}
+                      <span className="block font-mono text-[15px] tabular-nums text-fr-v2-charcoal">{f.coverKgDmHa === null ? "—" : formatNumber(f.coverKgDmHa, 0)}</span>
+                      <span className="block text-[11px] text-fr-v2-muted">
+                        {f.growthKgDmHaDay !== null ? <span className="font-semibold text-fr-v2-forest">+{formatNumber(f.growthKgDmHaDay, 0)}/day</span> : f.growthNote}
+                      </span>
                     </>
-                  ) : STATUS_LABEL[f.status]}
+                  ) : (
+                    <span className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-fr-v2-muted">{STATUS_LABEL[f.status]}</span>
+                  )}
                 </span>
               </li>
             ))}
           </ul>
-        ) : null}
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <Link href="/grass" className="flex min-h-12 items-center justify-center rounded-[14px] bg-fr-v2-forest text-sm font-semibold text-white">Done</Link>
-        <Link href="/grass/walks" className="flex min-h-12 items-center justify-center rounded-[14px] border border-fr-v2-cream-rule bg-fr-v2-cream text-sm font-semibold text-fr-v2-forest">Past walks</Link>
-      </div>
+        </section>
+      ) : null}
     </div>
   );
 }

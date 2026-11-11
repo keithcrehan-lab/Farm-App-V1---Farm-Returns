@@ -167,7 +167,7 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
 
   return (
     <div>
-      <div className="relative h-64 w-full bg-[#e9e4d8] sm:h-72">
+      <div className="relative h-72 w-full bg-fr-v2-forest-deep sm:h-96">
         {mapboxConfigured && !mapFailed ? (
           <div ref={containerRef} className="absolute inset-0 h-full w-full" aria-label="Walk route over your fields" role="region" />
         ) : (
@@ -175,7 +175,7 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
         )}
       </div>
       {view.nearestFieldKm !== null ? (
-        <p className="border-b border-fr-v2-cream-rule bg-fr-v2-straw/20 px-4 py-2 text-xs text-fr-v2-charcoal">
+        <p className="bg-fr-v2-forest-deep px-5 py-2 font-mono text-[11px] text-fr-v2-straw">
           This route is {formatNumber(view.nearestFieldKm, 1)} km from your nearest mapped field, so your fields aren&apos;t shown.
         </p>
       ) : null}

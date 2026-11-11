@@ -43,6 +43,7 @@ import { resolveLocalWaterBufferOverrideStatus } from "./input-gates";
 import { checkSoilTestAgeValidity, type SoilTestAgeStatus } from "./soil-test-validity";
 import { laboratoryPIndexForSoilTestValidity, resolveFieldSoilIndexProvenance } from "./soil-index-provenance";
 import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_MURIATE_OF_POTASH_50K, CSO_UREA_46N, latestPoint } from "./market";
+import { organicNStockingRateFromLUHa } from "./grazing-field-pressure";
 
 // v1.1.0: CC-B2 / RISK-01 implementation correction — LESS P/K credit now
 // applies the Index 1/2 availability reduction; v1.0.0 results omitted it.
@@ -59,9 +60,10 @@ import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_MURIATE_OF_POTASH_50K, C
 // output is otherwise unchanged (the Index-1 placeholder stays — CC-B5).
 // v1.6.0 (2026-11-11): three scientific corrections found by the fertiliser
 // engine test plan, run 1 — (a) the grazing P/K organic-N stocking rate now
-// reads Table 12-3's kg/ha N (excreted) column, not its fertiliser Total N
-// column; (b) no grazing P maintenance at P Index 4; (c) silage P build-up
-// on the first cut only. Grazing N and every first-cut silage figure are
+// reads Table 12-3's kg/ha N (excreted) column via the canonical
+// `organicNStockingRateFromLUHa`, not its fertiliser Total N column; (b) no
+// grazing P maintenance at P Index 4; (c) silage P build-up on the first cut
+// only. Grazing N and every first-cut silage figure are
 // unchanged.
 export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.6.0";
 
@@ -2418,63 +2420,6 @@ export function soilTestAgeValidityForFertility(fertility: Pick<Field["fertility
 }
 
 /**
- * Green Book Table 12-3, "Stocking rate — kg/ha N" column: the organic-N
- * stocking rate (footnote 3: total annual N excreted by grazing livestock
- * averaged over the net grassland area) at each published LU/ha row. This
- * is the SAME table as `N_GRAZING_SUCKLER_TO_BEEF_TABLE` above, but a
- * different column — that one is the *fertiliser* N advice ("Total N"),
- * this one is the *manure* N the P (Table 13-3) and K (Table 14-1) grazing
- * tables are keyed on. Transcription:
- * `docs/scientific-engine/v3/reference_greenbook_2020/All_Table_Rows.csv`
- * (Seq 34, rows 7-15).
- */
-const ORG_N_STOCKING_RATE_TABLE_12_3: { stockingRateLUHa: number; orgNKgHa: number }[] = [
-  { stockingRateLUHa: 1.0, orgNKgHa: 80 },
-  { stockingRateLUHa: 1.25, orgNKgHa: 99 },
-  { stockingRateLUHa: 1.5, orgNKgHa: 118 },
-  { stockingRateLUHa: 1.75, orgNKgHa: 138 },
-  { stockingRateLUHa: 2.0, orgNKgHa: 158 },
-  { stockingRateLUHa: 2.25, orgNKgHa: 176 },
-  { stockingRateLUHa: 2.5, orgNKgHa: 196 },
-  { stockingRateLUHa: 2.75, orgNKgHa: 215 },
-  { stockingRateLUHa: 3.0, orgNKgHa: 235 },
-];
-
-/**
- * LU/ha → organic-N stocking rate (kg N/ha) via Table 12-3's own LU and
- * kg/ha N columns. Linear interpolation between the published 0.25 LU/ha
- * rows (the same reading `nGrazingSucklerToBeefKgHa` already applies to
- * this table). No extrapolation — outside the printed rows the end row's
- * value is held, exactly as the Total N column already is
- * (`nGrazingSucklerToBeefKgHa`: 35 at or below 1.0, 241 above 3.0):
- * - At or below 1.0 LU/ha the first row is printed "≤1.0 / ≤80": 80 is an
- *   upper bound on N excreted, so Table 13-3's P band (≤100) is exact and
- *   Table 14-1's K can only be advised slightly high, never low.
- * - Above 3.0 LU/ha there is no printed row: 235 is held, the Table 13-3
- *   P band (≥210) is still exact, and Table 14-1 K is a lower bound.
- *   OPEN DECISION (Codex audit F001, 2026-11-11): hold the last row as the
- *   N column does, or fail the grazing P/K requirement closed above
- *   3.0 LU/ha — see BUILD_STATE `nutrient_engine_v1_6_0`.
- */
-export function organicNStockingRateFromLUHaKgHa(stockingRateLUHa: number): number {
-  if (!(stockingRateLUHa > 0)) return 0;
-  const table = ORG_N_STOCKING_RATE_TABLE_12_3;
-  const first = table[0];
-  const last = table[table.length - 1];
-  if (stockingRateLUHa <= first.stockingRateLUHa) return first.orgNKgHa;
-  if (stockingRateLUHa >= last.stockingRateLUHa) return last.orgNKgHa;
-  for (let i = 0; i < table.length - 1; i++) {
-    const a = table[i];
-    const b = table[i + 1];
-    if (stockingRateLUHa >= a.stockingRateLUHa && stockingRateLUHa <= b.stockingRateLUHa) {
-      const t = (stockingRateLUHa - a.stockingRateLUHa) / (b.stockingRateLUHa - a.stockingRateLUHa);
-      return a.orgNKgHa + t * (b.orgNKgHa - a.orgNKgHa);
-    }
-  }
-  return last.orgNKgHa;
-}
-
-/**
  * AGRONOMIC ledger only — the Green Book organic-N grassland stocking rate
  * (kg N excreted/ha, Table 12-3 LU → kg/ha N columns) that keys the grazing
  * P maintenance (Table 13-3) and K (Table 14-1) advice below, never the
@@ -2506,7 +2451,12 @@ export function calculateGrasslandStockingRateKgHa(
 ): number {
   if (farmGrasslandAreaHa <= 0) return 0;
   const stockingRateLUHa = totalLivestockUnits(livestockGroups) / farmGrasslandAreaHa;
-  return organicNStockingRateFromLUHaKgHa(stockingRateLUHa);
+  // Canonical Table 12-3 LU → organic-N conversion (`grazing-field-pressure.ts`),
+  // never a second copy (Codex audit F003, 2026-11-11). It interpolates
+  // between the printed rows and holds the end rows (80 at or below
+  // 1.0 LU/ha, 235 above 3.0) — the above-3.0 hold is an OPEN scientific
+  // decision (BUILD_STATE `nutrient_engine_v1_6_0`, F001).
+  return organicNStockingRateFromLUHa(stockingRateLUHa) ?? 0;
 }
 
 /**

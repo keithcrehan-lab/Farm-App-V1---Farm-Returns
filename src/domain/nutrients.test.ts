@@ -26,7 +26,6 @@ import {
   NATIONAL_AVG_SLURRY_DM_PCT,
   nGrazingSucklerToBeefKgHa,
   nSilageKgHa,
-  organicNStockingRateFromLUHaKgHa,
   pBuildUpKgHa,
   pIndexFromMgL,
   pMaintenanceGrazingKgHa,
@@ -43,6 +42,7 @@ import {
   totalLivestockUnits,
   yearsBetweenIsoDates,
 } from "./nutrients";
+import { organicNStockingRateFromLUHa } from "./grazing-field-pressure";
 import { tracked } from "./types";
 import type { Field, LivestockGroup, NutrientPlan, SlurryAllocation } from "./types";
 import fertilityEvidenceBaseline from "./nutrients.fertility-evidence-baseline.json";
@@ -1491,7 +1491,7 @@ describe("calculateGrasslandStockingRateKgHa", () => {
     ];
     const luHa = totalLivestockUnits(groups) / 27;
     const result = calculateGrasslandStockingRateKgHa(groups, 27);
-    expect(result).toBeCloseTo(organicNStockingRateFromLUHaKgHa(luHa), 5);
+    expect(result).toBeCloseTo(organicNStockingRateFromLUHa(luHa), 5);
     expect(result).toBeCloseTo(158 + ((luHa - 2.0) / 0.25) * (176 - 158), 5);
     expect(result).toBeGreaterThan(158);
     expect(result).toBeLessThan(176);

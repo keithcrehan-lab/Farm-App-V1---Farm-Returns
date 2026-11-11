@@ -2363,12 +2363,13 @@ pending agronomist sign-off.** No new source, no AI-derived value.
 
 | Correction | Source text | Before (v1.5.0) | After (v1.6.0) |
 |---|---|---|---|
-| Organic-N stocking rate for grazing P (Table 13-3) and K (Table 14-1) | Table 12-3 has two columns: "Stocking rate LU/ha – kg/ha N" (fn 3: total annual N *excreted*, 80/99/118/138/158/176/196/215/235 at 1.0–3.0 LU/ha) and the fertiliser "Total N" advice (35/53/75/103/132/162/193/215/241). Tables 13-3 fn 5 and 14-1 fn 1–2 key on N excreted. | `calculateGrasslandStockingRateKgHa` returned the Total N column | Returns the kg/ha N (excreted) column (`organicNStockingRateFromLUHaKgHa`), linear between rows |
+| Organic-N stocking rate for grazing P (Table 13-3) and K (Table 14-1) | Table 12-3 has two columns: "Stocking rate LU/ha – kg/ha N" (fn 3: total annual N *excreted*, 80/99/118/138/158/176/196/215/235 at 1.0–3.0 LU/ha) and the fertiliser "Total N" advice (35/53/75/103/132/162/193/215/241). Tables 13-3 fn 5 and 14-1 fn 1–2 key on N excreted. | `calculateGrasslandStockingRateKgHa` returned the Total N column | Returns the kg/ha N (excreted) column via the canonical `organicNStockingRateFromLUHa` (`grazing-field-pressure.ts`, already in the repo), linear between rows |
 | Grazing P at Index 4 | §13: "Grassland soils with P levels at Index 4 … no P fertilizer is advised until the soil P level reverts to the Index 3 range"; S.I. 588/2025 Table 15a Index 4 maximum 0 | Table 13-3 maintenance still added (e.g. 4 kg/ha), and P-bearing compounds proposed for K | 0 kg/ha P; products from the P-free allocation (Muriate of Potash + Protected Urea) |
 | Silage P build-up on later cuts | §13: "Where two or more cuts … at Index 1 or 2, the additional 'soil P build-up' portion … should be applied prior to the first cut" | Table 13-2 build-up added to every cut | First cut only |
 
 **No extrapolation (Codex audit F001, 2026-11-11):** outside Table 12-3's printed rows the end row's value is held,
-exactly as the Total N column already is (35 at or below 1.0 LU/ha, 241 above 3.0). At or below 1.0 LU/ha the printed
+exactly as the Total N column already is (35 at or below 1.0 LU/ha, 241 above 3.0), and exactly as the canonical
+`organicNStockingRateFromLUHa` already did before this change. At or below 1.0 LU/ha the printed
 "≤1.0 / ≤80" row gives 80 — an upper bound on N excreted, so the Table 13-3 P band is exact and Table 14-1 K is never
 under-advised. Above 3.0 LU/ha 235 is held — the P band (≥210) is exact, K is a lower bound. **Open decision:** keep
 holding the last row, or fail the grazing P/K requirement closed above 3.0 LU/ha (tried at `8bcf137`: correct for real

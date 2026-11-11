@@ -4,8 +4,8 @@ import {
   calculateNutrientPlan,
   knownFertiliserProductComposition,
   NUTRIENT_ENGINE_VERSION,
-  organicNStockingRateFromLUHaKgHa,
 } from "./nutrients";
+import { organicNStockingRateFromLUHa } from "./grazing-field-pressure";
 import { tracked } from "./types";
 import type { Field, LivestockGroup, SlurryAllocation } from "./types";
 
@@ -111,23 +111,23 @@ describe("fertiliser engine test farm — run 1 (Teagasc Green Book 2020)", () =
 
   describe("organic-N stocking rate reads Table 12-3's kg/ha N (excreted) column", () => {
     it("matches every published row exactly", () => {
-      expect(organicNStockingRateFromLUHaKgHa(1.0)).toBe(80);
-      expect(organicNStockingRateFromLUHaKgHa(1.25)).toBe(99);
-      expect(organicNStockingRateFromLUHaKgHa(1.5)).toBe(118);
-      expect(organicNStockingRateFromLUHaKgHa(2.0)).toBe(158);
-      expect(organicNStockingRateFromLUHaKgHa(2.5)).toBe(196);
-      expect(organicNStockingRateFromLUHaKgHa(3.0)).toBe(235);
+      expect(organicNStockingRateFromLUHa(1.0)).toBe(80);
+      expect(organicNStockingRateFromLUHa(1.25)).toBe(99);
+      expect(organicNStockingRateFromLUHa(1.5)).toBe(118);
+      expect(organicNStockingRateFromLUHa(2.0)).toBe(158);
+      expect(organicNStockingRateFromLUHa(2.5)).toBe(196);
+      expect(organicNStockingRateFromLUHa(3.0)).toBe(235);
     });
 
     it("is never the fertiliser Total N column (the v1.5.0 defect)", () => {
       // Total N at 1.5 LU/ha is 75; organic N excreted is 118.
-      expect(organicNStockingRateFromLUHaKgHa(1.5)).not.toBe(75);
+      expect(organicNStockingRateFromLUHa(1.5)).not.toBe(75);
     });
 
     it("never extrapolates: outside the printed rows the end row is held, as the Total N column already is", () => {
-      expect(organicNStockingRateFromLUHaKgHa(0.5)).toBe(80);
-      expect(organicNStockingRateFromLUHaKgHa(0)).toBe(0);
-      expect(organicNStockingRateFromLUHaKgHa(3.3)).toBe(235);
+      expect(organicNStockingRateFromLUHa(0.5)).toBe(80);
+      expect(organicNStockingRateFromLUHa(0)).toBe(0);
+      expect(organicNStockingRateFromLUHa(3.3)).toBe(235);
     });
 
     it("gives 109.3 kg N/ha for the test farm herd", () => {

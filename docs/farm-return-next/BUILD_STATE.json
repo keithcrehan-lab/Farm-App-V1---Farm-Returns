@@ -582,15 +582,25 @@
     "branch": "fix/nutrient-engine-orgn-index4-silage-buildup",
     "base": "182629a7aff8fba3e160fa49e237b88ffbc5fc96",
     "engine_version": "nutrient_engine_v1.6.0",
-    "status": "F001_OPEN_SCIENTIFIC_DECISION_REQUIRED_F002_REMEDIATED",
+    "status": "F001_OPEN_SCIENTIFIC_DECISION_REQUIRED_F002_F003_REMEDIATED",
     "scientific_status": "implementation corrections against registered Green Book sources; expected values pending agronomist sign-off",
     "primary_audit": ".agent/history/audit-20261111T081825Z-394.md on Keith's MacBook (range 182629a..fb5c050; CRITICAL=0 HIGH=1 MEDIUM=1 LOW=0)",
     "findings": {
-      "F001": "HIGH UNSUPPORTED_SCIENTIFIC_EXTRAPOLATION: endpoint-ratio extrapolation removed; end rows now held as the Total N column already is. OPEN: hold the last row vs fail grazing P/K closed above 3.0 LU/ha (fail-closed variant 8bcf137 broke 41 tests on 4.5 LU/ha fixtures) — decision for Keith/agronomist before merge",
-      "F002": "MEDIUM BUILD_STATE_DRIFT: this entry added"
+      "F001": "HIGH UNSUPPORTED_SCIENTIFIC_EXTRAPOLATION: ratio extrapolation removed; the canonical conversion holds the end rows (as the Total N column does). OPEN: hold vs fail grazing P/K closed above 3.0 LU/ha (fail-closed variant 8bcf137 broke 41 tests on 4.5 LU/ha fixtures) — decision for Keith/agronomist before merge",
+      "F002": "MEDIUM BUILD_STATE_DRIFT: this entry added",
+      "F003": "HIGH DUPLICATED_DOMAIN_CALCULATION: duplicate Table 12-3 conversion removed; nutrients.ts calls grazing-field-pressure.ts organicNStockingRateFromLUHa"
     },
     "merged": false,
     "deployed": false,
-    "open_decision_ref": "docs/evidence-register.md (Nutrient engine v1.6.0 entry)"
+    "open_decision_ref": "docs/evidence-register.md (Nutrient engine v1.6.0 entry)",
+    "final_audit": ".agent/history/audit-20261111T093432Z-18990.md on Keith's MacBook (range 182629a..435ed0e; CRITICAL=0 HIGH=2 MEDIUM=0 LOW=0: F001 open, F003 remediated after it)",
+    "quality_gate": {
+      "at": "435ed0ee97c7039cd4d4c0d2c65f631c1bf0b28e",
+      "where": "Keith's MacBook, fresh clone /tmp/fr-gate, steps run individually",
+      "test": "7868 passed, 3 failed (pre-existing: identical at 182629a), 5 todo; src/tooling/agent-run.test.ts excluded (harness shell test hangs on this machine; untouched by branch)",
+      "typecheck": "pass after next build generated route types",
+      "lint": "pass",
+      "build": "pass"
+    }
   }
 }

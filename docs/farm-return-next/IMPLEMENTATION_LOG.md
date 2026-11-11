@@ -1004,3 +1004,13 @@ Authorised by Keith after the test-farm run (Docs: "Farm Return — Fertiliser E
   is. A fail-closed variant above 3.0 LU/ha (8bcf137) broke 41 existing tests built on 4.5 LU/ha fixtures, so it was
   withdrawn and F001's residual question (hold vs fail closed above 3.0 LU/ha) is left OPEN for Keith / an
   agronomist. MEDIUM F002 BUILD_STATE drift → entry added.
+- Final Codex campaign audit (182629a..435ed0e): F001 still open (holding the last row above 3.0 LU/ha is also
+  unsupported — scientific decision required); HIGH F003 duplicated conversion → the engine now calls the canonical
+  `organicNStockingRateFromLUHa` (`grazing-field-pressure.ts`, present at baseline) and the duplicate table is removed
+  (outputs identical on the test farm).
+- Gate evidence at 435ed0e (Keith's MacBook, fresh clone): vitest 7868 passed / 3 failed / 5 todo with
+  `src/tooling/agent-run.test.ts` excluded (its harness shell test hangs on this machine; file untouched by this
+  branch); the 3 failures (cattle component-boundary R4, Schemes demo mode, Plan empty state) fail identically at
+  182629a. Lint pass; build pass; typecheck pass after `next build` generated route types (a fresh clone lacks
+  `LayoutProps` before the first build).
+

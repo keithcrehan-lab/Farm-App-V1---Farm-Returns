@@ -163,6 +163,8 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
   const [coverInput, setCoverInput] = useState("");
   const [method, setMethod] = useState<GrassCoverMethod>("plate_meter");
   const [coverObservedAt, setCoverObservedAt] = useState(() => toDateTimeLocal());
+  /** Set when the farmer changes the reading's time; an untouched time means "now". */
+  const [coverTimeEdited, setCoverTimeEdited] = useState(false);
   const [coverSaving, setCoverSaving] = useState(false);
   const [coverMessage, setCoverMessage] = useState<string | null>(null);
   const [coverError, setCoverError] = useState<string | null>(null);
@@ -434,9 +436,9 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
     if (!Number.isFinite(cover) || cover <= 0) { setCoverError("Enter the grass cover in kg DM/ha."); return; }
     setCoverSaving(true);
     try {
-      // A reading taken now is pinned where the farmer is standing; a back-dated one gets no location.
+      // A reading taken now is pinned where the farmer is standing; one the farmer back-dated gets no location.
       const live = livePosition ? { lat: livePosition.lat, lng: livePosition.lng, accuracyM: livePosition.accuracyMeters ?? null, at: Date.parse(livePosition.recordedAt) } : null;
-      const fix = isLiveReading(Date.parse(observedAt), Date.now()) ? await captureReadingLocation(live).catch(() => null) : null;
+      const fix = !coverTimeEdited || isLiveReading(Date.parse(observedAt), Date.now()) ? await captureReadingLocation(live).catch(() => null) : null;
       const result = await recordGrassCoverObservationAction({
         id: globalThis.crypto.randomUUID(),
         fieldId,
@@ -452,6 +454,7 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
       setCoverMessage(`Recorded ${formatNumber(result.observation.coverKgDmHa, 0)} kg DM/ha for ${fieldNameById.get(result.observation.fieldId) ?? "field"}.`);
       setCoverInput("");
       setCoverObservedAt(toDateTimeLocal());
+      setCoverTimeEdited(false);
       setWalk((current) => (current ? recordGrassWalkReading(current, fieldId, walkGpsFieldId) : current));
       await reload();
     } catch (error) {
@@ -793,7 +796,7 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
                 </select>
               </label>
               <label className="text-xs font-semibold text-fr-v2-charcoal sm:col-span-2">Observed at
-                <input type="datetime-local" value={coverObservedAt} onChange={(event) => setCoverObservedAt(event.target.value)} className="mt-1 block min-h-11 w-full rounded-fr-v2-control border border-fr-v2-cream-rule bg-white px-3 font-mono text-sm font-normal" />
+                <input type="datetime-local" value={coverObservedAt} onChange={(event) => { setCoverObservedAt(event.target.value); setCoverTimeEdited(true); }} className="mt-1 block min-h-11 w-full rounded-fr-v2-control border border-fr-v2-cream-rule bg-white px-3 font-mono text-sm font-normal" />
               </label>
             </div>
             {coverError ? <p className="mt-3 text-xs font-semibold text-fr-red-700">{coverError}</p> : null}

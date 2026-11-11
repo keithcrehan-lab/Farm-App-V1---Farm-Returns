@@ -67,14 +67,24 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
   const view = useMemo(() => surveyMapView({ route, readings, fields }), [route, readings, fields]);
   const shown = useMemo(() => fields.filter((f) => view.fieldIds.includes(f.id)), [fields, view.fieldIds]);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // The farm store hands back new field arrays on every render, so the map is
+  // keyed on what it actually draws, not on array identity: it is built once
+  // per walk, not on every re-render.
+  const boundsKey = JSON.stringify(view.bounds);
+  const shownKey = shown.map((f) => `${f.id}:${f.coverKgDmHa}:${f.ring.length}`).join("|");
+  const latest = useRef({ route, readings, shown, bounds: view.bounds });
+  useEffect(() => {
+    latest.current = { route, readings, shown, bounds: view.bounds };
+  });
 
   useEffect(() => {
-    if (!mapboxConfigured || !containerRef.current || !view.bounds) return;
+    const { route, readings, shown, bounds } = latest.current;
+    if (!mapboxConfigured || !containerRef.current || !bounds) return;
     mapboxgl.accessToken = MAPBOX_TOKEN;
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: MAPBOX_PLAIN_SATELLITE_STYLE,
-      bounds: view.bounds as mapboxgl.LngLatBoundsLike,
+      bounds: bounds as mapboxgl.LngLatBoundsLike,
       fitBoundsOptions: { padding: 36, maxZoom: 17.5 },
       cooperativeGestures: true,
       pitchWithRotate: false,
@@ -118,7 +128,7 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
       markers.forEach((m) => m.remove());
       map.remove();
     };
-  }, [view.bounds, route, readings, shown]);
+  }, [boundsKey, shownKey, route, readings]);
 
   if (!view.bounds) {
     return <div className="flex h-56 items-center justify-center bg-fr-surface-alt px-6 text-center text-xs text-fr-v2-muted">No route was recorded. Keep this app open with location allowed while you walk.</div>;

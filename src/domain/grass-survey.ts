@@ -86,7 +86,7 @@ export function haversineM(aLat: number, aLng: number, bLat: number, bLng: numbe
 export const MAX_TRACK_SPEED_MPS: Record<GrassSurveyMode, number> = { walk: 4, quad: 20, drone: 25 };
 /** Allowance for ordinary GPS wobble on top of the speed limit. */
 const JUMP_SLACK_M = 15;
-/** Consecutive agreeing fixes that outvote the point before them. */
+/** How many more agreeing fixes than the kept stretch it takes to outvote it. */
 const OUTVOTE_RUN = 3;
 
 function plausibleStep(a: SurveyTrackPoint, b: SurveyTrackPoint, maxSpeed: number): boolean {
@@ -119,8 +119,8 @@ export function cleanSurveyTrack(points: readonly SurveyTrackPoint[], mode: Gras
     // Rejected: start or extend a run of rejected fixes that agree with each other.
     if (rejected.length && !plausibleStep(rejected.at(-1)!, p, maxSpeed)) rejected = [];
     rejected.push(p);
-    // Enough agreeing fixes outvote a shorter kept stretch: that stretch was the bad one.
-    if (rejected.length >= OUTVOTE_RUN && rejected.length > kept.length) {
+    // Clearly more agreeing fixes than the kept stretch: that stretch was the bad one.
+    if (rejected.length >= kept.length + OUTVOTE_RUN) {
       kept = rejected;
       rejected = [];
     }

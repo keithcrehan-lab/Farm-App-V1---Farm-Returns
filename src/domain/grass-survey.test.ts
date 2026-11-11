@@ -40,6 +40,13 @@ describe("cleanSurveyTrack", () => {
     expect(trackDistanceM(pts)).toBeLessThan(100);
   });
 
+  it("keeps a real start when a short burst of bad fixes follows it", () => {
+    const pts = [...walk(0, 2), at(20, 52.8), at(21, 52.8), at(22, 52.8), ...walk(30, 4).map((p, i) => ({ ...p, lat: 52.7002 + i * 0.0001 }))];
+    const clean = cleanSurveyTrack(pts);
+    expect(clean[0].lat).toBeCloseTo(52.7, 4);
+    expect(clean.every((p) => p.lat < 52.71)).toBe(true);
+  });
+
   it("keeps fast movement on a quad that would be impossible on foot", () => {
     const quad = Array.from({ length: 5 }, (_, i) => at(i * 5, 52.7 + i * 0.0006)); // ~67 m every 5 s
     expect(cleanSurveyTrack(quad, "quad")).toHaveLength(5);

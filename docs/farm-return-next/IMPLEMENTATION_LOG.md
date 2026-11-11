@@ -1000,3 +1000,7 @@ audit not run.
   runs the same `trackDistanceM` over the session's fixes. Medium: Save could wait on an unanswered location prompt —
   the fix now has an overall deadline. Medium: a vague stored reading location stretched the map — pins and framing
   use only locations within 50 m (`isUsableReadingLocation`).
+- **Independent review fixes.** High: the satellite map was rebuilt on every re-render (the farm store returns new
+  field arrays each render) — the map is now keyed on what it draws. Medium: quick record treated a reading as
+  back-dated once the page had been open 10 minutes — an untouched time now counts as "now". Low: a short burst of
+  agreeing bad fixes could replace a real walk start — it now takes 3 more agreeing fixes than the kept stretch.

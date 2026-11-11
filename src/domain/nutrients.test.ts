@@ -1491,7 +1491,7 @@ describe("calculateGrasslandStockingRateKgHa", () => {
     ];
     const luHa = totalLivestockUnits(groups) / 27;
     const result = calculateGrasslandStockingRateKgHa(groups, 27);
-    expect(result).toBeCloseTo(organicNStockingRateFromLUHa(luHa), 5);
+    expect(result).toBeCloseTo(organicNStockingRateFromLUHa(luHa) ?? Number.NaN, 5);
     expect(result).toBeCloseTo(158 + ((luHa - 2.0) / 0.25) * (176 - 158), 5);
     expect(result).toBeGreaterThan(158);
     expect(result).toBeLessThan(176);

@@ -126,7 +126,10 @@ describe("fertiliser engine test farm — run 1 (Teagasc Green Book 2020)", () =
 
     it("never extrapolates: outside the printed rows the end row is held, as the Total N column already is", () => {
       expect(organicNStockingRateFromLUHa(0.5)).toBe(80);
-      expect(organicNStockingRateFromLUHa(0)).toBe(0);
+      // The canonical conversion holds the printed "≤1.0 / ≤80" row down to 0 LU/ha (a grazing field
+      // with no recorded livestock is blocked separately: MISSING_LIVESTOCK_DATA).
+      expect(organicNStockingRateFromLUHa(0)).toBe(80);
+      expect(organicNStockingRateFromLUHa(-1)).toBeNull();
       expect(organicNStockingRateFromLUHa(3.3)).toBe(235);
     });
 

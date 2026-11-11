@@ -21,8 +21,6 @@ export type PurchaseStatusPresentation =
 
 const UNKNOWN_MESSAGES: Record<string, string> = {
   MISSING_LIVESTOCK_DATA: "Add a livestock group on the Livestock screen to get a real fertiliser recommendation for this field.",
-  STOCKING_RATE_BEYOND_PUBLISHED_TABLE:
-    "This farm's grazing stocking rate is above 3.0 livestock units per hectare, beyond what the Teagasc Green Book table covers, so a grazing P and K requirement can't be worked out — no fertiliser products can be recommended yet.",
   MISSING_GRASSLAND_AREA:
     "This farm has no usable grassland area recorded, so the grazing stocking rate this field's requirement depends on can't be worked out — no fertiliser products can be recommended yet.",
   MISSING_SOIL_FERTILITY_INDEX: "This field's P/K Soil Index has not been recorded — add a soil test or a farmer estimate to unlock a fertiliser plan.",

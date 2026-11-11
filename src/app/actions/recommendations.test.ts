@@ -27,6 +27,7 @@ describe("recommendation action farm boundary", () => {
   it("rejects malformed keys and invalid snooze dates before a farm lookup", async () => {
     expect((await setRecommendationStateAction({ ...state, key: "../../other" })).ok).toBe(false);
     expect((await setRecommendationStateAction({ ...state, status: "snoozed", snoozedUntil: "tomorrow" })).ok).toBe(false);
+    expect((await setRecommendationStateAction({ ...state, status: "snoozed", snoozedUntil: "2020-01-01" })).ok).toBe(false);
     expect(getFarmForCurrentUser).not.toHaveBeenCalled();
   });
 

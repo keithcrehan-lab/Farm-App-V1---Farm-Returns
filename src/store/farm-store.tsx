@@ -96,6 +96,8 @@ import {
   soilMaterialForOrganicCarbonStatus,
 } from "@/domain/nutrients";
 import { resolveSoilTestChain } from "@/domain/soil-test-history";
+import { grazingSwardForCycle } from "@/domain/grass-fertiliser-engine-v2";
+import type { FieldProductionCycle } from "@/domain/fertiliser-field-evidence";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import type { NamedFieldScanSelection } from "@/domain/field-scan";
 import { canRestoreDeletedField } from "@/domain/field-deletion";
@@ -381,6 +383,12 @@ interface FarmActions {
   restoreField: (fieldId: string) => void;
   /** Applies a server-returned canonical field row (e.g. automatic public spatial evidence) without rewriting provenance on the client. */
   replaceFieldFromServer: (field: Field) => void;
+  /** Fertiliser close-out (Codex audit F010): after a production cycle is
+   * saved, the field's derived grazing sward follows it at once, so every
+   * client-side nutrient plan uses the saved clover evidence without a
+   * reload. Only the current season's cycle sets the sward (the same rule
+   * `listFieldsForFarm` applies). */
+  applySavedProductionCycle: (fieldId: string, season: string, cycle: FieldProductionCycle | null) => void;
   updateFieldIndex: (
     fieldId: string,
     key: "pIndex" | "kIndex",
@@ -927,6 +935,23 @@ export function FarmProvider({
           fields: s.fields.map((f) => (f.id === fieldId ? { ...f, archivedAt } : f)),
         }));
         persistRemote("archiveField", () => archiveFieldAction(fieldId));
+      },
+
+      applySavedProductionCycle(fieldId, season, cycle) {
+        if (season !== new Date().toISOString().slice(0, 4)) return;
+        const sward = grazingSwardForCycle(cycle ?? undefined);
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((candidate) => {
+            if (candidate.id !== fieldId) return candidate;
+            if (sward === undefined) {
+              const { grazingSward: _dropped, ...rest } = candidate;
+              void _dropped;
+              return rest;
+            }
+            return { ...candidate, grazingSward: sward };
+          }),
+        }));
       },
 
       replaceFieldFromServer(field) {
@@ -1648,6 +1673,7 @@ export function useFarmActions(): FarmActions {
     archiveField,
     restoreField,
     replaceFieldFromServer,
+    applySavedProductionCycle,
     updateFieldIndex,
     addLivestockGroup,
     deleteLivestockGroup,
@@ -1688,6 +1714,7 @@ export function useFarmActions(): FarmActions {
     archiveField,
     restoreField,
     replaceFieldFromServer,
+    applySavedProductionCycle,
     updateFieldIndex,
     addLivestockGroup,
     deleteLivestockGroup,

@@ -1106,3 +1106,14 @@ rather than rewritten. It stays `false` until the PR is merged and its final aud
 - Follow-up from the Mac run at 64baa76: the F007 block no longer applies to tillage fields (their canonical arms are
   `NOT_APPLICABLE`; the mixed-index Evidence Report section keeps its slurry basis), and the slurry-rate allocation
   test now expects blocked per-nutrient arms when there is no grassland area. typecheck and lint pass at 64baa76.
+
+## Fertiliser close-out — Codex audit 182629a..aef72d6 (3 HIGH, 1 MEDIUM) fixed (2026-11-11)
+
+- F010: saving a production cycle now updates the farm store's field sward at once (`applySavedProductionCycle`, from
+  both the production-cycle card and the field drawer's use editor), so client nutrient plans pick up clover evidence
+  without a reload. This removes the "next page load" limitation noted above. Test: save clover → store sward is the
+  clover class; save grass → back to grass.
+- F011: an `unavailable` recorded pH is never used — no advice directly or in the farm lime aggregation.
+- F008 (follow-up): every grazing pathway's N requirement cites the table that produced it — Table 12-2 for
+  calf-to-weaning, 12-3 for calf-to-beef, the clover strategy for clover.
+- F005 (MEDIUM): the lime card labels verified, farmer-adjusted and estimated pH readings distinctly.

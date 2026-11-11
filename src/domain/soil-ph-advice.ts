@@ -130,7 +130,8 @@ function fieldPh(field: Pick<Field, "fertility">): { ph: number; reading: SoilPh
     };
   }
   const recorded = field.fertility.pH;
-  if (recorded !== undefined && Number.isFinite(recorded.value) && recorded.value > 0) {
+  // Codex audit F011: an `unavailable` value carries no usable figure.
+  if (recorded !== undefined && recorded.status !== "unavailable" && Number.isFinite(recorded.value) && recorded.value > 0) {
     return {
       ph: recorded.value,
       reading: {
@@ -186,7 +187,16 @@ export function formatPhReading(reading: SoilPhReadingProvenance): string {
   if (reading.kind === "LABORATORY_TEST") {
     return ["lab test", reading.laboratory, reading.date].filter((part) => part !== undefined && part !== "").join(", ");
   }
-  const label = reading.status === "verified" ? "recorded" : "estimate";
+  // Codex audit F005: verified, farmer-adjusted and estimated readings stay
+  // visibly distinct.
+  const label =
+    reading.status === "verified"
+      ? "verified record"
+      : reading.status === "farmer_adjusted"
+        ? "farmer-adjusted"
+        : reading.status === "estimated"
+          ? "estimate"
+          : reading.status.replace(/_/g, " ");
   return [label, reading.source, reading.date].filter((part) => part !== undefined && part !== "").join(", ");
 }
 

@@ -2127,10 +2127,19 @@ function buildFieldNutrientRequirement(args: {
   };
 
   const silageBasis = basis === "silage";
-  const cloverN =
-    basis === "grazing" && args.grazingNProvenance !== undefined && !args.grazingNProvenance.ruleId.startsWith("TEAGASC_GREEN_BOOK")
-      ? args.grazingNProvenance
-      : undefined;
+  // Codex audit F008: every grazing pathway cites the table that actually
+  // produced its N (Table 12-2 calf-to-weaning, Table 12-3 calf-to-beef, or
+  // the 2026 clover strategy) — read from the shared calculation's trace.
+  const grazingN = basis === "grazing" ? args.grazingNProvenance : undefined;
+  const grazingNRuleRef =
+    grazingN === undefined
+      ? undefined
+      : grazingN.ruleId.includes("TABLE_12_2")
+        ? "Teagasc Green Book Table 12-2"
+        : grazingN.ruleId.includes("TABLE_12_3")
+          ? "Teagasc Green Book Table 12-3"
+          : grazingN.ruleId;
+  const cloverN = grazingN !== undefined && !grazingN.ruleId.startsWith("TEAGASC_GREEN_BOOK") ? grazingN : undefined;
   return {
     contractVersion: "field_nutrient_requirement_v1",
     engineVersion: NUTRIENT_ENGINE_VERSION,
@@ -2140,7 +2149,7 @@ function buildFieldNutrientRequirement(args: {
     n: arm(
       gross.n,
       requirementByNutrient.n,
-      [cloverN !== undefined ? cloverN.ruleId : silageBasis ? "Teagasc Green Book Table 12-7" : "Teagasc Green Book Table 12-3"],
+      [grazingNRuleRef ?? (silageBasis ? "Teagasc Green Book Table 12-7" : "Teagasc Green Book Table 12-3")],
       // First-cut N ±25 kg per t DM (`CLM-TGC-YIELD-SCALE`) stays
       // IMPLEMENTATION_DEFERRED_SUPPORTED_RANGE_UNCLEAR: N ignores yield.
       silageBasis ? ["N_YIELD_SCALING_NOT_APPLIED"] : [],

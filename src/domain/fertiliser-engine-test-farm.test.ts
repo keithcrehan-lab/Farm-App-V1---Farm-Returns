@@ -269,6 +269,16 @@ describe("fertiliser engine test farm (Teagasc Green Book 2020) — Nutrients en
       expect(plan.fieldRequirement.p).toMatchObject({ status: "KNOWN", source: "Teagasc Green Book (5th Ed., 2020)" });
     });
 
+    it("each grazing production system's requirement cites its own table: 12-3 calf-to-beef, 12-2 calf-to-weaning (audit F008)", () => {
+      const field = testField("F1", 8, "grazing", 1, 1);
+      const beef = grazingPlan(field).fieldRequirement.n;
+      const weaning = grazingPlan(field, herd, { grazingProductionSystem: "SUCKLER_CALF_TO_WEANING" }).fieldRequirement.n;
+      if (beef.status !== "KNOWN" || weaning.status !== "KNOWN") throw new Error("expected KNOWN");
+      expect(beef.ruleRefs).toEqual(["Teagasc Green Book Table 12-3"]);
+      expect(weaning.ruleRefs).toEqual(["Teagasc Green Book Table 12-2"]);
+      expect(grazingPlan(field, herd, { grazingProductionSystem: "SUCKLER_CALF_TO_WEANING" }).calculationTrace?.grazing?.n.ruleId).toBe("TEAGASC_GREEN_BOOK_2020_TABLE_12_2_SUCKLER_CALF_TO_WEANING");
+    });
+
     it("a clover sward with no recorded April clover content asks for it", () => {
       const cloverField: Field = { ...testField("F5", 8, "grazing", 3, 3), grazingSward: { kind: "WHITE_CLOVER" } };
       expect(grazingPlan(cloverField).fieldRequirement.n).toMatchObject({ status: "UNKNOWN", reasonCode: "MISSING_WHITE_CLOVER_CONTENT" });

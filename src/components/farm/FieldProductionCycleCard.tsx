@@ -14,7 +14,7 @@ import {
   loadFieldProductionCycleAction,
   saveFieldProductionCycleAction,
 } from "@/app/actions/fertiliser-field-evidence";
-import { useFarm } from "@/store/farm-store";
+import { useFarm, useFarmActions } from "@/store/farm-store";
 import { FIELD_NUTRIENT_FOCUS_ATTRIBUTE } from "@/lib/field-nutrient-focus";
 import { CROP_SYSTEM_CONTEXT } from "@/lib/crop-system-context";
 
@@ -103,6 +103,7 @@ export function FieldProductionCycleCard({
   defaultOpen?: boolean;
 }) {
   const farm = useFarm();
+  const { applySavedProductionCycle } = useFarmActions();
   const currentSeason = String(new Date().getFullYear());
   const requestedSeason = planningSeason ?? currentSeason;
   const [loaded, setLoaded] = useState<{ requested: string; season: string }>({ requested: requestedSeason, season: requestedSeason });
@@ -425,6 +426,9 @@ export function FieldProductionCycleCard({
               setLoaded({ requested: requestedSeason, season: requestedSeason });
               setCycle(state.cycle);
               setGate(state.gate);
+              // Codex audit F010: the farm store's sward follows the save, so
+              // every nutrient plan uses the new clover evidence at once.
+              applySavedProductionCycle(field.id, requestedSeason, state.cycle);
               setMessage("Field evidence saved.");
               onSaved?.();
             } catch (error) {

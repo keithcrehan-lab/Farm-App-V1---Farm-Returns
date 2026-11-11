@@ -3,7 +3,7 @@ import { assessSoilPh, formatPhReading, formatPhTarget, phTargetLandUseForField,
 import { aggregateFarmLimeRequirement } from "./fertiliser-plan";
 import { tracked, type Field } from "./types";
 
-function field(overrides: { pH?: number; limeRequirement?: number; organicMatterPct?: number; recordedPh?: number; recordedStatus?: "estimated" | "farmer_adjusted" | "verified"; tillage?: boolean; peatMapped?: boolean; id?: string } = {}): Field {
+function field(overrides: { pH?: number; limeRequirement?: number; organicMatterPct?: number; recordedPh?: number; recordedStatus?: "estimated" | "farmer_adjusted" | "verified" | "unavailable"; tillage?: boolean; peatMapped?: boolean; id?: string } = {}): Field {
   return {
     id: overrides.id ?? "f1",
     farmId: "farm-1",
@@ -112,6 +112,16 @@ describe("soil pH advice (TEAGASC_PH_LIME targets)", () => {
     if (lab.status !== "OK" || estimated.status !== "OK") throw new Error("expected OK");
     expect(formatPhReading(lab.value.reading)).toBe("lab test, Lab, 2026-02-01");
     expect(formatPhReading(estimated.value.reading)).toBe("estimate, Farmer, 2026-03-01");
+    if (adjusted.status !== "OK") throw new Error("expected OK");
+    expect(formatPhReading(adjusted.value.reading)).toBe("farmer-adjusted, Farmer, 2026-03-01");
+  });
+
+  it("never uses an unavailable pH reading — no advice, directly or in the farm aggregation (audit F011)", () => {
+    const unavailable = field({ recordedPh: 5.9, recordedStatus: "unavailable" });
+    expect(assessSoilPh(unavailable, "GRASS_GRAZING")).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_SOIL_PH" });
+    const result = aggregateFarmLimeRequirement([{ ...unavailable, id: "u" }], { cropSystemByFieldId: new Map([["u", "GRASS_GRAZING"]] as const) });
+    expect(result.fields[0].phAdvice).toBeUndefined();
+    expect(result.fieldsBelowPhTargetWithoutLimeRate).toBe(0);
   });
 
   it("blocks when no pH is recorded — UNKNOWN is never 'no lime needed'", () => {

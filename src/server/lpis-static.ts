@@ -1,5 +1,5 @@
 import 'server-only';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { parseFieldScanPayload, type FieldScanOutcome } from '@/domain/field-scan';
 
 type BBox = [number, number, number, number];
@@ -32,7 +32,46 @@ const MAX_CHUNKS = 24;
 const CONCURRENCY = 8; // small index files
 const CHUNK_CONCURRENCY = 4; // bounds peak parse memory (chunks up to 16 MB)
 
-const base = () => process.env.LPIS_STATIC_BUDGET_FUSE === 'OPEN' ? undefined : process.env.LPIS_STATIC_BASE_URL?.replace(/\/$/, '');
+// Private R2 uses the S3-compatible API with SigV4, not the Cloudflare
+// management API's bearer token (which cannot download object bodies).
+const privateR2 = () => {
+  const account = process.env.LPIS_R2_ACCOUNT_ID;
+  const bucket = process.env.LPIS_R2_BUCKET;
+  const prefix = process.env.LPIS_R2_PREFIX;
+  const accessKey = process.env.LPIS_R2_ACCESS_KEY_ID;
+  const secretKey = process.env.LPIS_R2_SECRET_ACCESS_KEY;
+  // Never silently fall back to an HTTP endpoint when private R2 is only
+  // partially configured: that could mask a credentials error at launch.
+  const values = [account, bucket, prefix, accessKey, secretKey];
+  if (values.every(value => !value)) return null;
+  if (!account || !bucket || !prefix || !accessKey || !secretKey) throw new Error('Incomplete LPIS private R2 configuration');
+  if (!/^[a-f0-9]{32}$/.test(account) || !/^[a-zA-Z0-9-]+$/.test(bucket) || !/^[a-zA-Z0-9_/-]+$/.test(prefix) || prefix.includes('..')) throw new Error('Invalid LPIS private R2 configuration');
+  return { account, bucket, prefix: prefix.replace(/\/$/, ''), accessKey, secretKey };
+};
+
+function signedR2Request(r2: NonNullable<ReturnType<typeof privateR2>>, path: string, signal: AbortSignal): Promise<Response> {
+  const host = `${r2.account}.r2.cloudflarestorage.com`;
+  const uri = '/' + [r2.bucket, ...(`${r2.prefix}/${path}`).split('/')].map(encodeURIComponent).join('/');
+  const stamp = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const day = stamp.slice(0, 8);
+  const payloadHash = createHash('sha256').update('').digest('hex');
+  const headers = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${stamp}\n`;
+  const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
+  const canonical = `GET\n${uri}\n\n${headers}\n${signedHeaders}\n${payloadHash}`;
+  const scope = `${day}/auto/s3/aws4_request`;
+  const stringToSign = `AWS4-HMAC-SHA256\n${stamp}\n${scope}\n${createHash('sha256').update(canonical).digest('hex')}`;
+  const hmac = (key: Buffer | string, value: string) => createHmac('sha256', key).update(value).digest();
+  const key = hmac(hmac(hmac(hmac('AWS4' + r2.secretKey, day), 'auto'), 's3'), 'aws4_request');
+  const signature = createHmac('sha256', key).update(stringToSign).digest('hex');
+  return fetch(`https://${host}${uri}`, {
+    signal, cache: 'no-store', headers: {
+      'x-amz-date': stamp, 'x-amz-content-sha256': payloadHash,
+      Authorization: `AWS4-HMAC-SHA256 Credential=${r2.accessKey}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+    },
+  });
+}
+const base = () => process.env.LPIS_STATIC_BUDGET_FUSE === 'OPEN' ? undefined : (privateR2() ? 'private-r2' : process.env.LPIS_STATIC_BASE_URL?.replace(/\/$/, ''));
+export const isStaticLpisConfigured = () => Boolean(base());
 const validPath = (path: string) => /^[a-zA-Z0-9_./-]+$/.test(path) && !path.includes('..') && !path.startsWith('/');
 const validId = (id: string) => /^[\w.-]{1,120}$/.test(id);
 
@@ -44,12 +83,17 @@ async function jsonAt<T>(path: string, maxBytes = 5_000_000, kind: 'index' | 'ch
   const init: RequestInit & { next?: { revalidate: number } } = kind === 'index'
     ? { next: { revalidate: 86400 }, signal: AbortSignal.timeout(8000) }
     : { cache: 'no-store', signal: AbortSignal.timeout(15000) };
-  const response = await fetch(`${url}/${path}`, init);
+  const r2 = privateR2();
+  const response = r2
+    ? await signedR2Request(r2, path, init.signal as AbortSignal)
+    : await fetch(`${url}/${path}`, init);
   if (!response.ok) throw new Error(`LPIS static source HTTP ${response.status}`);
   const size = Number(response.headers.get('content-length') ?? 0);
   if (size > maxBytes) throw new Error('LPIS file exceeds response limit');
   const raw = await response.text();
-  if (raw.length > maxBytes) throw new Error('LPIS file exceeds response limit');
+  // Response limits are in bytes, not UTF-16 characters. Parcel labels may
+  // contain non-ASCII text, so string length alone undercounts payload size.
+  if (Buffer.byteLength(raw, 'utf8') > maxBytes) throw new Error('LPIS file exceeds response limit');
   return JSON.parse(raw) as T;
 }
 

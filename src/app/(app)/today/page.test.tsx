@@ -664,7 +664,8 @@ describe("TodayPage — Today Map Priority Semantics Correction (2026-09-19)", (
     expect(capturedMapHeroProps).toBeDefined();
     for (const fieldId of fieldIds) {
       expect(capturedMapHeroProps!.getTone({ id: fieldId })).toBe("neutral");
-      expect(capturedMapHeroProps!.getStatusLabel({ id: fieldId })).toBeUndefined();
+      // The map opens on Grass: an unmeasured field says so, and never carries the farm-level priority.
+      expect(capturedMapHeroProps!.getStatusLabel({ id: fieldId })).toBe("No cover");
     }
     // Also true for a field with no real opportunity at all — no field
     // is ever singled out as HIGH/MEDIUM/LOW by this map.

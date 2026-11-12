@@ -148,8 +148,12 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
   }, []);
   useEffect(() => {
     if (!enabled) return;
-    void reload();
-  }, [enabled, reload]);
+    let cancelled = false;
+    listGrazingMovementGroupsAction()
+      .then((loaded) => { if (!cancelled) setGroups(loaded); })
+      .catch(() => { /* the map simply shows no groups; nothing is assumed */ });
+    return () => { cancelled = true; };
+  }, [enabled]);
 
   // Where each group shows: a move waiting for Undo already shows at its new field.
   const shownGroups = useMemo(() => groups.map((group) => {
@@ -335,7 +339,7 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
   const menuGroup = menuGroupId ? shownGroups.find((group) => group.id === menuGroupId) : undefined;
   const chip = (group: CattleMapGroup, onMap: boolean) => {
     // The handlers read refs only when the farmer touches the group, never while rendering.
-    const handlers = press(group); // eslint-disable-line react-hooks/refs
+    const handlers = press(group);
     return (
     <button
       type="button"

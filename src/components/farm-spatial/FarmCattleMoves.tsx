@@ -83,6 +83,22 @@ function usePressAndHold(handlers: {
     if (g.lifted) live.current.onCancel();
   }, []);
 
+  // If the group is redrawn under the finger, the browser reports the lost pointer to the document, not the chip.
+  useEffect(() => {
+    const onDocumentLost = (e: PointerEvent) => {
+      const g = gesture.current;
+      if (g && g.id === e.pointerId && !g.el.isConnected) abandon();
+    };
+    document.addEventListener("lostpointercapture", onDocumentLost, true);
+    document.addEventListener("pointerup", onDocumentLost, true);
+    document.addEventListener("pointercancel", onDocumentLost, true);
+    return () => {
+      document.removeEventListener("lostpointercapture", onDocumentLost, true);
+      document.removeEventListener("pointerup", onDocumentLost, true);
+      document.removeEventListener("pointercancel", onDocumentLost, true);
+    };
+  }, [abandon]);
+
   return useCallback((group: CattleMapGroup) => ({
     onPointerDown: (e: ReactPointerEvent<HTMLElement>) => {
       if (gesture.current || (e.pointerType === "mouse" && e.button !== 0)) return;
@@ -92,7 +108,8 @@ function usePressAndHold(handlers: {
       const g = { id: e.pointerId, group, el, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, timer: null as number | null, lifted: false, panned: false };
       g.timer = window.setTimeout(() => {
         g.timer = null;
-        if (gesture.current !== g || g.panned || !g.el.isConnected) return;
+        if (gesture.current !== g || g.panned) return;
+        if (!g.el.isConnected) { gesture.current = null; return; } // the group was redrawn under the finger
         g.lifted = true;
         try { navigator.vibrate?.(25); } catch { /* not supported */ }
         live.current.onLift(group, g.x, g.y);
@@ -193,14 +210,16 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
   const save = useCallback(async (move: Pending) => {
     try {
       const result = await moveLivestockGroupToFieldAction({ livestockGroupId: move.group.id, fieldId: move.toFieldId, movedAt: move.movedAt });
+      // A newer move waiting for Undo keeps its own note (and Undo button) on screen.
+      const note = (next: Toast) => setToast((current) => (current?.kind === "pending" ? current : next));
       if (result.status === "saved") {
-        setToast({ kind: "saved", text: `${move.group.label} moved to ${move.toFieldName}.` });
+        note({ kind: "saved", text: `${move.group.label} moved to ${move.toFieldName}.` });
         onMovedRef.current?.();
       } else {
-        setToast({ kind: "error", text: moveRefusedMessage(result.reasonCode) });
+        note({ kind: "error", text: moveRefusedMessage(result.reasonCode) });
       }
     } catch {
-      setToast({ kind: "error", text: "The move couldn't be saved just now. Nothing was changed." });
+      setToast((current) => (current?.kind === "pending" ? current : { kind: "error", text: "The move couldn't be saved just now. Nothing was changed." }));
     } finally {
       await reload();
       setPending((current) => (current === move ? null : current));

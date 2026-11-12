@@ -20,6 +20,7 @@ import { MAPBOX_SATELLITE_STYLE, MAPBOX_TOKEN, mapboxConfigured } from "@/lib/ma
 import { formatHa } from "@/lib/format";
 import { createWebLocationTrackingProvider } from "@/lib/location/web-location-tracking-provider";
 import { computeBoundaryGeometry, boundingBox } from "@/domain/field-boundary";
+import { haversineM } from "@/domain/grass-survey";
 import { applyFences, evenFencesAtBearing, fitAllFences, orderPaddocks, shortestFenceBearing, straightenTrace } from "@/domain/paddock-split";
 import type { Field } from "@/domain/types";
 
@@ -53,11 +54,7 @@ type Gesture =
   | { kind: "pick"; id: number; x: number; y: number; moved: boolean };
 type Shown = { fences: Position[][]; pieces: GeoJSON.Polygon[]; split: boolean; previewOk: boolean };
 
-/** Metres between two map points close together (screen-scale geometry only). */
-function metresBetween(a: Position, b: Position): number {
-  const kx = 111_320 * Math.cos((a[1] * Math.PI) / 180);
-  return Math.hypot((b[0] - a[0]) * kx, (b[1] - a[1]) * 110_540);
-}
+const metresBetween = (a: Position, b: Position) => haversineM(a[1], a[0], b[1], b[0]);
 
 function pixelsToSegment(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number {
   const dx = b.x - a.x;
@@ -97,6 +94,10 @@ export function SplitFieldModal({ field, onClose, onSave }: {
   const [evenCount, setEvenCount] = useState(2);
   /** Set while the fences on screen came from "split evenly", so Turn can redo them. */
   const [evenBearing, setEvenBearing] = useState<number | null>(null);
+  /** The direction last tried for an even split, so Turn moves on even when a try didn't work. */
+  const [triedBearing, setTriedBearing] = useState<number | null>(null);
+  /** The points waiting came from walking the fence, so they are straightened when it is finished. */
+  const [walked, setWalked] = useState(false);
   const [walking, setWalking] = useState(false);
   const [walkAccuracy, setWalkAccuracy] = useState<number | null>(null);
   const [here, setHere] = useState<Position | null>(null);
@@ -105,6 +106,7 @@ export function SplitFieldModal({ field, onClose, onSave }: {
 
   // The touch handlers are attached once, so they read the latest values from here.
   const live = useRef({ drawn, pending, mode, selected, walking, fitted: [] as Position[][] });
+  const pieceKeysRef = useRef<string[]>([]);
   const gestureRef = useRef<Gesture | null>(null);
   const pointersRef = useRef<Set<number>>(new Set());
   const frameRef = useRef<number | null>(null);
@@ -136,10 +138,24 @@ export function SplitFieldModal({ field, onClose, onSave }: {
     live.current = { drawn, pending, mode, selected, walking, fitted: committed.fences };
   }, [drawn, pending, mode, selected, walking, committed.fences]);
 
-  // Default names follow the field's own name; anything the farmer typed is kept.
+  // A paddock keeps its name while its shape is unchanged; a new or changed paddock gets the next free default name.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- names track the number of pieces the fences make
-    setNames((prev) => pieces.map((_, i) => prev[i] ?? `${field.name} ${i + 1}`));
+    const keys = pieces.map((p) => JSON.stringify(p.coordinates));
+    const before = pieceKeysRef.current;
+    pieceKeysRef.current = keys;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- names track the pieces the fences make
+    setNames((prev) => {
+      const kept = keys.map((key) => { const was = before.indexOf(key); return was >= 0 ? prev[was] : undefined; });
+      const used = new Set(kept.flatMap((name) => (name ? [name.trim().toLocaleLowerCase()] : [])));
+      let n = 1;
+      return kept.map((name) => {
+        if (name !== undefined) return name;
+        let fresh = `${field.name} ${n++}`;
+        while (used.has(fresh.toLocaleLowerCase())) fresh = `${field.name} ${n++}`;
+        used.add(fresh.toLocaleLowerCase());
+        return fresh;
+      });
+    });
   }, [pieces, field.name]);
 
   /** Saves a new set of fences if they split the field cleanly; otherwise says why and changes nothing. */
@@ -152,6 +168,7 @@ export function SplitFieldModal({ field, onClose, onSave }: {
     setHistory((h) => [...h, before]);
     setDrawn(next);
     setPending([]);
+    setWalked(false);
     setPreview(null);
     setDraftLine([]);
     setSelected(null);
@@ -183,6 +200,7 @@ export function SplitFieldModal({ field, onClose, onSave }: {
     mapRef.current = map;
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right");
     map.touchZoomRotate.disableRotation();
+    map.touchPitch.disable();
     map.doubleClickZoom.disable();
     // One finger draws; the browser must not treat it as a scroll.
     map.getCanvas().style.touchAction = "none";
@@ -291,6 +309,8 @@ export function SplitFieldModal({ field, onClose, onSave }: {
     const move = (ev: PointerEvent) => {
       const g = gestureRef.current;
       if (!g || g.id !== ev.pointerId) return;
+      // A mouse or pen let go outside the map: the touch is over.
+      if (ev.pointerType !== "touch" && ev.buttons === 0) { pointersRef.current.delete(ev.pointerId); dropGesture(); return; }
       const p = at(ev);
       if (g.kind === "stroke") {
         if (!g.moved && Math.hypot(p.x - g.x, p.y - g.y) > TAP_SLOP_PX) g.moved = true;
@@ -298,9 +318,9 @@ export function SplitFieldModal({ field, onClose, onSave }: {
       } else if (g.kind === "pick") {
         if (Math.hypot(p.x - g.x, p.y - g.y) > TAP_SLOP_PX) g.moved = true;
       } else {
-        const fences = live.current.fitted.map((f, i) => (i === g.fence ? f.map((c, j) => (j === g.corner ? lngLat(p) : c)) : f));
-        setDraftLine(fences[g.fence] ?? []);
-        setPreview(fences);
+        const dragged = (live.current.fitted[g.fence] ?? []).map((c, j) => (j === g.corner ? lngLat(p) : c));
+        setDraftLine(dragged);
+        setPreview(live.current.drawn.map((f, i) => (i === g.fence ? dragged : f)));
       }
     };
 
@@ -340,7 +360,8 @@ export function SplitFieldModal({ field, onClose, onSave }: {
       }
       // A fence corner was dragged: keep the change if the fences still split the field cleanly.
       if (state.mode === "move") map.dragPan.enable();
-      const moved = state.fitted.map((f, i) => (i === g.fence ? f.map((c, j) => (j === g.corner ? lngLat(p) : c)) : f));
+      const dragged = (state.fitted[g.fence] ?? []).map((c, j) => (j === g.corner ? lngLat(p) : c));
+      const moved = state.drawn.map((f, i) => (i === g.fence ? dragged : f));
       const keep = g.fence;
       if (commit(moved, "The fence can't go there. It has to run across the field.")) { setSelected(keep); setEvenBearing(null); }
       else { setPreview(null); setDraftLine([]); }
@@ -386,6 +407,7 @@ export function SplitFieldModal({ field, onClose, onSave }: {
 
   const stopWalking = useCallback(() => {
     void providerRef.current?.stopActiveTracking();
+    live.current = { ...live.current, walking: false };
     setWalking(false);
   }, []);
   useEffect(() => () => { void providerRef.current?.stopActiveTracking(); }, []);
@@ -398,11 +420,16 @@ export function SplitFieldModal({ field, onClose, onSave }: {
     setDraftLine([]);
     setPreview(null);
     setWalkAccuracy(null);
+    setWalked(true);
     setWalking(true);
     const provider = providerRef.current ?? createWebLocationTrackingProvider();
     providerRef.current = provider;
-    void provider.startActiveTracking(
+    live.current = { ...live.current, walking: true, pending: [], mode: "draw", selected: null };
+    const [minX, minY, maxX, maxY] = boundingBox(field.polygon);
+    // Any earlier watch is stopped first, so only one is ever running.
+    void provider.stopActiveTracking().then(() => provider.startActiveTracking(
       (fix) => {
+        if (!live.current.walking) return;
         const point: Position = [fix.lng, fix.lat];
         setHere(point);
         setWalkAccuracy(fix.accuracyMeters ?? null);
@@ -415,19 +442,21 @@ export function SplitFieldModal({ field, onClose, onSave }: {
         setPending(next);
         setDraftLine(next);
         setPreview(next.length >= 2 ? [...live.current.drawn, straightenTrace(next, WALK_TOLERANCE_M)] : null);
-        if (!last) mapRef.current?.easeTo({ center: [point[0], point[1]], duration: 400 });
+        // Follow the farmer only while they are at the field, so the field never leaves the screen.
+        const atField = point[0] >= minX && point[0] <= maxX && point[1] >= minY && point[1] <= maxY;
+        if (!last && atField) mapRef.current?.easeTo({ center: [point[0], point[1]], duration: 400 });
       },
       (reason) => {
-        setWalking(false);
+        stopWalking();
         setError(reason === "permission_revoked"
           ? "Location is switched off for Farm Return. Allow it in your phone's settings, or draw the fence with your finger."
           : "Your location stopped coming through. Press Done to keep the fence walked so far, or draw it with your finger.");
       },
-    );
+    ));
   }
 
   function done() {
-    const points = walking ? straightenTrace(pending, WALK_TOLERANCE_M) : pending;
+    const points = walked ? straightenTrace(pending, WALK_TOLERANCE_M) : pending;
     if (walking) stopWalking();
     finishFence(points);
   }
@@ -435,6 +464,7 @@ export function SplitFieldModal({ field, onClose, onSave }: {
     setError(null);
     if (pending.length) {
       const next = pending.slice(0, -1);
+      if (!next.length) setWalked(false);
       setPending(next);
       setDraftLine(next);
       setPreview(next.length >= 2 ? [...drawn, next] : null);
@@ -455,9 +485,12 @@ export function SplitFieldModal({ field, onClose, onSave }: {
   }
   function splitEvenly(bearing: number) {
     if (walking) stopWalking();
-    if (commit(evenFencesAtBearing(field.polygon, evenCount, bearing), "This field can't be split evenly that way. Try turning the fences, or draw them.")) {
+    setTriedBearing(bearing);
+    if (commit(evenFencesAtBearing(field.polygon, evenCount, bearing))) {
       setEvenBearing(bearing);
       setNames([]);
+    } else {
+      setError((reason) => `${reason ?? "This field can't be split evenly that way."} Try turning the fences or fewer paddocks, or draw them.`);
     }
   }
   function changeMode(next: Mode) {
@@ -465,6 +498,11 @@ export function SplitFieldModal({ field, onClose, onSave }: {
     setMode(next);
     setError(null);
     if (next === "draw") setSelected(null);
+    // A half-drawn fence doesn't carry over between modes.
+    setPending([]);
+    setWalked(false);
+    setDraftLine([]);
+    setPreview(null);
   }
   async function save() {
     const trimmed = names.map((n) => n.trim());
@@ -547,8 +585,8 @@ export function SplitFieldModal({ field, onClose, onSave }: {
             {[2, 3, 4, 5, 6, 8, 10].map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
           <button type="button" onClick={() => splitEvenly(evenBearing ?? shortestFenceBearing(field.polygon))} className="min-h-10 rounded-full border border-fr-v2-forest px-3 text-sm font-semibold text-fr-v2-forest">Split</button>
-          {evenBearing !== null ? (
-            <button type="button" onClick={() => splitEvenly((evenBearing + 45) % 180)} className="min-h-10 rounded-full border border-fr-v2-forest px-3 text-sm font-semibold text-fr-v2-forest">Turn the fences</button>
+          {triedBearing !== null ? (
+            <button type="button" onClick={() => splitEvenly((triedBearing + 45) % 180)} className="min-h-10 rounded-full border border-fr-v2-forest px-3 text-sm font-semibold text-fr-v2-forest">Turn the fences</button>
           ) : null}
         </div>
         {error ? <p role="alert" className="mt-2 text-sm text-fr-risk">{error}</p> : null}
@@ -571,6 +609,7 @@ export function SplitFieldModal({ field, onClose, onSave }: {
         <p className="mt-3 text-xs leading-relaxed text-fr-ink-600">
           Each paddock becomes its own field for grazing, grass walks and fertiliser. They keep this field&apos;s LPIS number, so your parcel area isn&apos;t counted twice. Records already on {field.name} stay with it in your history.
         </p>
+        {split && pending.length > 0 ? <p className="mt-3 text-xs text-fr-ink-600">Finish the fence you&apos;re drawing (Done) or take it back (Undo) before saving.</p> : null}
         <button type="button" onClick={() => void save()} disabled={!split || saving || pending.length > 0}
           className="mt-3 min-h-12 w-full rounded-[12px] bg-fr-green-700 text-base font-semibold text-white disabled:opacity-50">
           {saving ? "Saving paddocks…" : split ? `Save ${pieces.length} paddocks` : "Save paddocks"}

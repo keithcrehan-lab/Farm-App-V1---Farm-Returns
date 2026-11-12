@@ -13,6 +13,7 @@ vi.mock("@/app/actions/onboarding", () => ({
 }));
 vi.mock("@/lib/mapbox", () => ({
   MAPBOX_PLAIN_SATELLITE_STYLE: "mock-style",
+  MAPBOX_SATELLITE_STYLE: "mock-style",
   MAPBOX_TOKEN: "mock-token",
   mapboxConfigured: false,
 }));

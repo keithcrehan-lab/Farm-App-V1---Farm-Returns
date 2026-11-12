@@ -159,6 +159,7 @@ export function FieldScanModal({
   }, [existingNameKeys, fieldNames, selectedCandidates]);
 
   const scanAt = useCallback(async (target: [number, number]) => {
+    if (stageRef.current === "paddocks") return; // the fields are saved; a late search must not restart the scan
     const request = ++scanRequestRef.current;
     setScanning(true);
     setCurrentCentre(target);

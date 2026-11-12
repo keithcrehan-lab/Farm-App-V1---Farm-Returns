@@ -579,7 +579,7 @@
   },
   "onboarding_tips_fence_drawing_v1": {
     "requested": "2026-11-12 product owner: closable step tips through onboarding; easy fence drawing for permanent paddocks",
-    "branch": "release/farm-return-current-2026-11-07",
+    "branch": "claude/onboarding-tips-fences, released through release/farm-return-current-2026-11-07",
     "status": "IMPLEMENTED_PENDING_CI_AND_INDEPENDENT_AUDIT",
     "migration": "none",
     "deferred": "BLOCKERS ONB-MERGE-1 (join two scanned parcels), ONB-UI-1 (mobile + desktop screen review)"

@@ -159,6 +159,7 @@ export function FieldScanModal({
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading the scan for this map centre is this effect's job; results land asynchronously.
     void scanAt(initialCentre);
     return () => { scanRequestRef.current += 1; };
   }, [initialCentre, scanAt]);
@@ -410,6 +411,7 @@ export function FieldScanModal({
           {stage === "name" ? (
             <>
               {/* Mobile: one field at a time in a compact card so the highlighted boundary stays visible above it. */}
+              {/* eslint-disable-next-line react-hooks/refs -- refs are read only in tap/Enter handlers (go → focusNamingCandidate), never during render. */}
               {(() => {
                 const index = Math.max(0, selectedCandidates.findIndex((candidate) => candidate.id === activeNamingId));
                 const candidate = selectedCandidates[index];

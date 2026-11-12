@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildDemandLine,
   grassInsights,
+  grazingPlatform,
+  inMainGrazingSeason,
   layoutWedge,
   MIN_AREA_BAR_FRACTION,
   previewScenario,
@@ -18,11 +20,13 @@ const groups: DemandGroup[] = [
 ];
 const targets = { rotationDays: 20, residualKgDmHa: 150 };
 const fields: WedgeField[] = [
-  { fieldId: "a", name: "Hill", areaHa: 2, coverKgDmHa: 1600 },
-  { fieldId: "b", name: "Side", areaHa: 3, coverKgDmHa: 900 },
-  { fieldId: "c", name: "Back", areaHa: 5, coverKgDmHa: 400 },
-  { fieldId: "d", name: "New", areaHa: 1 },
+  { fieldId: "a", name: "Hill", areaHa: 2, coverKgDmHa: 1600, use: "grazing" },
+  { fieldId: "b", name: "Side", areaHa: 3, coverKgDmHa: 900, use: "grazing" },
+  { fieldId: "c", name: "Back", areaHa: 5, coverKgDmHa: 400, use: "mixed" },
+  { fieldId: "d", name: "New", areaHa: 1, use: "grazing" },
 ];
+const NOV = "2026-11-12T12:00:00Z";
+const JUNE = "2026-06-12T12:00:00Z";
 
 describe("grass wedge target line (Teagasc manual wedge)", () => {
   it("draws the line from demand per hectare × rotation + residual down to the residual", () => {
@@ -65,28 +69,47 @@ describe("wedge layout", () => {
     expect(bars.reduce((s, b) => s + b.width, 0)).toBeCloseTo(1, 9);
   });
 
-  it("reads the line at each bar: the first bar at the pre-grazing target, the last at the residual", () => {
+  it("runs the line across the measured fields only: the first at the pre-grazing target, the last at the residual", () => {
     const out = buildDemandLine({ groups, grazingAreaHa: 10, targets });
     if (out.status !== "OK") throw new Error("line");
     const bars = layoutWedge(fields, "equal", out.line);
     expect(bars[0].targetKgDmHa).toBeCloseTo(650, 6);
-    expect(bars[3].targetKgDmHa).toBeCloseTo(150, 6);
-    expect(bars[1].targetKgDmHa).toBeCloseTo(650 - 500 / 3, 6);
+    expect(bars[1].targetKgDmHa).toBeCloseTo(400, 6);
+    expect(bars[2].targetKgDmHa).toBeCloseTo(150, 6);
+    // The unmeasured field gets no point on the line and no difference — never treated as zero.
+    expect(bars[3].targetKgDmHa).toBeUndefined();
+    expect(bars[3].differenceKgDm).toBeUndefined();
     // Hill: (1600 − 650) × 2 ha
     expect(bars[0].differenceKgDm).toBeCloseTo(1900, 6);
     expect(bars[0].aboveResidualKgDm).toBeCloseTo((1600 - 150) * 2, 6);
-    expect(bars[3].differenceKgDm).toBeUndefined();
   });
 
-  it("totals the farm against the line in kg DM and days of demand, leaving unmeasured fields out", () => {
+  it("totals the farm against the line from area-weighted cover, the same whichever way the bars are drawn", () => {
     const out = buildDemandLine({ groups, grazingAreaHa: 10, targets });
     if (out.status !== "OK") throw new Error("line");
     const p = wedgePosition(fields, out.line)!;
-    const t = (i: number) => 650 - (500 * i) / 3;
-    const expected = (1600 - t(0)) * 2 + (900 - t(1)) * 3 + (400 - t(2)) * 5;
-    expect(p.differenceKgDm).toBeCloseTo(expected, 6);
-    expect(p.days).toBeCloseTo(expected / 250, 6);
+    // (1600×2 + 900×3 + 400×5) ÷ 10 = 790; line average 400; (790 − 400) × 10 ha = 3,900 kg DM.
+    expect(p.differenceKgDm).toBeCloseTo(3900, 6);
+    expect(p.days).toBeCloseTo(3900 / 250, 6);
+    expect(p.measuredAreaHa).toBe(10);
     expect(p.unmeasuredAreaHa).toBe(1);
+  });
+});
+
+describe("grazing platform", () => {
+  it("counts only grazing and mixed fields, and waits for fields whose use isn't set", () => {
+    const mixedFarm: WedgeField[] = [
+      ...fields,
+      { fieldId: "s", name: "Silage", areaHa: 8, coverKgDmHa: 2500, use: "silage_1st_cut" },
+      { fieldId: "t", name: "Barley", areaHa: 6, use: "tillage" },
+    ];
+    const p = grazingPlatform(mixedFarm);
+    expect(p.areaHa).toBe(11);
+    expect(p.excluded.map((f) => f.fieldId)).toEqual(["s", "t"]);
+    expect(p.unknownUse).toEqual([]);
+    const unknown = grazingPlatform([...fields, { fieldId: "u", name: "Unknown", areaHa: 4 }]);
+    expect(unknown.unknownUse.map((f) => f.fieldId)).toEqual(["u"]);
+    expect(buildDemandLine({ groups, grazingAreaHa: unknown.areaHa, targets, unknownUse: unknown.unknownUse })).toMatchObject({ block: { code: "FIELD_USE_UNKNOWN" } });
   });
 });
 
@@ -100,6 +123,42 @@ describe("growth evidence", () => {
     });
     expect(s.chosen).toMatchObject({ kind: "walks", rateKgDmHaDay: 16 });
     expect(s.others).toEqual([expect.objectContaining({ kind: "regional", rateKgDmHaDay: 50 })]);
+  });
+
+  it("reads a finished walk's saved growth as walk evidence, not as a figure you typed", () => {
+    const s = selectGrowthEvidence({
+      walks: [],
+      observations: [
+        { id: "w", growthRateKgDmHaDay: 16, origin: "farmer_entered", observedAt: "2026-11-10T09:00:00Z", source: "Grass walk 2026-11-10: calculated from 5 fields" },
+        { id: "r", growthRateKgDmHaDay: 50, origin: "regional_estimate", observedAt: "2026-11-11T00:00:00Z", source: "Teagasc MoSt Clare" },
+      ],
+      asOf,
+    });
+    expect(s.chosen).toMatchObject({ kind: "walks", rateKgDmHaDay: 16, observationId: "w" });
+  });
+
+  it("ignores impossible growth figures (0 or above 500) instead of crashing the page", () => {
+    const s = selectGrowthEvidence({
+      walks: [{ at: "2026-11-10T09:00:00Z", rateKgDmHaDay: 0, fieldCount: 5 }],
+      observations: [
+        { id: "w0", growthRateKgDmHaDay: 0, origin: "farmer_entered", observedAt: "2026-11-11T09:00:00Z", source: "Grass walk 2026-11-11: calculated from 3 fields" },
+        { id: "big", growthRateKgDmHaDay: 900, origin: "sensor", observedAt: "2026-11-11T10:00:00Z", source: "Sensor" },
+        { id: "r", growthRateKgDmHaDay: 50, origin: "regional_estimate", observedAt: "2026-11-11T00:00:00Z", source: "Teagasc" },
+      ],
+      asOf,
+    });
+    expect(s.chosen).toMatchObject({ kind: "regional", rateKgDmHaDay: 50 });
+    expect(s.others).toEqual([]);
+  });
+
+  it("labels an external feed as its own source, not as the county figure", () => {
+    const s = selectGrowthEvidence({
+      walks: [],
+      observations: [{ id: "x", growthRateKgDmHaDay: 40, origin: "external_api", observedAt: "2026-11-11T00:00:00Z", source: "Feed" }],
+      asOf,
+    });
+    expect(s.chosen?.kind).toBe("external");
+    expect(s.chosen?.label).not.toMatch(/county/i);
   });
 
   it("falls back to the county figure when your own is older than 21 days, and says so", () => {
@@ -138,26 +197,43 @@ describe("supply vs demand, insights and scenarios", () => {
 
   it("asks for the missing liveweight and targets first, never guessing", () => {
     const line = buildDemandLine({ groups: [{ groupId: "g3", label: "weanlings", headCount: 12, fieldId: "a", missingReason: "their average liveweight is missing" }], grazingAreaHa: 10, targets });
-    const insights = grassInsights({ fields: fields.map((f) => ({ ...f, ageDays: 2, occupied: false })), line });
+    const insights = grassInsights({ fields: fields.map((f) => ({ ...f, ageDays: 2, occupied: false })), line, asOf: NOV });
     expect(insights[0]).toMatchObject({ title: "Complete your grazing demand", actionLabel: "Add cattle liveweight", action: { kind: "add_liveweight", groupId: "g3" } });
     expect(insights[0].why).toMatch(/12 weanlings/);
-    const noTargets = grassInsights({ fields: [], line: buildDemandLine({ groups, grazingAreaHa: 10, targets: {} }) });
+    const noTargets = grassInsights({ fields: [], line: buildDemandLine({ groups, grazingAreaHa: 10, targets: {} }), asOf: NOV });
     expect(noTargets[0]).toMatchObject({ actionLabel: "Set rotation length" });
   });
 
-  it("reports a surplus against the line with its working, and the next field on the wedge", () => {
+  it("reports a surplus with its working; silage only in the main season, holding covers in autumn", () => {
     const line = buildDemandLine({ groups, grazingAreaHa: 10, targets });
     const measured = fields.filter((f) => f.coverKgDmHa !== undefined).map((f) => ({ ...f, ageDays: 2, occupied: f.fieldId === "b" }));
-    const insights = grassInsights({ fields: measured, line });
-    const surplus = insights.find((i) => i.id === "surplus")!;
-    expect(surplus.working.at(-1)!.label).toBe("In days of grazing demand");
-    expect(surplus.confidence).toBe("measured");
-    expect(insights.find((i) => i.id === "next")!.title).toBe("Next on the wedge: Hill");
+    const summer = grassInsights({ fields: measured, line, asOf: JUNE }).find((i) => i.id === "surplus")!;
+    expect(summer.working.at(-1)!.label).toBe("In days of grazing demand");
+    expect(summer.confidence).toBe("measured");
+    expect(summer.why).toMatch(/baled silage/);
+    expect(summer.action).toEqual({ kind: "explore_silage", fieldIds: ["a"] });
+    expect(summer.figures).toContain("16 days of demand above it");
+    const autumn = grassInsights({ fields: measured, line, asOf: NOV });
+    const held = autumn.find((i) => i.id === "surplus")!;
+    expect(held.why).not.toMatch(/silage/);
+    expect(held.why).toMatch(/closing rotation/);
+    expect(held.actionLabel).toBe("Try a longer rotation");
+    // No field-by-field grazing order is prescribed without a documented pre-grazing threshold.
+    expect(autumn.find((i) => i.id === "next")).toBeUndefined();
+    expect(inMainGrazingSeason(JUNE)).toBe(true);
+    expect(inMainGrazingSeason(NOV)).toBe(false);
+  });
+
+  it("asks for each field's use before drawing the line", () => {
+    const line = buildDemandLine({ groups, grazingAreaHa: 10, targets, unknownUse: [{ fieldId: "u", name: "Bottom", areaHa: 4 }] });
+    const insights = grassInsights({ fields: [], line, asOf: NOV });
+    expect(insights[0]).toMatchObject({ id: "field-use", action: { kind: "set_field_use", fieldId: "u" } });
   });
 
   it("previews taking a field out without changing anything: less area, a higher line", () => {
     const before = buildDemandLine({ groups, grazingAreaHa: 11, targets });
-    const after = previewScenario({ fields, groups, targets, removedFieldIds: ["a"] });
+    const silage: WedgeField = { fieldId: "s", name: "Silage", areaHa: 8, coverKgDmHa: 2500, use: "silage_1st_cut" };
+    const after = previewScenario({ fields: [...fields, silage], groups, targets, removedFieldIds: ["a"] });
     expect(after.remainingAreaHa).toBe(9);
     if (before.status !== "OK" || after.line.status !== "OK") throw new Error("line");
     expect(after.line.line.targetPreGrazingKgDmHa).toBeGreaterThan(before.line.targetPreGrazingKgDmHa);

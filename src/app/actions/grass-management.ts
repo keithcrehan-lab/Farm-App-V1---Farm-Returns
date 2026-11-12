@@ -159,6 +159,8 @@ export interface GrassManagementFieldView {
   id: string;
   name: string;
   areaHa: number;
+  /** The field's recorded planned use (Fields), when set. */
+  plannedUse?: string;
 }
 
 export interface GrassGrazingSessionView {
@@ -248,7 +250,7 @@ export async function getGrassManagementDataAction(): Promise<GrassManagementDat
 
   return {
     status: "ok",
-    fields: activeFields.map((field) => ({ id: field.id, name: field.name, areaHa: field.areaHa })),
+    fields: activeFields.map((field) => ({ id: field.id, name: field.name, areaHa: field.areaHa, ...(field.plannedUse ? { plannedUse: field.plannedUse.value } : {}) })),
     coverObservations,
     growthObservations: mergedGrowth,
     growthForecasts: mergedForecasts,

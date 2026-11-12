@@ -1128,3 +1128,20 @@ providers; no second source of truth, no migration.
 - Not done (follow-ups): targets and guide stored per device, not per user (needs a migration); confirmed scenario
   decisions don't yet write to Plan/silage; intake stays at Teagasc's 2% liveweight rule without supplementation
   adjustment; return-to-Grass after adding a liveweight relies on navigating back.
+
+### 2026-11-12 — Grass V2 review fixes (independent reviewer: 1 Critical, 3 High)
+
+- Critical: a walk growth of 0 (or > 500) crashed the page; growth evidence now uses the saved-observation bounds.
+  Walks are read from their saved observation (one source); the separate walks fetch and the in-memory
+  `walk_measured` origin were removed. External feeds get their own label.
+- High: grazing area now counts only grazing/mixed fields from Fields' planned use; an unset use blocks the line
+  with "Set the use of …" (deep link to the field's use). Scenarios use the same platform.
+- High: "Next on the wedge" removed (no documented threshold). Surplus advice is seasonal (silage April–August,
+  hold covers / longer rotation from September); mid-season preset shown only in season; "days ahead" renamed
+  "days of demand above/below the line".
+- Medium/Low: position is area-weighted and independent of bar width; the line spans measured fields only; advice
+  is labelled when based on projected covers; the map mounts when first shown (fits a visible canvas) and has a
+  colour legend with the display-band disclaimer; wedge labels are HTML (readable on phones); unmeasured fields
+  are dashed slots; tap targets no longer cover the legend; dead variables removed.
+- Still open: targets and guide are stored per device (needs a per-user table and migration).
+

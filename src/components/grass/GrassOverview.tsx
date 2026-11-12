@@ -16,6 +16,8 @@ import { GrassGuide, HelpTip } from "@/components/grass/GrassGuide";
 import { openGrassGuide, setGrazingTargets, setWedgeWidthMode, useGrassSettings } from "@/lib/grass-settings";
 import {
   buildDemandLine,
+  grazingPlatform,
+  inMainGrazingSeason,
   grassInsights,
   layoutWedge,
   previewScenario,
@@ -84,7 +86,10 @@ export function GrassOverview({
   selectedFieldId,
   onSelectField,
   map,
+  asOf,
 }: {
+  /** Today's date (ISO), for seasonal advice. */
+  asOf: string;
   fields: readonly OverviewField[];
   groups: readonly DemandGroup[];
   growth: GrowthSelection;
@@ -102,7 +107,13 @@ export function GrassOverview({
   map: ReactNode;
 }) {
   const settings = useGrassSettings();
-  const [view, setView] = useState<View>("wedge");
+  const [view, setViewState] = useState<View>("wedge");
+  // The map mounts the first time it's shown, so it fits the fields to a visible (not 0×0) canvas.
+  const [mapMounted, setMapMounted] = useState(false);
+  function setView(next: View) {
+    setViewState(next);
+    if (next === "map") setMapMounted(true);
+  }
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [rotationInput, setRotationInput] = useState("");
   const [residualInput, setResidualInput] = useState("");
@@ -111,14 +122,20 @@ export function GrassOverview({
   const [removed, setRemoved] = useState<string[]>([]);
   const [scenarioRotation, setScenarioRotation] = useState<string>("");
 
-  const grazingAreaHa = fields.reduce((s, f) => s + Math.max(0, f.areaHa), 0);
-  const line = useMemo(() => buildDemandLine({ groups, grazingAreaHa, targets: settings.targets }), [groups, grazingAreaHa, settings.targets]);
+  // Only grazing (and mixed) fields form the grazing area; silage, tillage and other fields are left out.
+  const platform = useMemo(() => grazingPlatform(fields), [fields]);
+  const grazingAreaHa = platform.areaHa;
+  const line = useMemo(
+    () => buildDemandLine({ groups, grazingAreaHa, targets: settings.targets, unknownUse: platform.unknownUse, areaFields: platform.fields, excludedFields: platform.excluded }),
+    [groups, grazingAreaHa, settings.targets, platform],
+  );
   const okLine = line.status === "OK" ? line.line : undefined;
-  const bars = useMemo(() => layoutWedge(fields, settings.widthMode, okLine), [fields, settings.widthMode, okLine]);
-  const position = okLine ? wedgePosition(fields, okLine) : undefined;
+  const wedgeFields = platform.unknownUse.length > 0 ? fields : platform.fields;
+  const bars = useMemo(() => layoutWedge(wedgeFields, settings.widthMode, okLine), [wedgeFields, settings.widthMode, okLine]);
+  const position = okLine ? wedgePosition(platform.fields, okLine) : undefined;
   const resolvedDemand = groups.every((g) => g.dailyDemandKgDm !== undefined) && groups.length > 0 ? groups.reduce((s, g) => s + (g.dailyDemandKgDm ?? 0), 0) : undefined;
   const supply = supplyDemand({ growthKgDmHaDay: growth.chosen?.rateKgDmHaDay, grazingAreaHa, demandKgDmDay: resolvedDemand });
-  const insights = grassInsights({ fields: fields.map((f) => ({ ...f, occupied: f.occupants.length > 0 })), line, ...(supply ? { supply } : {}) });
+  const insights = grassInsights({ fields: platform.fields.map((f) => ({ ...f, occupied: f.occupants.length > 0 })), line, asOf, ...(supply ? { supply } : {}) });
   const occupied = useMemo(() => new Set(fields.filter((f) => f.occupants.length > 0).map((f) => f.fieldId)), [fields]);
   const selectedBar = bars.find((b) => b.fieldId === selectedFieldId);
   const selected = fields.find((f) => f.fieldId === selectedFieldId);
@@ -147,19 +164,19 @@ export function GrassOverview({
   function runAction(insight: GrassInsight) {
     const a = insight.action;
     if (a.kind === "set_targets") openSettings();
-    else if (a.kind === "select_field") { onSelectField(a.fieldId); setView("wedge"); }
     else if (a.kind === "explore_silage") { setRemoved(a.fieldIds); setScenarioOpen(true); document.getElementById("grass-scenario")?.scrollIntoView?.({ block: "start", behavior: "smooth" }); }
   }
   const actionHref = (insight: GrassInsight): string | undefined => {
     const a = insight.action;
     if (a.kind === "add_liveweight") return `/cattle/groups/${encodeURIComponent(a.groupId)}`;
     if (a.kind === "start_walk") return "/grass/walk";
+    if (a.kind === "set_field_use") return `/fields?field=${encodeURIComponent(a.fieldId)}&focus=field-use`;
     return undefined;
   };
 
   const positionText = !okLine
     ? line.status === "BLOCKED" && line.block.code === "TARGETS_NOT_SET" ? "Set targets" : "Not yet"
-    : position === undefined ? "Not measured" : position.days >= 0 ? `${position.days.toFixed(0)} days ahead` : `${Math.abs(position.days).toFixed(0)} days behind`;
+    : position === undefined ? "Not measured" : position.days >= 0 ? `+${position.days.toFixed(0)} days of demand` : `−${Math.abs(position.days).toFixed(0)} days of demand`;
 
   return (
     <div>
@@ -254,7 +271,7 @@ export function GrassOverview({
           {!okLine && line.status === "BLOCKED" ? <p className="mt-2 text-xs text-fr-v2-muted">No target line yet: {line.block.message}</p> : null}
           {okLine ? <Working lines={okLine.working} source={okLine.source} /> : null}
         </div>
-        <div className={view === "map" ? undefined : "hidden"}>{map}</div>
+        <div className={view === "map" ? undefined : "hidden"}>{mapMounted ? map : null}</div>
 
         {selected ? (
           <div className="mt-3 border-t border-fr-v2-cream-rule pt-3" data-grass-selected>
@@ -292,6 +309,7 @@ export function GrassOverview({
 
       <section className="mt-6" aria-label="What should I do?">
         <h2 className="font-display text-[26px] leading-none text-fr-v2-graphite">What should I do?</h2>
+        {horizon > 0 ? <p className="mt-1 text-xs text-fr-v2-muted">Based on covers projected +{horizon} days, not today&apos;s measurements.</p> : null}
         {insights.length === 0 ? (
           <p className="mt-2 text-sm text-fr-v2-muted">Nothing needs your attention from the grass you&apos;ve measured.</p>
         ) : (
@@ -335,7 +353,11 @@ export function GrassOverview({
           </div>
           {settingsError ? <p role="alert" className="mt-2 text-xs font-semibold text-fr-red-700">{settingsError}</p> : null}
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" onClick={() => { setRotationInput("21"); setResidualInput("150"); }} className="min-h-10 rounded-fr-v2-control border border-fr-v2-cream-rule bg-white px-3 text-xs font-semibold text-fr-v2-charcoal">Fill in the Teagasc mid-season guide</button>
+            {inMainGrazingSeason(asOf) ? (
+              <button type="button" onClick={() => { setRotationInput("21"); setResidualInput("150"); }} className="min-h-10 rounded-fr-v2-control border border-fr-v2-cream-rule bg-white px-3 text-xs font-semibold text-fr-v2-charcoal">Fill in the Teagasc mid-season guide</button>
+            ) : (
+              <p className="text-xs text-fr-v2-muted">Outside the main season, enter the longer rotation you're running now.</p>
+            )}
             <button type="button" onClick={saveSettings} className="min-h-10 rounded-fr-v2-control bg-fr-v2-forest px-4 text-xs font-semibold text-white">Save targets</button>
             <button type="button" onClick={() => setSettingsOpen(false)} className="min-h-10 px-2 text-xs font-semibold text-fr-v2-muted">Cancel</button>
           </div>

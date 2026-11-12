@@ -586,9 +586,16 @@
   },
   "farm_map_soil_and_cattle_v1": {
     "requested": "2026-11-12 product owner: Grass | Soil map views; cattle groups shown and moved on the map; Soil view colours fields by need, lime first, where-to-spread card",
-    "released": "cattle + two-view switch at c1e416b; Soil view pending release",
-    "status": "IMPLEMENTED_PENDING_CI_AND_INDEPENDENT_AUDIT",
+    "released": "cattle + two-view switch at c1e416b; Soil view released at eae2a5a",
+    "status": "RELEASED",
     "migration": "none",
     "deferred": "BLOCKERS CATTLE-MAP-1; ONB-UI-1 (screen review)"
+  },
+  "grass_v2": {
+    "requested": "2026-11-12 product owner brief 'Farm Return — Grass V2'",
+    "status": "IMPLEMENTED_PENDING_CI_AND_INDEPENDENT_AUDIT",
+    "migration": "none",
+    "domain": "src/domain/grass-wedge-target.ts (grass_wedge_target_v1.0.0)",
+    "deferred": "per-user targets/guide storage (migration); scenario confirmation writing to Plan/silage; intake beyond Teagasc 2% liveweight"
   }
 }

@@ -7,7 +7,6 @@ import { PageHeader } from "@/components/shell/PageHeader";
 import { GrowthInsights } from "@/components/grass/GrowthInsights";
 import { GrassOverview, type OverviewField } from "@/components/grass/GrassOverview";
 import { selectGrowthEvidence, type DemandGroup } from "@/domain/grass-wedge-target";
-import { listGrassSurveysAction } from "@/app/actions/grass-surveys";
 import { MapHero } from "@/components/farm/MapHero";
 import type { MapTone } from "@/components/farm/FieldMap";
 import { cn } from "@/lib/cn";
@@ -108,14 +107,6 @@ function coverForState(state: GrassFieldState | undefined, horizon: Horizon): { 
     return { cover, basis: "projected", band: grassPresentationBand(cover) };
   }
   return { cover: state.current.coverKgDmHa, basis: state.current.basis, band: state.band };
-}
-
-function freshnessPhrase(state: GrassFieldState | undefined): string {
-  if (!state || state.status === "unknown") return "No measurement";
-  const age = state.measured.ageDays;
-  if (age < 1) return "Measured today";
-  const days = Math.floor(age);
-  return `${days} ${days === 1 ? "day" : "days"} since measurement`;
 }
 
 function grazingDemandLabel(session: GrassOpenGrazingSessionView): string {
@@ -233,31 +224,17 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
     () => latestGrassObservationByField(okData?.coverObservations ?? [], asOf),
     [okData?.coverObservations, asOf],
   );
-  // Growth measured between your repeated walks, from the finished walks list.
-  const [walkGrowth, setWalkGrowth] = useState<Array<{ at: string; rateKgDmHaDay: number; fieldCount: number }>>([]);
-  useEffect(() => {
-    let live = true;
-    void listGrassSurveysAction()
-      .then((r) => {
-        if (!live || !r.ok) return;
-        setWalkGrowth(r.surveys
-          .filter((survey) => survey.results?.farmGrowthKgDmHaDay != null)
-          .map((survey) => ({ at: survey.finishedAt ?? survey.startedAt, rateKgDmHaDay: survey.results!.farmGrowthKgDmHaDay as number, fieldCount: survey.results!.farmGrowthFieldCount })));
-      })
-      .catch(() => { /* no walk growth: other evidence is used */ });
-    return () => { live = false; };
-  }, []);
   // One growth figure for every grass estimate on this screen (Grass V2): your own recent evidence
   // first, otherwise the Teagasc county figure — never a mix. The others stay visible beside it.
   const growthSelection = useMemo(
-    () => selectGrowthEvidence({ walks: walkGrowth, observations: okData?.growthObservations ?? [], asOf }),
-    [walkGrowth, okData?.growthObservations, asOf],
+    // Finished walks save their measured growth as an observation, so walks are read from there (one source).
+    () => selectGrowthEvidence({ walks: [], observations: okData?.growthObservations ?? [], asOf }),
+    [okData?.growthObservations, asOf],
   );
   const latestGrowth = useMemo(() => {
     const chosen = growthSelection.chosen;
     if (!chosen) return latestGrassGrowthObservation([], asOf);
-    if (chosen.kind !== "walks") return (okData?.growthObservations ?? []).find((o) => o.id === chosen.observationId);
-    return { id: `walks:${chosen.at}`, farmId: "", growthRateKgDmHaDay: chosen.rateKgDmHaDay, origin: "walk_measured" as const, observedAt: chosen.at, source: chosen.source };
+    return (okData?.growthObservations ?? []).find((o) => o.id === chosen.observationId);
   }, [growthSelection, okData?.growthObservations, asOf]);
 
   const demandByField = useMemo(() => {
@@ -333,14 +310,6 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
   const stateByField = useMemo(() => new Map(states.map((state) => [state.fieldId, state])), [states]);
   const wedge = useMemo(() => buildGrassWedge(states), [states]);
   const fieldNameById = useMemo(() => new Map((okData?.fields ?? []).map((field) => [field.id, field.name])), [okData?.fields]);
-  const selectedState = selectedFieldId ? stateByField.get(selectedFieldId) : undefined;
-  const selectedCover = coverForState(selectedState, horizon);
-  const selectedHistoryCount = selectedFieldId
-    ? (okData?.coverObservations ?? []).filter((observation) => observation.fieldId === selectedFieldId).length
-    : 0;
-  const selectedGrazing = selectedFieldId
-    ? (okData?.openGrazingSessions ?? []).filter((session) => session.fieldId === selectedFieldId)
-    : [];
   const currentGrazingSessions = okData?.openGrazingSessions ?? [];
   const currentResolvedDemandKgDmDay = currentGrazingSessions.reduce(
     (sum, session) => sum + (session.demand.status === "resolved" ? session.demand.dailyDemandKgDm : 0),
@@ -384,6 +353,7 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
       fieldId: field.id,
       name: field.name,
       areaHa: field.areaHa,
+      ...(field.plannedUse ? { use: field.plannedUse } : {}),
       ...(shown.cover !== undefined ? { coverKgDmHa: shown.cover } : {}),
       ...(shown.basis ? { basis: shown.basis } : {}),
       ...(state && state.status !== "unknown" ? { ageDays: state.measured.ageDays, method: METHOD_LABEL[state.measured.method] } : {}),
@@ -586,6 +556,7 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
       </div>
 
       <GrassOverview
+        asOf={asOf}
         fields={overviewFields}
         groups={demandGroups}
         growth={growthSelection}
@@ -610,6 +581,7 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
         selectedFieldId={selectedFieldId}
         onSelectField={setSelectedFieldId}
         map={(
+            <>
               <MapHero
                 fields={fields}
                 getTone={(field) => toneForBand(coverForState(stateByField.get(field.id), horizon).band)}
@@ -631,6 +603,15 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
                 fitPadding={42}
                 className="h-[430px] min-h-[360px] lg:h-[520px]"
               />
+              <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-fr-v2-muted" aria-label="Map colours">
+                <li><span aria-hidden className="mr-1 inline-block size-2.5 rounded-sm bg-fr-good" />{formatNumber(DEFAULT_GRASS_PRESENTATION_TARGETS.surplusFromKgDmHa, 0)}+ kg DM/ha</li>
+                <li><span aria-hidden className="mr-1 inline-block size-2.5 rounded-sm bg-fr-info" />{formatNumber(DEFAULT_GRASS_PRESENTATION_TARGETS.targetMaxKgDmHa, 0)}–{formatNumber(DEFAULT_GRASS_PRESENTATION_TARGETS.surplusFromKgDmHa, 0)}</li>
+                <li><span aria-hidden className="mr-1 inline-block size-2.5 rounded-sm bg-fr-map-silage" />{formatNumber(DEFAULT_GRASS_PRESENTATION_TARGETS.targetMinKgDmHa, 0)}–{formatNumber(DEFAULT_GRASS_PRESENTATION_TARGETS.targetMaxKgDmHa, 0)}</li>
+                <li><span aria-hidden className="mr-1 inline-block size-2.5 rounded-sm bg-fr-attention" />Below {formatNumber(DEFAULT_GRASS_PRESENTATION_TARGETS.targetMinKgDmHa, 0)}</li>
+                <li><span aria-hidden className="mr-1 inline-block size-2.5 rounded-sm bg-fr-ink-400" />No cover</li>
+                <li className="basis-full">Colour bands are a display guide only, not a grazing target. Your target is the red line on the wedge.</li>
+              </ul>
+            </>
         )}
       />
 

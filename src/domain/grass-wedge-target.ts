@@ -40,7 +40,7 @@ export interface CalcLine {
 // Growth evidence
 // ---------------------------------------------------------------------------------------------
 
-export type GrowthEvidenceKind = "walks" | "farmer_entered" | "sensor" | "regional";
+export type GrowthEvidenceKind = "walks" | "farmer_entered" | "sensor" | "external" | "regional";
 
 export interface GrowthEvidence {
   kind: GrowthEvidenceKind;
@@ -63,8 +63,14 @@ const KIND_LABEL: Record<GrowthEvidenceKind, string> = {
   walks: "Measured on your walks",
   farmer_entered: "Entered by you",
   sensor: "Farm sensor",
+  external: "External growth feed",
   regional: "Teagasc county prediction",
 };
+
+/** The same bounds a saved growth observation must meet (`isValidGrassGrowthKgDmHaDay`): above 0, at most 500. */
+const validRate = (n: number) => Number.isFinite(n) && n > 0 && n <= 500;
+/** Finished walks save their measured growth as a farmer observation with this source (`finishGrassSurveyAction`). */
+const WALK_SOURCE = /^Grass walk \d{4}-\d{2}-\d{2}: calculated from/;
 
 /**
  * One growth figure for the farm, with the others shown beside it: the newest of
@@ -80,7 +86,7 @@ export function selectGrowthEvidence(input: {
   const asOfMs = Date.parse(input.asOf);
   const all: GrowthEvidence[] = [];
   for (const walk of input.walks) {
-    if (!Number.isFinite(walk.rateKgDmHaDay) || Date.parse(walk.at) > asOfMs) continue;
+    if (!validRate(walk.rateKgDmHaDay) || Date.parse(walk.at) > asOfMs) continue;
     all.push({
       kind: "walks",
       rateKgDmHaDay: walk.rateKgDmHaDay,
@@ -90,18 +96,25 @@ export function selectGrowthEvidence(input: {
     });
   }
   for (const o of input.observations) {
-    if (!Number.isFinite(o.growthRateKgDmHaDay) || Date.parse(o.observedAt) > asOfMs) continue;
-    const kind: GrowthEvidenceKind = o.origin === "regional_estimate" ? "regional" : o.origin === "sensor" ? "sensor" : o.origin === "farmer_entered" ? "farmer_entered" : "regional";
+    if (!validRate(o.growthRateKgDmHaDay) || Date.parse(o.observedAt) > asOfMs) continue;
+    const kind: GrowthEvidenceKind =
+      o.origin === "regional_estimate" ? "regional"
+        : o.origin === "sensor" ? "sensor"
+        : o.origin === "external_api" ? "external"
+        : o.origin === "farmer_entered" && WALK_SOURCE.test(o.source) ? "walks"
+        : "farmer_entered";
     all.push({ kind, observationId: o.id, rateKgDmHaDay: o.growthRateKgDmHaDay, at: o.observedAt, label: KIND_LABEL[kind], source: o.source });
   }
   const newestFirst = [...all].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
-  const own = newestFirst.find((e) => e.kind !== "regional" && asOfMs - Date.parse(e.at) <= OWN_GROWTH_MAX_AGE_DAYS * DAY_MS);
-  const regional = newestFirst.find((e) => e.kind === "regional");
+  const isOwn = (e: GrowthEvidence) => e.kind === "walks" || e.kind === "farmer_entered" || e.kind === "sensor";
+  const own = newestFirst.find((e) => isOwn(e) && asOfMs - Date.parse(e.at) <= OWN_GROWTH_MAX_AGE_DAYS * DAY_MS);
+  const regional = newestFirst.find((e) => e.kind === "regional") ?? newestFirst.find((e) => e.kind === "external");
   const chosen = own ?? regional;
   const others: GrowthEvidence[] = [];
   const seen = new Set<GrowthEvidenceKind>();
   for (const e of newestFirst) {
-    if (e === chosen || seen.has(e.kind)) continue;
+    // One figure per kind, and never the same walk twice (a walk's growth is also saved as an observation).
+    if (e === chosen || seen.has(e.kind) || (chosen && e.kind === chosen.kind)) continue;
     seen.add(e.kind);
     others.push(e);
   }
@@ -134,8 +147,33 @@ export interface DemandGroup {
   missingReason?: string;
 }
 
+/** Planned uses that are part of the grazing platform. */
+export const GRAZING_USES: ReadonlySet<string> = new Set(["grazing", "mixed"]);
+
+export interface GrazingPlatform {
+  /** Grazing and mixed fields: their area is the grazing area. */
+  fields: WedgeField[];
+  /** Fields whose use has never been recorded — the line waits for them. */
+  unknownUse: WedgeField[];
+  /** Silage, tillage and other fields, left out of the grazing area. */
+  excluded: WedgeField[];
+  areaHa: number;
+}
+
+/** Which fields make up the grazing area, from each field's recorded planned use (enter once, use everywhere). */
+export function grazingPlatform(fields: readonly WedgeField[]): GrazingPlatform {
+  const platform = fields.filter((f) => f.use !== undefined && GRAZING_USES.has(f.use));
+  return {
+    fields: platform,
+    unknownUse: fields.filter((f) => f.use === undefined),
+    excluded: fields.filter((f) => f.use !== undefined && !GRAZING_USES.has(f.use)),
+    areaHa: platform.reduce((s, f) => s + Math.max(0, f.areaHa), 0),
+  };
+}
+
 export type DemandLineBlock =
   | { code: "TARGETS_NOT_SET"; message: string }
+  | { code: "FIELD_USE_UNKNOWN"; message: string; fields: WedgeField[] }
   | { code: "NO_GRAZING_CATTLE"; message: string }
   | { code: "DEMAND_INCOMPLETE"; message: string; groups: DemandGroup[] }
   | { code: "NO_GRAZING_AREA"; message: string };
@@ -164,9 +202,23 @@ export function validTargets(targets: GrazingTargets): targets is Required<Grazi
 
 const kg = (n: number) => Math.round(n).toLocaleString("en-IE");
 
-export function buildDemandLine(input: { groups: readonly DemandGroup[]; grazingAreaHa: number; targets: GrazingTargets }): DemandLineOutcome {
+export function buildDemandLine(input: {
+  groups: readonly DemandGroup[];
+  grazingAreaHa: number;
+  targets: GrazingTargets;
+  unknownUse?: readonly WedgeField[];
+  /** For the working: the fields that make up the grazing area, and those left out. */
+  areaFields?: readonly WedgeField[];
+  excludedFields?: readonly WedgeField[];
+}): DemandLineOutcome {
   if (!validTargets(input.targets)) {
     return { status: "BLOCKED", block: { code: "TARGETS_NOT_SET", message: "Set your rotation length and grazing residual to draw the target line." } };
+  }
+  if (input.unknownUse && input.unknownUse.length > 0) {
+    return {
+      status: "BLOCKED",
+      block: { code: "FIELD_USE_UNKNOWN", message: "Some fields don't say whether they're grazed, so the grazing area isn't known.", fields: [...input.unknownUse] },
+    };
   }
   if (input.groups.length === 0) {
     return { status: "BLOCKED", block: { code: "NO_GRAZING_CATTLE", message: "No cattle are recorded on these fields, so there is no grazing demand to plan against." } };
@@ -202,10 +254,15 @@ export function buildDemandLine(input: { groups: readonly DemandGroup[]; grazing
           value: `${kg(g.dailyDemandKgDm ?? 0)} kg DM/day${g.kgDmPerHeadDay !== undefined ? ` (${g.kgDmPerHeadDay.toFixed(1)} kg/head)` : ""}`,
         })),
         { label: "Grazing demand", value: `${kg(demandKgDmDay)} kg DM/day` },
-        { label: "Grazing area", value: `${input.grazingAreaHa.toFixed(2)} ha` },
+        {
+          label: "Grazing area",
+          value: `${input.grazingAreaHa.toFixed(2)} ha${input.areaFields ? ` (${input.areaFields.length} grazing or mixed field${input.areaFields.length === 1 ? "" : "s"})` : ""}${
+            input.excludedFields && input.excludedFields.length > 0 ? `; left out as silage, tillage or other: ${input.excludedFields.map((f) => f.name).join(", ")}` : ""
+          }`,
+        },
         { label: "Demand per hectare", value: `${kg(demandKgDmDay)} ÷ ${input.grazingAreaHa.toFixed(2)} = ${demandKgDmHaDay.toFixed(1)} kg DM/ha/day` },
         { label: "Target pre-grazing cover", value: `${demandKgDmHaDay.toFixed(1)} × ${rotationDays} days + ${kg(residualKgDmHa)} residual = ${kg(targetPreGrazingKgDmHa)} kg DM/ha` },
-        { label: "Line", value: `straight from ${kg(targetPreGrazingKgDmHa)} at the highest field to ${kg(residualKgDmHa)} at the lowest` },
+        { label: "Line", value: `straight from ${kg(targetPreGrazingKgDmHa)} at the highest measured field to ${kg(residualKgDmHa)} at the lowest` },
       ],
       source: GRASS_WEDGE_TARGET_SOURCE,
     },
@@ -222,6 +279,8 @@ export interface WedgeField {
   fieldId: string;
   name: string;
   areaHa: number;
+  /** The field's recorded planned use; undefined when it has never been set. */
+  use?: string;
   /** Undefined when the field has no cover evidence — never zero. */
   coverKgDmHa?: number;
 }
@@ -277,21 +336,19 @@ export function layoutWedge(fields: readonly WedgeField[], mode: WedgeWidthMode,
     x += widths[i];
     return bar;
   });
-  const first = bars[0].centre;
-  const last = bars[n - 1].centre;
+  // The line runs across the measured fields only (first measured bar → last measured bar).
+  const measured = bars.filter((b) => b.coverKgDmHa !== undefined);
+  const first = measured[0]?.centre ?? 0;
+  const last = measured[measured.length - 1]?.centre ?? 0;
   return bars.map((bar) => {
-    if (!line) return bar;
-    const t = n === 1 || last === first ? 0 : (bar.centre - first) / (last - first);
+    if (!line || bar.coverKgDmHa === undefined) return bar;
+    const t = measured.length <= 1 || last === first ? 0 : (bar.centre - first) / (last - first);
     const targetKgDmHa = line.targetPreGrazingKgDmHa + (line.residualKgDmHa - line.targetPreGrazingKgDmHa) * t;
     return {
       ...bar,
       targetKgDmHa,
-      ...(bar.coverKgDmHa !== undefined
-        ? {
-            differenceKgDm: (bar.coverKgDmHa - targetKgDmHa) * bar.areaHa,
-            aboveResidualKgDm: Math.max(0, bar.coverKgDmHa - line.residualKgDmHa) * bar.areaHa,
-          }
-        : {}),
+      differenceKgDm: (bar.coverKgDmHa - targetKgDmHa) * bar.areaHa,
+      aboveResidualKgDm: Math.max(0, bar.coverKgDmHa - line.residualKgDmHa) * bar.areaHa,
     };
   });
 }
@@ -306,21 +363,26 @@ export interface WedgePosition {
   working: CalcLine[];
 }
 
-/** The farm against its target line — read on the equal-width wedge, as the Teagasc sheet draws it. */
+/**
+ * The farm against its target line: the measured fields' area-weighted average cover against the
+ * line's own average (half-way between the target pre-grazing cover and the residual), times the
+ * measured area. Independent of how the bars are drawn; unmeasured fields are left out, never zero.
+ */
 export function wedgePosition(fields: readonly WedgeField[], line: DemandLine): WedgePosition | undefined {
-  const bars = layoutWedge(fields, "equal", line);
-  const known = bars.filter((b) => b.differenceKgDm !== undefined);
+  const known = fields.filter((f) => f.coverKgDmHa !== undefined && f.areaHa > 0);
   if (known.length === 0) return undefined;
-  const differenceKgDm = known.reduce((s, b) => s + (b.differenceKgDm ?? 0), 0);
-  const measuredAreaHa = known.reduce((s, b) => s + b.areaHa, 0);
+  const measuredAreaHa = known.reduce((s, f) => s + f.areaHa, 0);
+  const averageCover = known.reduce((s, f) => s + f.coverKgDmHa! * f.areaHa, 0) / measuredAreaHa;
+  const differenceKgDm = (averageCover - line.targetAverageCoverKgDmHa) * measuredAreaHa;
   return {
     differenceKgDm,
     days: differenceKgDm / line.demandKgDmDay,
     measuredAreaHa,
-    unmeasuredAreaHa: bars.filter((b) => b.differenceKgDm === undefined).reduce((s, b) => s + b.areaHa, 0),
+    unmeasuredAreaHa: fields.filter((f) => f.coverKgDmHa === undefined).reduce((s, f) => s + Math.max(0, f.areaHa), 0),
     working: [
-      ...known.map((b) => ({ label: b.name, value: `(${kg(b.coverKgDmHa!)} − ${kg(b.targetKgDmHa!)}) × ${b.areaHa.toFixed(2)} ha = ${kg(b.differenceKgDm!)} kg DM` })),
-      { label: "Total against the line", value: `${kg(differenceKgDm)} kg DM` },
+      { label: "Average cover of measured fields", value: `${kg(averageCover)} kg DM/ha over ${measuredAreaHa.toFixed(2)} ha` },
+      { label: "Target average (middle of the line)", value: `(${kg(line.targetPreGrazingKgDmHa)} + ${kg(line.residualKgDmHa)}) ÷ 2 = ${kg(line.targetAverageCoverKgDmHa)} kg DM/ha` },
+      { label: "Against the line", value: `(${kg(averageCover)} − ${kg(line.targetAverageCoverKgDmHa)}) × ${measuredAreaHa.toFixed(2)} ha = ${kg(differenceKgDm)} kg DM` },
       { label: "In days of grazing demand", value: `${kg(differenceKgDm)} ÷ ${kg(line.demandKgDmDay)} kg DM/day = ${(differenceKgDm / line.demandKgDmDay).toFixed(1)} days` },
     ],
   };
@@ -366,7 +428,7 @@ export type InsightAction =
   | { kind: "set_targets" }
   | { kind: "start_walk" }
   | { kind: "explore_silage"; fieldIds: string[] }
-  | { kind: "select_field"; fieldId: string };
+  | { kind: "set_field_use"; fieldId: string };
 
 export interface GrassInsight {
   id: string;
@@ -385,6 +447,18 @@ export interface InsightInput {
   fields: readonly (WedgeField & { ageDays?: number; occupied: boolean })[];
   line: DemandLineOutcome;
   supply?: SupplyDemand;
+  /** Today's date, for seasonal advice. */
+  asOf: string;
+}
+
+/**
+ * Main grazing season (April–August): Teagasc advice is to take a lasting surplus out as baled
+ * silage (Teagasc Beef Manual, Section 6). From September covers are built and held for the
+ * closing rotation instead (Teagasc autumn grassland guidance), so surplus advice changes.
+ */
+export function inMainGrazingSeason(asOf: string): boolean {
+  const month = new Date(asOf).getUTCMonth() + 1;
+  return month >= 4 && month <= 8;
 }
 
 export function grassInsights(input: InsightInput): GrassInsight[] {
@@ -405,6 +479,20 @@ export function grassInsights(input: InsightInput): GrassInsight[] {
         working: [],
       });
     }
+  }
+  if (line.status === "BLOCKED" && line.block.code === "FIELD_USE_UNKNOWN") {
+    const first = line.block.fields[0];
+    out.push({
+      id: "field-use",
+      tone: "action",
+      title: "Tell us which fields are grazed",
+      why: `${line.block.fields.map((f) => f.name).slice(0, 4).join(", ")}${line.block.fields.length > 4 ? "…" : ""} ${line.block.fields.length === 1 ? "has" : "have"} no planned use, so the grazing area — and the target line — can't be worked out.`,
+      figures: [],
+      confidence: "low",
+      actionLabel: `Set the use of ${first.name}`,
+      action: { kind: "set_field_use", fieldId: first.fieldId },
+      working: [],
+    });
   }
   if (line.status === "BLOCKED" && line.block.code === "TARGETS_NOT_SET") {
     out.push({
@@ -443,16 +531,19 @@ export function grassInsights(input: InsightInput): GrassInsight[] {
       const confidence: GrassInsight["confidence"] = fresh === measured && position.unmeasuredAreaHa === 0 ? "measured" : fresh > 0 ? "mixed" : "low";
       const bars = layoutWedge(input.fields, "equal", line.line).filter((b) => (b.differenceKgDm ?? 0) > 0).sort((a, b) => (b.differenceKgDm ?? 0) - (a.differenceKgDm ?? 0));
       const tonnes = (n: number) => (Math.abs(n) / 1000).toFixed(1);
+      const mainSeason = inMainGrazingSeason(input.asOf);
       if (position.days >= 1) {
         out.push({
           id: "surplus",
           tone: "surplus",
           title: "More grass than your cattle need",
-          why: `Your covers are about ${tonnes(position.differenceKgDm)} t DM above the target line, roughly ${position.days.toFixed(0)} days of grazing ahead. Teagasc advice is to take a lasting surplus out as baled silage so the rest of the farm stays leafy, but confirm it on your next walk first, and weigh season, quality and weather.`,
-          figures: [`${tonnes(position.differenceKgDm)} t DM above the line`, `≈ ${position.days.toFixed(0)} days ahead`, ...bars.slice(0, 2).map((b) => `${b.name}: ${kg(b.coverKgDmHa!)} vs ${kg(b.targetKgDmHa!)} on the line`)],
+          why: mainSeason
+            ? `Your covers are about ${tonnes(position.differenceKgDm)} t DM above the target line, about ${position.days.toFixed(0)} days of your cattle's grazing. Teagasc advice in the main season is to take a lasting surplus out as baled silage so the rest of the farm stays leafy. Confirm it on your next walk first, and weigh quality and weather.`
+            : `Your covers are about ${tonnes(position.differenceKgDm)} t DM above the target line, about ${position.days.toFixed(0)} days of your cattle's grazing. Outside the main season Teagasc advice is to build and hold covers for the closing rotation and spring, by stretching the rotation, rather than cutting.`,
+          figures: [`${tonnes(position.differenceKgDm)} t DM above the line`, `${position.days.toFixed(0)} days of demand above it`, ...bars.slice(0, 2).map((b) => `${b.name}: ${kg(b.coverKgDmHa!)} vs ${kg(b.targetKgDmHa!)} on the line`)],
           confidence,
-          actionLabel: bars.length > 0 ? `See the effect of taking out ${bars[0].name}` : "Review the wedge",
-          action: bars.length > 0 ? { kind: "explore_silage", fieldIds: [bars[0].fieldId] } : { kind: "start_walk" },
+          actionLabel: mainSeason && bars.length > 0 ? `See the effect of taking out ${bars[0].name}` : "Try a longer rotation",
+          action: mainSeason && bars.length > 0 ? { kind: "explore_silage", fieldIds: [bars[0].fieldId] } : { kind: "explore_silage", fieldIds: [] },
           working: position.working,
           source: GRASS_WEDGE_TARGET_SOURCE,
         });
@@ -461,8 +552,8 @@ export function grassInsights(input: InsightInput): GrassInsight[] {
           id: "shortage",
           tone: "shortage",
           title: "Grass is behind your cattle's needs",
-          why: `Your covers are about ${tonnes(position.differenceKgDm)} t DM below the target line, roughly ${Math.abs(position.days).toFixed(0)} days of grazing. Teagasc options are to add grazing area, reduce demand or feed extra, and to keep grazing out to the residual.`,
-          figures: [`${tonnes(position.differenceKgDm)} t DM below the line`, `≈ ${Math.abs(position.days).toFixed(0)} days behind`],
+          why: `Your covers are about ${tonnes(position.differenceKgDm)} t DM below the target line, about ${Math.abs(position.days).toFixed(0)} days of your cattle's grazing. Teagasc options are to add grazing area, reduce demand or feed extra, and to keep grazing out to the residual.`,
+          figures: [`${tonnes(position.differenceKgDm)} t DM below the line`, `${Math.abs(position.days).toFixed(0)} days of demand below it`],
           confidence,
           actionLabel: "Start grass walk",
           action: { kind: "start_walk" },
@@ -488,27 +579,6 @@ export function grassInsights(input: InsightInput): GrassInsight[] {
         actionLabel: "Start grass walk",
         action: { kind: "start_walk" },
         working: s.working,
-      });
-    }
-  }
-
-  if (line.status === "OK") {
-    const next = [...input.fields]
-      .filter((f) => f.coverKgDmHa !== undefined && !f.occupied && (f.ageDays ?? Infinity) <= STALE_AFTER_DAYS)
-      .sort((a, b) => b.coverKgDmHa! - a.coverKgDmHa!)[0];
-    if (next) {
-      const pre = line.line.targetPreGrazingKgDmHa;
-      out.push({
-        id: "next",
-        tone: "info",
-        title: `Next on the wedge: ${next.name}`,
-        why: `${next.name} has the highest cover of the fields not being grazed: ${kg(next.coverKgDmHa!)} kg DM/ha against your target pre-grazing cover of ${kg(pre)}. The wedge is grazed from the top down; check it suits the stock, ground and weather.`,
-        figures: [`${kg(next.coverKgDmHa!)} kg DM/ha`, `${next.areaHa.toFixed(2)} ha`],
-        confidence: (next.ageDays ?? Infinity) <= 7 ? "measured" : "mixed",
-        actionLabel: `Show ${next.name}`,
-        action: { kind: "select_field", fieldId: next.fieldId },
-        working: [{ label: "Target pre-grazing cover", value: `${kg(pre)} kg DM/ha` }, { label: next.name, value: `${kg(next.coverKgDmHa!)} kg DM/ha` }],
-        source: GRASS_WEDGE_TARGET_SOURCE,
       });
     }
   }
@@ -540,11 +610,12 @@ export interface ScenarioResult {
 
 export function previewScenario(input: ScenarioInput): ScenarioResult {
   const removed = new Set(input.removedFieldIds);
-  const remaining = input.fields.filter((f) => !removed.has(f.fieldId));
-  const taken = input.fields.filter((f) => removed.has(f.fieldId));
-  const remainingAreaHa = remaining.reduce((s, f) => s + f.areaHa, 0);
+  const platform = grazingPlatform(input.fields);
+  const remaining = platform.fields.filter((f) => !removed.has(f.fieldId));
+  const taken = platform.fields.filter((f) => removed.has(f.fieldId));
+  const remainingAreaHa = remaining.reduce((s, f) => s + Math.max(0, f.areaHa), 0);
   const targets = { ...input.targets, ...(input.rotationDays !== undefined ? { rotationDays: input.rotationDays } : {}) };
-  const line = buildDemandLine({ groups: input.groups, grazingAreaHa: remainingAreaHa, targets });
+  const line = buildDemandLine({ groups: input.groups, grazingAreaHa: remainingAreaHa, targets, unknownUse: platform.unknownUse });
   const residual = validTargets(targets) ? targets.residualKgDmHa : undefined;
   const measuredTaken = taken.filter((f) => f.coverKgDmHa !== undefined);
   return {

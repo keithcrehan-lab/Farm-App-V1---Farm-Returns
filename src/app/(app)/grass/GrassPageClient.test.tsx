@@ -1,5 +1,5 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GrassPageClient } from "./GrassPageClient";
 import type { Field, Farm } from "@/domain/types";
@@ -64,6 +64,11 @@ vi.mock("@/lib/location/web-location-tracking-provider", () => ({
 const empty = { status: "ok" as const, fields: [{ id: FIELD_ID, name: "Home Field", areaHa: 4 }], coverObservations: [], growthObservations: [], grazingSessions: [], openGrazingSessions: [] };
 
 function isoDaysAgo(days: number): string { return new Date(Date.now() - days * 86_400_000).toISOString(); }
+
+/** Grass V2 opens on the wedge; the map mounts the first time it's shown. */
+function showFarmMap() {
+  fireEvent.click(within(screen.getByRole("group", { name: "Grass view" })).getByRole("button", { name: "Farm map" }));
+}
 
 describe("GrassPageClient guided walk", () => {
   const twoFields = { ...empty, fields: [{ id: FIELD_ID, name: "Home Field", areaHa: 4 }, { id: SECOND_FIELD_ID, name: "River Field", areaHa: 6 }] };
@@ -260,9 +265,10 @@ describe("GrassPageClient", () => {
   it("keeps an unmeasured farm honest and does not invent animal demand or forecasts", async () => {
     render(<GrassPageClient />);
     expect(await screen.findByText(/Animal demand: No cattle currently recorded in fields/i)).toBeTruthy();
-    expect(screen.getByText("Not measured")).toBeTruthy();
+    expect(screen.getAllByText("Not measured").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "+3 days" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByRole("button", { name: "+7 days" }).hasAttribute("disabled")).toBe(true);
+    showFarmMap();
     expect(screen.getByTestId("grass-map").textContent).toMatch(/No cover/);
     expect(screen.getByText(/Farm Return will not assume zero growth/i)).toBeTruthy();
   });
@@ -277,9 +283,10 @@ describe("GrassPageClient", () => {
     render(<GrassPageClient />);
     await screen.findByText(/Animal demand: No cattle currently recorded in fields/i);
     expect(screen.getByRole("button", { name: "+3 days" }).hasAttribute("disabled")).toBe(false);
+    showFarmMap();
     expect(screen.getByTestId("grass-map").textContent).toMatch(/kg DM\/ha/);
     fireEvent.click(screen.getByRole("button", { name: "+3 days" }));
-    await waitFor(() => expect(screen.getByText(/projected/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText(/projected/i).length).toBeGreaterThan(0));
     // Grass V2: the old fixed "display band" is gone; the wedge is read against the calculated target line.
     expect(screen.queryByText(/configurable visual reference/i)).toBeNull();
   });
@@ -340,6 +347,7 @@ describe("GrassPageClient", () => {
 
     render(<GrassPageClient />);
     expect(await screen.findByText(/Animal demand: 200 kg DM\/day/i)).toBeTruthy();
+    showFarmMap();
     await waitFor(() => expect(screen.getByTestId("grass-map").textContent).toMatch(/1,550 kg DM\/ha/));
     expect(screen.getByText(/Automatically linked from Cattle movements/i)).toBeTruthy();
   });

@@ -29,15 +29,18 @@ export function StepTip({ id, children, className = "", variant = "floating" }: 
     <div
       role="status"
       data-step-tip={id}
-      className={`pointer-events-auto border-l-[3px] border-fr-v2-straw px-3.5 py-3 text-white ${variant === "inline" ? "bg-white/[0.07]" : "bg-fr-v2-forest-deep/95 shadow-xl backdrop-blur"} ${className}`}
+      className={`pointer-events-auto border-l-[3px] border-fr-v2-straw px-3 py-2 text-white sm:px-3.5 sm:py-3 ${variant === "inline" ? "bg-white/[0.07]" : "bg-fr-v2-forest-deep/95 shadow-xl backdrop-blur"} ${className}`}
     >
-      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fr-v2-straw">Tip</p>
-      <p className="mt-1 text-[13px] leading-snug text-white/90">{children}</p>
-      <div className="mt-2 flex items-center justify-between gap-3">
-        <button type="button" onClick={skipAllStepTips} className="min-h-10 text-xs font-semibold text-white/65 underline underline-offset-4 hover:text-white">
+      {/* Kept short on phones so a tip never hides the thing it is about. */}
+      <p className="text-[13px] leading-snug text-white/90">
+        <span className="mr-2 font-mono text-[10px] uppercase tracking-[0.18em] text-fr-v2-straw">Tip</span>
+        {children}
+      </p>
+      <div className="mt-1.5 flex items-center justify-between gap-3 sm:mt-2">
+        <button type="button" onClick={skipAllStepTips} className="min-h-9 text-xs font-semibold text-white/65 underline underline-offset-4 hover:text-white sm:min-h-10">
           Skip all tips
         </button>
-        <button type="button" onClick={() => dismissStepTip(id)} className="min-h-10 bg-fr-v2-straw px-4 text-xs font-semibold text-fr-v2-forest-deep hover:bg-white">
+        <button type="button" onClick={() => dismissStepTip(id)} className="min-h-9 bg-fr-v2-straw px-4 text-xs font-semibold text-fr-v2-forest-deep hover:bg-white sm:min-h-10">
           Got it
         </button>
       </div>

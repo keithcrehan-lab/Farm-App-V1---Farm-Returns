@@ -462,7 +462,7 @@ export function FieldScanModal({
 
         {showSelectTip ? (
           <StepTip id={TIP_IDS.select} className="absolute bottom-3 left-3 right-3 z-20 sm:left-5 sm:right-auto sm:w-[400px]">
-            Tap each field you farm. It turns gold when it&apos;s picked, and a second tap takes it off again. Then press Name selected fields.
+            Tap each field you farm to turn it gold. Tap it again to take it off.
           </StepTip>
         ) : null}
         {stage === "name" ? (
@@ -476,7 +476,10 @@ export function FieldScanModal({
           </StepTip>
         ) : null}
 
-        <aside className={`absolute left-3 z-10 w-[min(400px,calc(100%-1.5rem))] border-l-[3px] border-fr-v2-straw bg-fr-v2-forest-deep/95 px-4 py-3 text-white shadow-xl backdrop-blur sm:left-5 ${stage === "paddocks" ? "bottom-3 max-h-[55%] overflow-y-auto sm:bottom-auto sm:top-5 sm:max-h-[calc(100%-2.5rem)]" : stage === "name" ? "bottom-3 sm:bottom-auto sm:top-5 sm:max-h-[calc(100%-2.5rem)] sm:overflow-y-auto" : "top-[74px] sm:top-[82px]"}`}>
+        <aside className={`absolute left-3 z-10 w-[min(400px,calc(100%-1.5rem))] border-l-[3px] border-fr-v2-straw bg-fr-v2-forest-deep/95 text-white shadow-xl backdrop-blur sm:left-5 ${stage === "select" ? "px-3 py-2 sm:px-4 sm:py-3" : "px-4 py-3"} ${stage === "paddocks" ? "bottom-3 max-h-[55%] overflow-y-auto sm:bottom-auto sm:top-5 sm:max-h-[calc(100%-2.5rem)]" : stage === "name" ? "bottom-3 sm:bottom-auto sm:top-5 sm:max-h-[calc(100%-2.5rem)] sm:overflow-y-auto" : "top-[74px] sm:top-[82px]"}`}>
+          {/* Phones: the scan summary and its button share one short row, so the map stays visible. */}
+          <div className={stage === "select" ? "flex items-center gap-3 sm:block" : undefined}>
+          <div className="min-w-0 flex-1">
           {stage === "paddocks" ? (
             <PaddockQuestion fields={addedFields} paddockCounts={paddockCounts} onDivide={setDividingId} />
           ) : stage === "name" ? (
@@ -603,7 +606,7 @@ export function FieldScanModal({
           ) : outcome === null ? (
             <>
               <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fr-v2-straw">Scanning this area</p>
-              <p className="mt-1 text-sm text-white/75">Finding public agricultural parcel boundaries…</p>
+              <p className="mt-1 text-xs text-white/75 sm:text-sm">Finding public agricultural parcel boundaries…</p>
             </>
           ) : unavailable ? (
             <>
@@ -612,12 +615,13 @@ export function FieldScanModal({
             </>
           ) : (
             <>
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fr-v2-straw">Tap your fields</p>
-              <p className="mt-1 font-display text-lg leading-tight">{candidates.length} nearby boundaries found</p>
-              <p className="mt-1.5 text-[13px] leading-snug text-white/72">Select only fields you farm. Public parcel boundaries do not prove ownership.</p>
-              <p className="mt-2 font-mono text-[10px] text-white/50">{outcome.sourceLabel} · {outcome.sourceYear}{outcome.coverageAtFarm ? "" : " · partial local coverage"}</p>
+              <p className="hidden font-mono text-[10px] uppercase tracking-[0.18em] text-fr-v2-straw sm:block">Tap your fields</p>
+              <p className="font-display text-base leading-tight sm:mt-1 sm:text-lg">{candidates.length} nearby boundaries found</p>
+              <p className="mt-0.5 text-[11px] leading-snug text-white/72 sm:mt-1.5 sm:text-[13px]">Select only fields you farm. Public parcel boundaries do not prove ownership.</p>
+              <p className="mt-0.5 font-mono text-[10px] text-white/50 sm:mt-2">{outcome.sourceLabel} · {outcome.sourceYear}{outcome.coverageAtFarm ? "" : " · partial local coverage"}</p>
             </>
           )}
+          </div>
 
           {stage === "select" ? (
             <button
@@ -629,16 +633,17 @@ export function FieldScanModal({
                 const point = map.getCenter();
                 void scanAt([point.lng, point.lat]);
               }}
-              className="mt-3 inline-flex min-h-11 items-center gap-2 border border-fr-v2-straw/60 bg-fr-v2-straw px-4 text-sm font-semibold text-fr-v2-forest-deep hover:bg-white disabled:cursor-wait disabled:opacity-60"
+              className="inline-flex min-h-11 shrink-0 items-center gap-1.5 border border-fr-v2-straw/60 bg-fr-v2-straw px-3 text-xs font-semibold text-fr-v2-forest-deep hover:bg-white disabled:cursor-wait disabled:opacity-60 sm:mt-3 sm:gap-2 sm:px-4 sm:text-sm"
             >
               <ScanLine className="size-4" /> {scanning ? "Scanning…" : "Scan this area"}
             </button>
           ) : null}
+          </div>
 
           {stage === "select" && existingFields.length > 0 ? (
-            <div className="mt-3 border-t border-white/10 pt-2.5">
+            <div className="mt-2 flex items-center justify-between gap-3 border-t border-white/10 pt-1.5 sm:mt-3 sm:block sm:pt-2.5">
               <p className="text-[11px] leading-snug text-white/60">{existingFields.length} already-mapped {existingFields.length === 1 ? "field is" : "fields are"} outlined in gold.</p>
-              <button type="button" onClick={() => void backToMappedFields()} className="mt-1.5 inline-flex min-h-9 items-center gap-1.5 text-xs font-semibold text-fr-v2-straw hover:text-white">
+              <button type="button" onClick={() => void backToMappedFields()} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 text-xs font-semibold text-fr-v2-straw hover:text-white sm:mt-1.5">
                 <LocateFixed className="size-3.5" /> Back to mapped fields
               </button>
             </div>

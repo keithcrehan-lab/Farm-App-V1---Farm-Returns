@@ -1041,3 +1041,12 @@ scan summary and Scan this area now share one row, the already-mapped note is on
 hidden (still shown on desktop, owner-approved), and tips are shorter with the Tip label inline. When the scan is
 unavailable the reason keeps its own full-width line. Independent Claude review BLOCKING=0. Phone screen check still
 owed (BLOCKERS ONB-UI-1).
+
+### 2026-11-12 (evening) — Faster release pipeline
+
+Product owner: builds got much slower after moving from Desktop Commander to the GitHub pipeline. The full suite took
+about 25 minutes on one machine. `release-deploy.yml` now runs typecheck and lint in their own job alongside the
+tests, splits the suite across six parallel machines (`vitest --shard`), and restores `node_modules` from cache when
+`package-lock.json` is unchanged. Gates unchanged: every test still runs before deploy, the known-failing baseline
+still applies per part, the audit record is still required. `check-test-baseline.mjs` reports "now passes" only for
+baseline tests whose file ran in that part.

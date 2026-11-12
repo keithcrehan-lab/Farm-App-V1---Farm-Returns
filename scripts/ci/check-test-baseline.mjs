@@ -32,7 +32,10 @@ if (process.argv[4]) {
     else failing.push(o);
   }
 }
-const nowPassing = [...baseline].filter((b) => !failing.includes(b));
+// With the suite split across machines (--shard), each part only sees its own share of
+// the baseline, so "now passes" is reported only for tests whose file ran in this part.
+const ranFiles = new Set((report.testResults ?? []).map((file) => relative(process.cwd(), file.name)));
+const nowPassing = [...baseline].filter((b) => !failing.includes(b) && ranFiles.has(b.split(" :: ")[0]));
 console.log(`Tests: ${report.numPassedTests} passed, ${report.numFailedTests} failed (${failing.length - unexpected.length} known).`);
 for (const f of nowPassing) console.log(`::notice::Known failure now passes - remove from baseline: ${f}`);
 if (unexpected.length) {

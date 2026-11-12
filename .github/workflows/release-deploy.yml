@@ -1,6 +1,7 @@
 # Farm Return release pipeline — the only route to production (AGENTS.md).
-# Every push to the release branch runs typecheck, lint and the full test suite on GitHub
-# (any failure not in .github/known-failing-tests.txt blocks it). If they pass, it deploys
+# Every push to the release branch runs typecheck, lint and the full test suite on GitHub,
+# the suite split across six parallel machines (any failure not in
+# .github/known-failing-tests.txt blocks it). If they pass, it deploys
 # farm-return-pilot to farm-return-pilot-topaz.vercel.app and moves the `deploy/audited`
 # marker branch to this commit. The independent audit happens BEFORE the push: no commit
 # reaches this branch until an independent reviewer (Codex, or a separate Claude reviewer
@@ -22,9 +23,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  checks:
+  # Typecheck and lint run alongside the tests, not before them.
+  static:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,24 +34,53 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci --no-audit --no-fund
+      # Packages are restored from cache when package-lock.json is unchanged.
+      - id: modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+      - if: steps.modules.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
       - name: Generate Next.js route types
         run: npx next typegen
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
         run: npm run lint
-      - name: Tests
-        # Full suite. One retry absorbs load-sensitive UI tests. Any failure not in
-        # .github/known-failing-tests.txt (pre-existing, tracked in BLOCKERS.md) blocks release.
+
+  # The full suite, split across parallel machines. Each part runs every test in its share,
+  # and any failure not in .github/known-failing-tests.txt blocks the release.
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+      - if: steps.modules.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+      - name: Tests (part ${{ matrix.shard }} of 6)
+        # One retry absorbs load-sensitive UI tests (pre-existing, tracked in BLOCKERS.md).
         run: |
           set -o pipefail
-          code=0; npx vitest run --retry=1 --reporter=default --reporter=json --outputFile=/tmp/vitest.json 2>&1 | tee /tmp/vitest.log || code=$?
+          code=0; npx vitest run --shard=${{ matrix.shard }}/6 --retry=1 --reporter=default --reporter=json --outputFile=/tmp/vitest.json 2>&1 | tee /tmp/vitest.log || code=$?
           node scripts/ci/check-test-baseline.mjs /tmp/vitest.json "$code" /tmp/vitest.log
 
   deploy:
-    needs: checks
+    needs: [static, tests]
     # Only the release branch ever reaches production, even from a manual run.
     if: github.ref == 'refs/heads/release/farm-return-current-2026-11-07'
     runs-on: ubuntu-latest

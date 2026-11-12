@@ -1,7 +1,7 @@
 # Farm Return release pipeline.
 # The only route to production (AGENTS.md). Every push to the release branch runs
 # typecheck, lint and the full test suite, then a Codex audit of everything since the
-# last audited deploy (tag `audited-deploy`). Only when all pass, with no Critical or
+# last audited deploy (branch `deploy/audited`). Only when all pass, with no Critical or
 # High finding, does it deploy farm-return-pilot to farm-return-pilot-topaz.vercel.app.
 # Vercel builds with the project's own environment variables; a failed build never
 # replaces the live app. A missing OPENAI_API_KEY or VERCEL_TOKEN secret fails closed:
@@ -52,8 +52,7 @@ jobs:
       - name: Work out what to audit
         id: base
         run: |
-          git fetch --tags --force
-          if git rev-parse -q --verify "refs/tags/audited-deploy^{commit}" >/dev/null; then base=audited-deploy; else base=HEAD~1; fi
+          if git fetch -q origin deploy/audited; then base=FETCH_HEAD; else echo "::error::No deploy/audited marker branch."; exit 1; fi
           if [ "$(git rev-parse "$base")" = "$(git rev-parse HEAD)" ]; then echo "Nothing new since the last audited deploy."; fi
           echo "base=$(git rev-parse "$base")" >> "$GITHUB_OUTPUT"
           git diff --stat "$base" HEAD | tail -3
@@ -96,5 +95,4 @@ jobs:
           echo "### Live: $url (aliased to farm-return-pilot-topaz.vercel.app)" >> "$GITHUB_STEP_SUMMARY"
       - name: Mark this commit as the last audited deploy
         run: |
-          git tag -f audited-deploy HEAD
-          git push -f origin refs/tags/audited-deploy
+          git push origin HEAD:refs/heads/deploy/audited

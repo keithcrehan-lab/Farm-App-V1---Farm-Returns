@@ -105,7 +105,7 @@ export function SplitFieldModal({ field, onClose, onSave }: {
   const [saving, setSaving] = useState(false);
 
   // The touch handlers are attached once, so they read the latest values from here.
-  const live = useRef({ drawn, pending, mode, selected, walking, fitted: [] as Position[][] });
+  const live = useRef({ drawn, pending, mode, selected, walking, walked, fitted: [] as Position[][] });
   const pieceKeysRef = useRef<string[]>([]);
   const gestureRef = useRef<Gesture | null>(null);
   const pointersRef = useRef<Set<number>>(new Set());
@@ -135,8 +135,8 @@ export function SplitFieldModal({ field, onClose, onSave }: {
   const split = pieces.length >= 2;
 
   useEffect(() => {
-    live.current = { drawn, pending, mode, selected, walking, fitted: committed.fences };
-  }, [drawn, pending, mode, selected, walking, committed.fences]);
+    live.current = { drawn, pending, mode, selected, walking, walked, fitted: committed.fences };
+  }, [drawn, pending, mode, selected, walking, walked, committed.fences]);
 
   // A paddock keeps its name while its shape is unchanged; a new or changed paddock gets the next free default name.
   useEffect(() => {
@@ -335,7 +335,9 @@ export function SplitFieldModal({ field, onClose, onSave }: {
         if (g.moved) {
           // A drag is a whole fence (joined on to any points already tapped).
           const traced = straightenTrace(g.points, TRACE_TOLERANCE_PX * metresPerPixel());
-          finishFence([...state.pending, ...traced]);
+          // Points walked before the drag are straightened the same way a finished walk is.
+          const before = state.walked ? straightenTrace(state.pending, WALK_TOLERANCE_M) : state.pending;
+          finishFence([...before, ...traced]);
           return;
         }
         // A tap adds a point; tapping the last point again finishes the fence.
@@ -407,8 +409,10 @@ export function SplitFieldModal({ field, onClose, onSave }: {
 
   const stopWalking = useCallback(() => {
     void providerRef.current?.stopActiveTracking();
-    live.current = { ...live.current, walking: false };
+    const none = live.current.pending.length === 0;
+    live.current = { ...live.current, walking: false, ...(none ? { walked: false } : {}) };
     setWalking(false);
+    if (none) setWalked(false); // nothing was walked, so hand-tapped points are kept exactly as tapped
   }, []);
   useEffect(() => () => { void providerRef.current?.stopActiveTracking(); }, []);
 
@@ -424,7 +428,7 @@ export function SplitFieldModal({ field, onClose, onSave }: {
     setWalking(true);
     const provider = providerRef.current ?? createWebLocationTrackingProvider();
     providerRef.current = provider;
-    live.current = { ...live.current, walking: true, pending: [], mode: "draw", selected: null };
+    live.current = { ...live.current, walking: true, walked: true, pending: [], mode: "draw", selected: null };
     const [minX, minY, maxX, maxY] = boundingBox(field.polygon);
     // Any earlier watch is stopped first, so only one is ever running.
     void provider.stopActiveTracking().then(() => provider.startActiveTracking(
@@ -490,10 +494,11 @@ export function SplitFieldModal({ field, onClose, onSave }: {
       setEvenBearing(bearing);
       setNames([]);
     } else {
-      setError((reason) => `${reason ?? "This field can't be split evenly that way."} Try turning the fences or fewer paddocks, or draw them.`);
+      setError("This field can't be split evenly that way: a paddock would be too small or a fence wouldn't cross it. Try turning the fences or fewer paddocks, or draw them.");
     }
   }
   function changeMode(next: Mode) {
+    if (next === mode && !walking) return;
     if (walking) stopWalking();
     setMode(next);
     setError(null);

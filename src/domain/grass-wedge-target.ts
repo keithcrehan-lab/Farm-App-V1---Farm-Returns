@@ -150,18 +150,18 @@ export interface DemandGroup {
 /** Planned uses that are part of the grazing platform. */
 export const GRAZING_USES: ReadonlySet<string> = new Set(["grazing", "mixed"]);
 
-export interface GrazingPlatform {
+export interface GrazingPlatform<F extends WedgeField = WedgeField> {
   /** Grazing and mixed fields: their area is the grazing area. */
-  fields: WedgeField[];
+  fields: F[];
   /** Fields whose use has never been recorded — the line waits for them. */
-  unknownUse: WedgeField[];
+  unknownUse: F[];
   /** Silage, tillage and other fields, left out of the grazing area. */
-  excluded: WedgeField[];
+  excluded: F[];
   areaHa: number;
 }
 
 /** Which fields make up the grazing area, from each field's recorded planned use (enter once, use everywhere). */
-export function grazingPlatform(fields: readonly WedgeField[]): GrazingPlatform {
+export function grazingPlatform<F extends WedgeField>(fields: readonly F[]): GrazingPlatform<F> {
   const platform = fields.filter((f) => f.use !== undefined && GRAZING_USES.has(f.use));
   return {
     fields: platform,

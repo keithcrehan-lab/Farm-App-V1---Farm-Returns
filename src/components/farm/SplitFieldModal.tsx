@@ -468,7 +468,7 @@ export function SplitFieldModal({ field, onClose, onSave }: {
     setError(null);
     if (pending.length) {
       const next = pending.slice(0, -1);
-      if (!next.length) setWalked(false);
+      if (!next.length && !walking) setWalked(false);
       setPending(next);
       setDraftLine(next);
       setPreview(next.length >= 2 ? [...drawn, next] : null);

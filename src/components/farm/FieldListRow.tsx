@@ -17,7 +17,7 @@ export function FieldListRow({
   onSelect?: (fieldId: string) => void;
 }) {
   const tone = field.plannedUse ? landUseTone(field.plannedUse.value) : "neutral";
-  const toneClass = toneClasses[tone === "silage" ? "info" : tone];
+  const toneClass = toneClasses[tone === "silage" ? "info" : tone === "caution" ? "attention" : tone];
 
   return (
     <button

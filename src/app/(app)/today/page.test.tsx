@@ -1478,8 +1478,8 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     const drawer = () => document.querySelector("[data-field-drawer]") as HTMLElement;
 
     act(() => capturedMapHeroProps!.onSelectField!("field-home"));
-    // Soil evidence now sits under Nutrients (no Soil lens).
-    expect(screen.queryByRole("button", { name: "Soil" })).toBeNull();
+    // Soil evidence (lime, P and K) is the map's Soil view; there is no separate soil lens beside it.
+    expect(within(screen.getByRole("group", { name: "Farm lens" })).getAllByRole("button")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Soil" }));
     expect(Array.from(drawer().querySelectorAll("[data-selection-context] dt")).map((dt) => dt.textContent)).toContain("P");
     fireEvent.click(screen.getByRole("button", { name: "Grass" }));

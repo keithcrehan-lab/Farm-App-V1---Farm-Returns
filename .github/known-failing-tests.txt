@@ -10,3 +10,4 @@ src/server/cattle-real/one-cattle-product.test.tsx :: Pilot P3 — navigation > 
 src/server/cattle-real/one-cattle-product.test.tsx :: Pilot P3 — navigation > an old /cattle/manage?tab=Groups link renders the same Add cattle screen — the Groups screen is gone
 src/server/cattle-real/one-cattle-product.test.tsx :: Pilot P3 — security (the farm is the server's) > 21: create actions use the signed-in farm; a different farm id from the browser is refused and writes nothing
 src/tooling/agent-run.test.ts :: scripts/agent-run > passes its orchestration tests (budget, resume, verification policy, gates)
+src/app/(app)/fertiliser-plan/calculations/FertiliserCalculationAuditClient.test.tsx :: (unhandled error)

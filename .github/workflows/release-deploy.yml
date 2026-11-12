@@ -44,8 +44,9 @@ jobs:
         # Full suite. One retry absorbs load-sensitive UI tests. Any failure not in
         # .github/known-failing-tests.txt (pre-existing, tracked in BLOCKERS.md) blocks release.
         run: |
-          code=0; npx vitest run --retry=1 --reporter=default --reporter=json --outputFile=/tmp/vitest.json || code=$?
-          node scripts/ci/check-test-baseline.mjs /tmp/vitest.json "$code"
+          set -o pipefail
+          code=0; npx vitest run --retry=1 --reporter=default --reporter=json --outputFile=/tmp/vitest.json 2>&1 | tee /tmp/vitest.log || code=$?
+          node scripts/ci/check-test-baseline.mjs /tmp/vitest.json "$code" /tmp/vitest.log
 
   deploy:
     needs: checks
@@ -61,6 +62,21 @@ jobs:
       VERCEL_PROJECT_ID: prj_G1qM47n7nSmlQYfqr5kI2RI2sWg5
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require an independent audit record for this commit
+        # audits/<sha>.md must audit `deploy/audited..<sha>` and end with VERDICT: BLOCKING=0.
+        # <sha> is this commit, or its parent when this commit only adds the audit record.
+        run: |
+          git fetch -q origin deploy/audited
+          marker=$(git rev-parse FETCH_HEAD)
+          head=$(git rev-parse HEAD); parent=$(git rev-parse HEAD^)
+          if [ -f "audits/$head.md" ]; then sha=$head
+          elif [ -f "audits/$parent.md" ] && [ -z "$(git diff --name-only HEAD^ HEAD | grep -v '^audits/')" ]; then sha=$parent
+          else echo "::error::No audit record audits/<sha>.md for $head. Audit before pushing (AGENTS.md)."; exit 1; fi
+          grep -q "Range: $marker..$sha" "audits/$sha.md" || { echo "::error::audits/$sha.md does not cover $marker..$sha"; exit 1; }
+          [ "$(grep -v '^\s*$' "audits/$sha.md" | tail -1)" = "VERDICT: BLOCKING=0" ] || { echo "::error::audits/$sha.md has blocking findings"; exit 1; }
+          echo "Audit record: audits/$sha.md covers $marker..$sha"
       - name: Deploy to production
         run: |
           if [ -z "$VERCEL_TOKEN" ]; then echo "::error::VERCEL_TOKEN secret not set."; exit 1; fi

@@ -19,7 +19,19 @@ const unexpected = failing.filter((f) => !baseline.has(f));
 // Fail closed on anything the per-test list can't see: no tests collected, or a suite-level
 // failure (unhandled error/rejection) that isn't attributed to a listed test.
 if (!report.numTotalTests) unexpected.push("(no tests were collected)");
-if (process.argv[3] && process.argv[3] !== "0" && failing.length === 0) unexpected.push(`(vitest exited ${process.argv[3]} with no failing test listed — unhandled error?)`);
+if (process.argv[3] && process.argv[3] !== "0" && failing.length === 0) unexpected.push(`(vitest exited ${process.argv[3]} with no failing test listed)`);
+// Unhandled errors/rejections are never in the baseline: vitest prints a banner for them.
+// Each must be listed as "<file> :: (unhandled error)"; one with no named origin always fails.
+if (process.argv[4]) {
+  const log = readFileSync(process.argv[4], "utf8").replace(/\x1b\[[0-9;]*m/g, "");
+  const count = Number(log.match(/caught (\d+) unhandled error/)?.[1] ?? (/Unhandled (Errors?|Rejection)/.test(log) ? 1 : 0));
+  const origins = [...log.matchAll(/originated in "([^"]+)"/g)].map((m) => `${m[1]} :: (unhandled error)`);
+  if (origins.length < count) unexpected.push(`(vitest reported ${count} unhandled error(s), ${count - origins.length} with no named test file)`);
+  for (const o of new Set(origins)) {
+    if (!baseline.has(o)) unexpected.push(o);
+    else failing.push(o);
+  }
+}
 const nowPassing = [...baseline].filter((b) => !failing.includes(b));
 console.log(`Tests: ${report.numPassedTests} passed, ${report.numFailedTests} failed (${failing.length - unexpected.length} known).`);
 for (const f of nowPassing) console.log(`::notice::Known failure now passes - remove from baseline: ${f}`);

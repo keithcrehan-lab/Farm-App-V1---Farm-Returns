@@ -181,14 +181,14 @@ export async function finishGrassSurveyAction(surveyId: string): Promise<Result<
     // recorded route. A farm's fields can be far apart, so neither the sign-up location nor the
     // middle of all fields is reliable. Keeps the start-of-walk snapshot if there's no route.
     // Only replace it when the walk is being finished close to when it happened (so the
-    // readings are from the walk's own time) and the new reading actually has data; an
-    // unavailable lookup never overwrites a good start-of-walk snapshot.
+    // readings are from the walk's own time) and the new reading has data and is no worse than
+    // the start snapshot (a STALE/unavailable lookup never overwrites a LIVE one).
     const route = cleanSurveyTrack(track, survey.mode);
     const routeMiddle = route.length ? route[Math.floor(route.length / 2)] : null;
     const finishedSoonAfterWalk = Date.parse(finishedAt) - Date.parse(route.at(-1)?.recordedAt ?? survey.startedAt) <= 3 * 60 * 60 * 1000;
     const candidate = routeMiddle && finishedSoonAfterWalk ? await weatherSnapshot([routeMiddle.lng, routeMiddle.lat]) : null;
     const routeWeather =
-      candidate && candidate.status !== "UNAVAILABLE" && candidate.status !== "UNVERIFIED" && candidate.observedAt !== null ? candidate : null;
+      candidate && candidate.observedAt !== null && (candidate.status === "LIVE" || survey.weather?.status !== "LIVE") ? candidate : null;
     const updated = await updateGrassSurvey(farm.id, surveyId, {
       status: "finished",
       finished_at: finishedAt,

@@ -36,7 +36,9 @@ descendant branches.
   independent audit (Codex, or a separate Claude reviewer that did not
   write the change) must review everything since the `deploy/audited`
   branch and report no Critical/High findings — product owner decision
-  2026-11-12, made because the Codex API had no credit.
+  2026-11-12, made because the Codex API had no credit. The record is
+  committed as `audits/<sha>.md` (`Range: <deploy/audited>..<sha>`, last
+  line `VERDICT: BLOCKING=0`); the pipeline refuses to deploy without it.
   Never deploy to production any other way (no `vercel deploy --prod`
   by hand), and never run a migration against a production database.
   `.env.local` targets `Farm Return V1 Dev` only.
@@ -63,7 +65,9 @@ shared/frozen-contract, config or unbounded changes, or with `--full-tests`.
 ## Independent audit
 
 `scripts/codex-audit.sh` — runs the OpenAI Codex CLI (`codex exec`)
-against a diff as a second, independent reviewer. Any finding labelled
+against a diff as a second, independent reviewer. A separate Claude
+reviewer that did not write the change is an accepted alternative
+(product owner, 2026-11-12). Any finding labelled
 Critical or High (taxonomy: `docs/farm-return-next/BUILD_PLAN.md`) blocks
 progression until resolved or explicitly deferred with a documented
 reason in `docs/farm-return-next/BLOCKERS.md`.

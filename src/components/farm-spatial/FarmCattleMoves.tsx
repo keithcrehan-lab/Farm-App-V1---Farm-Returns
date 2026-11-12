@@ -211,7 +211,11 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
     try {
       const result = await moveLivestockGroupToFieldAction({ livestockGroupId: move.group.id, fieldId: move.toFieldId, movedAt: move.movedAt });
       // A newer move waiting for Undo keeps its own note (and Undo button) on screen.
-      const note = (next: Toast) => setToast((current) => (current?.kind === "pending" ? current : next));
+      // A failure is still said, alongside it.
+      const note = (next: Toast) => setToast((current) => {
+        if (current?.kind !== "pending") return next;
+        return next.kind === "error" ? { kind: "pending", text: `${current.text}. Earlier move not saved: ${next.text}` } : current;
+      });
       if (result.status === "saved") {
         note({ kind: "saved", text: `${move.group.label} moved to ${move.toFieldName}.` });
         onMovedRef.current?.();
@@ -219,7 +223,8 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
         note({ kind: "error", text: moveRefusedMessage(result.reasonCode) });
       }
     } catch {
-      setToast((current) => (current?.kind === "pending" ? current : { kind: "error", text: "The move couldn't be saved just now. Nothing was changed." }));
+      const failed = "The move couldn't be saved just now. Nothing was changed.";
+      setToast((current) => (current?.kind === "pending" ? { kind: "pending", text: `${current.text}. Earlier move not saved: ${failed}` } : { kind: "error", text: failed }));
     } finally {
       await reload();
       setPending((current) => (current === move ? null : current));

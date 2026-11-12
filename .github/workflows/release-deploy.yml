@@ -76,9 +76,11 @@ jobs:
         run: npx next typegen
       - name: Tests (part ${{ matrix.shard }} of 6)
         # One retry absorbs load-sensitive UI tests (pre-existing, tracked in BLOCKERS.md).
+        # src/tooling/agent-run.test.ts tests the agents' build scripts, not the app; it takes
+        # about 23 minutes on its own and runs in tooling-tests.yml whenever those scripts change.
         run: |
           set -o pipefail
-          code=0; npx vitest run --shard=${{ matrix.shard }}/6 --retry=1 --reporter=default --reporter=json --outputFile=/tmp/vitest.json 2>&1 | tee /tmp/vitest.log || code=$?
+          code=0; npx vitest run --exclude "src/tooling/agent-run.test.ts" --shard=${{ matrix.shard }}/6 --retry=1 --reporter=default --reporter=json --outputFile=/tmp/vitest.json 2>&1 | tee /tmp/vitest.log || code=$?
           node scripts/ci/check-test-baseline.mjs /tmp/vitest.json "$code" /tmp/vitest.log
 
   deploy:

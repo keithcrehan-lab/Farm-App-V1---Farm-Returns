@@ -1050,3 +1050,6 @@ tests, splits the suite across six parallel machines (`vitest --shard`), and res
 `package-lock.json` is unchanged. Gates unchanged: every test still runs before deploy, the known-failing baseline
 still applies per part, the audit record is still required. `check-test-baseline.mjs` reports "now passes" only for
 baseline tests whose file ran in that part.
+The first trial showed one file, `src/tooling/agent-run.test.ts` (agent build tooling, already known-failing), took
+about 23 minutes on its own; every other part finished in under 2 minutes. It is excluded from the release run and
+runs in `tooling-tests.yml` when the tooling changes (BLOCKERS CI-SPEED-1).

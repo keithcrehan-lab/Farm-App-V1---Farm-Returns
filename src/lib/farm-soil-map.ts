@@ -120,8 +120,9 @@ export function fieldSoilView(field: Field, plan: FieldNutrientPlanResult | unde
   const kLeft = remaining(left.k);
   if (!pLeft || !kLeft) return { ...base, ...indices, need: "unknown" };
 
-  const pNeeded = pLeft.kgHa > 0;
-  const kNeeded = kLeft.kgHa > 0;
+  // Whole kilograms, as the plan states them: a fraction of a kilo left over is not a need.
+  const pNeeded = Math.round(pLeft.kgHa) > 0;
+  const kNeeded = Math.round(kLeft.kgHa) > 0;
   const pBelow = pNeeded && indices.pIndex <= 2;
   const kBelow = kNeeded && indices.kIndex <= 2;
   const need: SoilNeed = pBelow && kBelow ? "p_and_k" : kBelow ? "k" : pBelow ? "p" : pNeeded || kNeeded ? "maintenance" : "none";
@@ -167,6 +168,7 @@ export function soilSummary(views: readonly FieldSoilView[]): SoilSummaryLine[] 
       fieldIds: lime.map((v) => v.fieldId),
       fieldNames: lime.map((v) => v.name),
       areaHa: lime.reduce((total, v) => total + v.areaHa, 0),
+      // Each field's tonnes as the farm lime requirement states them (to 0.01 t); shown to 0.1 t, so their sum is close enough.
       ...(lime.every((v) => v.limeT !== undefined) ? { limeT: lime.reduce((total, v) => total + (v.limeT ?? 0), 0) } : {}),
       tone: "neutral",
     });
@@ -175,7 +177,7 @@ export function soilSummary(views: readonly FieldSoilView[]): SoilSummaryLine[] 
   if (limits.length > 0) {
     lines.push({
       key: "limits",
-      label: "Check legal limits first",
+      label: "Check legal limits",
       fieldIds: limits.map((v) => v.fieldId),
       fieldNames: limits.map((v) => v.name),
       areaHa: limits.reduce((total, v) => total + v.areaHa, 0),

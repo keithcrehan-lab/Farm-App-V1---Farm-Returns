@@ -101,7 +101,7 @@ describe("Farm map Soil view", () => {
     expect(c.checkLimits).toBeUndefined(); // nothing to spread, nothing to check
     const lines = soilSummary([a, b, c]);
     expect(lines.map((l) => l.key)).toEqual(["limits", "p_and_k", "none"]);
-    expect(lines[0]).toMatchObject({ label: "Check legal limits first", fieldNames: ["a", "b"] });
+    expect(lines[0]).toMatchObject({ label: "Check legal limits", fieldNames: ["a", "b"] });
     expect(lines[1].pKg).toBeUndefined();
     expect(lines[1].kKg).toBeUndefined();
   });

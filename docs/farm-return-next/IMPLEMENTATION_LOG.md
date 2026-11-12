@@ -1097,3 +1097,9 @@ replace the legacy P/K wording; no third button (lime belongs with P and K); fie
 - Map: new `caution` (yellow) tone; `MapHero.toneFillOpacity` for a stronger tint in the Soil view.
 - No migration, no new scientific figure: index bands follow the Teagasc Green Book soil index system already in the
   evidence register; every kg comes from the plan.
+- Independent review fixes (two rounds, BLOCKING=0): the plan's own NONE_NEEDED wins; fields whose legal-limits check
+  isn't clear (over a NAP ceiling or not assessable) get a "Check legal limits" line and give no total to buy; lime
+  tonnes come from `FieldLimeRequirement.fieldTonnes`; plans rebuild only when the store's field list changes; a
+  fraction of a kilo left is not a need; totals say nutrient kg; only lab or farmer-entered indices count as a soil
+  test; the card scrolls on phones. Open (Low): screen check (ONB-UI-1); the engine adds grazing P maintenance at
+  Index 4 (existing behaviour, to confirm against the Green Book).

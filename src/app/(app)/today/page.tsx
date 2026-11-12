@@ -96,7 +96,7 @@ import { TodayPriorityHud } from "@/components/next/TodayPriorityHud";
 import { AskAIButton } from "@/components/next/AskAI";
 import { WhatMattersPilotCard, ContractorCostRateInput } from "@/components/next/WhatMattersPilotCard";
 import { useWhatMattersPilot } from "@/components/next/useWhatMattersPilot";
-import { useFarm, useFields, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
+import { useAllFieldsIncludingArchived, useFarm, useFields, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/prompt/select-primary";
 import { SPREADING_WINDOW_PROMPT_KIND } from "@/orchestration/prompt/spreading-window";
@@ -580,10 +580,9 @@ export default function TodayPage() {
   }, [grassOkData?.openGrazingSessions]);
   // The Soil view: every mapped field coloured by what its canonical nutrient plan leaves to
   // spread, lime first (lab lime requirement only). Computed only while the view is open.
-  // The store hands over a new fields array on every render: the plans are rebuilt only when the mapped fields change.
-  const soilFieldsKey = lens === "nutrients" ? fields.filter((field) => field.polygon && !field.archivedAt).map((field) => `${field.id}:${field.areaHa}:${field.fertility.pIndex?.value}:${field.fertility.kIndex?.value}:${field.fertility.pIndex?.status}:${field.fertility.kIndex?.status}:${field.plannedUse?.value}`).join("|") : "";
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- rebuilt when the mapped fields' soil inputs change (soilFieldsKey)
-  const soilPlanFields = useMemo(() => (lens === "nutrients" ? fields.filter((field) => field.polygon && !field.archivedAt) : NO_FIELDS), [lens, soilFieldsKey]);
+  // The store's own field list keeps its identity until any field changes, so the plans rebuild exactly then.
+  const allStoreFields = useAllFieldsIncludingArchived();
+  const soilPlanFields = useMemo(() => (lens === "nutrients" ? allStoreFields.filter((field) => field.polygon && !field.archivedAt) : NO_FIELDS), [lens, allStoreFields]);
   const soilPlans = useFieldNutrientPlans(soilPlanFields);
   const soilViews = useMemo(() => {
     const limeByField = new Map((limeRequirement?.fields ?? []).map((row) => [row.fieldId, { rateTHa: row.rateTHa, fieldTonnes: row.fieldTonnes }]));

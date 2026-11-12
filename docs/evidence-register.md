@@ -2352,3 +2352,16 @@ Implied cost = quantity × reference €/t, labelled as an indication, never as 
 | Concentrate €/t | Inputs Market catalogue (Teagasc €350/t published benchmark, 2026-07) or the farmer's own override price | Labelled benchmark / "your price"; concentrate only — forage and housing are not costed |
 
 Not covered (fail closed): finishing-bull feeding rates, store/suckler/dairy classes, at-grass and non-grass-silage diets, unknown silage quality (a published-row planning scenario may be chosen and is always labelled as such, never as a lab result).
+
+## Grass V2 — wedge target line, supply vs demand and growth evidence (2026-11-12)
+
+`src/domain/grass-wedge-target.ts` (`grass_wedge_target_v1.0.0`). Sources read 2026-11-12.
+
+| Figure | Source | Encoding / limits |
+|---|---|---|
+| Target pre-grazing yield = stocking rate × allocation per animal × rotation length + residual; straight line from the first column (target pre-grazing) to the last column (target residual) | Teagasc, *Summer Wedge — manual version* (Pasture Wedge sheet), teagasc.ie/wp-content/uploads/2025/05/Summer_Wedge_manual_version.pdf | Stocking rate × allocation = the farm's grazing demand per ha per day, so target = (Σ resolved group demand ÷ grazing area) × rotation + residual. Line read at each bar centre, first → last bar. Fails closed without confirmed rotation/residual, grazing cattle, complete demand (any unresolved group blocks) and positive area. |
+| Rotation 18–21 days mid-season; residual ~4 cm ≈ 150 kg DM/ha | Teagasc Future Beef programme, suckler targets (2026 update); Teagasc beef grazing guidance | Shown as guidance only; the farmer confirms their own targets (stored on the device). Never applied silently. |
+| Grazing demand ≈ 2% of liveweight per head per day for beef cattle | Teagasc "Growing your potential — grass to beef" (calf-to-beef allocation ≈ 2% of bodyweight); Teagasc example 650 kg suckler cow → 13 kg DM/day | Unchanged existing provider (`grass-grazing-demand.ts`). Limitation: does not vary by diet, supplementation at grass or production stage; concentrates fed at grass are not deducted (no validated substitution rate encoded). |
+| Surplus/deficit against the line | Farm Return derivation from the line above (not a published PastureBase figure) | Σ (cover − line) × area over measured fields, on the equal-width wedge (the sheet's columns); expressed also in days of demand. Unmeasured fields excluded, never zero. |
+| Surplus handling: remove a lasting surplus as baled silage | Teagasc Beef Manual, Section 6 (grassland) | Insight text only, conditional ("confirm on your next walk; weigh season, quality, weather"). No silage yield is estimated: "grass above the residual today" is shown instead. |
+| Growth evidence order | Farm Return rule | Newest own evidence (growth measured between repeated walks, farmer-entered, sensor) from the last 21 days; otherwise the Teagasc county (MoSt) figure. Never averaged; the other figures are shown beside it. Resolves the 16 vs 50 kg DM/ha/day display (walk-measured vs county). |

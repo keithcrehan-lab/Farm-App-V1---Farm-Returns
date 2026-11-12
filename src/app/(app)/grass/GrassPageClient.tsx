@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, Crosshair, Footprints, MapPin, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronUp, Crosshair, MapPin, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { GrowthInsights } from "@/components/grass/GrowthInsights";
+import { GrassOverview, type OverviewField } from "@/components/grass/GrassOverview";
+import { selectGrowthEvidence, type DemandGroup } from "@/domain/grass-wedge-target";
+import { listGrassSurveysAction } from "@/app/actions/grass-surveys";
 import { MapHero } from "@/components/farm/MapHero";
 import type { MapTone } from "@/components/farm/FieldMap";
 import { cn } from "@/lib/cn";
@@ -50,13 +53,6 @@ const METHOD_LABEL: Record<GrassCoverMethod, string> = {
   manual_kg_dm_ha: "Manual kg DM/ha",
 };
 
-const BAND_LABEL: Record<GrassPresentationBand, string> = {
-  surplus: "Surplus",
-  above_target: "Above display band",
-  target: "Within display band",
-  below_target: "Below display band",
-  unknown: "No cover",
-};
 
 function toDateTimeLocal(date = new Date()): string {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
@@ -153,6 +149,8 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
   const [horizon, setHorizon] = useState<Horizon>(0);
   const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>();
   const [confidenceOpen, setConfidenceOpen] = useState(false);
+  // The detailed records sit below the overview; a link straight to a field's reading opens them.
+  const [recordsOpen, setRecordsOpen] = useState(Boolean(initialFieldId));
 
   const [recordFieldId, setRecordFieldId] = useState(initialFieldId ?? "");
   // Guided walk: `null` is the normal single-reading workflow. Its controls are
@@ -235,10 +233,32 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
     () => latestGrassObservationByField(okData?.coverObservations ?? [], asOf),
     [okData?.coverObservations, asOf],
   );
-  const latestGrowth = useMemo(
-    () => latestGrassGrowthObservation(okData?.growthObservations ?? [], asOf),
-    [okData?.growthObservations, asOf],
+  // Growth measured between your repeated walks, from the finished walks list.
+  const [walkGrowth, setWalkGrowth] = useState<Array<{ at: string; rateKgDmHaDay: number; fieldCount: number }>>([]);
+  useEffect(() => {
+    let live = true;
+    void listGrassSurveysAction()
+      .then((r) => {
+        if (!live || !r.ok) return;
+        setWalkGrowth(r.surveys
+          .filter((survey) => survey.results?.farmGrowthKgDmHaDay != null)
+          .map((survey) => ({ at: survey.finishedAt ?? survey.startedAt, rateKgDmHaDay: survey.results!.farmGrowthKgDmHaDay as number, fieldCount: survey.results!.farmGrowthFieldCount })));
+      })
+      .catch(() => { /* no walk growth: other evidence is used */ });
+    return () => { live = false; };
+  }, []);
+  // One growth figure for every grass estimate on this screen (Grass V2): your own recent evidence
+  // first, otherwise the Teagasc county figure — never a mix. The others stay visible beside it.
+  const growthSelection = useMemo(
+    () => selectGrowthEvidence({ walks: walkGrowth, observations: okData?.growthObservations ?? [], asOf }),
+    [walkGrowth, okData?.growthObservations, asOf],
   );
+  const latestGrowth = useMemo(() => {
+    const chosen = growthSelection.chosen;
+    if (!chosen) return latestGrassGrowthObservation([], asOf);
+    if (chosen.kind !== "walks") return (okData?.growthObservations ?? []).find((o) => o.id === chosen.observationId);
+    return { id: `walks:${chosen.at}`, farmId: "", growthRateKgDmHaDay: chosen.rateKgDmHaDay, origin: "walk_measured" as const, observedAt: chosen.at, source: chosen.source };
+  }, [growthSelection, okData?.growthObservations, asOf]);
 
   const demandByField = useMemo(() => {
     const byField = new Map<string, {
@@ -271,12 +291,12 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
     () => buildFarmGrassSummary(
       okData?.fields ?? [],
       okData?.coverObservations ?? [],
-      okData?.growthObservations ?? [],
+      latestGrowth ? [latestGrowth] : [],
       asOf,
       DEFAULT_GRASS_PRESENTATION_TARGETS,
       demandByField,
     ),
-    [okData?.fields, okData?.coverObservations, okData?.growthObservations, asOf, demandByField],
+    [okData?.fields, okData?.coverObservations, latestGrowth, asOf, demandByField],
   );
 
   const forecastByHorizon = useMemo(() => {
@@ -353,11 +373,42 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
     return counts;
   }, [okData?.coverObservations]);
 
-  const maxWedgeCover = Math.max(2000, ...wedge.map((entry) => entry.coverKgDmHa ?? 0));
-  const knownFields = currentSummary.states.filter((state) => state.status === "known").length;
-  const totalFields = currentSummary.states.length;
-  const highOrMedium = currentSummary.counts.HIGH + currentSummary.counts.MEDIUM;
-  const completenessPct = totalFields > 0 ? Math.round((knownFields / totalFields) * 100) : 0;
+  // Grass V2 overview inputs: each field's cover for the chosen horizon, freshness and cattle.
+  const overviewFields: OverviewField[] = useMemo(() => (okData?.fields ?? []).map((field) => {
+    const state = stateByField.get(field.id);
+    const shown = coverForState(state, horizon);
+    const occupants = (okData?.openGrazingSessions ?? [])
+      .filter((session) => session.fieldId === field.id)
+      .map((session) => `${session.groupLabel} (${formatNumber(session.headCountSnapshot, 0)})`);
+    return {
+      fieldId: field.id,
+      name: field.name,
+      areaHa: field.areaHa,
+      ...(shown.cover !== undefined ? { coverKgDmHa: shown.cover } : {}),
+      ...(shown.basis ? { basis: shown.basis } : {}),
+      ...(state && state.status !== "unknown" ? { ageDays: state.measured.ageDays, method: METHOD_LABEL[state.measured.method] } : {}),
+      occupants,
+      historyCount: historyCounts.get(field.id) ?? 0,
+    };
+  }), [okData?.fields, okData?.openGrazingSessions, stateByField, horizon, historyCounts]);
+  // The cattle grazing these fields now, with demand from the Cattle records (never re-derived here).
+  const demandGroups: DemandGroup[] = useMemo(() => (okData?.openGrazingSessions ?? [])
+    .filter((session) => activeFieldIds.has(session.fieldId))
+    .map((session) => ({
+      groupId: session.livestockGroupId,
+      label: session.groupLabel,
+      headCount: session.headCountSnapshot,
+      fieldId: session.fieldId,
+      ...(session.demand.status === "resolved"
+        ? { dailyDemandKgDm: session.demand.dailyDemandKgDm, kgDmPerHeadDay: session.demand.kgDmPerHeadDay, ruleSource: session.demand.source }
+        : {
+            missingReason: session.demand.reason === "MISSING_AVG_WEIGHT"
+              ? "we need their average liveweight before working out their grass demand"
+              : session.demand.reason === "UNSUPPORTED_CATEGORY"
+                ? "there's no validated grazing intake rule for this kind of animal yet"
+                : "their grass demand can't be worked out from the records yet",
+          }),
+    })), [okData?.openGrazingSessions, activeFieldIds]);
 
   async function startGps() {
     setCoverError(null);
@@ -534,23 +585,61 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
         <h1 className="mt-1 font-display text-[36px] leading-none text-fr-v2-graphite">Grass</h1>
       </div>
 
-      <div className="mb-5 flex flex-col gap-2 sm:flex-row">
-        <Link href="/grass/walk" className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-[16px] bg-fr-v2-forest px-5 text-base font-semibold text-white"><Footprints className="size-5" aria-hidden />Start grass walk</Link>
-        <Link href="/grass/walks" className="flex min-h-14 items-center justify-center rounded-[16px] border border-fr-v2-cream-rule bg-fr-v2-cream px-5 text-sm font-semibold text-fr-v2-forest">Past walks</Link>
-      </div>
+      <GrassOverview
+        fields={overviewFields}
+        groups={demandGroups}
+        growth={growthSelection}
+        averageCoverKgDmHa={currentSummary.averageCoverKgDmHa}
+        averageBasis={currentSummary.averageCoverBasis}
+        latestWalkAt={currentSummary.latestWalkAt}
+        horizon={horizon}
+        horizons={HORIZONS}
+        horizonAvailable={(days) => days === 0 || Boolean(latestGrowth) || Boolean(forecastByHorizon.get(days as Horizon))}
+        onHorizon={(days) => setHorizon(days as Horizon)}
+        horizonNote={(
+          <>
+            {!latestGrowth && !forecastByHorizon.get(3) && !forecastByHorizon.get(7) ? (
+              <p className="mt-2 text-xs text-fr-v2-muted">Record a farm growth rate below to unlock projections. Farm Return will not assume zero growth, and no valid trusted regional forecast is available for this farm yet.</p>
+            ) : activeForecast ? (
+              <p className="mt-2 text-xs text-fr-v2-muted">Projection source: <span className="font-semibold text-fr-v2-charcoal">{activeForecast.modelName ?? "Teagasc MoSt regional forecast"}</span>{activeForecast.regionLabel ? ` · ${activeForecast.regionLabel}` : ""} · valid to {dateLabel(activeForecast.validTo)}.</p>
+            ) : horizon > 0 && latestGrowth ? (
+              <p className="mt-2 text-xs text-fr-v2-muted">Projection source: current farm growth assumption. No valid trusted regional forecast covers this full horizon.</p>
+            ) : null}
+          </>
+        )}
+        selectedFieldId={selectedFieldId}
+        onSelectField={setSelectedFieldId}
+        map={(
+              <MapHero
+                fields={fields}
+                getTone={(field) => toneForBand(coverForState(stateByField.get(field.id), horizon).band)}
+                getStatusLabel={(field) => {
+                  const c = coverForState(stateByField.get(field.id), horizon).cover;
+                  return c === undefined ? "No cover" : `${formatNumber(c, 0)} kg DM/ha`;
+                }}
+                selectedFieldId={selectedFieldId}
+                onSelectField={(id) => setSelectedFieldId((current) => current === id ? undefined : id)}
+                onMapBackgroundClick={() => setSelectedFieldId(undefined)}
+                center={farm.location.centroid}
+                plain
+                flyToSelection={Boolean(selectedFieldId)}
+                flyToMaxZoom={18}
+                compactNeighbourLabels
+                neighbourNameLabels
+                neighbourDetailLabels
+                markerContentKey={`grass-${horizon}-${okData.coverObservations.length}-${okData.growthObservations.length}`}
+                fitPadding={42}
+                className="h-[430px] min-h-[360px] lg:h-[520px]"
+              />
+        )}
+      />
 
-      <GrowthInsights forecasts={okData.growthForecasts} />
-
-      <section className="border-y border-fr-v2-cream-rule py-4" aria-label="Grass summary">
-        <div className="grid grid-cols-2 gap-x-5 gap-y-5 lg:grid-cols-5 lg:gap-0">
-          <SummaryItem label="Average farm cover" value={currentSummary.averageCoverKgDmHa === undefined ? "Not measured" : `${formatNumber(currentSummary.averageCoverKgDmHa, 0)}`} unit={currentSummary.averageCoverKgDmHa === undefined ? undefined : "kg DM/ha"} detail={currentSummary.averageCoverBasis ? `${currentSummary.averageCoverBasis} basis` : undefined} />
-          <SummaryItem label="Growth" value={currentSummary.growthRateKgDmHaDay === undefined ? "Not recorded" : `${formatNumber(currentSummary.growthRateKgDmHaDay, 0)}`} unit={currentSummary.growthRateKgDmHaDay === undefined ? undefined : "kg DM/ha/day"} detail={currentSummary.growth?.source} bordered />
-          <SummaryItem label="Grass picture" value={`${completenessPct}%`} detail={`${knownFields} of ${totalFields} fields have cover`} bordered />
-          <SummaryItem label="Current measurements" value={`${highOrMedium}/${totalFields}`} detail="High or medium freshness" bordered />
-          <SummaryItem label="Latest measurement" value={dateLabel(currentSummary.latestWalkAt)} detail={currentSummary.latestWalkAt ? "Latest recorded field cover" : "No field walk recorded"} bordered />
-        </div>
-        <div className="mt-4 flex flex-col gap-1 border-t border-fr-v2-cream-rule pt-3 text-xs text-fr-v2-muted sm:flex-row sm:items-center sm:justify-between">
-          <p>
+      <details className="mt-8 border-t border-fr-v2-cream-rule pt-4" open={recordsOpen} onToggle={(event) => setRecordsOpen((event.currentTarget as HTMLDetailsElement).open)}>
+        <summary className="cursor-pointer text-sm font-semibold text-fr-v2-forest">Growth, cattle and records</summary>
+        <div className="mt-4">
+          <GrowthInsights forecasts={okData.growthForecasts} />
+          <div className="flex flex-col gap-1 text-xs text-fr-v2-muted sm:flex-row sm:items-center sm:justify-between">
+              <p>
             {currentGrazingSessions.length === 0 ? (
               <><span className="font-semibold text-fr-v2-charcoal">Animal demand: No cattle currently recorded in fields.</span> Record a cattle movement and Grass will update automatically.</>
             ) : currentUnresolvedDemandCount === 0 ? (
@@ -561,130 +650,21 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
               <><span className="font-semibold text-fr-v2-charcoal">Animal demand: Unresolved.</span> Current cattle movements are linked, but demand cannot be quantified safely until liveweight and a supported intake rule are available. <Link href="/cattle/manage" className="font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2">Check Cattle →</Link></>
             )}
           </p>
-          <button type="button" onClick={() => setConfidenceOpen((open) => !open)} className="inline-flex shrink-0 items-center gap-1 font-semibold text-fr-v2-forest">
-            Data confidence {confidenceOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-          </button>
-        </div>
-        {confidenceOpen ? (
-          <div className="mt-3 grid gap-2 border-t border-fr-v2-cream-rule pt-3 text-xs sm:grid-cols-5">
-            {(["HIGH", "MEDIUM", "LOW", "STALE", "UNKNOWN"] as const).map((level) => (
-              <div key={level} className="flex items-baseline justify-between gap-2 sm:block">
-                <span className="font-mono uppercase tracking-[0.1em] text-fr-v2-muted">{level}</span>
-                <span className="ml-2 font-semibold text-fr-v2-charcoal">{currentSummary.counts[level]} fields</span>
-              </div>
-            ))}
-            <p className="sm:col-span-5 text-fr-v2-muted">These labels describe measurement freshness and model exposure, not scientific certainty. A new field walk resets the field to direct ground truth.</p>
+            <button type="button" onClick={() => setConfidenceOpen((open) => !open)} className="inline-flex shrink-0 items-center gap-1 font-semibold text-fr-v2-forest">
+              Data confidence {confidenceOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+            </button>
           </div>
-        ) : null}
-      </section>
-
-      <div className="mt-7 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-fr-v2-muted">Grass picture</p>
-          <h2 className="mt-1 font-display text-[28px] leading-none text-fr-v2-graphite">Map + wedge</h2>
-        </div>
-        <div className="flex rounded-fr-v2-control border border-fr-v2-cream-rule bg-fr-v2-cream p-1" aria-label="Grass forecast horizon">
-          {HORIZONS.map((days) => {
-            const disabled = days > 0 && !latestGrowth && !forecastByHorizon.get(days);
-            return (
-              <button key={days} type="button" disabled={disabled} aria-pressed={horizon === days} onClick={() => setHorizon(days)} className={cn("min-h-9 rounded-fr-v2-control px-3 text-xs font-semibold transition-colors", horizon === days ? "bg-fr-v2-shell text-white" : "text-fr-v2-muted hover:text-fr-v2-charcoal", disabled && "cursor-not-allowed opacity-35")}>
-                {days === 0 ? "Now" : `+${days} days`}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      {!latestGrowth && !forecastByHorizon.get(3) && !forecastByHorizon.get(7) ? (
-        <p className="mt-2 text-xs text-fr-v2-muted">Record a farm growth rate below to unlock projections. Farm Return will not assume zero growth, and no valid trusted regional forecast is available for this farm yet.</p>
-      ) : activeForecast ? (
-        <p className="mt-2 text-xs text-fr-v2-muted">Projection source: <span className="font-semibold text-fr-v2-charcoal">{activeForecast.modelName ?? "Teagasc MoSt regional forecast"}</span>{activeForecast.regionLabel ? ` · ${activeForecast.regionLabel}` : ""} · valid to {dateLabel(activeForecast.validTo)}.</p>
-      ) : horizon > 0 && latestGrowth ? (
-        <p className="mt-2 text-xs text-fr-v2-muted">Projection source: current farm growth assumption. No valid trusted regional forecast covers this full horizon.</p>
-      ) : null}
-
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1.08fr_.92fr]">
-        <section className="overflow-hidden rounded-[20px] border border-fr-v2-cream-rule bg-fr-v2-cream">
-          <MapHero
-            fields={fields}
-            getTone={(field) => toneForBand(coverForState(stateByField.get(field.id), horizon).band)}
-            getStatusLabel={(field) => {
-              const c = coverForState(stateByField.get(field.id), horizon).cover;
-              return c === undefined ? "No cover" : `${formatNumber(c, 0)} kg DM/ha`;
-            }}
-            selectedFieldId={selectedFieldId}
-            onSelectField={(id) => setSelectedFieldId((current) => current === id ? undefined : id)}
-            onMapBackgroundClick={() => setSelectedFieldId(undefined)}
-            center={farm.location.centroid}
-            plain
-            flyToSelection={Boolean(selectedFieldId)}
-            flyToMaxZoom={18}
-            compactNeighbourLabels
-            neighbourNameLabels
-            neighbourDetailLabels
-            markerContentKey={`grass-${horizon}-${okData.coverObservations.length}-${okData.growthObservations.length}`}
-            fitPadding={42}
-            className="h-[430px] min-h-[360px] lg:h-[520px]"
-          />
-          <div className="border-t border-fr-v2-cream-rule px-4 py-3 text-[11px] text-fr-v2-muted">
-            Field colours use Farm Return&apos;s planning display bands only. They are not regulatory or agronomic limits.
-          </div>
-          {selectedFieldId ? (
-            <div className="border-t border-fr-v2-cream-rule px-5 py-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="font-display text-[24px] leading-none text-fr-v2-graphite">{fieldNameById.get(selectedFieldId) ?? "Field"}</p>
-                  <p className="mt-2 text-xs text-fr-v2-muted">{freshnessPhrase(selectedState)} · {selectedHistoryCount} {selectedHistoryCount === 1 ? "reading" : "readings"} on record</p>
+          {confidenceOpen ? (
+            <div className="mt-3 grid gap-2 border-t border-fr-v2-cream-rule pt-3 text-xs sm:grid-cols-5">
+              {(["HIGH", "MEDIUM", "LOW", "STALE", "UNKNOWN"] as const).map((level) => (
+                <div key={level} className="flex items-baseline justify-between gap-2 sm:block">
+                  <span className="font-mono uppercase tracking-[0.1em] text-fr-v2-muted">{level}</span>
+                  <span className="ml-2 font-semibold text-fr-v2-charcoal">{currentSummary.counts[level]} fields</span>
                 </div>
-                <div className="text-right">
-                  <p className="font-mono text-xl font-semibold tabular-nums text-fr-v2-charcoal">{selectedCover.cover === undefined ? "—" : formatNumber(selectedCover.cover, 0)}</p>
-                  <p className="text-[10px] uppercase tracking-[0.1em] text-fr-v2-muted">kg DM/ha · {selectedCover.basis ?? "unknown"}</p>
-                </div>
-              </div>
-              {selectedState?.status === "known" ? <p className="mt-3 text-xs text-fr-v2-muted">Last direct reading: {formatNumber(selectedState.measured.coverKgDmHa, 0)} kg DM/ha · {METHOD_LABEL[selectedState.measured.method]} · {dateTimeLabel(selectedState.measured.observedAt)} · freshness {selectedState.confidence.toLowerCase()}.</p> : null}
-              {selectedGrazing.length > 0 ? (
-                <div className="mt-2 space-y-1 text-xs text-fr-v2-charcoal">
-                  <p className="font-semibold">Grazing now</p>
-                  {selectedGrazing.map((session) => (
-                    <p key={session.sessionId}>{session.groupLabel} · {formatNumber(session.headCountSnapshot, 0)} head · {grazingDemandLabel(session)}</p>
-                  ))}
-                </div>
-              ) : null}
-              <Link href={`/fields?field=${encodeURIComponent(selectedFieldId)}`} className="mt-3 inline-block text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2">Open field workspace →</Link>
+              ))}
+              <p className="sm:col-span-5 text-fr-v2-muted">These labels describe measurement freshness and model exposure, not scientific certainty. A new field walk resets the field to direct ground truth.</p>
             </div>
           ) : null}
-        </section>
-
-        <section className="rounded-[20px] border border-fr-v2-cream-rule bg-fr-v2-cream p-5">
-          <div className="flex items-baseline justify-between gap-3">
-            <div>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-fr-v2-muted">Grass wedge</p>
-              <h3 className="mt-1 font-display text-[25px] leading-none text-fr-v2-graphite">Fields by cover</h3>
-            </div>
-            <span className="font-mono text-[10px] text-fr-v2-muted">{horizon === 0 ? "NOW" : `+${horizon}D`}</span>
-          </div>
-          <p className="mt-3 text-xs leading-5 text-fr-v2-muted">Planning display band: {DEFAULT_GRASS_PRESENTATION_TARGETS.targetMinKgDmHa.toLocaleString("en-IE")}–{DEFAULT_GRASS_PRESENTATION_TARGETS.targetMaxKgDmHa.toLocaleString("en-IE")} kg DM/ha. This is a configurable visual reference, not a grazing recommendation.</p>
-          <div className="mt-5 space-y-4">
-            {wedge.map((entry) => {
-              const name = fieldNameById.get(entry.fieldId) ?? "Field";
-              const width = entry.coverKgDmHa === undefined ? 0 : Math.max(3, Math.min(100, (entry.coverKgDmHa / maxWedgeCover) * 100));
-              return (
-                <button key={entry.fieldId} type="button" onClick={() => setSelectedFieldId(entry.fieldId)} className="block w-full text-left">
-                  <span className="flex items-baseline justify-between gap-3">
-                    <span className="text-sm font-semibold text-fr-v2-charcoal">{name}</span>
-                    <span className="font-mono text-xs tabular-nums text-fr-v2-muted">{entry.coverKgDmHa === undefined ? "Unknown" : `${formatNumber(entry.coverKgDmHa, 0)} · ${entry.basis}`}</span>
-                  </span>
-                  <span className="mt-2 block h-2 overflow-hidden rounded-full bg-fr-v2-cream-rule/70">
-                    <span className={cn("block h-full rounded-full", entry.band === "surplus" ? "bg-fr-v2-forest" : entry.band === "target" ? "bg-fr-v2-teal" : entry.band === "above_target" ? "bg-fr-v2-cobalt" : entry.band === "below_target" ? "bg-fr-v2-harvest" : "bg-fr-v2-rule")} style={{ width: `${width}%` }} />
-                  </span>
-                  <span className="mt-1 flex justify-between text-[10px] text-fr-v2-muted"><span>{BAND_LABEL[entry.band]}</span><span>{entry.confidence === "UNKNOWN" ? "No evidence" : `${entry.confidence.toLowerCase()} freshness`}</span></span>
-                </button>
-              );
-            })}
-            {wedge.length === 0 ? <p className="py-8 text-center text-sm text-fr-v2-muted">Map a field to begin building a grass wedge.</p> : null}
-          </div>
-        </section>
-      </div>
-
       <section className="mt-8 border-t border-fr-v2-cream-rule pt-6">
         <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-fr-v2-muted">Rotation</p>
         <h2 className="mt-1 font-display text-[28px] leading-none text-fr-v2-graphite">Where cattle are now</h2>
@@ -855,17 +835,8 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
         </div>
         <p className="mt-3 text-xs text-fr-v2-muted">V1 uses the latest valid reading for each field as its ground truth. Multiple readings with different methods are retained individually and are not silently averaged.</p>
       </section>
-    </div>
-  );
-}
-
-function SummaryItem({ label, value, unit, detail, bordered }: { label: string; value: string; unit?: string; detail?: string; bordered?: boolean }) {
-  return (
-    <div className={cn("min-w-0", bordered && "lg:border-l lg:border-fr-v2-cream-rule lg:px-5")}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-fr-v2-muted">{label}</p>
-      <p className="mt-1 font-mono text-lg font-semibold tabular-nums text-fr-v2-charcoal">{value}</p>
-      {unit ? <p className="text-[10px] text-fr-v2-muted">{unit}</p> : null}
-      {detail ? <p className="mt-1 text-[11px] leading-4 text-fr-v2-muted">{detail}</p> : null}
+        </div>
+      </details>
     </div>
   );
 }

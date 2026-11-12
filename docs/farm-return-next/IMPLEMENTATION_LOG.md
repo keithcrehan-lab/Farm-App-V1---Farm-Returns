@@ -1103,3 +1103,28 @@ replace the legacy P/K wording; no third button (lime belongs with P and K); fie
   fraction of a kilo left is not a need; totals say nutrient kg; only lab or farmer-entered indices count as a soil
   test; the card scrolls on phones. Open (Low): screen check (ONB-UI-1); the engine adds grazing P maintenance at
   Index 4 (existing behaviour, to confirm against the Green Book).
+
+## 2026-11-12 — Grass V2: wedge-first overview, target line, insights, scenarios, guide
+
+Product owner brief "Farm Return — Grass V2". Built on the existing grass engine, grazing sessions and demand
+providers; no second source of truth, no migration.
+
+- **Growth 16 vs 50 resolved:** 16 was growth measured between repeated walks (walk results), 50 the Teagasc county
+  figure the server substitutes when there is no own growth observation in 21 days; walk growth never reached the
+  engine. `selectGrowthEvidence` now picks one (own evidence ≤ 21 days, else county), feeds it to every estimate on
+  the page (new in-memory origin `walk_measured`), and shows the others beside it.
+- **Overview** (`GrassOverview`): one Start grass walk, Past walks, Show grass guide; summary (average cover, growth
+  with source, cattle demand with supply balance, days ahead/behind the line, freshness); Grass wedge | Farm map
+  (map kept mounted, shared selection); Now / +3 / +7; area-weighted or equal bars; selected-field details
+  (cover, area, freshness, method, line value, grass above residual, cattle, history link).
+- **Target line** (`grass-wedge-target.ts`, evidence register "Grass V2"): Teagasc manual wedge equation; fails
+  closed; Show calculation everywhere. Rotation/residual are the farmer's (device storage; Teagasc guide offered).
+- **What should I do?**: missing liveweight (links to the cattle group), targets, stale fields, surplus/shortage
+  against the line, growth vs demand, next field on the wedge — each with figures, confidence and working.
+- **Try a change**: rotation length and taking fields out for silage, previewed only (nothing saved).
+- **Guide**: three-step first-time guide (Next tip / Got it / X), remembered on the device, reopenable; help icons.
+- Old summary strip and list-style wedge replaced; growth insights, cattle on grass, recording forms and latest
+  readings moved into "Growth, cattle and records" below (nothing removed).
+- Not done (follow-ups): targets and guide stored per device, not per user (needs a migration); confirmed scenario
+  decisions don't yet write to Plan/silage; intake stays at Teagasc's 2% liveweight rule without supplementation
+  adjustment; return-to-Grass after adding a liveweight relies on navigating back.

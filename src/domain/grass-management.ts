@@ -76,7 +76,10 @@ export const GRASS_COVER_METHODS: readonly GrassCoverMethod[] = [
   "manual_kg_dm_ha",
 ];
 
-export type GrassGrowthOrigin = "farmer_entered" | "regional_estimate" | "sensor" | "external_api";
+/** `walk_measured`: growth measured between repeated walks of the same fields (Grass V2). Derived in
+ * memory from the farm's finished walks, never written as an observation, so it is not in
+ * `GRASS_GROWTH_ORIGINS` (the list a saved observation is checked against). */
+export type GrassGrowthOrigin = "farmer_entered" | "regional_estimate" | "sensor" | "external_api" | "walk_measured";
 export const GRASS_GROWTH_ORIGINS: readonly GrassGrowthOrigin[] = [
   "farmer_entered",
   "regional_estimate",

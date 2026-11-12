@@ -280,7 +280,8 @@ describe("GrassPageClient", () => {
     expect(screen.getByTestId("grass-map").textContent).toMatch(/kg DM\/ha/);
     fireEvent.click(screen.getByRole("button", { name: "+3 days" }));
     await waitFor(() => expect(screen.getByText(/projected/i)).toBeTruthy());
-    expect(screen.getByText(/configurable visual reference, not a grazing recommendation/i)).toBeTruthy();
+    // Grass V2: the old fixed "display band" is gone; the wedge is read against the calculated target line.
+    expect(screen.queryByText(/configurable visual reference/i)).toBeNull();
   });
 
   it("automatically subtracts demand from a cattle movement using the recorded liveweight", async () => {

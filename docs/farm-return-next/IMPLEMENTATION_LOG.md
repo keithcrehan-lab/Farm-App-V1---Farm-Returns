@@ -1033,3 +1033,11 @@ that is really easy because scanned LPIS parcels don't show how the farmer has f
 - **Not built:** joining two scanned parcels into one field (BLOCKERS ONB-MERGE-1, needs a schema decision).
 - No migration. No `node_modules` in the cloud session, so tests, typecheck and lint ran on GitHub Actions only, and
   the screens were not viewed (BLOCKERS ONB-UI-1).
+
+### 2026-11-12 (later) — Scan fields screen compact on phones
+
+Product owner, from a phone screenshot: the summary box and the tip covered most of the map. On phones only, the
+scan summary and Scan this area now share one row, the already-mapped note is one row, the "Tap your fields" label is
+hidden (still shown on desktop, owner-approved), and tips are shorter with the Tip label inline. When the scan is
+unavailable the reason keeps its own full-width line. Independent Claude review BLOCKING=0. Phone screen check still
+owed (BLOCKERS ONB-UI-1).

@@ -478,7 +478,7 @@ export function FieldScanModal({
 
         <aside className={`absolute left-3 z-10 w-[min(400px,calc(100%-1.5rem))] border-l-[3px] border-fr-v2-straw bg-fr-v2-forest-deep/95 text-white shadow-xl backdrop-blur sm:left-5 ${stage === "select" ? "px-3 py-2 sm:px-4 sm:py-3" : "px-4 py-3"} ${stage === "paddocks" ? "bottom-3 max-h-[55%] overflow-y-auto sm:bottom-auto sm:top-5 sm:max-h-[calc(100%-2.5rem)]" : stage === "name" ? "bottom-3 sm:bottom-auto sm:top-5 sm:max-h-[calc(100%-2.5rem)] sm:overflow-y-auto" : "top-[74px] sm:top-[82px]"}`}>
           {/* Phones: the scan summary and its button share one short row, so the map stays visible. */}
-          <div className={stage === "select" ? "flex items-center gap-3 sm:block" : undefined}>
+          <div className={stage === "select" && !unavailable ? "flex items-center gap-3 sm:block" : undefined}>
           <div className="min-w-0 flex-1">
           {stage === "paddocks" ? (
             <PaddockQuestion fields={addedFields} paddockCounts={paddockCounts} onDivide={setDividingId} />
@@ -611,7 +611,7 @@ export function FieldScanModal({
           ) : unavailable ? (
             <>
               <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-fr-v2-straw"><TriangleAlert className="size-3.5" /> Scan unavailable</p>
-              <p className="mt-2 text-sm leading-snug text-white/75">{mapboxConfigured && outcome.status === "UNAVAILABLE" ? outcome.reason : "Satellite mapping is not configured in this deployment."}</p>
+              <p className="mt-2 text-xs leading-snug text-white/75 sm:text-sm">{mapboxConfigured && outcome.status === "UNAVAILABLE" ? outcome.reason : "Satellite mapping is not configured in this deployment."}</p>
             </>
           ) : (
             <>
@@ -633,7 +633,7 @@ export function FieldScanModal({
                 const point = map.getCenter();
                 void scanAt([point.lng, point.lat]);
               }}
-              className="inline-flex min-h-11 shrink-0 items-center gap-1.5 border border-fr-v2-straw/60 bg-fr-v2-straw px-3 text-xs font-semibold text-fr-v2-forest-deep hover:bg-white disabled:cursor-wait disabled:opacity-60 sm:mt-3 sm:gap-2 sm:px-4 sm:text-sm"
+              className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 border border-fr-v2-straw/60 bg-fr-v2-straw px-3 text-xs font-semibold text-fr-v2-forest-deep hover:bg-white disabled:cursor-wait disabled:opacity-60 sm:mt-3 sm:gap-2 sm:px-4 sm:text-sm ${unavailable ? "mt-2" : ""}`}
             >
               <ScanLine className="size-4" /> {scanning ? "Scanning…" : "Scan this area"}
             </button>

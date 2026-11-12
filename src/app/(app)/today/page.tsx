@@ -580,14 +580,20 @@ export default function TodayPage() {
   }, [grassOkData?.openGrazingSessions]);
   // The Soil view: every mapped field coloured by what its canonical nutrient plan leaves to
   // spread, lime first (lab lime requirement only). Computed only while the view is open.
-  const soilPlanFields = lens === "nutrients" ? fields.filter((field) => field.polygon && !field.archivedAt) : NO_FIELDS;
+  // The store hands over a new fields array on every render: the plans are rebuilt only when the mapped fields change.
+  const soilFieldsKey = lens === "nutrients" ? fields.filter((field) => field.polygon && !field.archivedAt).map((field) => `${field.id}:${field.areaHa}:${field.fertility.pIndex?.value}:${field.fertility.kIndex?.value}:${field.fertility.pIndex?.status}:${field.fertility.kIndex?.status}:${field.plannedUse?.value}`).join("|") : "";
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- rebuilt when the mapped fields' soil inputs change (soilFieldsKey)
+  const soilPlanFields = useMemo(() => (lens === "nutrients" ? fields.filter((field) => field.polygon && !field.archivedAt) : NO_FIELDS), [lens, soilFieldsKey]);
   const soilPlans = useFieldNutrientPlans(soilPlanFields);
-  const limeByField = new Map((limeRequirement?.fields ?? []).map((row) => [row.fieldId, row.rateTHa]));
-  const soilViews = soilPlanFields.map((field) => fieldSoilView(field, soilPlans.get(field.id), limeByField.get(field.id)));
-  const soilViewByField = new Map(soilViews.map((view) => [view.fieldId, view]));
-  const soilLines = soilSummary(soilViews);
-  const [soilFocus, setSoilFocus] = useState<SoilSummaryLine | undefined>(undefined);
-  const changeLens = (next: FarmLensId) => { setLens(next); setSoilFocus(undefined); };
+  const soilViews = useMemo(() => {
+    const limeByField = new Map((limeRequirement?.fields ?? []).map((row) => [row.fieldId, { rateTHa: row.rateTHa, fieldTonnes: row.fieldTonnes }]));
+    return soilPlanFields.map((field) => fieldSoilView(field, soilPlans.get(field.id), limeByField.get(field.id)));
+  }, [soilPlanFields, soilPlans, limeRequirement]);
+  const soilViewByField = useMemo(() => new Map(soilViews.map((view) => [view.fieldId, view])), [soilViews]);
+  const soilLines = useMemo(() => soilSummary(soilViews), [soilViews]);
+  const [soilFocusKey, setSoilFocusKey] = useState<string | undefined>(undefined);
+  const soilFocus: SoilSummaryLine | undefined = soilLines.find((line) => line.key === soilFocusKey);
+  const changeLens = (next: FarmLensId) => { setLens(next); setSoilFocusKey(undefined); };
   const grassTone = (band: GrassPresentationBand) => {
     if (band === "surplus") return "info" as const;
     if (band === "target") return "silage" as const;
@@ -830,7 +836,7 @@ export default function TodayPage() {
                       />
                     ) : (
                       lens === "nutrients" ? (
-                        <FarmSoilSummary lines={soilLines} focusedKey={soilFocus?.key} onFocus={setSoilFocus} />
+                        <FarmSoilSummary lines={soilLines} focusedKey={soilFocus?.key} onFocus={setSoilFocusKey} />
                       ) : (
                         <FarmLensContext lensId={lens} facts={lens === "conditions" ? conditionsFacts : undefined} />
                       )

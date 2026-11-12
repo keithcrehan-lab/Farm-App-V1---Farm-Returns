@@ -37,6 +37,10 @@ export interface FieldSoilView {
   need: SoilNeed;
   /** A laboratory lime requirement above zero: lime comes first. */
   limeTHa?: number;
+  /** That field's lime tonnes, as the farm lime requirement states it (`FieldLimeRequirement.fieldTonnes`). */
+  limeT?: number;
+  /** The plan's legal-limits check isn't clear (over a NAP ceiling, or not assessable): check before spreading. */
+  checkLimits?: boolean;
   pIndex?: 1 | 2 | 3 | 4;
   kIndex?: 1 | 2 | 3 | 4;
   /** The plan leaves chemical P / K to apply on this field. */
@@ -76,19 +80,27 @@ export function soilMarkerLabel(view: FieldSoilView): string {
   return view.limeTHa !== undefined ? `Lime first · ${SOIL_NEED_LABEL[view.need]}` : SOIL_NEED_LABEL[view.need];
 }
 
-const known = (status: string | undefined) => status !== undefined && status !== "estimated" && status !== "unavailable";
+/** A soil test the farmer can stand over: a lab result or one they entered, never an estimate. */
+const known = (status: string | undefined) => status === "verified" || status === "farmer_adjusted";
+
+/** The farm lime requirement's own row for a field (rate and tonnes), when a lab reported one. */
+export interface FieldLime {
+  rateTHa?: number;
+  fieldTonnes?: number;
+}
 
 function remaining(arm: FieldNutrientRemainingArm): { kgHa: number; totalKg?: number } | undefined {
   if (arm.status !== "KNOWN") return undefined;
   return { kgHa: arm.kgHa, ...(arm.totalKg.status === "OK" ? { totalKg: arm.totalKg.value } : {}) };
 }
 
-export function fieldSoilView(field: Field, plan: FieldNutrientPlanResult | undefined, limeTHa: number | undefined): FieldSoilView {
+export function fieldSoilView(field: Field, plan: FieldNutrientPlanResult | undefined, lime: FieldLime | undefined): FieldSoilView {
+  const limeTHa = lime?.rateTHa;
   const base = {
     fieldId: field.id,
     name: field.name,
     areaHa: field.areaHa,
-    ...(limeTHa !== undefined && limeTHa > 0 ? { limeTHa } : {}),
+    ...(limeTHa !== undefined && limeTHa > 0 ? { limeTHa, ...(lime?.fieldTonnes !== undefined ? { limeT: lime.fieldTonnes } : {}) } : {}),
   };
   const p = field.fertility.pIndex;
   const k = field.fertility.kIndex;
@@ -98,6 +110,10 @@ export function fieldSoilView(field: Field, plan: FieldNutrientPlanResult | unde
 
   const nutrientPlan = plan.plan;
   if (nutrientPlan.purchaseStatus.status === "PROHIBITED") return { ...base, ...indices, need: "no_chemical" };
+  // The plan's own verdict that nothing needs buying (all covered, or below a product's smallest rate) wins.
+  if (nutrientPlan.purchaseStatus.status === "NONE_NEEDED") return { ...base, ...indices, need: "none" };
+  const nap = plan.displayedNapCompliance;
+  const checkLimits = nap.status !== "OK" || !nap.value.pWithinCeiling || !nap.value.nWithinCeiling;
   const left = nutrientPlan.fieldRemainingRequirement;
   if (left.p.status === "NOT_APPLICABLE" || left.k.status === "NOT_APPLICABLE") return { ...base, ...indices, need: "not_grassland" };
   const pLeft = remaining(left.p);
@@ -115,13 +131,14 @@ export function fieldSoilView(field: Field, plan: FieldNutrientPlanResult | unde
     need,
     pNeeded,
     kNeeded,
+    ...(checkLimits && (pNeeded || kNeeded) ? { checkLimits: true } : {}),
     ...(pNeeded && pLeft.totalKg !== undefined ? { pKg: pLeft.totalKg } : {}),
     ...(kNeeded && kLeft.totalKg !== undefined ? { kKg: kLeft.totalKg } : {}),
   };
 }
 
 export interface SoilSummaryLine {
-  key: "lime" | SoilNeed;
+  key: "lime" | "limits" | SoilNeed;
   label: string;
   fieldIds: string[];
   fieldNames: string[];
@@ -150,7 +167,18 @@ export function soilSummary(views: readonly FieldSoilView[]): SoilSummaryLine[] 
       fieldIds: lime.map((v) => v.fieldId),
       fieldNames: lime.map((v) => v.name),
       areaHa: lime.reduce((total, v) => total + v.areaHa, 0),
-      limeT: lime.reduce((total, v) => total + (v.limeTHa ?? 0) * v.areaHa, 0),
+      ...(lime.every((v) => v.limeT !== undefined) ? { limeT: lime.reduce((total, v) => total + (v.limeT ?? 0), 0) } : {}),
+      tone: "neutral",
+    });
+  }
+  const limits = views.filter((v) => v.checkLimits);
+  if (limits.length > 0) {
+    lines.push({
+      key: "limits",
+      label: "Check legal limits first",
+      fieldIds: limits.map((v) => v.fieldId),
+      fieldNames: limits.map((v) => v.name),
+      areaHa: limits.reduce((total, v) => total + v.areaHa, 0),
       tone: "neutral",
     });
   }
@@ -158,10 +186,12 @@ export function soilSummary(views: readonly FieldSoilView[]): SoilSummaryLine[] 
     const group = views.filter((v) => v.need === need);
     if (group.length === 0) continue;
     // Totals only when every field in the group that needs the nutrient has a stated figure.
+    // A field whose legal limits need checking gives no total to buy.
     const pFields = group.filter((v) => v.pNeeded);
     const kFields = group.filter((v) => v.kNeeded);
-    const pKg = pFields.length > 0 ? sumIfAll(pFields.map((v) => v.pKg)) : undefined;
-    const kKg = kFields.length > 0 ? sumIfAll(kFields.map((v) => v.kKg)) : undefined;
+    const blocked = group.some((v) => v.checkLimits);
+    const pKg = pFields.length > 0 && !blocked ? sumIfAll(pFields.map((v) => v.pKg)) : undefined;
+    const kKg = kFields.length > 0 && !blocked ? sumIfAll(kFields.map((v) => v.kKg)) : undefined;
     lines.push({
       key: need,
       label: SOIL_NEED_LABEL[need],

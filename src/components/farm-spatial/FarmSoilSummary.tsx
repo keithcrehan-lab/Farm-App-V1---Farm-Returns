@@ -26,18 +26,19 @@ const SWATCH: Record<MapTone, string> = {
 function amounts(line: SoilSummaryLine): string {
   const parts = [formatHa(line.areaHa)];
   if (line.limeT !== undefined) parts.push(`${formatNumber(line.limeT, 1)} t lime`);
-  if (line.pKg !== undefined) parts.push(`${formatNumber(line.pKg, 0)} kg P`);
-  if (line.kKg !== undefined) parts.push(`${formatNumber(line.kKg, 0)} kg K`);
+  // Nutrient, not product: 100 kg K is about 330 kg of a 0-7-30, and the plan sizes the product.
+  if (line.pKg !== undefined) parts.push(`P ${formatNumber(line.pKg, 0)} kg (nutrient)`);
+  if (line.kKg !== undefined) parts.push(`K ${formatNumber(line.kKg, 0)} kg (nutrient)`);
   return parts.join(" · ");
 }
 
 export function FarmSoilSummary({ lines, focusedKey, onFocus }: {
   lines: readonly SoilSummaryLine[];
   focusedKey?: string;
-  onFocus: (line: SoilSummaryLine | undefined) => void;
+  onFocus: (key: string | undefined) => void;
 }) {
   return (
-    <div className="max-w-md bg-fr-v2-forest-deep/85 px-3.5 py-3 text-white shadow-[0_6px_18px_rgba(0,0,0,0.25)] backdrop-blur-md" data-soil-summary aria-live="polite">
+    <div className="max-w-md bg-fr-v2-forest-deep/85 px-3.5 py-3 text-white shadow-[0_6px_18px_rgba(0,0,0,0.25)] backdrop-blur-md" data-soil-summary>
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-[13px] font-semibold">Where to spread</p>
         <Link href="/fertiliser-plan" className="text-xs font-semibold text-white/80 underline decoration-white/40 underline-offset-[3px] hover:text-white">
@@ -47,7 +48,7 @@ export function FarmSoilSummary({ lines, focusedKey, onFocus }: {
       {lines.length === 0 ? (
         <p className="mt-1.5 text-xs text-white/70">No mapped fields yet.</p>
       ) : (
-        <ul className="mt-2 space-y-1">
+        <ul className="mt-2 max-h-[30dvh] space-y-1 overflow-y-auto lg:max-h-none">
           {lines.map((line) => {
             const focused = focusedKey === line.key;
             return (
@@ -55,7 +56,7 @@ export function FarmSoilSummary({ lines, focusedKey, onFocus }: {
                 <button
                   type="button"
                   aria-pressed={focused}
-                  onClick={() => onFocus(focused ? undefined : line)}
+                  onClick={() => onFocus(focused ? undefined : line.key)}
                   className={cn(
                     "flex min-h-10 w-full items-start gap-2.5 px-1.5 py-1 text-left transition-colors hover:bg-white/10",
                     focused && "bg-white/15",
@@ -63,8 +64,8 @@ export function FarmSoilSummary({ lines, focusedKey, onFocus }: {
                 >
                   <span
                     aria-hidden
-                    className={cn("mt-1 size-3 shrink-0 rounded-full border border-white/70", line.key === "lime" && "bg-white")}
-                    style={line.key === "lime" ? undefined : { backgroundColor: SWATCH[line.tone] }}
+                    className={cn("mt-1 size-3 shrink-0 rounded-full border border-white/70", line.key === "lime" && "bg-white", line.key === "limits" && "border-dashed bg-transparent")}
+                    style={line.key === "lime" || line.key === "limits" ? undefined : { backgroundColor: SWATCH[line.tone] }}
                   />
                   <span className="min-w-0">
                     <span className="block text-[13px] font-semibold leading-snug">

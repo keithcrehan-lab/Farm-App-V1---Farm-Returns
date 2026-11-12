@@ -87,8 +87,9 @@ export function useFieldNutrientPlan(field: Field | undefined): FieldNutrientPla
  */
 export function useFieldNutrientPlans(forFields: readonly Field[]): ReadonlyMap<string, FieldNutrientPlanResult> {
   const farm = useFarm();
-  const fields = useFields();
   const allFields = useAllFieldsIncludingArchived();
+  // The same list `useFields()` gives, kept stable between renders so the plans aren't rebuilt for nothing.
+  const fields = useMemo(() => allFields.filter((field) => !field.archivedAt), [allFields]);
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
   const slurryCompositionRecords = useSlurryCompositionRecords();

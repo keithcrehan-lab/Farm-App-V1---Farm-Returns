@@ -71,7 +71,7 @@ function pointInRing(point: GeoPoint, ring: GeoJSON.Position[]): boolean {
  * polygon-with-holes semantics. No field in this app's own domain model
  * has ever carried a hole yet, but a farmer standing in one a future
  * import creates must never be told they're "inside" it. */
-function pointInPolygon(point: GeoPoint, polygon: GeoJSON.Polygon): boolean {
+export function pointInPolygon(point: GeoPoint, polygon: GeoJSON.Polygon): boolean {
   const [exterior, ...holes] = polygon.coordinates;
   if (!exterior || !pointInRing(point, exterior)) return false;
   return !holes.some((hole) => pointInRing(point, hole));

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { FarmLensControl } from "./FarmLensControl";
 import { FarmLensContext } from "./FarmLensContext";
 import { FarmObjectRail } from "./FarmObjectRail";
-import { FARM_LENSES, farmLensById } from "@/lib/farm-spatial-lenses";
+import { DEFAULT_FARM_LENS, FARM_LENSES, MAP_LENS_IDS, MAP_LENS_LABEL, farmLensById, resolveFarmLensId } from "@/lib/farm-spatial-lenses";
 import { isNavItemActive, mobileMoreNavItems, mobileNavItems, moreNavItems, primaryNavItems } from "@/components/shell/nav-items";
 import { tracked, type Housing, type LivestockGroup } from "@/domain/types";
 
@@ -34,26 +34,36 @@ describe("Farm lenses (Farm + Fields redesign)", () => {
 });
 
 describe("FarmLensControl", () => {
-  it("marks the active lens pressed and reports a selection", () => {
+  it("offers only the two map views, Grass and Soil P & K, and reports a selection", () => {
     const onChange = vi.fn();
-    render(<FarmLensControl value="current" onChange={onChange} />);
+    render(<FarmLensControl value="grass" onChange={onChange} />);
     const group = screen.getByRole("group", { name: "Farm lens" });
-    expect(within(group).getByRole("button", { name: "Current" }).getAttribute("aria-pressed")).toBe("true");
-    expect(within(group).getByRole("button", { name: "Nutrients" }).getAttribute("aria-pressed")).toBe("false");
-    fireEvent.click(within(group).getByRole("button", { name: "Nutrients" }));
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["Grass", "Soil P & K"]);
+    expect(within(group).getByRole("button", { name: "Grass" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(group).getByRole("button", { name: "Soil P & K" }).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(within(group).getByRole("button", { name: "Soil P & K" }));
     expect(onChange).toHaveBeenCalledWith("nutrients");
   });
 
-  it("marks the active lens with its domain-colour rule, not a filled button (Phase 02B)", () => {
-    render(<FarmLensControl value="conditions" onChange={() => {}} />);
+  it("marks the active view with its domain-colour rule, not a filled button (Phase 02B)", () => {
+    render(<FarmLensControl value="nutrients" onChange={() => {}} />);
     const group = screen.getByRole("group", { name: "Farm lens" });
-    for (const lens of FARM_LENSES) {
-      const button = within(group).getByRole("button", { name: lens.label });
+    for (const lens of FARM_LENSES.filter((l) => MAP_LENS_IDS.includes(l.id))) {
+      const button = within(group).getByRole("button", { name: MAP_LENS_LABEL[lens.id] });
       expect(button.className).not.toMatch(/\bbg-/);
       const rule = button.querySelector("[data-lens-rule]")!;
       expect(rule.className).toContain(lens.accentClassName);
-      expect(rule.className).toContain(lens.id === "conditions" ? "opacity-100" : "opacity-0");
+      expect(rule.className).toContain(lens.id === "nutrients" ? "opacity-100" : "opacity-0");
     }
+  });
+
+  it("opens the Grass view by default, and older links to Current or Conditions open it too", () => {
+    expect(DEFAULT_FARM_LENS).toBe("grass");
+    expect(resolveFarmLensId("current")).toBe("grass");
+    expect(resolveFarmLensId("conditions")).toBe("grass");
+    expect(resolveFarmLensId("soil")).toBe("nutrients");
+    expect(resolveFarmLensId("nutrients")).toBe("nutrients");
+    expect(resolveFarmLensId("bogus")).toBeUndefined();
   });
 });
 

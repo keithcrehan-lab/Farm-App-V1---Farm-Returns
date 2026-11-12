@@ -65,6 +65,8 @@ import { FarmLensContext } from "@/components/farm-spatial/FarmLensContext";
 import { FarmObjectRail } from "@/components/farm-spatial/FarmObjectRail";
 import { FarmGrassMapOverlay } from "@/components/farm-spatial/FarmGrassMapOverlay";
 import { FarmFieldDrawer } from "@/components/farm-spatial/FarmFieldDrawer";
+import { FarmCattleMoves } from "@/components/farm-spatial/FarmCattleMoves";
+import type mapboxgl from "mapbox-gl";
 import { FARM_LENS_MARKER_COLOR, FIELD_SELECTION_COLOR, farmFieldLensView, parseFarmSpatialReturn } from "@/lib/farm-spatial-field-lens";
 import { farmFieldSelectionView } from "@/lib/farm-field-selection";
 import { useFieldNutrientPlan } from "@/lib/use-field-nutrient-plan";
@@ -158,6 +160,10 @@ export default function TodayPage() {
   const [grassData, setGrassData] = useState<GrassManagementData | null>(null);
   const [grassLoadFailed, setGrassLoadFailed] = useState(false);
   const [grassAsOf, setGrassAsOf] = useState(() => new Date().toISOString());
+  // Bumped after a cattle move on the map, so grazing demand on the grass figures is current.
+  const [grassReload, setGrassReload] = useState(0);
+  // The live map, for the cattle groups drawn on it.
+  const [farmMap, setFarmMap] = useState<mapboxgl.Map | null>(null);
   useEffect(() => {
     if (lens !== "grass") return;
     let cancelled = false;
@@ -165,7 +171,7 @@ export default function TodayPage() {
       .then((result) => { if (!cancelled) { setGrassData(result); setGrassLoadFailed(false); setGrassAsOf(new Date().toISOString()); } })
       .catch(() => { if (!cancelled) { setGrassData(null); setGrassLoadFailed(true); } });
     return () => { cancelled = true; };
-  }, [lens]);
+  }, [lens, grassReload]);
 
   // Farm Spatial V2 Phase 3 — the field the farmer selected on the map
   // (object-before-form). Only a real mapped field can be selected; if it
@@ -663,6 +669,7 @@ export default function TodayPage() {
       <section data-farm-workspace className="-mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:grid lg:grid-cols-[minmax(0,1fr)_112px] lg:overflow-hidden">
         <div className="relative min-w-0">
           <MapHero
+            onMapReady={setFarmMap}
             fields={fields}
             getTone={fieldTone}
             getStatusLabel={fieldStatusLabel}
@@ -771,6 +778,8 @@ export default function TodayPage() {
                     step aside rather than stacking under it. */}
                 <div className={cn("flex flex-col gap-3 px-4 pb-3 transition-opacity duration-[180ms] motion-reduce:transition-none lg:px-9 lg:pb-4", selectedField && "invisible opacity-0")}>
                   <div className="pointer-events-auto flex max-w-md flex-col gap-2">
+                    {/* Cattle groups: on their fields on the map, and here when they're not on one. */}
+                    <FarmCattleMoves map={farmMap} fields={fields} enabled={isRealMode} onMoved={() => setGrassReload((n) => n + 1)} />
                     <GpsActivityCandidateCard fields={fields} />
                     <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
                   </div>

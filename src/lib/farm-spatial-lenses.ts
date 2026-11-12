@@ -77,13 +77,26 @@ export const FARM_LENSES: readonly FarmLens[] = [
   },
 ];
 
-export const DEFAULT_FARM_LENS: FarmLensId = "current";
+/**
+ * The map views the farmer can switch between (product owner, 2026-11-12):
+ * grass cover is the map's normal view, and soil P & K is the other. Current
+ * and Conditions are no longer offered: planned use sits in the field panel,
+ * the spreading calendar in the conditions chip, and cattle groups are shown
+ * on the map itself. Their definitions stay above so older links still open.
+ */
+export const MAP_LENS_IDS: readonly FarmLensId[] = ["grass", "nutrients"];
+/** The switch's own wording for each map view. */
+export const MAP_LENS_LABEL: Partial<Record<FarmLensId, string>> = { grass: "Grass", nutrients: "Soil P & K" };
+
+export const DEFAULT_FARM_LENS: FarmLensId = "grass";
 
 /** Links written before Soil joined Nutrients (`?lens=soil`) open the
- * Nutrients lens; anything else unknown is ignored by the caller. */
+ * Nutrients lens, and links to the retired Current and Conditions views open
+ * the map's normal (Grass) view; anything else unknown is ignored by the caller. */
 export function resolveFarmLensId(id: string | null | undefined): FarmLensId | undefined {
   if (id === "soil") return "nutrients";
-  return FARM_LENSES.some((l) => l.id === id) ? (id as FarmLensId) : undefined;
+  if (id === "current" || id === "conditions") return DEFAULT_FARM_LENS;
+  return MAP_LENS_IDS.some((l) => l === id) ? (id as FarmLensId) : undefined;
 }
 
 export function farmLensById(id: FarmLensId): FarmLens {

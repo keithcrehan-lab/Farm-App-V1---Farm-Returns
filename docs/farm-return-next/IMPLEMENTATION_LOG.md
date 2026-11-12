@@ -1053,3 +1053,23 @@ baseline tests whose file ran in that part.
 The first trial showed one file, `src/tooling/agent-run.test.ts` (agent build tooling, already known-failing), took
 about 23 minutes on its own; every other part finished in under 2 minutes. It is excluded from the release run and
 runs in `tooling-tests.yml` when the tooling changes (BLOCKERS CI-SPEED-1).
+
+## 2026-11-12 — Farm map: Grass by default, Soil P & K switch, cattle groups moved on the map
+
+Product owner: the Current / Grass / Nutrients / Conditions row was legacy (only Grass was useful); wanted cattle
+groups visible on the map and moved by drag and drop, easy but never accidental. Whole groups only for now.
+
+- **Map views.** Grass is the map's normal view; a small two-way switch offers Grass or Soil P & K
+  (`MAP_LENS_IDS`, `FarmLensControl`). Current and Conditions are no longer offered (approved removal): planned use
+  is already in the field panel, the spreading calendar in the conditions chip. Their lens definitions stay so older
+  `?lens=current|conditions` links open Grass.
+- **Cattle on the map** (`FarmCattleMoves`, `src/lib/farm-cattle-map.ts`): each group grazing a mapped field is a
+  marker on that field; housed or unplaced groups sit in a strip under the map caption. Press and hold (450 ms) picks
+  a group up, a quick swipe pans the map instead; letting go over another field opens a confirmation with the time
+  (defaults to now, can be set earlier); the move then waits 8 s with Undo before it is saved, and is saved at once
+  if the page is hidden or left. Tapping a group offers Move to… with a field list. Real signed-in farms only.
+- **Server:** `moveLivestockGroupToFieldAction` accepts `movedAt` (exact time; not in the future, within a year) so a
+  group can move more than once a day; `listGrazingMovementGroupsAction` lists groups and their current field.
+  Moves still go through `record_grazing_field_move` (farm bound server-side). No migration.
+- `MapHero` gains `onMapReady`; `near-field.ts` exports `pointInPolygon` (unchanged behaviour).
+- Grass figures reload after a move so grazing demand is current.

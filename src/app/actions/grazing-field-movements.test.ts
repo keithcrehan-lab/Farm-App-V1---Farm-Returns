@@ -32,7 +32,7 @@ import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { GrazingMoveRejectedError, listGrazingFieldSessionsForFarm, recordGrazingFieldMove } from "@/lib/farm-data/grazing-field-sessions";
 import { listHousingForFarm } from "@/lib/farm-data/housing";
 import { HousingMoveRejectedError, recordGroupHousingMove } from "@/lib/farm-data/cattle-management-state";
-import { loadGrazingMovementContextAction, moveLivestockGroupToFieldAction, moveLivestockGroupToHousingAction } from "./grazing-field-movements";
+import { listGrazingMovementGroupsAction, loadGrazingMovementContextAction, moveLivestockGroupToFieldAction, moveLivestockGroupToHousingAction } from "./grazing-field-movements";
 
 const FARM = { id: "farm-1", ownerName: "Keith" } as Awaited<ReturnType<typeof getFarmForCurrentUser>>;
 const FIELD_A = { id: "field-a", farmId: "farm-1", name: "Home", areaHa: 5, centroid: [-8, 53], fertility: {}, history: [] } as Awaited<ReturnType<typeof listFieldsForFarm>>[number];
@@ -94,6 +94,43 @@ describe("grazing field movement actions", () => {
     vi.mocked(recordGrazingFieldMove).mockRejectedValue(new GrazingMoveRejectedError("MOVE_NOT_AFTER_CURRENT_START"));
     await expect(moveLivestockGroupToFieldAction({ livestockGroupId: "group-1", fieldId: "field-a", movedOn: "2026-05-02" }))
       .resolves.toEqual({ status: "rejected", reasonCode: "MOVE_NOT_AFTER_CURRENT_START" });
+  });
+});
+
+describe("moves from the Farm map (exact time)", () => {
+  const session2 = {
+    id: "session-2", farmId: "farm-1", livestockGroupId: "group-1", fieldId: "field-a",
+    startedAt: "2026-11-12T18:05:00.000Z", headCountSnapshot: 20,
+    livestockCategorySnapshot: "suckler_cow" as const, livestockUnitsPerHeadSnapshot: 0.9,
+    source: "Keith", createdAt: "2026-11-12T18:05:00.000Z",
+  };
+
+  it("records the exact time given, so a group can be moved more than once in a day", async () => {
+    vi.mocked(recordGrazingFieldMove).mockResolvedValue(session2);
+    const movedAt = new Date(Date.now() - 60 * 60_000).toISOString();
+    const result = await moveLivestockGroupToFieldAction({ livestockGroupId: "group-1", fieldId: "field-a", movedAt });
+    expect(result).toEqual({ status: "saved", sessionId: "session-2" });
+    expect(recordGrazingFieldMove).toHaveBeenCalledWith({ livestockGroupId: "group-1", fieldId: "field-a", startedAt: movedAt, source: "Keith" });
+  });
+
+  it("refuses a time in the future, more than a year back, or not a time at all, and writes nothing", async () => {
+    for (const movedAt of [new Date(Date.now() + 60 * 60_000).toISOString(), new Date(Date.now() - 400 * 86_400_000).toISOString(), "yesterday"]) {
+      expect(await moveLivestockGroupToFieldAction({ livestockGroupId: "group-1", fieldId: "field-a", movedAt })).toEqual({ status: "rejected", reasonCode: "INVALID_MOVE_TIME" });
+    }
+    expect(await moveLivestockGroupToFieldAction({ livestockGroupId: "group-1", fieldId: "field-a" })).toEqual({ status: "rejected", reasonCode: "INVALID_MOVE_DATE" });
+    expect(recordGrazingFieldMove).not.toHaveBeenCalled();
+    expect(getFarmForCurrentUser).not.toHaveBeenCalled();
+  });
+
+  it("lists every group with animals and the field it is grazing now, for the signed-in farm only", async () => {
+    vi.mocked(listLivestockGroupsForFarm).mockResolvedValue([GROUP, { ...GROUP, id: "group-empty", label: "Empty", count: tracked(0, "verified", "Keith") }]);
+    vi.mocked(listGrazingFieldSessionsForFarm).mockResolvedValue([{ ...session2, fieldId: "field-b" }]);
+    expect(await listGrazingMovementGroupsAction()).toEqual([
+      expect.objectContaining({ id: "group-1", label: "Cows", headCount: 20, currentFieldId: "field-b", currentFieldName: "Back", currentSince: session2.startedAt }),
+    ]);
+    expect(listFieldsForFarm).toHaveBeenCalledWith("farm-1");
+    vi.mocked(getFarmForCurrentUser).mockResolvedValue(null);
+    expect(await listGrazingMovementGroupsAction()).toEqual([]);
   });
 });
 

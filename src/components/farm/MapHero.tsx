@@ -70,6 +70,7 @@ export function MapHero({
   showBackToSelectionControl = false,
   className,
   children,
+  onMapReady,
 }: {
   fields: Field[];
   getTone: (field: Field) => MapTone;
@@ -205,6 +206,9 @@ export function MapHero({
    * the map surface — the "light legible cards over real imagery"
    * pattern from spec §3. */
   children?: React.ReactNode;
+  /** Called with the map once its style has loaded, and with null when it is removed, for layers drawn by the caller
+   * (the Farm map's cattle groups). */
+  onMapReady?: (map: mapboxgl.Map | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -251,6 +255,7 @@ export function MapHero({
   const getToneRef = useRef(getTone);
   const onSelectFieldRef = useRef(onSelectField);
   const onMapBackgroundClickRef = useRef(onMapBackgroundClick);
+  const onMapReadyRef = useRef(onMapReady);
   // Final audit round 2 (Codex, base a3df614): the mount effect's own
   // `map.on("load", ...)` callback closed over `mappedFields` as of
   // whenever the mount effect itself ran — if a field is added/removed
@@ -272,6 +277,7 @@ export function MapHero({
     getToneRef.current = getTone;
     onSelectFieldRef.current = onSelectField;
     onMapBackgroundClickRef.current = onMapBackgroundClick;
+    onMapReadyRef.current = onMapReady;
     mappedFieldsRef.current = mappedFields;
     selectedFieldIdRef.current = selectedFieldId;
     fitPaddingRef.current = fitPadding;
@@ -329,6 +335,7 @@ export function MapHero({
     // (`style.load`), not after every initial satellite tile has arrived
     // (`load`), so real polygons never wait on a slow imagery connection.
     map.once("style.load", () => {
+      onMapReadyRef.current?.(map);
       map.addSource("fr-fields", {
         type: "geojson",
         data: {
@@ -453,6 +460,7 @@ export function MapHero({
       ro.disconnect();
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
+      onMapReadyRef.current?.(null);
       map.remove();
       mapRef.current = null;
     };

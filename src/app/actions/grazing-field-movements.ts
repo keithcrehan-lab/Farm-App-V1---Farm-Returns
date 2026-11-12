@@ -34,47 +34,69 @@ function validDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00.000Z`));
 }
 
-export async function loadGrazingMovementContextAction(fieldId: string): Promise<GrazingMovementContext> {
-  const farm = await getFarmForCurrentUser();
-  if (!farm) throw new Error("No signed-in farm.");
-  const [fields, groups, sessions] = await Promise.all([
-    listFieldsForFarm(farm.id),
-    listLivestockGroupsForFarm(farm.id),
-    listGrazingFieldSessionsForFarm(farm.id),
-  ]);
-  const field = fields.find((candidate) => candidate.id === fieldId && !candidate.archivedAt);
-  if (!field) throw new Error("Field not found.");
+/** A move time sent from the map: a real instant, not in the future, and within the last year. */
+function validMoveInstant(value: string): boolean {
+  const at = Date.parse(value);
+  if (!Number.isFinite(at)) return false;
+  const now = Date.now();
+  return at <= now + 5 * 60_000 && at >= now - 366 * 86_400_000;
+}
 
+async function loadMovementGroups(farmId: string) {
+  const [fields, groups, sessions] = await Promise.all([
+    listFieldsForFarm(farmId),
+    listLivestockGroupsForFarm(farmId),
+    listGrazingFieldSessionsForFarm(farmId),
+  ]);
+  return { fields, views: movementGroupViews(fields, groups, sessions) };
+}
+
+function movementGroupViews(
+  fields: Awaited<ReturnType<typeof listFieldsForFarm>>,
+  groups: Awaited<ReturnType<typeof listLivestockGroupsForFarm>>,
+  sessions: Awaited<ReturnType<typeof listGrazingFieldSessionsForFarm>>,
+): GrazingMovementGroupView[] {
   const fieldNameById = new Map(fields.map((candidate) => [candidate.id, candidate.name]));
   const openByGroup = new Map(
     sessions
       .filter((session) => !session.endedAt)
       .map((session) => [session.livestockGroupId, session]),
   );
+  return groups
+    .filter((group) => group.count.value > 0)
+    .map((group) => {
+      const open = openByGroup.get(group.id);
+      return {
+        id: group.id,
+        label: group.label,
+        category: group.category,
+        headCount: group.count.value,
+        system: group.system,
+        ...(open
+          ? {
+              currentFieldId: open.fieldId,
+              currentFieldName: fieldNameById.get(open.fieldId) ?? "Recorded field",
+              currentSince: open.startedAt,
+            }
+          : {}),
+      };
+    });
+}
 
-  return {
-    fieldId: field.id,
-    fieldName: field.name,
-    groups: groups
-      .filter((group) => group.count.value > 0)
-      .map((group) => {
-        const open = openByGroup.get(group.id);
-        return {
-          id: group.id,
-          label: group.label,
-          category: group.category,
-          headCount: group.count.value,
-          system: group.system,
-          ...(open
-            ? {
-                currentFieldId: open.fieldId,
-                currentFieldName: fieldNameById.get(open.fieldId) ?? "Recorded field",
-                currentSince: open.startedAt,
-              }
-            : {}),
-        };
-      }),
-  };
+/** Every group with animals in it and the field it is grazing now, for the Farm map. The farm is the signed-in one. */
+export async function listGrazingMovementGroupsAction(): Promise<GrazingMovementGroupView[]> {
+  const farm = await getFarmForCurrentUser();
+  if (!farm) return [];
+  return (await loadMovementGroups(farm.id)).views;
+}
+
+export async function loadGrazingMovementContextAction(fieldId: string): Promise<GrazingMovementContext> {
+  const farm = await getFarmForCurrentUser();
+  if (!farm) throw new Error("No signed-in farm.");
+  const { fields, views } = await loadMovementGroups(farm.id);
+  const field = fields.find((candidate) => candidate.id === fieldId && !candidate.archivedAt);
+  if (!field) throw new Error("Field not found.");
+  return { fieldId: field.id, fieldName: field.name, groups: views };
 }
 
 /** Every surface that reads a group's current field or shed. */
@@ -94,9 +116,19 @@ export type MoveLivestockGroupToFieldResult =
 export async function moveLivestockGroupToFieldAction(input: {
   livestockGroupId: string;
   fieldId: string;
-  movedOn: string;
+  /** The day of the move (recorded at the start of that day). */
+  movedOn?: string;
+  /** The exact time of the move (from the Farm map), used instead of `movedOn` when given. */
+  movedAt?: string;
 }): Promise<MoveLivestockGroupToFieldResult> {
-  if (!validDate(input.movedOn)) return { status: "rejected", reasonCode: "INVALID_MOVE_DATE" };
+  let startedAt: string;
+  if (input.movedAt !== undefined) {
+    if (!validMoveInstant(input.movedAt)) return { status: "rejected", reasonCode: "INVALID_MOVE_TIME" };
+    startedAt = new Date(Date.parse(input.movedAt)).toISOString();
+  } else {
+    if (input.movedOn === undefined || !validDate(input.movedOn)) return { status: "rejected", reasonCode: "INVALID_MOVE_DATE" };
+    startedAt = `${input.movedOn}T00:00:00.000Z`;
+  }
   const farm = await getFarmForCurrentUser();
   if (!farm) return { status: "rejected", reasonCode: "NO_FARM" };
 
@@ -113,7 +145,7 @@ export async function moveLivestockGroupToFieldAction(input: {
     const session = await recordGrazingFieldMove({
       livestockGroupId: group.id,
       fieldId: field.id,
-      startedAt: `${input.movedOn}T00:00:00.000Z`,
+      startedAt,
       source: farm.ownerName.trim() || "Farmer",
     });
 

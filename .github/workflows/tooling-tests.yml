@@ -7,6 +7,8 @@ on:
   push:
     paths:
       - "scripts/agent-*"
+      - "scripts/tests/agent-*"
+      - "scripts/quality-gate.sh"
       - "src/tooling/**"
       - ".github/workflows/tooling-tests.yml"
   workflow_dispatch:

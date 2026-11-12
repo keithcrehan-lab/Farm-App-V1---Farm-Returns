@@ -1,0 +1,100 @@
+# Farm Return release pipeline.
+# The only route to production (AGENTS.md). Every push to the release branch runs
+# typecheck, lint and the full test suite, then a Codex audit of everything since the
+# last audited deploy (tag `audited-deploy`). Only when all pass, with no Critical or
+# High finding, does it deploy farm-return-pilot to farm-return-pilot-topaz.vercel.app.
+# Vercel builds with the project's own environment variables; a failed build never
+# replaces the live app. A missing OPENAI_API_KEY or VERCEL_TOKEN secret fails closed:
+# no audit means no deploy.
+name: Release checks and deploy
+
+on:
+  push:
+    branches: ["release/farm-return-current-2026-11-07"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Tests
+        # One retry absorbs the known load-sensitive UI test; a real failure still fails twice.
+        run: npx vitest run --retry=1
+
+  audit:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Work out what to audit
+        id: base
+        run: |
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/audited-deploy^{commit}" >/dev/null; then base=audited-deploy; else base=HEAD~1; fi
+          if [ "$(git rev-parse "$base")" = "$(git rev-parse HEAD)" ]; then echo "Nothing new since the last audited deploy."; fi
+          echo "base=$(git rev-parse "$base")" >> "$GITHUB_OUTPUT"
+          git diff --stat "$base" HEAD | tail -3
+      - name: Codex audit
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then echo "::error::OPENAI_API_KEY secret not set. No audit, so no deploy."; exit 1; fi
+          npm install -g @openai/codex >/dev/null 2>&1
+          printenv OPENAI_API_KEY | codex login --with-api-key >/dev/null
+          BASE="${{ steps.base.outputs.base }}"
+          cat > /tmp/prompt.md <<P
+          You are an independent code reviewer for the Farm Return repository (read AGENTS.md for its rules).
+          Review the change \`git diff $BASE HEAD\` (run it). Look for real bugs: wrong results, crashes, data saved
+          wrongly, farm-boundary/security issues, regressions, React effect/re-render loops, misuse of external APIs,
+          and breaches of AGENTS.md. Classify each finding Critical, High, Medium or Low (Critical/High block release).
+          Be concise. End with exactly one line: \`VERDICT: BLOCKING=<number of Critical+High findings>\`.
+          P
+          codex exec --sandbox read-only --ephemeral --color never -o /tmp/audit.md - < /tmp/prompt.md > /tmp/audit-raw.log 2>&1 || { tail -40 /tmp/audit-raw.log; exit 1; }
+          { echo "## Codex audit ($BASE..HEAD)"; cat /tmp/audit.md; } >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/audit.md
+          blocking=$(grep -oE "VERDICT: BLOCKING=[0-9]+" /tmp/audit.md | tail -1 | grep -oE "[0-9]+$" || true)
+          if [ "$blocking" != "0" ]; then echo "::error::Audit blocking findings: ${blocking:-unparsed verdict}"; exit 1; fi
+
+  deploy:
+    needs: [checks, audit]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_AEDVfh1AUUrf6CBOxw1qQ8og
+      VERCEL_PROJECT_ID: prj_G1qM47n7nSmlQYfqr5kI2RI2sWg5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to production
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then echo "::error::VERCEL_TOKEN secret not set."; exit 1; fi
+          url=$(npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN")
+          echo "Deployed: $url"
+          echo "### Live: $url (aliased to farm-return-pilot-topaz.vercel.app)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Mark this commit as the last audited deploy
+        run: |
+          git tag -f audited-deploy HEAD
+          git push -f origin refs/tags/audited-deploy

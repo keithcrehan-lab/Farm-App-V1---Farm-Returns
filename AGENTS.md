@@ -27,8 +27,14 @@ descendant branches.
   query in a new layer — call the existing export
   (`docs/farm-return-next/DOMAIN_CONTRACTS.md`).
 - Never merge into `main`.
-- Never deploy to production or run a migration against a production
-  database. `.env.local` targets `Farm Return V1 Dev` only.
+- Production deploys happen only through the release pipeline
+  (`.github/workflows/release-deploy.yml`, product owner decision
+  2026-11-12): a push to `release/farm-return-current-2026-11-07`
+  deploys to farm-return-pilot-topaz only after typecheck, lint, the full
+  test suite and a Codex audit with no Critical/High findings all pass.
+  Never deploy to production any other way (no `vercel deploy --prod`
+  by hand), and never run a migration against a production database.
+  `.env.local` targets `Farm Return V1 Dev` only.
 - Never force-push or rewrite published history on any shared branch.
 - Never make a destructive database change (drop/truncate/irreversible
   data loss) — every migration in this repo is forward-only.

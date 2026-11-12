@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 import { FARM_LENSES, MAP_LENS_IDS, MAP_LENS_LABEL, type FarmLensId } from "@/lib/farm-spatial-lenses";
 
 /**
- * The map view switch: Grass (the map's normal view) or Soil P & K
+ * The map view switch: Grass (the map's normal view) or Soil (lime, P and K)
  * (product owner, 2026-11-12: the four-tab row was mostly empty or repeated
  * other controls). A small two-way switch floating over the photo. Switching
  * only changes what the map shows: the caller never moves the camera on a

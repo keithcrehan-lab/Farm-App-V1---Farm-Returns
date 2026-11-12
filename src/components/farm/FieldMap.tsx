@@ -8,7 +8,8 @@ import type { Field } from "@/domain/types";
  * Status tones plus the one land-use-only colour (silage) that doesn't map
  * to a status meaning — see globals.css's "Field-map land-use legend" note.
  */
-export type MapTone = StatusTone | "silage";
+/** `caution` (yellow) is the Farm map's Soil view "needs P" colour. */
+export type MapTone = StatusTone | "silage" | "caution";
 
 const toneFill: Record<MapTone, string> = {
   good: "fill-fr-good/25 stroke-fr-good",
@@ -17,6 +18,7 @@ const toneFill: Record<MapTone, string> = {
   info: "fill-fr-info/25 stroke-fr-info",
   neutral: "fill-fr-ink-400/15 stroke-fr-ink-400",
   silage: "fill-fr-map-silage/25 stroke-fr-map-silage",
+  caution: "fill-[#d9b526]/25 stroke-[#d9b526]",
 };
 
 const toneBadge: Record<MapTone, string> = {
@@ -26,6 +28,7 @@ const toneBadge: Record<MapTone, string> = {
   info: "bg-fr-info text-white",
   neutral: "bg-fr-ink-400 text-white",
   silage: "bg-fr-map-silage text-white",
+  caution: "bg-[#d9b526] text-fr-v2-forest-deep",
 };
 
 /** Padding around the projected bounding box, in viewBox units (0-100), so

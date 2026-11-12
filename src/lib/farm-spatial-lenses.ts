@@ -86,7 +86,7 @@ export const FARM_LENSES: readonly FarmLens[] = [
  */
 export const MAP_LENS_IDS: readonly FarmLensId[] = ["grass", "nutrients"];
 /** The switch's own wording for each map view. */
-export const MAP_LENS_LABEL: Partial<Record<FarmLensId, string>> = { grass: "Grass", nutrients: "Soil P & K" };
+export const MAP_LENS_LABEL: Partial<Record<FarmLensId, string>> = { grass: "Grass", nutrients: "Soil" };
 
 export const DEFAULT_FARM_LENS: FarmLensId = "grass";
 

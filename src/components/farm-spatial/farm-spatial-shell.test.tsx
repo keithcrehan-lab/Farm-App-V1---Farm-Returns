@@ -34,14 +34,14 @@ describe("Farm lenses (Farm + Fields redesign)", () => {
 });
 
 describe("FarmLensControl", () => {
-  it("offers only the two map views, Grass and Soil P & K, and reports a selection", () => {
+  it("offers only the two map views, Grass and Soil, and reports a selection", () => {
     const onChange = vi.fn();
     render(<FarmLensControl value="grass" onChange={onChange} />);
     const group = screen.getByRole("group", { name: "Farm lens" });
-    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["Grass", "Soil P & K"]);
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["Grass", "Soil"]);
     expect(within(group).getByRole("button", { name: "Grass" }).getAttribute("aria-pressed")).toBe("true");
-    expect(within(group).getByRole("button", { name: "Soil P & K" }).getAttribute("aria-pressed")).toBe("false");
-    fireEvent.click(within(group).getByRole("button", { name: "Soil P & K" }));
+    expect(within(group).getByRole("button", { name: "Soil" }).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(within(group).getByRole("button", { name: "Soil" }));
     expect(onChange).toHaveBeenCalledWith("nutrients");
   });
 

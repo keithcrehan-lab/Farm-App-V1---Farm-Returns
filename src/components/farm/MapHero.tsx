@@ -19,6 +19,7 @@ const MAP_TONE_LINE_COLOR: Record<MapTone, string> = {
   info: "#2563AC",
   neutral: "#98A2B3",
   silage: "#8BA23A",
+  caution: "#D9B526",
 };
 
 /**
@@ -71,6 +72,7 @@ export function MapHero({
   className,
   children,
   onMapReady,
+  toneFillOpacity,
 }: {
   fields: Field[];
   getTone: (field: Field) => MapTone;
@@ -209,6 +211,8 @@ export function MapHero({
   /** Called with the map once its style has loaded, and with null when it is removed, for layers drawn by the caller
    * (the Farm map's cattle groups). */
   onMapReady?: (map: mapboxgl.Map | null) => void;
+  /** A stronger field tint, for a map view whose colours carry the meaning (the Farm map's Soil view). */
+  toneFillOpacity?: number;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -518,7 +522,9 @@ export function MapHero({
       map.setPaintProperty(
         "fr-field-fill",
         "fill-opacity",
-        glowSelection
+        toneFillOpacity !== undefined
+          ? ["case", isSelected, toneFillOpacity + 0.1, isHighlighted, toneFillOpacity + 0.05, dimmed ? toneFillOpacity * 0.35 : toneFillOpacity]
+          : glowSelection
           ? ["case", isSelected, 0.14, isHighlighted, 0.12, dimmed ? 0.05 : 0.1]
           : selectionColor
             ? ["case", isSelected, 0.12, isHighlighted, 0.14, dimmed ? 0.04 : 0.1]
@@ -561,6 +567,7 @@ export function MapHero({
       info: "#2563AC",
       neutral: "#667085",
       silage: "#8BA23A",
+      caution: "#D9B526",
     };
 
     // Label placement (collision-free). Every pin stays exactly on its field
@@ -755,7 +762,7 @@ export function MapHero({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getTone/onSelectField are inline closures from the caller; re-running per render (rather than gating on a stable identity) is the correct behaviour here, not a bug — it's what keeps a Prompt-driven tone change reflected immediately.
-  }, [fields, selectedFieldId, glowSelection, compactNeighbourLabels, neighbourNameLabels, neighbourDetailLabels, markerAccentColor, markerContentKey, highlightedFieldIds, dimUnhighlighted]);
+  }, [fields, selectedFieldId, glowSelection, compactNeighbourLabels, neighbourNameLabels, neighbourDetailLabels, markerAccentColor, markerContentKey, highlightedFieldIds, dimUnhighlighted, toneFillOpacity]);
 
   // Final whole-session Codex audit (MEDIUM) — see `wholeFarmBoundsSignature`'s
   // own comment above. Initialised to the current signature (not `null`)

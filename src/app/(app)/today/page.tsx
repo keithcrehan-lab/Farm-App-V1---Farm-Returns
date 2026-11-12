@@ -67,13 +67,16 @@ import { FarmGrassMapOverlay } from "@/components/farm-spatial/FarmGrassMapOverl
 import { FarmFieldDrawer } from "@/components/farm-spatial/FarmFieldDrawer";
 import { FarmCattleMoves } from "@/components/farm-spatial/FarmCattleMoves";
 import type mapboxgl from "mapbox-gl";
+import type { Field } from "@/domain/types";
 import { FARM_LENS_MARKER_COLOR, FIELD_SELECTION_COLOR, farmFieldLensView, parseFarmSpatialReturn } from "@/lib/farm-spatial-field-lens";
 import { farmFieldSelectionView } from "@/lib/farm-field-selection";
-import { useFieldNutrientPlan } from "@/lib/use-field-nutrient-plan";
+import { useFieldNutrientPlan, useFieldNutrientPlans } from "@/lib/use-field-nutrient-plan";
+import { fieldSoilView, soilMarkerLabel, soilSummary, SOIL_NEED_TONE, type SoilSummaryLine } from "@/lib/farm-soil-map";
+import { FarmSoilSummary } from "@/components/farm-spatial/FarmSoilSummary";
 import { fieldNutrientPlanView } from "@/lib/field-nutrient-plan-presentation";
 import { usePrefersReducedMotion } from "@/lib/use-prefers-reduced-motion";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/use-media-query";
-import { DEFAULT_FARM_LENS, farmLensById, type FarmLensId } from "@/lib/farm-spatial-lenses";
+import { DEFAULT_FARM_LENS, MAP_LENS_LABEL, farmLensById, type FarmLensId } from "@/lib/farm-spatial-lenses";
 import { calculateActiveFarmAreaHa, calculateFarmObjectRailCounts, calculateFarmSetupProgress } from "@/domain/farm-stats";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -122,6 +125,9 @@ import { buildFarmSlurryStorageOverview } from "@/domain/slurry-storage";
 import { buildSlurryPlanningEntry } from "@/domain/slurry-allocation-plan";
 import type { Prompt } from "@/orchestration/prompt";
 import type { FarmLimeRequirement } from "@/domain/fertiliser-plan";
+
+/** A stable empty list, so the Soil view computes nothing while another view is open. */
+const NO_FIELDS: Field[] = [];
 
 export default function TodayPage() {
   const farm = useFarm();
@@ -572,6 +578,16 @@ export default function TodayPage() {
     }
     return map;
   }, [grassOkData?.openGrazingSessions]);
+  // The Soil view: every mapped field coloured by what its canonical nutrient plan leaves to
+  // spread, lime first (lab lime requirement only). Computed only while the view is open.
+  const soilPlanFields = lens === "nutrients" ? fields.filter((field) => field.polygon && !field.archivedAt) : NO_FIELDS;
+  const soilPlans = useFieldNutrientPlans(soilPlanFields);
+  const limeByField = new Map((limeRequirement?.fields ?? []).map((row) => [row.fieldId, row.rateTHa]));
+  const soilViews = soilPlanFields.map((field) => fieldSoilView(field, soilPlans.get(field.id), limeByField.get(field.id)));
+  const soilViewByField = new Map(soilViews.map((view) => [view.fieldId, view]));
+  const soilLines = soilSummary(soilViews);
+  const [soilFocus, setSoilFocus] = useState<SoilSummaryLine | undefined>(undefined);
+  const changeLens = (next: FarmLensId) => { setLens(next); setSoilFocus(undefined); };
   const grassTone = (band: GrassPresentationBand) => {
     if (band === "surplus") return "info" as const;
     if (band === "target") return "silage" as const;
@@ -579,9 +595,19 @@ export default function TodayPage() {
     if (band === "below_target") return "attention" as const;
     return "neutral" as const;
   };
-  const fieldTone = (field: (typeof fields)[number]) => lens === "grass" ? grassTone(grassStateByField.get(field.id)?.band ?? "unknown") : "neutral" as const;
+  const fieldTone = (field: (typeof fields)[number]) => lens === "grass"
+    ? grassTone(grassStateByField.get(field.id)?.band ?? "unknown")
+    : lens === "nutrients"
+      ? SOIL_NEED_TONE[soilViewByField.get(field.id)?.need ?? "unknown"]
+      : "neutral" as const;
   const lensViewContext = { slurryAllocations, conditionsFacts, grassStateByField, grassGrowth, grassGrazingGroupsByField };
-  const fieldStatusLabel = (field: (typeof fields)[number]) => farmFieldLensView(lens, field, lensViewContext).markerLabel;
+  const fieldStatusLabel = (field: (typeof fields)[number]) => {
+    if (lens === "nutrients") {
+      const view = soilViewByField.get(field.id);
+      return view ? soilMarkerLabel(view) : undefined;
+    }
+    return farmFieldLensView(lens, field, lensViewContext).markerLabel;
+  };
   const selectedFieldView = selectedField ? farmFieldLensView(lens, selectedField, lensViewContext) : undefined;
   // The selected field's canonical nutrient plan (the shared assembly the
   // Nutrients screen uses), computed only for that one field, so its real
@@ -694,15 +720,16 @@ export default function TodayPage() {
             // marker text.
             neighbourNameLabels
             neighbourDetailLabels
-            markerAccentColor={lens === "grass" ? undefined : FARM_LENS_MARKER_COLOR[lens]}
-            markerContentKey={lens === "grass" ? `grass:${grassOkData?.coverObservations.length ?? 0}:${grassOkData?.growthObservations.length ?? 0}:${grassOkData?.grazingSessions.length ?? 0}:${grassOkData?.growthForecasts.length ?? 0}` : lens}
+            markerAccentColor={lens === "grass" || lens === "nutrients" ? undefined : FARM_LENS_MARKER_COLOR[lens]}
+            toneFillOpacity={lens === "nutrients" ? 0.32 : undefined}
+            markerContentKey={lens === "nutrients" ? `soil:${soilViews.map((view) => `${view.fieldId}=${view.need}${view.limeTHa ? "+lime" : ""}`).join(",")}` : lens === "grass" ? `grass:${grassOkData?.coverObservations.length ?? 0}:${grassOkData?.growthObservations.length ?? 0}:${grassOkData?.grazingSessions.length ?? 0}:${grassOkData?.growthForecasts.length ?? 0}` : lens}
             // Real category-focus membership only (see `MapHero.tsx`): the
             // focused farm topic's own real `affectedFieldIds`, softening
             // every other mapped field and fitting the camera to that set.
             // A selected field takes over the highlight so its neighbours
             // recede (dimmed, never hidden); the camera is then owned by
             // `flyToSelection`. A lens change never touches the camera.
-            highlightedFieldIds={selectedField ? [selectedField.id] : focusedOpportunity?.affectedFieldIds}
+            highlightedFieldIds={selectedField ? [selectedField.id] : lens === "nutrients" && soilFocus ? soilFocus.fieldIds : focusedOpportunity?.affectedFieldIds}
             dimUnhighlighted
             fitHighlightedFields={!selectedField}
             center={farm.location.centroid}
@@ -719,7 +746,7 @@ export default function TodayPage() {
 
               <div className="relative flex flex-col gap-4 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] sm:flex-row sm:items-start sm:justify-between lg:px-9 lg:pt-8">
                 <div className="pointer-events-auto min-w-0 max-sm:pr-16 [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]">
-                  <p className={cn("text-[10.5px] font-semibold uppercase tracking-[0.18em]", activeLens.kickerClassName)}>Farm Return · {activeLens.label}{!isRealMode ? " · Demo" : ""}</p>
+                  <p className={cn("text-[10.5px] font-semibold uppercase tracking-[0.18em]", activeLens.kickerClassName)}>Farm Return · {MAP_LENS_LABEL[lens] ?? activeLens.label}{!isRealMode ? " · Demo" : ""}</p>
                   <h1 className="mt-2 max-w-[16ch] text-balance font-display text-[34px] leading-[0.98] tracking-[-0.02em] text-white lg:text-[56px]">{farm.name}</h1>
                   <p className="mt-3 font-mono text-[12px] tabular-nums tracking-[0.01em] text-white/90" data-farm-identity-measure>
                     {fieldCountLabel}
@@ -802,7 +829,11 @@ export default function TodayPage() {
                         }}
                       />
                     ) : (
-                      <FarmLensContext lensId={lens} facts={lens === "conditions" ? conditionsFacts : undefined} />
+                      lens === "nutrients" ? (
+                        <FarmSoilSummary lines={soilLines} focusedKey={soilFocus?.key} onFocus={setSoilFocus} />
+                      ) : (
+                        <FarmLensContext lensId={lens} facts={lens === "conditions" ? conditionsFacts : undefined} />
+                      )
                     )}
                     {lens === "grass" && grassLoadFailed ? (
                       <p className="mt-2 max-w-md text-[11px] text-white/70">Grass records could not be loaded just now. No cover has been assumed.</p>
@@ -816,8 +847,8 @@ export default function TodayPage() {
                     <FarmFieldDrawer field={selectedField} lensId={lens} selection={selection} onClose={() => setSelectedFieldId(undefined)} />
                   </div>
                   <div className="flex justify-center px-2 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-3 lg:pb-6">
-                    <div className="pointer-events-auto w-full sm:w-auto">
-                      <FarmLensControl value={lens} onChange={setLens} />
+                    <div className="pointer-events-auto">
+                      <FarmLensControl value={lens} onChange={changeLens} />
                     </div>
                   </div>
                 </div>

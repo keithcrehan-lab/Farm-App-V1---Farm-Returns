@@ -79,3 +79,64 @@ export function useFieldNutrientPlan(field: Field | undefined): FieldNutrientPla
     regulatoryEvidenceStale,
   ]);
 }
+
+/**
+ * Every given field's canonical nutrient plan, from exactly the same assembly as
+ * `useFieldNutrientPlan` — for the Farm map's Soil view, which colours each field by
+ * what that plan says it needs. Pass an empty list to compute nothing (the view is off).
+ */
+export function useFieldNutrientPlans(forFields: readonly Field[]): ReadonlyMap<string, FieldNutrientPlanResult> {
+  const farm = useFarm();
+  const fields = useFields();
+  const allFields = useAllFieldsIncludingArchived();
+  const livestockGroups = useLivestockGroups();
+  const slurryAllocations = useSlurryAllocations();
+  const slurryCompositionRecords = useSlurryCompositionRecords();
+  const housing = useHousingList();
+  const slurryAllocationRecords = useSlurryAllocationRecords();
+  const neatSlurryEvidenceRecords = useNeatSlurryEvidenceRecords();
+  const spreadableAreaRecords = useSpreadableAreaRecords();
+  const slurryOriginEvidenceRecords = useSlurryOriginEvidenceRecords();
+  const regulatoryEvidenceFreshness = useRegulatoryEvidenceFreshness();
+  const slurryPlanFreshness = useSlurryPlanFreshness();
+  const regulatoryEvidenceStale = regulatoryEvidenceFreshness === "stale" || slurryPlanFreshness === "stale";
+
+  return useMemo(() => {
+    const asOfDate = new Date().toISOString().slice(0, 10);
+    const plans = new Map<string, FieldNutrientPlanResult>();
+    for (const field of forFields) {
+      plans.set(field.id, buildFieldNutrientPlan({
+        farm,
+        field,
+        fields,
+        allFields,
+        livestockGroups,
+        slurryAllocations,
+        slurryCompositionRecords,
+        housing,
+        slurryAllocationRecords,
+        neatSlurryEvidenceRecords,
+        spreadableAreaRecords,
+        slurryOriginEvidenceRecords,
+        regulatoryEvidenceStale,
+        silagePlan: mockSilagePlans.find((p) => p.fieldId === field.id),
+        asOfDate,
+      }));
+    }
+    return plans;
+  }, [
+    forFields,
+    farm,
+    fields,
+    allFields,
+    livestockGroups,
+    slurryAllocations,
+    slurryCompositionRecords,
+    housing,
+    slurryAllocationRecords,
+    neatSlurryEvidenceRecords,
+    spreadableAreaRecords,
+    slurryOriginEvidenceRecords,
+    regulatoryEvidenceStale,
+  ]);
+}

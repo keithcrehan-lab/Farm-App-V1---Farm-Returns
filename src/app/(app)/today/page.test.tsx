@@ -1424,18 +1424,21 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     expect(document.querySelector("[data-what-matters-trigger]")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /What matters/i })).toBeNull();
     const before = { ...capturedMapHeroProps! };
-    fireEvent.click(screen.getByRole("button", { name: "Soil P & K" }));
-    expect(screen.getByText(/farm return · nutrients/i)).toBeTruthy();
-    expect(screen.getByText("Requirement · soil evidence · organic nutrients · fertiliser")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Soil" }));
+    expect(screen.getByText(/farm return · soil/i)).toBeTruthy();
+    // The legacy caption is gone; the Soil view says where to spread.
+    expect(screen.queryByText("Requirement · soil evidence · organic nutrients · fertiliser")).toBeNull();
+    expect(document.querySelector("[data-soil-summary]")).toBeTruthy();
+    expect(screen.getByText("Where to spread")).toBeTruthy();
     expect(capturedMapHeroProps!.selectedFieldId).toBe(before.selectedFieldId);
     expect(capturedMapHeroProps!.highlightedFieldIds).toEqual(before.highlightedFieldIds);
     expect(capturedMapHeroProps!.flyToSelection).toBe(false);
-    // Phase 3: the Nutrients lens shows only the field's own recorded
-    // indices on its marker — unknown when nothing is recorded.
-    expect(capturedMapHeroProps!.getStatusLabel({ id: "field-home", fertility: {} })).toBe("P · K unknown");
-    expect(capturedMapHeroProps!.getTone({ id: "field-home" })).toBe("neutral");
-    expect(capturedMapHeroProps!.markerAccentColor).toBe("var(--fr-v2-harvest)");
-    expect(capturedMapHeroProps!.markerContentKey).toBe("nutrients");
+    // Each field is coloured and labelled by what its nutrient plan leaves to spread.
+    const label = capturedMapHeroProps!.getStatusLabel({ id: "field-home", fertility: {} });
+    expect(label).toMatch(/^(Lime first · )?(Needs P & K|Needs K|Needs P|Maintenance|None needed|No soil test|No fertiliser allowed|Tillage|Can't tell yet)$/);
+    expect(["risk", "attention", "caution", "good", "info", "neutral"]).toContain(capturedMapHeroProps!.getTone({ id: "field-home" }));
+    expect(capturedMapHeroProps!.markerAccentColor).toBeUndefined();
+    expect(capturedMapHeroProps!.markerContentKey).toMatch(/^soil:/);
   });
 
   it("has no Conditions view: the spreading calendar stays in the conditions chip, never a suitability verdict", async () => {
@@ -1477,7 +1480,7 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     act(() => capturedMapHeroProps!.onSelectField!("field-home"));
     // Soil evidence now sits under Nutrients (no Soil lens).
     expect(screen.queryByRole("button", { name: "Soil" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Soil P & K" }));
+    fireEvent.click(screen.getByRole("button", { name: "Soil" }));
     expect(Array.from(drawer().querySelectorAll("[data-selection-context] dt")).map((dt) => dt.textContent)).toContain("P");
     fireEvent.click(screen.getByRole("button", { name: "Grass" }));
     expect(within(drawer()).getByText(/record grass for this field to establish ground truth/i)).toBeTruthy();
@@ -1502,7 +1505,7 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     expect(primary()).toHaveLength(1);
     expect(primary()[0].textContent).toBe("Open Grass analysis");
     expect(primary()[0].getAttribute("href")).toBe("/grass");
-    fireEvent.click(screen.getByRole("button", { name: "Soil P & K" }));
+    fireEvent.click(screen.getByRole("button", { name: "Soil" }));
     expect(primary()).toHaveLength(1);
     expect(within(drawer()).getByRole("link", { name: "Open nutrient plan" }).getAttribute("href")).toBe("/today/field/field-home");
     // The statement is the canonical plan's remaining N, or its honest unknown reason — never 0.
@@ -1517,7 +1520,7 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
       await screen.findByTestId("map-hero-stub");
       const drawer = document.querySelector("[data-field-drawer]") as HTMLElement;
       await waitFor(() => expect(drawer.getAttribute("data-open")).toBe("true"));
-      expect(screen.getByRole("button", { name: "Soil P & K" }).getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByRole("button", { name: "Soil" }).getAttribute("aria-pressed")).toBe("true");
       expect(within(drawer).getByRole("heading", { name: "Home Field" })).toBeTruthy();
       expect(within(drawer).getByRole("link", { name: "Open nutrient plan" })).toBeTruthy();
     } finally {
@@ -1623,10 +1626,10 @@ describe("TodayPage — Farm + Fields redesign (2026-10-27)", () => {
     expect(within(brief).getByText("Farm topics")).toBeTruthy();
   });
 
-  it("offers two map views, Grass and Soil P & K (product owner, 2026-11-12)", async () => {
+  it("offers two map views, Grass and Soil (product owner, 2026-11-12)", async () => {
     renderTodayMap();
     const group = await screen.findByRole("group", { name: "Farm lens" });
-    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["Grass", "Soil P & K"]);
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["Grass", "Soil"]);
   });
 
   it("passes the real fields to the map and emphasises selection in straw, keyed by the real field id", async () => {

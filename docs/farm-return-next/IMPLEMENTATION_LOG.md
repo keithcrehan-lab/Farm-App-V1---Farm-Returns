@@ -1079,3 +1079,21 @@ groups visible on the map and moved by drag and drop, easy but never accidental.
   the map itself; keyboard/screen-reader press opens Move to…; the not-on-a-field strip wraps; a map move can't be
   back-dated before the group's last grazing record ended (`MOVE_BEFORE_LAST_RECORD`). Marker chips may sit near field
   labels at whole-farm zoom; phone + desktop screen check owed (BLOCKERS ONB-UI-1).
+
+## 2026-11-12 — Farm map Soil view: fields coloured by need, lime first, "where to spread"
+
+Product owner: centre the map switch; colour fields for P and K; help the farmer see where fertiliser is needed;
+replace the legacy P/K wording; no third button (lime belongs with P and K); fields with only estimated indices stay grey.
+
+- Switch reads **Grass | Soil**, centred above the bottom bar.
+- **Soil view** (`src/lib/farm-soil-map.ts`, presentation only): each mapped field's canonical nutrient plan
+  (`buildFieldNutrientPlan`, via new `useFieldNutrientPlans`) decides its colour from the remaining chemical P and K
+  after planned slurry: red needs P & K (both below optimum, Index 1–2), orange needs K, yellow needs P, green
+  maintenance only (Index 3+, some still to apply), blue none needed; grey for no soil test (missing or estimated
+  indices), no chemical fertiliser allowed (commonage/buffer), tillage, or can't tell yet. Lime comes first, only from
+  a laboratory lime requirement (t/ha) already on the farm (`getFarmLimeRequirementAction`).
+- **Where to spread** card replaces the legacy caption: lime first, then each need with its fields, area and the
+  total P / K kg or lime t when every field's figure is stated by the plan. Tapping a line picks those fields out.
+- Map: new `caution` (yellow) tone; `MapHero.toneFillOpacity` for a stronger tint in the Soil view.
+- No migration, no new scientific figure: index bands follow the Teagasc Green Book soil index system already in the
+  evidence register; every kg comes from the plan.

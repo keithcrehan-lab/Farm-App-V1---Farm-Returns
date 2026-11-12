@@ -118,10 +118,7 @@ export function GrassOverview({
   const position = okLine ? wedgePosition(fields, okLine) : undefined;
   const resolvedDemand = groups.every((g) => g.dailyDemandKgDm !== undefined) && groups.length > 0 ? groups.reduce((s, g) => s + (g.dailyDemandKgDm ?? 0), 0) : undefined;
   const supply = supplyDemand({ growthKgDmHaDay: growth.chosen?.rateKgDmHaDay, grazingAreaHa, demandKgDmDay: resolvedDemand });
-  const insights = useMemo(
-    () => grassInsights({ fields: fields.map((f) => ({ ...f, occupied: f.occupants.length > 0 })), line, ...(supply ? { supply } : {}) }),
-    [fields, line, supply],
-  );
+  const insights = grassInsights({ fields: fields.map((f) => ({ ...f, occupied: f.occupants.length > 0 })), line, ...(supply ? { supply } : {}) });
   const occupied = useMemo(() => new Set(fields.filter((f) => f.occupants.length > 0).map((f) => f.fieldId)), [fields]);
   const selectedBar = bars.find((b) => b.fieldId === selectedFieldId);
   const selected = fields.find((f) => f.fieldId === selectedFieldId);

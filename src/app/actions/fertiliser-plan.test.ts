@@ -1649,6 +1649,11 @@ describe("getFieldFertiliserStatusAction", () => {
   });
 
   it("uses continuous cattle movement history as the grazing field's stocking input instead of the holding fallback", async () => {
+    // The annualised stocking rate from a 10-day October session depends on "today": pinned so the
+    // expectation doesn't drift below 80 as the calendar moves on (it did on 2026-11-12).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-01T12:00:00.000Z"));
+    try {
     const target = p3Field({ id: "field-1", areaHa: 4.2 });
     const other = p3Field({ id: "field-2", name: "Other Field", areaHa: 10 });
     const targetCycle = p3GrazingCycle("field-1");
@@ -1701,6 +1706,9 @@ describe("getFieldFertiliserStatusAction", () => {
       Number(result.ruleTraces.n?.inputs.annualOrganicNStockingRateKgHa),
     ).toBeGreaterThan(80);
     expect(result.limitations.join(" ")).toMatch(/field-specific.*movement/i);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("lets clear field movement evidence override the farm grazing-system baseline in the P3 pathway", async () => {

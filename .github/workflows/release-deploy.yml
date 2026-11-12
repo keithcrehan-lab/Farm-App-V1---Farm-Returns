@@ -74,7 +74,7 @@ jobs:
           and breaches of AGENTS.md. Classify each finding Critical, High, Medium or Low (Critical/High block release).
           Be concise. End with exactly one line: \`VERDICT: BLOCKING=<number of Critical+High findings>\`.
           P
-          codex exec --sandbox read-only --ephemeral --color never -o /tmp/audit.md - < /tmp/prompt.md > /tmp/audit-raw.log 2>&1 || { tail -40 /tmp/audit-raw.log; exit 1; }
+          codex exec -c model_reasoning_effort=high --sandbox read-only --ephemeral --color never -o /tmp/audit.md - < /tmp/prompt.md > /tmp/audit-raw.log 2>&1 || { tail -40 /tmp/audit-raw.log; exit 1; }
           { echo "## Codex audit ($BASE..HEAD)"; cat /tmp/audit.md; } >> "$GITHUB_STEP_SUMMARY"
           cat /tmp/audit.md
           blocking=$(grep -oE "VERDICT: BLOCKING=[0-9]+" /tmp/audit.md | tail -1 | grep -oE "[0-9]+$" || true)

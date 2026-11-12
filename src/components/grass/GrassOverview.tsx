@@ -356,7 +356,7 @@ export function GrassOverview({
             {inMainGrazingSeason(asOf) ? (
               <button type="button" onClick={() => { setRotationInput("21"); setResidualInput("150"); }} className="min-h-10 rounded-fr-v2-control border border-fr-v2-cream-rule bg-white px-3 text-xs font-semibold text-fr-v2-charcoal">Fill in the Teagasc mid-season guide</button>
             ) : (
-              <p className="text-xs text-fr-v2-muted">Outside the main season, enter the longer rotation you're running now.</p>
+              <p className="text-xs text-fr-v2-muted">Outside the main season, enter the longer rotation you&apos;re running now.</p>
             )}
             <button type="button" onClick={saveSettings} className="min-h-10 rounded-fr-v2-control bg-fr-v2-forest px-4 text-xs font-semibold text-white">Save targets</button>
             <button type="button" onClick={() => setSettingsOpen(false)} className="min-h-10 px-2 text-xs font-semibold text-fr-v2-muted">Cancel</button>

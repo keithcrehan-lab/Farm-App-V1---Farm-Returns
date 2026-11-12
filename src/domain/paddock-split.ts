@@ -1,8 +1,9 @@
 /**
  * Splitting a mapped field into paddocks along farmer-drawn fences.
  *
- * A fence is a line the farmer taps across the field (start and finish
- * outside it). Each fence cuts every piece it crosses into two, using an
+ * A fence is a line the farmer traces, taps or walks along where the fence
+ * runs. It is fitted to the field (ends join the edge or another fence), and
+ * each fence cuts every piece it crosses into two, using an
  * exact polygon intersection / difference against one side of the fence, so
  * the pieces share edges and always add up to the original field. Nothing
  * is guessed: a fence that doesn't cross the field is refused, and a split
@@ -37,6 +38,8 @@ const FAR = 0.05;
 /** Smallest paddock accepted, 0.02 ha. */
 export const MIN_PADDOCK_M2 = 200;
 export const MAX_PADDOCKS = 30;
+/** A fence end this close to the field edge or another fence is already joined to it. */
+const SNAP_M = 0.5;
 
 function flatten(g: GeoJSON.Polygon | GeoJSON.MultiPolygon | null | undefined): GeoJSON.Polygon[] {
   if (!g) return [];
@@ -131,6 +134,10 @@ export function fitFence(field: GeoJSON.Polygon, prior: ReadonlyArray<readonly P
     lineIntersect(lineString([a, b]), edges).features.map((f) => f.geometry.coordinates).filter((h) => planarDist(a, h) > 1e-9).sort((x, y) => planarDist(a, x) - planarDist(a, y));
 
   const fitStart = (line: Position[]): Position[] | null => {
+    // An end already sitting on the edge or on a fence stays where it is, so a
+    // fitted fence can be fitted again (after an edit) without moving.
+    const near = nearestPointOnLine(edges, point(line[0]), { units: "meters" });
+    if ((near.properties.dist ?? Infinity) <= SNAP_M) return [near.geometry.coordinates, ...line.slice(1)];
     if (inside(line[0])) {
       const h = hits(line[0], beyond(line[1], line[0]));
       return h.length ? [h[0], ...line] : null;
@@ -151,6 +158,64 @@ export function fitFence(field: GeoJSON.Polygon, prior: ReadonlyArray<readonly P
   pts = pts.map((p, i) => (i === 0 || i === pts.length - 1 || inside(p) ? p : nearestPointOnLine(ring, point(p)).geometry.coordinates));
   const total = pts.slice(1).reduce((s, p, i) => s + planarDist(pts[i], p), 0);
   return total > 1e-7 ? pts : null;
+}
+
+export type FitAllResult = { ok: true; fences: Position[][] } | { ok: false; index: number; error: string };
+
+/**
+ * Fits every drawn fence in order, each against the field and the fences before it.
+ * Used after any edit (move, delete, undo) so fences that joined an edited fence
+ * follow it, or carry on to the next edge when it is gone.
+ */
+export function fitAllFences(field: GeoJSON.Polygon, drawn: ReadonlyArray<readonly Position[]>): FitAllResult {
+  const fences: Position[][] = [];
+  for (let index = 0; index < drawn.length; index++) {
+    const fitted = fitFence(field, fences, drawn[index]);
+    if (!fitted) return { ok: false, index, error: "A fence doesn't reach across the field any more. Undo and draw it again." };
+    fences.push(fitted);
+  }
+  return { ok: true, fences };
+}
+
+/** Metres per degree, for small local distances only (geometry, not agronomy). */
+const M_PER_DEG_LAT = 110_540;
+const mPerDegLng = (lat: number) => 111_320 * Math.cos((lat * Math.PI) / 180);
+
+/**
+ * Straightens a finger-traced or walked line: drops every point that sits within
+ * `toleranceM` of the straight run between its neighbours (Douglas-Peucker), so a
+ * wobbly trace becomes a few clean fence segments. Ends are always kept.
+ */
+export function straightenTrace(points: readonly Position[], toleranceM: number): Position[] {
+  const pts = dedupe(points);
+  if (pts.length <= 2 || !(toleranceM > 0)) return pts;
+  const kx = mPerDegLng(pts[0][1]);
+  const xy = pts.map((p) => [p[0] * kx, p[1] * M_PER_DEG_LAT]);
+  const offLine = (p: number[], a: number[], b: number[]) => {
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2));
+    return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
+  };
+  const keep = pts.map(() => false);
+  keep[0] = true;
+  keep[pts.length - 1] = true;
+  const stack: Array<[number, number]> = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    let worst = -1;
+    let worstDist = toleranceM;
+    for (let i = a + 1; i < b; i++) {
+      const d = offLine(xy[i], xy[a], xy[b]);
+      if (d > worstDist) { worstDist = d; worst = i; }
+    }
+    if (worst >= 0) {
+      keep[worst] = true;
+      stack.push([a, worst], [worst, b]);
+    }
+  }
+  return pts.filter((_, i) => keep[i]);
 }
 
 function checkPieces(field: GeoJSON.Polygon, pieces: GeoJSON.Polygon[]): SplitResult {
@@ -204,6 +269,91 @@ export function evenFences(field: GeoJSON.Polygon, n: number): Position[][] {
     fences.push(wide ? [[t, minY - pad], [t, maxY + pad]] : [[minX - pad, t], [maxX + pad, t]]);
   }
   return fences;
+}
+
+/** The field's outline in local metres, turned so fences at `bearingDeg` run straight up the page. */
+function turnedOutline(field: GeoJSON.Polygon, bearingDeg: number) {
+  const ring = field.coordinates[0].slice(0, -1);
+  const lat0 = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+  const kx = mPerDegLng(lat0);
+  const b = (bearingDeg * Math.PI) / 180;
+  const c = Math.cos(b);
+  const sn = Math.sin(b);
+  // across = distance across the fences; along = distance along them.
+  const pts = ring.map((p) => {
+    const x = p[0] * kx;
+    const y = p[1] * M_PER_DEG_LAT;
+    return { across: x * c - y * sn, along: x * sn + y * c };
+  });
+  const back = (across: number, along: number): Position => [(across * c + along * sn) / kx, (-across * sn + along * c) / M_PER_DEG_LAT];
+  return { pts, back };
+}
+
+/** Area of the part of an outline with `across` at or below `limit` (half-plane clip, shoelace). */
+function areaUpTo(pts: ReadonlyArray<{ across: number; along: number }>, limit: number): number {
+  const out: Array<{ across: number; along: number }> = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    const aIn = a.across <= limit;
+    const bIn = b.across <= limit;
+    if (aIn) out.push(a);
+    if (aIn !== bIn) {
+      const t = (limit - a.across) / (b.across - a.across);
+      out.push({ across: limit, along: a.along + t * (b.along - a.along) });
+    }
+  }
+  let twice = 0;
+  for (let i = 0; i < out.length; i++) {
+    const a = out[i];
+    const b = out[(i + 1) % out.length];
+    twice += a.across * b.along - b.across * a.along;
+  }
+  return Math.abs(twice) / 2;
+}
+
+/**
+ * Straight, parallel fences that cut the field into `n` strips of equal area, with
+ * the fences running at `bearingDeg` (0 = north-south, 90 = east-west).
+ */
+export function evenFencesAtBearing(field: GeoJSON.Polygon, n: number, bearingDeg: number): Position[][] {
+  if (!Number.isInteger(n) || n < 2 || !Number.isFinite(bearingDeg)) return [];
+  const { pts, back } = turnedOutline(field, bearingDeg);
+  const across = pts.map((p) => p.across);
+  const along = pts.map((p) => p.along);
+  const minAcross = Math.min(...across);
+  const maxAcross = Math.max(...across);
+  const total = areaUpTo(pts, maxAcross + 1);
+  if (!(total > 0)) return [];
+  const pad = 20; // metres past the field, so each fence clearly starts and ends outside it
+  const from = Math.min(...along) - pad;
+  const to = Math.max(...along) + pad;
+  const fences: Position[][] = [];
+  for (let i = 1; i < n; i++) {
+    const target = (total * i) / n;
+    let lo = minAcross;
+    let hi = maxAcross;
+    for (let step = 0; step < 48; step++) {
+      const mid = (lo + hi) / 2;
+      if (areaUpTo(pts, mid) < target) lo = mid;
+      else hi = mid;
+    }
+    const at = (lo + hi) / 2;
+    fences.push([back(at, from), back(at, to)]);
+  }
+  return fences;
+}
+
+/** The bearing (0-175, in 5 degree steps) at which straight fences across the field are shortest. */
+export function shortestFenceBearing(field: GeoJSON.Polygon): number {
+  let best = 0;
+  let bestLength = Infinity;
+  for (let bearing = 0; bearing < 180; bearing += 5) {
+    const along = turnedOutline(field, bearing).pts.map((p) => p.along);
+    const length = Math.max(...along) - Math.min(...along);
+    if (length < bestLength - 1e-6) { bestLength = length; best = bearing; }
+  }
+  return best;
 }
 
 /** Paddocks listed north to south, then west to east, for naming. */

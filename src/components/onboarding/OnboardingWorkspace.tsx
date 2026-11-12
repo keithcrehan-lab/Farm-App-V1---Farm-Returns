@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { ArrowRight, LocateFixed, Search } from "lucide-react";
 import { establishFarmStep, addOnboardingFieldStep, finishOnboardingStep, lookupExactEircodeStep } from "@/app/actions/onboarding";
 import { addScannedFieldsAction } from "@/app/actions/field-scan";
+import { splitFieldIntoPaddocksAction } from "@/app/actions/farm";
 import { signOut } from "@/app/actions/auth";
 import { computeBoundaryGeometry, isValidBoundaryPolygon } from "@/domain/field-boundary";
 import type { Farm } from "@/domain/types";
@@ -16,6 +17,7 @@ import { COUNTY_NAMES, FARM_TYPES, type OnboardingStage } from "@/lib/onboarding
 import { countyAt, normaliseEircode, searchPlaces, type PlaceResult } from "@/lib/onboarding-geocoding";
 import { IRISH_COUNTIES } from "@/lib/irish-counties";
 import { OnboardingMap, type OnboardingMapHandle, type OnboardingMapView } from "./OnboardingMap";
+import { StepTip, StepTipButton } from "./StepTip";
 
 const FieldBoundaryMapModal = dynamic(() => import("@/components/farm/FieldBoundaryMapModal").then((m) => m.FieldBoundaryMapModal), { ssr: false });
 const FieldScanModal = dynamic(() => import("@/components/farm/FieldScanModal").then((m) => m.FieldScanModal), { ssr: false });
@@ -42,6 +44,16 @@ const IRELAND_CENTER: [number, number] = [-7.9, 53.4];
 const CONFIRM_ZOOM = 15;
 const SEARCH_OVERVIEW_RADIUS_KM = 3;
 const LOCATION_SEARCH_STORAGE_KEY = "farm-return:onboarding:location-search";
+
+/** One short tip per setup step; the farmer can close each one or skip them all. */
+const STEP_TIPS: Record<LocalStep, string> = {
+  FIND: "Type your Eircode or the nearest town to bring the map to your farm.",
+  CONFIRM: "Drag the map until the pin sits on your farmyard, then confirm it.",
+  IDENTITY: "Only the basics are asked here. Everything else is asked later, in the part of the app that needs it.",
+  FIRST_FIELD: "Scanning shows the official field outlines around your yard, so there is nothing to draw. Fields fenced into paddocks can be divided straight after.",
+  NAME_FIELD: "Use the name you call this field on the farm.",
+  NEXT_STEPS: "Your fields are in. Add more now or carry on into the app. Nothing here is final and you can change it later.",
+};
 
 function initialStep(stage: OnboardingStage): LocalStep {
   return stage === "NEXT_STEPS" ? "NEXT_STEPS" : stage === "FIRST_FIELD" ? "FIRST_FIELD" : "FIND";
@@ -138,6 +150,12 @@ export function OnboardingWorkspace({ stage, farm: initialFarm, fields: initialF
         className="absolute inset-x-0 bottom-0 max-h-[58dvh] overflow-y-auto pb-[env(safe-area-inset-bottom)] lg:inset-x-auto lg:bottom-auto lg:left-6 lg:top-20 lg:max-h-[calc(100dvh-7rem)] lg:w-[400px]"
       >
         <Panel>
+          <div className="-mr-2 -mt-2 flex justify-end empty:hidden">
+            <StepTipButton id={`setup-${step}`} />
+          </div>
+          <StepTip id={`setup-${step}`} variant="inline" className="mb-4">
+            {STEP_TIPS[step]}
+          </StepTip>
           {step === "FIND" || step === "CONFIRM" ? (
             <LocateStep
               confirming={step === "CONFIRM"}
@@ -230,6 +248,19 @@ export function OnboardingWorkspace({ stage, farm: initialFarm, fields: initialF
                 .filter((field): field is typeof field & { polygon: GeoJSON.Polygon } => Boolean(field.polygon))
                 .map((field) => ({ id: field.id, name: field.name, polygon: field.polygon })),
             ]);
+            return added;
+          }}
+          onSplitField={async (fieldId, paddocks) => {
+            const result = await splitFieldIntoPaddocksAction(fieldId, paddocks);
+            // The divided field is replaced by its paddocks.
+            setFields((current) => [
+              ...current.filter((field) => field.id !== fieldId),
+              ...result.paddocks
+                .filter((field): field is typeof field & { polygon: GeoJSON.Polygon } => Boolean(field.polygon))
+                .map((field) => ({ id: field.id, name: field.name, polygon: field.polygon })),
+            ]);
+          }}
+          onFinished={() => {
             setScanning(false);
             setStep("NEXT_STEPS");
           }}

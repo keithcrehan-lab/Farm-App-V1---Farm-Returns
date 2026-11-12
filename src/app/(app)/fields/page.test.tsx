@@ -85,8 +85,9 @@ const scannedPolygon: GeoJSON.Polygon = {
 };
 let scanModalProps: { centre: [number, number]; existingFields: FieldScanExistingField[] } | undefined;
 vi.mock("@/components/farm/FieldScanModal", () => ({
-  FieldScanModal: ({ onAddSelected, onDrawInstead, onClose, centre, existingFields = [] }: {
-    onAddSelected: (selections: NamedFieldScanSelection[]) => Promise<void>;
+  FieldScanModal: ({ onAddSelected, onFinished, onDrawInstead, onClose, centre, existingFields = [] }: {
+    onAddSelected: (selections: NamedFieldScanSelection[]) => Promise<Array<{ id: string; name: string; areaHa: number }>>;
+    onFinished: (added: Array<{ id: string; name: string; areaHa: number }>, dividedFieldIds: string[]) => void;
     onDrawInstead: (centre: [number, number]) => void;
     onClose: () => void;
     centre: [number, number];
@@ -104,7 +105,7 @@ vi.mock("@/components/farm/FieldScanModal", () => ({
             name: "Road Meadow",
             candidate: { id: "scan-b", lpisRef: "dafm_lpis_2025:2025:scan-b", polygon: scannedPolygon, areaHa: 1, centroid: [-8.484, 51.899], sourceLabel: "DAFM LPIS 2025", sourceYear: "2025" },
           },
-        ])}>Use scanned fields</button>
+        ]).then((added) => onFinished(added, []))}>Use scanned fields</button>
         <button type="button" onClick={() => onDrawInstead(centre)}>Draw instead</button>
         <button type="button" onClick={onClose}>Close scan</button>
       </div>

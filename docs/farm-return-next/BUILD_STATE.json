@@ -576,5 +576,12 @@
     "migration": "none",
     "pushed_or_deployed": false,
     "final_audit": ".agent/history/audit-20261107T143809Z-56048.md (CRITICAL=0 HIGH=0 MEDIUM=1 LOW=0 at a7e6d76)"
+  },
+  "onboarding_tips_fence_drawing_v1": {
+    "requested": "2026-11-12 product owner: closable step tips through onboarding; easy fence drawing for permanent paddocks",
+    "branch": "release/farm-return-current-2026-11-07",
+    "status": "IMPLEMENTED_PENDING_CI_AND_INDEPENDENT_AUDIT",
+    "migration": "none",
+    "deferred": "BLOCKERS ONB-MERGE-1 (join two scanned parcels), ONB-UI-1 (mobile + desktop screen review)"
   }
 }

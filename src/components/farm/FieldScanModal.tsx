@@ -17,6 +17,20 @@ import {
 import { formatHa } from "@/lib/format";
 import { MAPBOX_PLAIN_SATELLITE_STYLE, MAPBOX_TOKEN, mapboxConfigured } from "@/lib/mapbox";
 import { normaliseEircode } from "@/lib/onboarding-geocoding";
+import { StepTip, StepTipButton } from "@/components/onboarding/StepTip";
+import { PaddockQuestion } from "@/components/farm/PaddockQuestion";
+import { SplitFieldModal } from "@/components/farm/SplitFieldModal";
+
+type Stage = "select" | "name" | "paddocks";
+const TIP_IDS: Record<Stage, string> = { select: "scan-select", name: "scan-name", paddocks: "scan-paddocks" };
+
+/** A field saved from the scan, as the paddock step needs it. */
+export interface ScanAddedField {
+  id: string;
+  name: string;
+  areaHa: number;
+  polygon?: GeoJSON.Polygon | null;
+}
 
 const SOURCE = "field-scan-candidates";
 const FILL = "field-scan-candidates-fill";
@@ -62,13 +76,20 @@ export function FieldScanModal({
   centre,
   existingFields = [],
   onAddSelected,
+  onSplitField,
+  onFinished,
   onDrawInstead,
   onClose,
 }: {
   farmName: string;
   centre: [number, number];
   existingFields?: FieldScanExistingField[];
-  onAddSelected: (selections: NamedFieldScanSelection[]) => Promise<void>;
+  /** Saves the named fields. Return the saved fields to offer the paddock step before finishing. */
+  onAddSelected: (selections: NamedFieldScanSelection[]) => Promise<ScanAddedField[] | void>;
+  /** Divides one saved field into paddocks. Without it the paddock step is not offered. */
+  onSplitField?: (fieldId: string, paddocks: Array<{ name: string; polygon: GeoJSON.Polygon }>) => Promise<void>;
+  /** Called when the farmer finishes after saving, with what was added and which fields were divided. */
+  onFinished?: (added: ScanAddedField[], dividedFieldIds: string[]) => void;
   onDrawInstead: (centre: [number, number]) => void;
   onClose: () => void;
 }) {
@@ -77,16 +98,20 @@ export function FieldScanModal({
   const candidatesRef = useRef<FieldScanCandidate[]>([]);
   const selectedRef = useRef<Set<string>>(new Set());
   const activeNamingRef = useRef<string | null>(null);
-  const stageRef = useRef<"select" | "name">("select");
+  const stageRef = useRef<Stage>("select");
   const existingRef = useRef<FieldScanExistingField[]>(existingFields);
 
   const existingPolygons = useMemo(() => existingFields.map((field) => field.polygon), [existingFields]);
-  const initialCentre = useMemo(() => fieldScanCentre(existingPolygons, centre), [existingPolygons, centre]);
-  const initialBounds = useMemo(() => fieldScanBounds(existingPolygons), [existingPolygons]);
+  // Where the scan opens is fixed when it opens: fields saved while it is open must not restart it.
+  const [initialCentre] = useState(() => fieldScanCentre(existingPolygons, centre));
+  const [initialBounds] = useState(() => fieldScanBounds(existingPolygons));
 
   const [outcome, setOutcome] = useState<FieldScanOutcome | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [stage, setStage] = useState<"select" | "name">("select");
+  const [stage, setStage] = useState<Stage>("select");
+  const [addedFields, setAddedFields] = useState<ScanAddedField[]>([]);
+  const [paddockCounts, setPaddockCounts] = useState<Record<string, number>>({});
+  const [dividingId, setDividingId] = useState<string | null>(null);
   const [fieldNames, setFieldNames] = useState<Record<string, string>>({});
   const [activeNamingId, setActiveNamingId] = useState<string | null>(null);
   const [currentCentre, setCurrentCentre] = useState<[number, number]>(initialCentre);
@@ -229,6 +254,7 @@ export function FieldScanModal({
         map.on("click", FILL, (event) => {
           const id = event.features?.[0]?.properties?.candidateId;
           if (typeof id !== "string") return;
+          if (stageRef.current === "paddocks") return;
           if (stageRef.current === "name") {
             if (selectedRef.current.has(id)) setActiveNamingId(id);
             return;
@@ -356,12 +382,27 @@ export function FieldScanModal({
     setSaving(true);
     setSaveError(null);
     try {
-      await onAddSelected(
+      const added = await onAddSelected(
         selectedCandidates.map((candidate) => ({
           candidate,
           name: (fieldNames[candidate.id] ?? "").trim(),
         })),
       );
+      if (!added) return; // the caller closed the scan itself
+      const mapped = added.filter((field) => Boolean(field.polygon));
+      if (onSplitField && mapped.length > 0) {
+        setAddedFields(mapped);
+        setPaddockCounts({});
+        setActiveNamingId(null);
+        activeNamingRef.current = null;
+        setStage("paddocks");
+        stageRef.current = "paddocks";
+        setSaving(false);
+      } else if (onFinished) {
+        onFinished(added, []);
+      } else {
+        onClose();
+      }
     } catch (error) {
       console.error("[field-scan] add selected fields failed", error);
       setSaveError(error instanceof Error ? error.message : "Some fields could not be added. Please try again.");
@@ -369,18 +410,29 @@ export function FieldScanModal({
     }
   }
 
+  function finish() {
+    if (onFinished) onFinished(addedFields, Object.keys(paddockCounts));
+    else onClose();
+  }
+
   const unavailable = !mapboxConfigured || outcome?.status === "UNAVAILABLE";
+  const dividing = dividingId ? addedFields.find((field) => field.id === dividingId) : undefined;
+  const tipId = TIP_IDS[stage];
+  const showSelectTip = stage === "select" && outcome?.status === "READY" && candidates.length > 0 && mapboxConfigured;
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col bg-black/55" role="dialog" aria-modal="true" aria-label="Scan fields">
       <header className="flex items-center justify-between border-b border-white/10 bg-fr-v2-forest-deep px-4 py-3 text-white sm:px-6">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fr-v2-straw">Field setup · {farmName}</p>
-          <h2 className="mt-0.5 font-display text-xl leading-none">{stage === "name" ? "Name fields" : "Scan fields"}</h2>
+          <h2 className="mt-0.5 font-display text-xl leading-none">{stage === "paddocks" ? "Paddocks" : stage === "name" ? "Name fields" : "Scan fields"}</h2>
         </div>
-        <button type="button" onClick={onClose} className="flex size-10 items-center justify-center rounded-full text-white/75 hover:bg-white/10 hover:text-white" aria-label="Close field scan">
-          <X className="size-5" />
-        </button>
+        <div className="flex items-center">
+          {stage !== "select" || showSelectTip ? <StepTipButton id={tipId} /> : null}
+          <button type="button" onClick={stage === "paddocks" ? finish : onClose} className="flex size-10 items-center justify-center rounded-full text-white/75 hover:bg-white/10 hover:text-white" aria-label="Close field scan">
+            <X className="size-5" />
+          </button>
+        </div>
       </header>
 
       <div className="relative min-h-0 flex-1 bg-[#1a2e1e]">
@@ -407,8 +459,26 @@ export function FieldScanModal({
           </div>
         ) : null}
 
-        <aside className={`absolute left-3 z-10 w-[min(400px,calc(100%-1.5rem))] border-l-[3px] border-fr-v2-straw bg-fr-v2-forest-deep/95 px-4 py-3 text-white shadow-xl backdrop-blur sm:left-5 ${stage === "name" ? "bottom-3 sm:bottom-auto sm:top-5 sm:max-h-[calc(100%-2.5rem)] sm:overflow-y-auto" : "top-[74px] sm:top-[82px]"}`}>
-          {stage === "name" ? (
+        {showSelectTip ? (
+          <StepTip id={TIP_IDS.select} className="absolute bottom-3 left-3 right-3 z-20 sm:left-5 sm:right-auto sm:w-[400px]">
+            Tap each field you farm. It turns gold when it&apos;s picked, and a second tap takes it off again. Then press Name selected fields.
+          </StepTip>
+        ) : null}
+        {stage === "name" ? (
+          <StepTip id={TIP_IDS.name} className="absolute left-3 right-16 top-3 z-20 sm:left-auto sm:top-5 sm:w-[340px]">
+            Give each field the name you use on the farm. The field you&apos;re naming is lit up on the map.
+          </StepTip>
+        ) : null}
+        {stage === "paddocks" ? (
+          <StepTip id={TIP_IDS.paddocks} className="absolute left-3 right-16 top-3 z-20 sm:left-auto sm:top-5 sm:w-[340px]">
+            The scan shows the official parcel outline, not your own fences. Divide a field here so each paddock is tracked on its own. You can also do it later from the field&apos;s page.
+          </StepTip>
+        ) : null}
+
+        <aside className={`absolute left-3 z-10 w-[min(400px,calc(100%-1.5rem))] border-l-[3px] border-fr-v2-straw bg-fr-v2-forest-deep/95 px-4 py-3 text-white shadow-xl backdrop-blur sm:left-5 ${stage === "paddocks" ? "bottom-3 max-h-[55%] overflow-y-auto sm:bottom-auto sm:top-5 sm:max-h-[calc(100%-2.5rem)]" : stage === "name" ? "bottom-3 sm:bottom-auto sm:top-5 sm:max-h-[calc(100%-2.5rem)] sm:overflow-y-auto" : "top-[74px] sm:top-[82px]"}`}>
+          {stage === "paddocks" ? (
+            <PaddockQuestion fields={addedFields} paddockCounts={paddockCounts} onDivide={setDividingId} />
+          ) : stage === "name" ? (
             <>
               {/* Mobile: one field at a time in a compact card so the highlighted boundary stays visible above it. */}
               {/* eslint-disable-next-line react-hooks/refs -- refs are read only in tap/Enter handlers (go → focusNamingCandidate), never during render. */}
@@ -579,15 +649,19 @@ export function FieldScanModal({
         <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-fr-v2-graphite">
-              {selectedCandidates.length > 0
+              {stage === "paddocks"
+                ? `${addedFields.length} ${addedFields.length === 1 ? "field" : "fields"} added to your farm`
+                : selectedCandidates.length > 0
                 ? `${selectedCandidates.length} ${selectedCandidates.length === 1 ? "field" : "fields"} selected`
                 : unavailable
                   ? "No selectable boundaries in this area"
                   : "Select fields on the map"}
-              {selectedCandidates.length > 0 ? <span className="ml-2 font-mono text-xs font-normal text-fr-v2-muted">· {formatHa(selectedAreaHa)}</span> : null}
+              {stage !== "paddocks" && selectedCandidates.length > 0 ? <span className="ml-2 font-mono text-xs font-normal text-fr-v2-muted">· {formatHa(selectedAreaHa)}</span> : null}
             </p>
             <p className="mt-1 text-xs text-fr-v2-muted">
-              {stage === "name"
+              {stage === "paddocks"
+                ? "Divide any field that's fenced into paddocks, then finish."
+                : stage === "name"
                 ? "Names are saved with the selected boundaries."
                 : unavailable
                   ? "Search another Eircode or draw the field manually."
@@ -597,7 +671,16 @@ export function FieldScanModal({
             </p>
             {saveError ? <p className="mt-1 text-xs text-fr-risk">{saveError}</p> : null}
           </div>
-          {stage === "name" ? (
+          {stage === "paddocks" ? (
+            <button
+              type="button"
+              onClick={finish}
+              className="flex min-h-11 items-center gap-2 border-l-[3px] border-fr-v2-straw bg-fr-v2-forest-deep px-5 text-sm font-semibold text-white hover:bg-fr-v2-forest"
+            >
+              <Check className="size-4" />
+              Finish
+            </button>
+          ) : stage === "name" ? (
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={backToSelection} disabled={saving} className="flex min-h-11 items-center gap-1.5 border border-fr-v2-forest-deep/25 px-4 text-sm font-semibold text-fr-v2-forest-deep hover:bg-white/50 disabled:opacity-50">
                 <ArrowLeft className="size-4" /> Back
@@ -630,6 +713,18 @@ export function FieldScanModal({
           )}
         </div>
       </footer>
+
+      {dividing?.polygon && onSplitField ? (
+        <SplitFieldModal
+          field={{ name: dividing.name, areaHa: dividing.areaHa, polygon: dividing.polygon }}
+          onClose={() => setDividingId(null)}
+          onSave={async (paddocks) => {
+            await onSplitField(dividing.id, paddocks);
+            setPaddockCounts((current) => ({ ...current, [dividing.id]: paddocks.length }));
+            setDividingId(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

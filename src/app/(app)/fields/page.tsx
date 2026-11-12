@@ -136,7 +136,7 @@ function FieldsCompanion({
   const recentlyDeletedFields = archivedFields
     .map((field) => ({ field, restoreWindow: fieldRestoreWindow(field.archivedAt!) }))
     .filter(({ restoreWindow }) => restoreWindow.restorable);
-  const { addField, addScannedFields, restoreField } = useFarmActions();
+  const { addField, addScannedFields, restoreField, splitField } = useFarmActions();
   const farm = useFarm();
   const slurryAllocations = useSlurryAllocations();
   const router = useRouter();
@@ -498,10 +498,15 @@ function FieldsCompanion({
             setScanOpen(false);
             setMappingOpen(true);
           }}
-          onAddSelected={async (selections: NamedFieldScanSelection[]) => {
-            const added = await addScannedFields(selections);
+          onAddSelected={(selections: NamedFieldScanSelection[]) => addScannedFields(selections)}
+          onSplitField={async (fieldId, paddocks) => {
+            await splitField(fieldId, paddocks);
+          }}
+          onFinished={(added, dividedFieldIds) => {
             setScanOpen(false);
-            if (added.length > 0) setSelectedFieldId(added[0].id);
+            // Open the first field added that is still a field (a divided one is now its paddocks).
+            const first = added.find((field) => !dividedFieldIds.includes(field.id));
+            if (first) setSelectedFieldId(first.id);
           }}
         />
       ) : null}

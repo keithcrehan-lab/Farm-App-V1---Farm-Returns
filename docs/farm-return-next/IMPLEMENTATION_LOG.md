@@ -1008,3 +1008,28 @@ audit not run.
   the saved route plus unsent points. Medium: an untouched quick-record time is now resolved to "now" at Save, so the
   saved time matches the captured location. Medium: if the phone can't start the satellite map (e.g. no WebGL), the
   summary shows the plain drawing instead of crashing.
+
+## 2026-11-12 — Onboarding tips, paddock question and easier fence drawing
+
+Product owner request: onboarding as easy as possible, with a closable pop-up tip on every step, and fence drawing
+that is really easy because scanned LPIS parcels don't show how the farmer has fenced the paddocks (permanent fences).
+
+- **Step tips.** `src/lib/step-tips.ts` + `src/components/onboarding/StepTip.tsx`: one tip per step, "Got it" closes
+  it for good, "Skip all tips" turns them all off, a "?" button brings the step's tip back. Remembered on the device
+  only (`localStorage`, guarded; not farm data). Added to every onboarding step, the scan screen (pick, name, paddocks)
+  and the split screen. Tests added.
+- **Paddock question.** After scanned fields are saved, the scan screen now asks whether any of them is fenced into
+  paddocks (`PaddockQuestion.tsx`) and opens the split screen for the field chosen. The scan screen no longer restarts
+  when the farm's field list changes while it is open. Fields page and onboarding both use it.
+- **Fence drawing** (`SplitFieldModal.tsx`, Mapbox Draw no longer used here). One finger drags along the fence and the
+  line is straightened and fitted; taps still work, with Done and Undo buttons. Paddocks and hectares show live while
+  drawing, and the line is trimmed to the field as it is drawn. "Move map or change a fence" mode: tap a fence to pick
+  it, drag a corner to move it, or delete it. "Walk the fence" records the line by GPS through the existing
+  `LocationTrackingProvider` (fixes worse than 20 m ignored). Even split now starts with the shortest fences and can
+  be turned in 45° steps.
+- **Domain** (`src/domain/paddock-split.ts`, geometry only): `fitFence` keeps an end that is already on the edge or on
+  a fence (within 0.5 m), so a fitted fence can be fitted again; `fitAllFences`, `straightenTrace`,
+  `evenFencesAtBearing`, `shortestFenceBearing`. Tests added. `evenFences` unchanged.
+- **Not built:** joining two scanned parcels into one field (BLOCKERS ONB-MERGE-1, needs a schema decision).
+- No migration. No `node_modules` in the cloud session, so tests, typecheck and lint ran on GitHub Actions only, and
+  the screens were not viewed (BLOCKERS ONB-UI-1).

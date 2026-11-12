@@ -122,9 +122,12 @@ export function WalkRouteMap({ route, readings, fields }: Props) {
       setMapFailed(true);
     };
     timer.deadline = setTimeout(() => fallBack("timed out"), 15_000);
+    // A missing sprite or glyph also raises "error" before the style finishes; only a failure
+    // of the style itself falls back at once. Anything else is left to the 15 s deadline.
     map.on("error", (e) => {
       console.error("[Walk map]", e.error);
-      fallBack(e.error);
+      const message = String((e.error as { message?: string } | undefined)?.message ?? "");
+      if (/style/i.test(message)) fallBack(e.error);
     });
 
     map.on("style.load", () => {

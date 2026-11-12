@@ -14,6 +14,9 @@ on:
     branches: ["release/farm-return-current-2026-11-07"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -24,6 +27,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -39,11 +44,13 @@ jobs:
         # Full suite. One retry absorbs load-sensitive UI tests. Any failure not in
         # .github/known-failing-tests.txt (pre-existing, tracked in BLOCKERS.md) blocks release.
         run: |
-          npx vitest run --retry=1 --reporter=default --reporter=json --outputFile=/tmp/vitest.json || true
-          node scripts/ci/check-test-baseline.mjs /tmp/vitest.json
+          code=0; npx vitest run --retry=1 --reporter=default --reporter=json --outputFile=/tmp/vitest.json || code=$?
+          node scripts/ci/check-test-baseline.mjs /tmp/vitest.json "$code"
 
   deploy:
     needs: checks
+    # Only the release branch ever reaches production, even from a manual run.
+    if: github.ref == 'refs/heads/release/farm-return-current-2026-11-07'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -57,7 +64,7 @@ jobs:
       - name: Deploy to production
         run: |
           if [ -z "$VERCEL_TOKEN" ]; then echo "::error::VERCEL_TOKEN secret not set."; exit 1; fi
-          url=$(npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN")
+          url=$(npx --yes vercel@59.1.3 deploy --prod --yes --token "$VERCEL_TOKEN")
           echo "Deployed: $url"
           echo "### Live: $url (aliased to farm-return-pilot-topaz.vercel.app)" >> "$GITHUB_STEP_SUMMARY"
       - name: Mark this commit as the last deployed (audited) release

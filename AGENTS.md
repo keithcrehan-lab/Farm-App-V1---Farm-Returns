@@ -31,7 +31,8 @@ descendant branches.
   (`.github/workflows/release-deploy.yml`, product owner decision
   2026-11-12): a push to `release/farm-return-current-2026-11-07`
   deploys to farm-return-pilot-topaz after typecheck, lint and the full
-  test suite pass. Before anything is pushed to that branch, an
+  test suite pass (no failure outside the recorded baseline,
+  BLOCKERS CI-BASELINE-1). Before anything is pushed to that branch, an
   independent audit (Codex, or a separate Claude reviewer that did not
   write the change) must review everything since the `deploy/audited`
   branch and report no Critical/High findings — product owner decision

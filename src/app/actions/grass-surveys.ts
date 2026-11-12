@@ -180,9 +180,15 @@ export async function finishGrassSurveyAction(surveyId: string): Promise<Result<
     // Weather from where the walk actually happened: the station nearest the middle of the
     // recorded route. A farm's fields can be far apart, so neither the sign-up location nor the
     // middle of all fields is reliable. Keeps the start-of-walk snapshot if there's no route.
+    // Only replace it when the walk is being finished close to when it happened (so the
+    // readings are from the walk's own time) and the new reading actually has data; an
+    // unavailable lookup never overwrites a good start-of-walk snapshot.
     const route = cleanSurveyTrack(track, survey.mode);
     const routeMiddle = route.length ? route[Math.floor(route.length / 2)] : null;
-    const routeWeather = routeMiddle ? await weatherSnapshot([routeMiddle.lng, routeMiddle.lat]) : null;
+    const finishedSoonAfterWalk = Date.parse(finishedAt) - Date.parse(route.at(-1)?.recordedAt ?? survey.startedAt) <= 3 * 60 * 60 * 1000;
+    const candidate = routeMiddle && finishedSoonAfterWalk ? await weatherSnapshot([routeMiddle.lng, routeMiddle.lat]) : null;
+    const routeWeather =
+      candidate && candidate.status !== "UNAVAILABLE" && candidate.status !== "UNVERIFIED" && candidate.observedAt !== null ? candidate : null;
     const updated = await updateGrassSurvey(farm.id, surveyId, {
       status: "finished",
       finished_at: finishedAt,

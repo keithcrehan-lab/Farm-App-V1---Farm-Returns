@@ -16,6 +16,10 @@ for (const file of report.testResults ?? []) {
   for (const t of failed) failing.push(`${rel} :: ${[...(t.ancestorTitles ?? []), t.title].join(" > ")}`);
 }
 const unexpected = failing.filter((f) => !baseline.has(f));
+// Fail closed on anything the per-test list can't see: no tests collected, or a suite-level
+// failure (unhandled error/rejection) that isn't attributed to a listed test.
+if (!report.numTotalTests) unexpected.push("(no tests were collected)");
+if (process.argv[3] && process.argv[3] !== "0" && failing.length === 0) unexpected.push(`(vitest exited ${process.argv[3]} with no failing test listed — unhandled error?)`);
 const nowPassing = [...baseline].filter((b) => !failing.includes(b));
 console.log(`Tests: ${report.numPassedTests} passed, ${report.numFailedTests} failed (${failing.length - unexpected.length} known).`);
 for (const f of nowPassing) console.log(`::notice::Known failure now passes - remove from baseline: ${f}`);

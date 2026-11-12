@@ -19,7 +19,6 @@ const unexpected = failing.filter((f) => !baseline.has(f));
 // Fail closed on anything the per-test list can't see: no tests collected, or a suite-level
 // failure (unhandled error/rejection) that isn't attributed to a listed test.
 if (!report.numTotalTests) unexpected.push("(no tests were collected)");
-if (process.argv[3] && process.argv[3] !== "0" && failing.length === 0) unexpected.push(`(vitest exited ${process.argv[3]} with no failing test listed)`);
 // Unhandled errors/rejections are never in the baseline: vitest prints a banner for them.
 // Each must be listed as "<file> :: (unhandled error)"; one with no named origin always fails.
 if (process.argv[4]) {
@@ -32,6 +31,9 @@ if (process.argv[4]) {
     else failing.push(o);
   }
 }
+// Checked after unhandled errors are read: a part whose only problem is a known unhandled error
+// (listed in the baseline) exits non-zero with no failing test, and that is not a new failure.
+if (process.argv[3] && process.argv[3] !== "0" && failing.length === 0) unexpected.push(`(vitest exited ${process.argv[3]} with no failing test listed)`);
 // With the suite split across machines (--shard), each part only sees its own share of
 // the baseline, so "now passes" is reported only for tests whose file ran in this part.
 const ranFiles = new Set((report.testResults ?? []).map((file) => relative(process.cwd(), file.name)));

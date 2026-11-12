@@ -4,7 +4,7 @@ import type { Field, Farm } from "@/domain/types";
 import { fieldScanCentre, parseFieldScanPayload, type FieldScanImportRequest, type FieldScanOutcome } from "@/domain/field-scan";
 import { createFields } from "@/lib/farm-data/fields";
 import { createClient } from "@/lib/supabase/server";
-import { scanStaticLpis, resolveStaticLpis } from "@/server/lpis-static";
+import { scanStaticLpis, resolveStaticLpis, isStaticLpisConfigured } from "@/server/lpis-static";
 
 const SCAN_RADIUS_M = 1200;
 const SCAN_LIMIT = 120;
@@ -30,7 +30,7 @@ export async function scanNearbyLpisFields(
   }
 
   try {
-    if (process.env.LPIS_STATIC_BASE_URL && process.env.LPIS_STATIC_SCAN_ENABLED === "true" && process.env.LPIS_STATIC_BUDGET_FUSE !== "OPEN") {
+    if (isStaticLpisConfigured() && process.env.LPIS_STATIC_SCAN_ENABLED === "true" && process.env.LPIS_STATIC_BUDGET_FUSE !== "OPEN") {
       try {
         const result = await scanStaticLpis(lng, lat, fields.map(field => field.lpisRef).filter((ref): ref is string => Boolean(ref)));
         if (result?.status === "READY" && result.candidates.length > 0) return result;
@@ -93,7 +93,7 @@ export async function importScannedLpisFields(
     names.add(nameKey);
   }
 
-  if (process.env.LPIS_STATIC_BASE_URL && process.env.LPIS_STATIC_SCAN_ENABLED === "true" && process.env.LPIS_STATIC_BUDGET_FUSE !== "OPEN") {
+  if (isStaticLpisConfigured() && process.env.LPIS_STATIC_SCAN_ENABLED === "true" && process.env.LPIS_STATIC_BUDGET_FUSE !== "OPEN") {
     const resolvedStatic = await resolveStaticLpis(cleaned.map(request => request.lpisRef.slice(prefix.length)));
     if (!resolvedStatic || resolvedStatic.status !== "READY") {
       throw new Error("The selected boundaries cannot yet be verified against the official static LPIS source. Please try again later.");

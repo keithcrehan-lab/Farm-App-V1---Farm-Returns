@@ -85,9 +85,11 @@ try {
     const geom = polygonGeometry(feature.geometry);
     if (!geom) continue;
     const props = (feature.properties ?? {}) as Record<string, unknown>;
-    const parcelLabel = property(props, /parcellabel/);
+    const parcelLabel = property(props, /^(?:parlab|parcellabel)$/);
     const id = String(feature.id ?? parcelLabel ?? `${table}-${imported + batch.length + 1}`);
     const extract = property(props, /dateofextract/);
+    // Import only non-identifying agricultural attributes; never store herd or applicant identifiers.
+    const safeProps = Object.fromEntries(Object.entries(props).filter(([key]) => /^(?:crop|grasslnd|commonage_ind|ref_area|claim_area|md_area|md_desc|fad_area|fad_desc|digitised|par_lab|sub_div)$/i.test(key)));
     batch.push({
       source_key: SOURCE_KEY,
       source_version: SOURCE_VERSION,
@@ -95,7 +97,7 @@ try {
       parcel_label: parcelLabel == null ? null : String(parcelLabel),
       commonage_indicator: commonageIndicator(props),
       date_of_extract: extract == null ? null : String(extract).slice(0,10),
-      properties: props,
+      properties: safeProps,
       geom,
     });
     if (batch.length >= 500) await flush();

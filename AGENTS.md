@@ -30,8 +30,12 @@ descendant branches.
 - Production deploys happen only through the release pipeline
   (`.github/workflows/release-deploy.yml`, product owner decision
   2026-11-12): a push to `release/farm-return-current-2026-11-07`
-  deploys to farm-return-pilot-topaz only after typecheck, lint, the full
-  test suite and a Codex audit with no Critical/High findings all pass.
+  deploys to farm-return-pilot-topaz after typecheck, lint and the full
+  test suite pass. Before anything is pushed to that branch, an
+  independent audit (Codex, or a separate Claude reviewer that did not
+  write the change) must review everything since the `deploy/audited`
+  branch and report no Critical/High findings — product owner decision
+  2026-11-12, made because the Codex API had no credit.
   Never deploy to production any other way (no `vercel deploy --prod`
   by hand), and never run a migration against a production database.
   `.env.local` targets `Farm Return V1 Dev` only.

@@ -52,7 +52,7 @@ const DROP_SRC = "fr-cattle-drop-target";
 
 type Pending = { group: CattleMapGroup; toFieldId: string; toFieldName: string; movedAt: string };
 type Drag = { group: CattleMapGroup; x: number; y: number; targetFieldId?: string; targetFieldName?: string };
-type Toast = { kind: "pending"; text: string } | { kind: "error"; text: string } | { kind: "saved"; text: string };
+type Toast = { kind: "pending" | "saving" | "error" | "saved"; text: string };
 
 function groupChipText(group: CattleMapGroup) {
   return `${group.label} · ${formatNumber(group.headCount, 0)}`;
@@ -74,20 +74,38 @@ function usePressAndHold(handlers: {
     if (gesture.current?.timer) window.clearTimeout(gesture.current.timer);
   }, []);
 
+  /** Ends the gesture without a drop (lost pointer, element removed): the map is handed back. */
+  const abandon = useCallback(() => {
+    const g = gesture.current;
+    if (!g) return;
+    gesture.current = null;
+    if (g.timer) window.clearTimeout(g.timer);
+    if (g.lifted) live.current.onCancel();
+  }, []);
+
   return useCallback((group: CattleMapGroup) => ({
     onPointerDown: (e: ReactPointerEvent<HTMLElement>) => {
       if (gesture.current || (e.pointerType === "mouse" && e.button !== 0)) return;
       const el = e.currentTarget;
+      // Captured at once, so the release is always seen here, even off the chip.
+      try { el.setPointerCapture(e.pointerId); } catch { /* not supported for this pointer */ }
       const g = { id: e.pointerId, group, el, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, timer: null as number | null, lifted: false, panned: false };
       g.timer = window.setTimeout(() => {
         g.timer = null;
-        if (gesture.current !== g || g.panned) return;
+        if (gesture.current !== g || g.panned || !g.el.isConnected) return;
         g.lifted = true;
-        try { el.setPointerCapture(g.id); } catch { /* the pointer has already gone */ }
         try { navigator.vibrate?.(25); } catch { /* not supported */ }
         live.current.onLift(group, g.x, g.y);
       }, HOLD_MS);
       gesture.current = g;
+    },
+    onLostPointerCapture: (e: ReactPointerEvent<HTMLElement>) => {
+      if (gesture.current?.id === e.pointerId) abandon();
+    },
+    // Keyboard and screen readers press the button without pointer events: offer Move to… then.
+    // (Capture phase: map markers stop the click bubbling so it doesn't count as a tap on open ground.)
+    onClickCapture: (e: React.MouseEvent) => {
+      if (e.detail === 0) live.current.onTap(group);
     },
     onPointerMove: (e: ReactPointerEvent<HTMLElement>) => {
       const g = gesture.current;
@@ -116,7 +134,7 @@ function usePressAndHold(handlers: {
       if (g.lifted) live.current.onCancel();
     },
     onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
-  }), []);
+  }), [abandon]);
 }
 
 export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
@@ -161,7 +179,10 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
     return { ...group, system: "grazing" as const, currentFieldId: pending.toFieldId, currentFieldName: pending.toFieldName, currentSince: pending.movedAt };
   }), [groups, pending]);
   const placement = useMemo(() => placeCattleGroups(shownGroups, fields), [shownGroups, fields]);
-  const fieldsOnMap = useMemo(() => mappedFields(fields), [fields]);
+  // The store hands over a new fields array on every render; markers follow only real changes to the mapped fields.
+  const fieldsKey = mappedFields(fields).map((field) => `${field.id}:${field.centroid.join(",")}:${field.name}`).join("|");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- recomputed when the mapped fields themselves change (fieldsKey)
+  const fieldsOnMap = useMemo(() => mappedFields(fields), [fieldsKey]);
 
   // --- Saving, with a short Undo window -------------------------------------------------------
   const pendingRef = useRef<Pending | null>(null);
@@ -192,6 +213,8 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
     if (!move) return;
     pendingRef.current = null;
     if (timerRef.current !== null) { window.clearTimeout(timerRef.current); timerRef.current = null; }
+    // From here the move is being saved: Undo is no longer offered.
+    setToast({ kind: "saving", text: `Saving: ${move.group.label} to ${move.toFieldName}…` });
     void save(move);
   }, [save]);
 
@@ -224,7 +247,7 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
 
   // Saved and error notes clear themselves.
   useEffect(() => {
-    if (!toast || toast.kind === "pending") return;
+    if (!toast || toast.kind === "pending" || toast.kind === "saving") return;
     const t = window.setTimeout(() => setToast((current) => (current === toast ? null : current)), toast.kind === "error" ? 7000 : 3500);
     return () => window.clearTimeout(t);
   }, [toast]);
@@ -253,6 +276,9 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
     if (!map) return undefined;
     const rect = map.getContainer().getBoundingClientRect();
     if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return undefined;
+    // Over a control floating on the map (the view switch, the strip, a caption) is not over a field.
+    const hit = typeof document.elementFromPoint === "function" ? document.elementFromPoint(x, y) : null;
+    if (hit && !map.getCanvasContainer().contains(hit)) return undefined;
     const ll = map.unproject([x - rect.left, y - rect.top]);
     return fieldAtPoint(fields, ll);
   }, [map, fields]);
@@ -284,6 +310,13 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
       setDrag(null);
     },
   });
+
+  // Leaving mid-drag hands the map's own dragging and zooming back.
+  const draggingRef = useRef(false);
+  useEffect(() => { draggingRef.current = Boolean(drag); }, [drag]);
+  useEffect(() => () => {
+    if (draggingRef.current && map) { map.dragPan.enable(); map.touchZoomRotate.enable(); }
+  }, [map]);
 
   // The field under a dragged group is outlined on the map.
   useEffect(() => {
@@ -365,8 +398,8 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
       {placement.elsewhere.length > 0 ? (
         <div className="flex max-w-full flex-col gap-1.5" data-cattle-elsewhere>
           <p className="text-[11px] font-medium text-white/75 [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]">Not on a field · hold and drag onto one</p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {placement.elsewhere.map((group) => <span key={group.id} className="shrink-0">{chip(group, false)}</span>)}
+          <div className="flex flex-wrap gap-2 pb-1">
+            {placement.elsewhere.map((group) => <span key={group.id}>{chip(group, false)}</span>)}
           </div>
         </div>
       ) : null}
@@ -387,6 +420,7 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
         document.body,
       ) : null}
 
+      {mounted ? createPortal(<>
       <Sheet open={Boolean(menuGroup)} onClose={() => setMenuGroupId(null)} title={menuGroup ? `${menuGroup.label} · ${formatNumber(menuGroup.headCount, 0)} head` : "Group"}>
         {menuGroup ? (
           <div className="space-y-3">
@@ -433,6 +467,7 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
           </div>
         ) : null}
       </Sheet>
+      </>, document.body) : null}
 
       {mounted && toast ? createPortal(
         <div role="status" className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+6.5rem)] z-[75] mx-auto flex max-w-md items-center justify-between gap-3 bg-fr-v2-forest-deep px-4 py-3 text-sm text-white shadow-2xl lg:bottom-6">

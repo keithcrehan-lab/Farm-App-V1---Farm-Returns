@@ -141,6 +141,16 @@ export async function moveLivestockGroupToFieldAction(input: {
   const group = groups.find((candidate) => candidate.id === input.livestockGroupId);
   if (!group) return { status: "rejected", reasonCode: "GROUP_NOT_FOUND" };
 
+  // An exact time from the map may not reach back before the group's last grazing record ended (for a housed
+  // group, when it was housed): that would make two records cover the same days.
+  if (input.movedAt !== undefined) {
+    const sessions = await listGrazingFieldSessionsForFarm(farm.id);
+    const lastEnded = sessions
+      .filter((session) => session.livestockGroupId === group.id && session.endedAt)
+      .reduce((latest, session) => Math.max(latest, Date.parse(session.endedAt!)), -Infinity);
+    if (Date.parse(startedAt) < lastEnded) return { status: "rejected", reasonCode: "MOVE_BEFORE_LAST_RECORD" };
+  }
+
   try {
     const session = await recordGrazingFieldMove({
       livestockGroupId: group.id,

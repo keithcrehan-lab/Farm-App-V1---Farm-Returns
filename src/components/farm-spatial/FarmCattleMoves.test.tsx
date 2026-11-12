@@ -80,6 +80,12 @@ describe("cattle groups on the Farm map", () => {
     expect(Math.abs(Date.parse(call.movedAt!) - Date.now())).toBeLessThan(2 * 60_000);
   });
 
+  it("offers Move to… when a group is pressed from the keyboard or a screen reader", async () => {
+    render(<FarmCattleMoves map={null} fields={FIELDS} enabled />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Cows, 30 head/ }), { detail: 0 });
+    expect(await screen.findByRole("dialog", { name: "Cows · 30 head" })).toBeInTheDocument();
+  });
+
   it("refuses a move time before the group went into its current field, before anything is sent", async () => {
     vi.mocked(listGrazingMovementGroupsAction).mockResolvedValue([{ ...GROUPS[1], system: "grazing", currentFieldId: "elsewhere", currentFieldName: "Old field", currentSince: new Date().toISOString() }] as never);
     render(<FarmCattleMoves map={null} fields={FIELDS} enabled />);

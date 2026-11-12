@@ -1066,10 +1066,16 @@ groups visible on the map and moved by drag and drop, easy but never accidental.
 - **Cattle on the map** (`FarmCattleMoves`, `src/lib/farm-cattle-map.ts`): each group grazing a mapped field is a
   marker on that field; housed or unplaced groups sit in a strip under the map caption. Press and hold (450 ms) picks
   a group up, a quick swipe pans the map instead; letting go over another field opens a confirmation with the time
-  (defaults to now, can be set earlier); the move then waits 8 s with Undo before it is saved, and is saved at once
-  if the page is hidden or left. Tapping a group offers Move to… with a field list. Real signed-in farms only.
+  (defaults to now, can be set earlier); the move then waits 8 s with Undo before it is saved, and saving starts at
+  once when the app is hidden or the page is left (best effort: closing the tab inside those 8 s can lose the move). Tapping a group offers Move to… with a field list. Real signed-in farms only.
 - **Server:** `moveLivestockGroupToFieldAction` accepts `movedAt` (exact time; not in the future, within a year) so a
   group can move more than once a day; `listGrazingMovementGroupsAction` lists groups and their current field.
   Moves still go through `record_grazing_field_move` (farm bound server-side). No migration.
 - `MapHero` gains `onMapReady`; `near-field.ts` exports `pointInPolygon` (unchanged behaviour).
 - Grass figures reload after a move so grazing demand is current.
+- Independent review round 1 fixes: sheets portalled to the page body (they sat under the phone nav and vanished with
+  a field selected); markers rebuilt only when the mapped fields change; lost pointer capture cancels a drag and hands
+  the map back; pointer captured on press; Undo replaced by "Saving…" once a save has started; drops count only over
+  the map itself; keyboard/screen-reader press opens Move to…; the not-on-a-field strip wraps; a map move can't be
+  back-dated before the group's last grazing record ended (`MOVE_BEFORE_LAST_RECORD`). Marker chips may sit near field
+  labels at whole-farm zoom; phone + desktop screen check owed (BLOCKERS ONB-UI-1).

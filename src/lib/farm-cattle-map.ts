@@ -84,6 +84,7 @@ export function moveTimeProblem(at: Date | undefined, group: CattleMapGroup, now
 
 const MOVE_REFUSED: Record<string, string> = {
   MOVE_NOT_AFTER_CURRENT_START: "That group went into its current field after the time picked. Pick a later time.",
+  MOVE_BEFORE_LAST_RECORD: "That time is before the group's last move (or housing) was recorded. Pick a later time.",
   INVALID_MOVE_TIME: "The move time can't be in the future or more than a year ago.",
   INVALID_STARTED_AT: "The move time can't be in the future.",
   HEADCOUNT_NOT_RECORDED: "This group has no head count recorded. Add it in Cattle first.",

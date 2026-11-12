@@ -122,6 +122,16 @@ describe("moves from the Farm map (exact time)", () => {
     expect(getFarmForCurrentUser).not.toHaveBeenCalled();
   });
 
+  it("refuses an exact time before the group's last grazing record ended (e.g. before it was housed)", async () => {
+    vi.mocked(listGrazingFieldSessionsForFarm).mockResolvedValue([{ ...session2, fieldId: "field-b", startedAt: new Date(Date.now() - 10 * 86_400_000).toISOString(), endedAt: new Date(Date.now() - 5 * 86_400_000).toISOString() }]);
+    const before = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    expect(await moveLivestockGroupToFieldAction({ livestockGroupId: "group-1", fieldId: "field-a", movedAt: before })).toEqual({ status: "rejected", reasonCode: "MOVE_BEFORE_LAST_RECORD" });
+    expect(recordGrazingFieldMove).not.toHaveBeenCalled();
+    vi.mocked(recordGrazingFieldMove).mockResolvedValue(session2);
+    const after = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    expect(await moveLivestockGroupToFieldAction({ livestockGroupId: "group-1", fieldId: "field-a", movedAt: after })).toEqual({ status: "saved", sessionId: "session-2" });
+  });
+
   it("lists every group with animals and the field it is grazing now, for the signed-in farm only", async () => {
     vi.mocked(listLivestockGroupsForFarm).mockResolvedValue([GROUP, { ...GROUP, id: "group-empty", label: "Empty", count: tracked(0, "verified", "Keith") }]);
     vi.mocked(listGrazingFieldSessionsForFarm).mockResolvedValue([{ ...session2, fieldId: "field-b" }]);

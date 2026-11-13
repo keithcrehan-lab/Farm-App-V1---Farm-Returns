@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fieldUseFromCropSystem, grazingPlatform as platformForCycles } from "./grass-wedge-target";
 import {
+  fieldUseFromCropSystem,
   buildDemandLine,
   grassInsights,
   grazingPlatform,
@@ -257,7 +257,7 @@ describe("fieldUseFromCropSystem — use from the field drawer's production cycl
     for (const c of ["GRASS_FIRST_CUT_SILAGE", "GRASS_SECOND_CUT_SILAGE", "GRASS_HAY", "CEREAL_OTHER", "FORAGE_KALE"]) {
       const use = fieldUseFromCropSystem(c);
       expect(use).toBeDefined();
-      expect(platformForCycles([{ fieldId: "f", name: "F", areaHa: 2, ...(use ? { use } : {}) }]).excluded).toHaveLength(1);
+      expect(grazingPlatform([{ fieldId: "f", name: "F", areaHa: 2, ...(use ? { use } : {}) }]).excluded).toHaveLength(1);
     }
   });
   it("leaves an unknown or missing crop system unset", () => {

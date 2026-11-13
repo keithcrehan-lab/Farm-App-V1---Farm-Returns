@@ -596,6 +596,7 @@
     "status": "IMPLEMENTED_PENDING_CI_AND_INDEPENDENT_AUDIT",
     "migration": "none",
     "domain": "src/domain/grass-wedge-target.ts (grass_wedge_target_v1.0.0)",
-    "deferred": "per-user targets/guide storage (migration); scenario confirmation writing to Plan/silage; intake beyond Teagasc 2% liveweight"
+    "deferred": "per-user targets/guide storage (migration); scenario confirmation writing to Plan/silage; intake beyond Teagasc 2% liveweight",
+    "field_use_source": "2026-11-13: field drawer production cycle (this season, then last), legacy planned use as fallback — PENDING_CI"
   }
 }

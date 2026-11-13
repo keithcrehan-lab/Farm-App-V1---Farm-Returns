@@ -20,6 +20,10 @@ export const IRISH_COUNTIES = [
   "Westmeath", "Wexford", "Wicklow", "Antrim", "Armagh", "Down", "Fermanagh", "Derry", "Tyrone",
 ] as const;
 
+/** Counties the farm-facing RoI county growth feature can serve. */
+export const ROI_COUNTIES = IRISH_COUNTIES.filter((c) => !["Antrim", "Armagh", "Down", "Fermanagh", "Derry", "Tyrone"].includes(c));
+const ROI_COUNTY_SET: ReadonlySet<string> = new Set(ROI_COUNTIES);
+
 const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
 
 /** "Co. Clare", "clare", "County Clare" → "Clare"; unknown → null. */
@@ -72,6 +76,32 @@ export function locateMostMap(html: string, pageUrl = TEAGASC_GRASS_PAGE): MostM
 
 export interface CountyReading { county: string; growth: number; confidence: "high" | "low" }
 
+/** Automatic publication is strictly opt-in and requires two matching reads
+ * of every ROI county. This reduces transcription risk but does not make a
+ * vision model infallible; the original map remains the audit source.
+ */
+export function verifyCountyMapPair(
+  first: readonly CountyReading[],
+  second: readonly CountyReading[],
+  validFrom: string,
+  validTo: string,
+  today = new Date().toISOString().slice(0, 10),
+): boolean {
+  if (today < validFrom || today > validTo) return false;
+  const expectedCount = ROI_COUNTIES.length;
+  const a = first.filter((reading) => ROI_COUNTY_SET.has(reading.county));
+  const b = second.filter((reading) => ROI_COUNTY_SET.has(reading.county));
+  if (a.length !== expectedCount || b.length !== expectedCount) return false;
+  const byCounty = new Map(b.map((r) => [r.county, r]));
+  if (byCounty.size !== expectedCount) return false;
+  return a.every((r) => {
+    const check = byCounty.get(r.county);
+    // Keep zero on the review path until the grass forecast engine supports it.
+    return r.confidence === "high" && check?.confidence === "high" &&
+      r.growth > 0 && r.growth <= 200 && check.growth === r.growth;
+  });
+}
+
 /** Strict parse of the model's JSON. Unknown counties and impossible values are dropped. */
 export function parseCountyReadings(text: string): CountyReading[] {
   const json = /\{[\s\S]*\}/.exec(text)?.[0];
@@ -84,17 +114,27 @@ export function parseCountyReadings(text: string): CountyReading[] {
   for (const row of rows) {
     const r = row as { county?: unknown; growth?: unknown; confidence?: unknown };
     const county = normaliseCounty(typeof r.county === "string" ? r.county : null);
-    const growth = typeof r.growth === "number" ? r.growth : Number(r.growth);
+    // A missing/null/blank number must never silently turn into 0.
+    const value = r.growth;
+    if (typeof value !== "number" && (typeof value !== "string" || !/^\d+(?:\.\d+)?$/.test(value.trim()))) continue;
+    const growth = typeof value === "number" ? value : Number(value.trim());
     if (!county || !Number.isFinite(growth) || growth < 0 || growth > 200) continue;
-    out.set(county, { county, growth: Math.round(growth * 10) / 10, confidence: r.confidence === "high" ? "high" : "low" });
+    const reading: CountyReading = { county, growth: Math.round(growth * 10) / 10, confidence: r.confidence === "high" ? "high" : "low" };
+    if (out.has(county)) {
+      // A duplicate county is ambiguous even if the two printed values agree.
+      // Keep its first reading for admin review, but never auto-approve it.
+      out.set(county, { ...out.get(county)!, confidence: "low" });
+    } else {
+      out.set(county, reading);
+    }
   }
   return [...out.values()];
 }
 
-const PROMPT = `This image is a map of Ireland from Teagasc showing predicted grass growth for each county, in kg DM/ha/day.
-Transcribe the number shown for each county exactly as printed. Do not estimate or interpolate a value that is not printed.
-If a county has no printed number, leave it out. Mark confidence "low" for any number that is hard to read or ambiguous.
-Reply with JSON only, in this shape: {"counties":[{"county":"Clare","growth":12,"confidence":"high"}]}`;
+const PROMPT = `This is a dated Teagasc MoSt map of predicted grass growth in kg DM/ha/day.
+Read the printed figure inside each Republic of Ireland county boundary, matching it to the county by location. Do not use map colours to guess a value, do not interpolate, and do not copy values between counties.
+For any county whose figure or boundary is ambiguous, set confidence "low"; omit a county if its printed number cannot be read. One number per county, with no national mean and no fabricated counties.
+Return JSON only: {"counties":[{"county":"Clare","growth":12,"confidence":"high"}]}`;
 
 export async function readMapWithModel(image: ArrayBuffer, mediaType: string): Promise<CountyReading[]> {
   const key = process.env.ANTHROPIC_API_KEY;
@@ -121,7 +161,7 @@ export async function readMapWithModel(image: ArrayBuffer, mediaType: string): P
 }
 
 export type ExtractionOutcome =
-  | { status: "created"; batchId: string; validFrom: string; counties: number }
+  | { status: "created"; batchId: string; validFrom: string; counties: number; autoPublished: boolean }
   | { status: "exists"; batchId: string; validFrom: string }
   | { status: "failed"; reason: string };
 
@@ -140,10 +180,20 @@ export async function extractLatestMostBatch(db: SupabaseClient): Promise<Extrac
     const img = await fetch(located.imageUrl, { signal: AbortSignal.timeout(20_000), cache: "no-store" });
     if (!img.ok) return { status: "failed", reason: `Map image returned HTTP ${img.status}` };
     const mediaType = (img.headers.get("content-type") ?? "image/jpeg").split(";")[0];
-    const readings = await readMapWithModel(await img.arrayBuffer(), mediaType);
-    if (readings.length < 5) return { status: "failed", reason: `Only ${readings.length} county figures could be read from the map.` };
+    const imageBytes = await img.arrayBuffer();
+    const readings = (await readMapWithModel(imageBytes, mediaType))
+      .filter((r) => ROI_COUNTY_SET.has(r.county));
+    // An incomplete extraction cannot silently become an approved feed.
+    // Keep reasonably complete reads available for an administrator to correct.
+    if (readings.length < 20) return { status: "failed", reason: `Only ${readings.length} of ${ROI_COUNTIES.length} Republic of Ireland counties could be read. Nothing was published.` };
+
+    const optIn = process.env.REGIONAL_GROWTH_AUTO_PUBLISH === "true";
+    const candidate = optIn && readings.length === ROI_COUNTIES.length && readings.every((r) => r.confidence === "high" && r.growth > 0);
+    const secondRead = candidate ? (await readMapWithModel(imageBytes, mediaType)).filter((r) => ROI_COUNTY_SET.has(r.county)) : [];
+    const autoPublished = Boolean(candidate && verifyCountyMapPair(readings, secondRead, located.validFrom, located.validTo));
 
     const batchId = crypto.randomUUID();
+    const reviewedAt = autoPublished ? new Date().toISOString() : undefined;
     const { error } = await db.from("regional_grass_growth").insert(readings.map((r) => ({
       batch_id: batchId,
       county: r.county,
@@ -151,12 +201,14 @@ export async function extractLatestMostBatch(db: SupabaseClient): Promise<Extrac
       confidence: r.confidence,
       valid_from: located.validFrom,
       valid_to: located.validTo,
+      status: autoPublished ? "approved" : "pending",
+      ...(reviewedAt ? { reviewed_at: reviewedAt } : {}),
       source_url: TEAGASC_GRASS_PAGE,
       image_url: located.imageUrl,
       caption: located.caption.slice(0, 300),
     })));
     if (error) throw error;
-    return { status: "created", batchId, validFrom: located.validFrom, counties: readings.length };
+    return { status: "created", batchId, validFrom: located.validFrom, counties: readings.length, autoPublished };
   } catch (err) {
     return { status: "failed", reason: err instanceof Error ? err.message : "Unknown error" };
   }

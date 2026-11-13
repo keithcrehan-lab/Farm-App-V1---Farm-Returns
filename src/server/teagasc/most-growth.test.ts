@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-const { locateMostMap, normaliseCounty, parseCountyReadings } = await import("./most-growth");
+const { locateMostMap, normaliseCounty, parseCountyReadings, verifyCountyMapPair, ROI_COUNTIES } = await import("./most-growth");
 
 describe("locateMostMap", () => {
   it("finds the map nearest the caption, its full-size URL and its week", () => {
@@ -33,9 +33,43 @@ describe("parseCountyReadings", () => {
     expect(parseCountyReadings("not json")).toEqual([]);
   });
 
+  it("does not turn null or empty values into zero, or auto-trust repeated counties", () => {
+    expect(parseCountyReadings(JSON.stringify({ counties: [
+      { county: "Galway", growth: null, confidence: "high" },
+      { county: "Cork", growth: "", confidence: "high" },
+      { county: "Clare", growth: 12, confidence: "high" },
+      { county: "Clare", growth: 14, confidence: "high" },
+    ] }))).toEqual([{ county: "Clare", growth: 12, confidence: "low" }]);
+    expect(parseCountyReadings(JSON.stringify({ counties: [
+      { county: "Galway", growth: 0, confidence: "high" },
+    ] }))).toEqual([{ county: "Galway", growth: 0, confidence: "high" }]);
+  });
+
   it("normalises county names", () => {
     expect(normaliseCounty("County Galway")).toBe("Galway");
     expect(normaliseCounty("Londonderry")).toBe("Derry");
     expect(normaliseCounty("Narnia")).toBeNull();
+  });
+});
+
+describe("two-read map verification", () => {
+  const fresh = "2026-11-13";
+  const from = "2026-11-12";
+  const to = "2026-11-18";
+  const full = ROI_COUNTIES.map((county) => ({ county, growth: 24, confidence: "high" as const }));
+
+  it("only permits strict, dated, whole-map agreement", () => {
+    expect(ROI_COUNTIES).toHaveLength(26);
+    expect(verifyCountyMapPair(full, full, from, to, fresh)).toBe(true);
+    expect(verifyCountyMapPair(full, full.slice(1), from, to, fresh)).toBe(false);
+    expect(verifyCountyMapPair(full, full, from, "2026-11-12", fresh)).toBe(false);
+    expect(verifyCountyMapPair(full, full, "2026-11-14", to, fresh)).toBe(false);
+  });
+
+  it("refuses ambiguous, conflicting or zero-growth automatic publication", () => {
+    expect(verifyCountyMapPair(full, full.map((r) => r.county === "Galway" ? { ...r, growth: 25 } : r), from, to, fresh)).toBe(false);
+    expect(verifyCountyMapPair(full.map((r) => r.county === "Clare" ? { ...r, confidence: "low" as const } : r), full, from, to, fresh)).toBe(false);
+    expect(verifyCountyMapPair(full.map((r) => r.county === "Cork" ? { ...r, growth: 0 } : r), full, from, to, fresh)).toBe(false);
+    expect(verifyCountyMapPair(full, [...full.slice(1), full[0]], from, to, fresh)).toBe(true);
   });
 });

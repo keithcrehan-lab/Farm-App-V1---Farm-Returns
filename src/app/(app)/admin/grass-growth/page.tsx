@@ -50,6 +50,7 @@ export default function GrassGrowthAdminPage() {
   const map = mapView.map;
   const batch = view.batch;
   const pendingBatch = batch.some((r) => r.status === "pending");
+  const missingCounties = ROI_COUNTIES.filter((c) => !batch.some((r) => r.county === c));
   const publishedThisWeek = Boolean(map && batch.length && batch[0].validFrom === map.validFrom && batch[0].status === "approved");
   const manualMode = Boolean(map) && !pendingBatch && !publishedThisWeek;
 
@@ -69,7 +70,11 @@ export default function GrassGrowthAdminPage() {
     setMessage("Reading the map…");
     const res = await fetchTeagascGrowthNowAction();
     setBusy(false);
-    setMessage(res.status === "created" ? `Read ${res.counties} counties. Check them, then approve.` : res.status === "exists" ? "This week has already been read." : res.status === "failed" ? res.reason : "Admins only.");
+    setMessage(res.status === "created"
+      ? res.autoPublished
+        ? `Verified all ${res.counties} counties with two matching reads and published automatically.`
+        : `Read ${res.counties} counties. Check against the source map, then approve.`
+      : res.status === "exists" ? "This week's map has already been read." : res.status === "failed" ? res.reason : "Admins only.");
     await load();
   }
 
@@ -133,6 +138,13 @@ export default function GrassGrowthAdminPage() {
               <p className="mb-2 text-sm font-semibold">
                 {pendingBatch ? "Read automatically · waiting for your review" : <span className="inline-flex items-center gap-1 text-fr-v2-forest"><CheckCircle2 className="size-4" aria-hidden />Published for the week from {batch[0].validFrom}</span>}
               </p>
+              {pendingBatch ? (
+                <div className="mb-2 space-y-1 text-xs leading-5 text-fr-v2-muted">
+                  <p>{batch.length} of {ROI_COUNTIES.length} counties extracted. Compare each number with the source map before approval.</p>
+                  {missingCounties.length ? <p className="font-semibold text-fr-v2-harvest">Missing counties (no figure will be shown): {missingCounties.join(", ")}.</p> : null}
+                  {batch.some((r) => r.confidence === "low") ? <p>Highlighted readings were unclear to the image reader and require particular attention.</p> : null}
+                </div>
+              ) : null}
               <div className="divide-y divide-fr-v2-cream-rule rounded-[12px] border border-fr-v2-cream-rule bg-fr-v2-cream">
                 {batch.map((r) => (
                   <label key={r.id} className={cn("flex items-center justify-between gap-3 px-3 py-1.5 text-sm", r.status === "pending" && r.confidence === "low" && "bg-[#D98324]/10")}>

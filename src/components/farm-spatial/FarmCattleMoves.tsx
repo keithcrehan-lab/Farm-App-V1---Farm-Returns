@@ -49,6 +49,8 @@ const PAN_SLOP_PX = 8;
 /** How long a confirmed move waits, with Undo, before it is saved. */
 const UNDO_MS = 8000;
 const DROP_SRC = "fr-cattle-drop-target";
+/** Keep overview markers quiet; zooming in reveals group names again. */
+const GROUP_DETAIL_ZOOM = 16;
 
 type Pending = { group: CattleMapGroup; toFieldId: string; toFieldName: string; movedAt: string };
 type Drag = { group: CattleMapGroup; x: number; y: number; targetFieldId?: string; targetFieldName?: string };
@@ -154,11 +156,13 @@ function usePressAndHold(handlers: {
   }), [abandon]);
 }
 
-export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
+export function FarmCattleMoves({ map, fields, enabled, selectedFieldId, onMoved }: {
   map: mapboxgl.Map | null;
   fields: readonly Field[];
   /** Real signed-in farms only: demo data is never moved. */
   enabled: boolean;
+  /** Expands a selected field's livestock label even at overview zoom. */
+  selectedFieldId?: string;
   /** Called after a move is saved, so the page can refresh grass figures. */
   onMoved?: () => void;
 }) {
@@ -171,7 +175,24 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
   const [whenProblem, setWhenProblem] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [markerEls, setMarkerEls] = useState<Array<{ key: string; group: CattleMapGroup; el: HTMLElement }>>([]);
+  const [detailZoom, setDetailZoom] = useState(false);
   const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    if (!map) return;
+    const syncZoom = () => setDetailZoom(
+      typeof map.getZoom === "function" && map.getZoom() >= GROUP_DETAIL_ZOOM,
+    );
+    syncZoom();
+    map.on("zoom", syncZoom);
+    return () => { map.off("zoom", syncZoom); };
+  }, [map]);
+
+  // MapHero's field labels share the screen with these separately rendered
+  // Mapbox markers. Ask it to reflow whenever a badge changes size or moves.
+  useEffect(() => {
+    map?.getContainer().dispatchEvent(new Event("fr-cattle-markers-change"));
+  }, [map, markerEls, detailZoom, selectedFieldId]);
   useEffect(() => { setMounted(true); }, []); // eslint-disable-line react-hooks/set-state-in-effect -- portals to document.body only after mount
 
   const reload = useCallback(async () => {
@@ -376,9 +397,10 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
         const row = placement.byField.get(field.id) ?? [];
         row.forEach((group, index) => {
           const el = document.createElement("div");
+          el.dataset.cattleMapMarker = group.id;
           // A tap on a group must not count as a tap on open ground (which closes the field panel).
           el.addEventListener("click", (event) => event.stopPropagation());
-          markers.push(new mapbox.Marker({ element: el, anchor: "top", offset: [0, 16 + index * 34] }).setLngLat(field.centroid).addTo(map));
+          markers.push(new mapbox.Marker({ element: el, anchor: "top", offset: [0, 16 + index * 42] }).setLngLat(field.centroid).addTo(map));
           made.push({ key: `${field.id}:${group.id}`, group, el });
         });
       }
@@ -395,22 +417,26 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
 
   const menuGroup = menuGroupId ? shownGroups.find((group) => group.id === menuGroupId) : undefined;
   const chip = (group: CattleMapGroup, onMap: boolean) => {
-    // The handlers read refs only when the farmer touches the group, never while rendering.
+    // Only the selected field or a close zoom needs the full group label.
+    // Keep the accessible name and drag/tap behaviour at every zoom level.
+    const compact = onMap && !detailZoom && group.currentFieldId !== selectedFieldId;
     const handlers = press(group);
     return (
     <button
       type="button"
       {...handlers}
+      data-cattle-display={onMap ? (compact ? "compact" : "full") : undefined}
       aria-label={`${group.label}, ${formatNumber(group.headCount, 0)} head, ${cattleGroupWhereabouts(group)}. Tap for Move to, or press and hold to drag.`}
       className={cn(
         "flex min-h-9 select-none items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-[12px] font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.35)] [-webkit-touch-callout:none] [touch-action:none]",
         onMap ? "border-white/70 bg-fr-v2-forest-deep/90 text-white" : "border-white/25 bg-black/45 text-white/90 backdrop-blur",
+        compact && "min-w-9 justify-center gap-1 px-2 text-[11px]",
         drag?.group.id === group.id && "opacity-40",
         pending?.group.id === group.id && "border-fr-v2-straw",
       )}
     >
       <CowIcon className="size-4 shrink-0" aria-hidden />
-      {groupChipText(group)}
+      {compact ? formatNumber(group.headCount, 0) : groupChipText(group)}
     </button>
     );
   };

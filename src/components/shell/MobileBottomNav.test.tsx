@@ -29,6 +29,16 @@ describe("MobileBottomNav (Farm + Fields redesign)", () => {
     expect(hrefs).toContain("/fields");
   });
 
+  it("includes the shared growth entry only for the server-approved admin", () => {
+    render(<MobileBottomNav />);
+    fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    expect(screen.queryByRole("link", { name: "Regional Grass Growth" })).toBeNull();
+    cleanup();
+    render(<MobileBottomNav canManageRegionalGrassGrowth />);
+    fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    expect(screen.getByRole("link", { name: "Regional Grass Growth" }).getAttribute("href")).toBe("/admin/grass-growth");
+  });
+
   it("marks Cattle current on a real group page", () => {
     pathname.current = "/cattle/groups/g-1";
     render(<MobileBottomNav />);

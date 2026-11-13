@@ -58,6 +58,16 @@ describe("DesktopSidebar (Farm Spatial V2 Phase 02B)", () => {
     expect(screen.getByRole("button", { name: /^more$/i })).toBeTruthy();
   });
 
+  it("shows Regional Grass Growth only for the verified server-granted admin", () => {
+    render(<DesktopSidebar />);
+    fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    expect(screen.queryByRole("link", { name: "Regional Grass Growth" })).toBeNull();
+    cleanup();
+    render(<DesktopSidebar canManageRegionalGrassGrowth />);
+    fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    expect(screen.getByRole("link", { name: "Regional Grass Growth" }).getAttribute("href")).toBe("/admin/grass-growth");
+  });
+
   it("offers an explicit switch into the supplier portal", () => {
     render(<DesktopSidebar />);
     const link = screen.getByRole("link", { name: /supplier portal/i });

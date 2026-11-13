@@ -9,6 +9,7 @@ import { listHousingForFarm } from "@/lib/farm-data/housing";
 import { listSlurryAllocationRecordsForFarm, listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
 import { loadRegulatoryEvidenceRecordsForFarm } from "@/lib/farm-data/regulatory-evidence";
+import { canCurrentUserManageRegionalGrassGrowth } from "@/lib/farm-data/regional-grass-admin";
 
 /**
  * Real Farm V1 Phase 2/4 — the signed-in application shell, split out of
@@ -40,7 +41,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     }
     const { farm } = status;
 
-    const [fields, livestockGroups, housing, slurryAllocations, slurryCompositionRecords, slurryAllocationRecords, regulatoryEvidence] = await Promise.all([
+    const [canManageRegionalGrassGrowth, fields, livestockGroups, housing, slurryAllocations, slurryCompositionRecords, slurryAllocationRecords, regulatoryEvidence] = await Promise.all([
+      canCurrentUserManageRegionalGrassGrowth(),
       listFieldsForFarm(farm.id),
       listLivestockGroupsForFarm(farm.id),
       listHousingForFarm(farm.id),
@@ -69,7 +71,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           slurryOriginEvidenceRecords,
         }}
       >
-        <AppShell>{children}</AppShell>
+        <AppShell canManageRegionalGrassGrowth={canManageRegionalGrassGrowth}>{children}</AppShell>
       </FarmProvider>
     );
   }

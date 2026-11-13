@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
-import { isNavItemActive, mobileNavItems, mobileMoreNavItems, moreNavIcon as MoreIcon } from "./nav-items";
+import { isNavItemActive, mobileNavItems, mobileMoreNavItems, regionalGrowthAdminNavItem, moreNavIcon as MoreIcon } from "./nav-items";
 import { MoreSheet } from "./MoreSheet";
 
 /** Routes whose primary surface is a full-bleed real photo/map for the
@@ -34,7 +34,7 @@ const OVERLAY_ROUTES = new Set(["/today"]);
  * default treatment; `OVERLAY_ROUTES` opts a full-bleed photo screen
  * into the floating dark-glass dock instead, literally matching the
  * approved references' own composition on those specific screens. */
-export function MobileBottomNav() {
+export function MobileBottomNav({ canManageRegionalGrassGrowth = false }: { canManageRegionalGrassGrowth?: boolean }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
   const overlay = OVERLAY_ROUTES.has(pathname);
@@ -99,7 +99,11 @@ export function MobileBottomNav() {
           More
         </button>
       </nav>
-      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} items={mobileMoreNavItems} />
+      <MoreSheet
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        items={canManageRegionalGrassGrowth ? [...mobileMoreNavItems, regionalGrowthAdminNavItem] : mobileMoreNavItems}
+      />
     </>
   );
 }

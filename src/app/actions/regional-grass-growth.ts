@@ -1,20 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { getRegionalGrassAdminClient } from "@/lib/farm-data/regional-grass-admin";
 import { REGIONAL_GROWTH_COLUMNS, toRegionalRow, type RegionalGrowthRow } from "@/lib/farm-data/regional-grass-growth";
 import { extractLatestMostBatch, locateMostMap, normaliseCounty, TEAGASC_GRASS_PAGE, type ExtractionOutcome, type MostMapLocation } from "@/server/teagasc/most-growth";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function adminClient() {
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) return null;
-  const { data, error } = await supabase.from("app_admins").select("user_id").eq("user_id", auth.user.id).maybeSingle();
-  if (error || !data) return null;
-  return { supabase, userId: auth.user.id };
-}
+const adminClient = getRegionalGrassAdminClient;
 
 export type GrowthAdminView =
   | { status: "forbidden" }

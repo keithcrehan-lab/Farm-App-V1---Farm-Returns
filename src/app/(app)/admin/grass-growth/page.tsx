@@ -93,7 +93,7 @@ export default function GrassGrowthAdminPage() {
       <header>
         <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-fr-v2-muted">Admin · Regional growth</p>
         <h1 className="mt-1 font-display text-[32px] leading-none">Teagasc county growth</h1>
-        <p className="mt-2 text-sm text-fr-v2-muted">Type each county&apos;s figure from this week&apos;s MoSt map, then publish. Farms use these figures straight away. Leave a county blank if its number can&apos;t be read.</p>
+        <p className="mt-2 text-sm text-fr-v2-muted">Enter the figures from this week&apos;s Teagasc MoSt map in kg DM/ha/day. Publishing updates the shared regional growth reference for every Farm Return account in the relevant counties. Check each figure against the source map; leave any uncertain county blank.</p>
       </header>
 
       {message ? <p role="status" className="flex gap-2 text-sm text-fr-v2-charcoal"><AlertCircle className="size-4 shrink-0" aria-hidden />{message}</p> : null}
@@ -126,7 +126,7 @@ export default function GrassGrowthAdminPage() {
                   </label>
                 ))}
               </div>
-              <button type="button" onClick={() => void publishManual()} disabled={busy} className="mt-3 min-h-11 w-full rounded-[12px] bg-fr-v2-forest text-sm font-semibold text-white disabled:opacity-50">Publish figures</button>
+              <button type="button" onClick={() => void publishManual()} disabled={busy} className="mt-3 min-h-11 w-full rounded-[12px] bg-fr-v2-forest text-sm font-semibold text-white disabled:opacity-50">Publish to all farms</button>
               {view.aiConfigured ? (
                 <button type="button" onClick={() => void readWithAi()} disabled={busy} className="mt-2 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-[12px] border border-fr-v2-forest text-sm font-semibold text-fr-v2-forest disabled:opacity-50">
                   <Download className="size-4" aria-hidden />Read the map automatically instead

@@ -8,7 +8,7 @@ import { SyncStatusBanner } from "./SyncStatusBanner";
  * persistent left rail + multi-column content area. Same shell, same
  * children, different chrome — not a scaled-up mobile layout.
  */
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children, canManageRegionalGrassGrowth = false }: { children: React.ReactNode; canManageRegionalGrassGrowth?: boolean }) {
   return (
     <div className="flex min-h-screen bg-fr-surface-alt print:block print:min-h-0 print:bg-white">
       {/* Fertiliser Vertical V1, Checkpoint 4 — additive, CSS-only:
@@ -16,7 +16,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
        * (the new Scientific Evidence Report included) prints its own real
        * content cleanly, without the sidebar/bottom-nav/banner around it.
        * Nothing here changes on-screen behaviour. */}
-      <DesktopSidebar />
+      <DesktopSidebar canManageRegionalGrassGrowth={canManageRegionalGrassGrowth} />
       {/* Farm Home visual refresh v1 — a screen that marks itself
        * `data-farm-workspace` (the Farm map) runs edge to edge on desktop:
        * CSS-only, every other screen keeps its gutters and max width. */}
@@ -28,7 +28,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <SyncStatusBanner />
         <div className="mx-auto w-full min-w-0 max-w-6xl lg:has-[[data-farm-workspace]]:max-w-none print:max-w-none">{children}</div>
       </main>
-      <MobileBottomNav />
+      <MobileBottomNav canManageRegionalGrassGrowth={canManageRegionalGrassGrowth} />
     </div>
   );
 }

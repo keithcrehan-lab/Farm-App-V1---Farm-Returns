@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, Sprout, Store } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { isNavItemActive, primaryNavItems, moreNavItems, moreNavIcon as MoreIcon } from "./nav-items";
+import { isNavItemActive, primaryNavItems, moreNavItems, regionalGrowthAdminNavItem, moreNavIcon as MoreIcon } from "./nav-items";
 import { useFarm } from "@/store/farm-store";
 
 /** Persistent dark-green left rail — desktop only (design-system.md).
@@ -23,13 +23,14 @@ import { useFarm } from "@/store/farm-store";
  * deep forest graphite instead of bright green, lower-contrast inactive
  * items, a slim forest marker (not a bright block) for the current
  * destination, and no separator rules. */
-export function DesktopSidebar() {
+export function DesktopSidebar({ canManageRegionalGrassGrowth = false }: { canManageRegionalGrassGrowth?: boolean }) {
   const pathname = usePathname();
   const farm = useFarm();
   const [moreOpen, setMoreOpen] = useState(false);
+  const visibleMoreItems = canManageRegionalGrassGrowth ? [...moreNavItems, regionalGrowthAdminNavItem] : moreNavItems;
   // A More route a primary destination owns (Fields, under Farm) is shown
   // through that primary item, not repeated on the closed More control.
-  const activeMoreItem = primaryNavItems.some((item) => isNavItemActive(item, pathname)) ? undefined : moreNavItems.find((item) => item.href === pathname);
+  const activeMoreItem = primaryNavItems.some((item) => isNavItemActive(item, pathname)) ? undefined : visibleMoreItems.find((item) => item.href === pathname);
 
   function renderLink(item: (typeof primaryNavItems)[number], onNavigate?: () => void) {
     // A nested route (e.g. `/cattle/groups/<id>`) keeps its primary
@@ -103,7 +104,7 @@ export function DesktopSidebar() {
           </button>
           {moreOpen ? (
             <div id="desktop-more-nav" role="group" aria-label="More" className="mt-0.5 flex flex-col gap-0.5">
-              {moreNavItems.map((item) => renderLink(item, () => setMoreOpen(false)))}
+              {visibleMoreItems.map((item) => renderLink(item, () => setMoreOpen(false)))}
             </div>
           ) : null}
         </div>

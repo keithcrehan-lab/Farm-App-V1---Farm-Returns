@@ -19,6 +19,7 @@ import {
   Warehouse,
   ShoppingBasket,
   ScanBarcode,
+  Sprout,
 } from "lucide-react";
 import { CowIcon } from "./CowIcon";
 import { FertiliserBagIcon } from "./FertiliserBagIcon";
@@ -115,6 +116,12 @@ export const mobileNavItems: NavItem[] = primaryNavItems.filter((item) => MOBILE
 /** Mobile More sheet — the primary destinations without a bottom-nav slot
  * first, then every `moreNavItems` destination. */
 export const mobileMoreNavItems: NavItem[] = [...primaryNavItems.filter((item) => !MOBILE_PRIMARY_HREFS.has(item.href)), ...moreNavItems];
+/** The only account that can manage shared figures receives this extra More entry. */
+export const regionalGrowthAdminNavItem: NavItem = {
+  href: "/admin/grass-growth",
+  label: "Regional Grass Growth",
+  icon: Sprout,
+};
 export const moreNavIcon = MoreHorizontal;
 
 /** Desktop left rail — primary group first, then every legacy screen

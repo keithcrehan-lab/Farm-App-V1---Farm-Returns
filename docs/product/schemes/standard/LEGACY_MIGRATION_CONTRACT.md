@@ -69,6 +69,7 @@ Exports: `SUPPORT_PROFILE_VERSION`, `nowAsSupportProfileAssessedAt`, `SupportPro
 | `src/app/(app)/schemes/page.tsx` | `buildSupportProfile`, `nowAsSupportProfileAssessedAt` | Production |
 | `src/app/(app)/schemes/SchemesPageClient.tsx` | `SupportProfile`, `SupportProfileFactKey` | Type |
 | `src/app/actions/support-profile.ts` | `nowAsSupportProfileAssessedAt`, `validateSupportProfileFactValue`, `SupportProfileFact`, `SupportProfileFactKey` | Production |
+| `src/app/actions/scheme-plan.ts` | `buildSupportProfile`, `nowAsSupportProfileAssessedAt` | Production |
 | `src/domain/scheme-eligibility.ts` | `isPlausibleIsoDate`, `validateSupportProfileFactValue`, `SupportProfile` | Production |
 | `src/domain/schemes/scep-2026.ts` | `SupportProfile` | Type; **canonical SCEP depends on this** |
 | `src/domain/schemes/support-profile-adapter.ts` | `SupportProfile`, `SupportProfileFactKey` | Type; **canonical SCEP depends on this** |
@@ -122,6 +123,7 @@ Exports: `listSupportProfileFactsForFarm`, `upsertSupportProfileFact`.
 |---|---|---|
 | `src/app/(app)/schemes/page.tsx` | `listSupportProfileFactsForFarm` | Production |
 | `src/app/actions/support-profile.ts` | `listSupportProfileFactsForFarm`, `upsertSupportProfileFact` | Production |
+| `src/app/actions/scheme-plan.ts` | `listSupportProfileFactsForFarm` | Production |
 
 ## 3. Which phase cuts over each legacy seeded version
 

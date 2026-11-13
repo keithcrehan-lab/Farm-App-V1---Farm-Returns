@@ -1,11 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import type { Field } from "@/domain/types";
 
 vi.mock("@/app/actions/grazing-field-movements", () => ({
   listGrazingMovementGroupsAction: vi.fn(),
   moveLivestockGroupToFieldAction: vi.fn(),
+}));
+
+vi.mock("mapbox-gl", () => ({
+  default: {
+    Marker: class {
+      private element: HTMLElement;
+      constructor({ element }: { element: HTMLElement }) { this.element = element; }
+      setLngLat() { return this; }
+      addTo(map: { getContainer: () => HTMLElement }) {
+        map.getContainer().appendChild(this.element);
+        return this;
+      }
+      remove() { this.element.remove(); }
+    },
+  },
 }));
 
 import { listGrazingMovementGroupsAction, moveLivestockGroupToFieldAction } from "@/app/actions/grazing-field-movements";
@@ -84,6 +99,50 @@ describe("cattle groups on the Farm map", () => {
     render(<FarmCattleMoves map={null} fields={FIELDS} enabled />);
     fireEvent.click(await screen.findByRole("button", { name: /^Cows, 30 head/ }), { detail: 0 });
     expect(await screen.findByRole("dialog", { name: "Cows · 30 head" })).toBeInTheDocument();
+  });
+
+  it("uses compact stock badges at overview zoom, expands on selection or close zoom without losing interaction", async () => {
+    const surface = document.createElement("div");
+    document.body.appendChild(surface);
+    let zoom = 14.5;
+    const zoomListeners = new Set<() => void>();
+    const map = {
+      getContainer: () => surface,
+      getZoom: () => zoom,
+      getSource: () => ({ setData: vi.fn() }),
+      on: (event: string, handler: () => void) => { if (event === "zoom") zoomListeners.add(handler); },
+      off: (event: string, handler: () => void) => { if (event === "zoom") zoomListeners.delete(handler); },
+    } as unknown as NonNullable<Parameters<typeof FarmCattleMoves>[0]["map"]>;
+    const onMarkerChange = vi.fn();
+    surface.addEventListener("fr-cattle-markers-change", onMarkerChange);
+
+    const view = render(<FarmCattleMoves map={map} fields={FIELDS} enabled />);
+    const marker = await within(surface).findByRole("button", { name: /^Weanlings, 24 head/ });
+    expect(marker).toHaveAttribute("data-cattle-display", "compact");
+    expect(marker).toHaveTextContent("24");
+    expect(marker).not.toHaveTextContent("Weanlings");
+    expect(surface.querySelector("[data-cattle-map-marker]")).not.toBeNull();
+    expect(onMarkerChange).toHaveBeenCalled();
+
+    view.rerender(<FarmCattleMoves map={map} fields={FIELDS} enabled selectedFieldId="a" />);
+    expect(marker).toHaveAttribute("data-cattle-display", "full");
+    expect(marker).toHaveTextContent("Weanlings · 24");
+
+    view.rerender(<FarmCattleMoves map={map} fields={FIELDS} enabled selectedFieldId="b" />);
+    expect(marker).toHaveAttribute("data-cattle-display", "compact");
+
+    zoom = 17;
+    act(() => { zoomListeners.forEach((listener) => listener()); });
+    expect(marker).toHaveAttribute("data-cattle-display", "full");
+
+    zoom = 14.5;
+    act(() => { zoomListeners.forEach((listener) => listener()); });
+    expect(marker).toHaveAttribute("data-cattle-display", "compact");
+
+    fireEvent.click(marker, { detail: 0 });
+    expect(await screen.findByRole("dialog", { name: "Weanlings · 24 head" })).toBeInTheDocument();
+    view.unmount();
+    surface.remove();
   });
 
   it("refuses a move time before the group went into its current field, before anything is sent", async () => {

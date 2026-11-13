@@ -576,7 +576,7 @@ export function MapHero({
     // never overlap one another, any pin, or the map edge. A label with no
     // free slot is hidden until the farmer zooms in; its pin, tap target and
     // accessible name stay. Placement re-runs whenever the camera moves.
-    type LabelLayoutItem = { lngLat: [number, number]; pinRadius: number; label: HTMLElement | null; priority: number };
+    type LabelLayoutItem = { lngLat: [number, number]; pinRadius: number; label: HTMLElement | null; detail?: HTMLElement; priority: number };
     const layoutItems: LabelLayoutItem[] = [];
 
     markersRef.current = mappedFields.map((field) => {
@@ -612,6 +612,7 @@ export function MapHero({
 
       const textShadow = "0 1px 2px rgba(0,0,0,0.85), 0 0 6px rgba(0,0,0,0.45)";
       let labelEl: HTMLElement | null = null;
+      let detailEl: HTMLElement | undefined;
       if (selected && selectionColor) {
         // Straw selection: the name as bare text beside a straw pin.
         const name = document.createElement("span");
@@ -650,6 +651,7 @@ export function MapHero({
           detail.className = "whitespace-nowrap text-[11px] font-medium leading-none text-white/90 tabular-nums";
           detail.style.textShadow = textShadow;
           detail.textContent = statusLabel;
+          detailEl = detail;
           stack.append(name, detail);
           labelEl = stack;
         } else {
@@ -669,6 +671,7 @@ export function MapHero({
         lngLat: field.centroid as [number, number],
         pinRadius: (pinSize * pinScale) / 2 + 1,
         label: labelEl,
+        detail: detailEl,
         priority: selected ? 0 : highlighted ? 1 : 2,
       });
 
@@ -677,6 +680,12 @@ export function MapHero({
     });
 
     const layoutLabels = () => {
+      // Low zoom is for orientation: field names and their grass colours,
+      // not a full metric under every neighbouring field name.
+      const overview = typeof map.getZoom === "function" && map.getZoom() < 16;
+      for (const item of layoutItems) {
+        if (item.detail) item.detail.style.display = overview ? "none" : "";
+      }
       const labelled = layoutItems.filter((item) => item.label);
       if (typeof map.project !== "function") {
         labelled.forEach((item) => { item.label!.style.visibility = "visible"; });
@@ -698,6 +707,16 @@ export function MapHero({
       });
       // Every pin is an obstacle, so no label ever sits on top of a pin.
       const taken: Box[] = projected.map(({ item, x, y }) => ({ x: x - item.pinRadius, y: y - item.pinRadius, w: item.pinRadius * 2, h: item.pinRadius * 2 }));
+      // Cattle are Mapbox markers rendered by a separate component. Include
+      // their actual onscreen bounds so field labels never run through them.
+      const containerRect = container?.getBoundingClientRect();
+      if (container && containerRect) {
+        for (const cattle of container.querySelectorAll<HTMLElement>("[data-cattle-map-marker]")) {
+          const rect = cattle.getBoundingClientRect();
+          if (!rect.width || !rect.height || cattle.style.visibility === "hidden") continue;
+          taken.push({ x: rect.left - containerRect.left, y: rect.top - containerRect.top, w: rect.width, h: rect.height });
+        }
+      }
       const cx = width / 2;
       const cy = height / 2;
       const order = projected
@@ -750,12 +769,15 @@ export function MapHero({
     };
     layoutLabels();
     scheduleLayout(); // once more after fonts/styles settle
+    const mapContainer = typeof map.getContainer === "function" ? map.getContainer() : undefined;
+    mapContainer?.addEventListener("fr-cattle-markers-change", scheduleLayout);
     if (typeof map.on === "function") {
       map.on("move", scheduleLayout);
       map.on("resize", scheduleLayout);
     }
     return () => {
       if (layoutFrame) cancelAnimationFrame(layoutFrame);
+      mapContainer?.removeEventListener("fr-cattle-markers-change", scheduleLayout);
       if (typeof map.off === "function") {
         map.off("move", scheduleLayout);
         map.off("resize", scheduleLayout);

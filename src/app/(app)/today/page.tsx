@@ -811,7 +811,7 @@ export default function TodayPage() {
                 <div className={cn("flex flex-col gap-3 px-4 pb-3 transition-opacity duration-[180ms] motion-reduce:transition-none lg:px-9 lg:pb-4", selectedField && "invisible opacity-0")}>
                   <div className="pointer-events-auto flex max-w-md flex-col gap-2">
                     {/* Cattle groups: on their fields on the map, and here when they're not on one. */}
-                    <FarmCattleMoves map={farmMap} fields={fields} enabled={isRealMode} onMoved={() => setGrassReload((n) => n + 1)} />
+                    <FarmCattleMoves map={farmMap} fields={fields} enabled={isRealMode} selectedFieldId={selectedField?.id} onMoved={() => setGrassReload((n) => n + 1)} />
                     <GpsActivityCandidateCard fields={fields} />
                     <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
                   </div>

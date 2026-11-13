@@ -39,6 +39,7 @@ export default function DashboardPage() {
     productsWithUnknownCost: fertiliserCostUnpriced,
   } = calculateFarmFertiliserCostEur({
     fields,
+    grazingProductionSystem: farm.grazingProductionSystem?.value,
     livestockGroups,
     slurryAllocations,
     // Codex remediation Priority 3 — see FeedCostOverviewCard's identical

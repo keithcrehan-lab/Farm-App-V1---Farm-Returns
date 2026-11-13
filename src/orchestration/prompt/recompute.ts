@@ -121,6 +121,7 @@ export function recomputePromptByKind(input: RecomputePromptInput): Prompt {
         input.farm.pBuildUpCompliance?.value,
         compositionInput.composition,
         compositionInput.unresolved,
+        input.farm.grazingProductionSystem?.value,
       );
     }
     default: {

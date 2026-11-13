@@ -12,7 +12,7 @@ import { BuyingOpportunityCard } from "@/components/farm/BuyingOpportunityCard";
 import { TimelineChart } from "@/components/farm/TimelineChart";
 import { RequestQuoteSheet } from "@/components/farm/RequestQuoteSheet";
 import { mockBuyingOpportunities, mockInputPlannerSummary, mockInputRequirements, mockSilagePlans } from "@/data/mock-farm";
-import { useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import {
   calculateFarmConcentrateFeedRequirement,
   calculateFarmFertiliserRequirement,
@@ -25,6 +25,7 @@ import type { TimelineEvent } from "@/domain/types";
 
 export default function InputPlannerPage() {
   const [quoteSheetOpen, setQuoteSheetOpen] = useState(false);
+  const farm = useFarm();
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
@@ -34,6 +35,7 @@ export default function InputPlannerPage() {
   // stays blocked, no live supplier source; see finance.ts's doc comment).
   const fertiliserRequirement = calculateFarmFertiliserRequirement({
     fields,
+    grazingProductionSystem: farm.grazingProductionSystem?.value,
     livestockGroups,
     slurryAllocations,
     silagePlans: isRealMode ? [] : mockSilagePlans,

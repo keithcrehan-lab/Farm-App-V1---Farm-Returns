@@ -47,6 +47,7 @@ import { SlurryStorageSection } from "@/components/farm/SlurryTankVisual";
 import { FertiliserStockColumn } from "@/components/farm/FertiliserStockColumnVisual";
 import { AddFertiliserStockRecordSheet } from "@/components/farm/AddFertiliserStockRecordSheet";
 import { SlurryFirstPlanningPanel } from "@/components/farm/SlurryFirstPlanningPanel";
+import { SoilPhAdviceList } from "@/components/farm/SoilPhAdviceList";
 import {
   getFertiliserPlanOverviewAction,
   type FertiliserPlanOverview,
@@ -746,6 +747,7 @@ function OverviewContent({
               real but partial.
             </p>
           ) : null}
+          <SoilPhAdviceList lime={overview.lime} className="mt-3" />
         </div>
       </details>
     </div>

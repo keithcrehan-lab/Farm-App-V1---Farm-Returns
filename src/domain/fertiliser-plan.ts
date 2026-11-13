@@ -28,6 +28,8 @@
  * is unavailable; the confirmed Actual record itself is untouched.
  */
 import { blockedInsufficientEvidence, isOk, ok, type EngineOutcome } from "./evidence";
+import { assessSoilPh, type SoilPhAdvice } from "./soil-ph-advice";
+import type { CropSystem } from "./fertiliser-field-evidence";
 import { knownFertiliserProductComposition } from "./nutrients";
 import type { Field, FieldPurchaseStatus, NutrientPlan } from "./types";
 
@@ -857,6 +859,9 @@ export interface FieldLimeRequirement {
    * labs only report a lime requirement when it's actually needed), not
    * a fabricated zero. */
   rateTHa?: number;
+  /** Soil pH against the Teagasc target for this field's land use
+   * (`assessSoilPh`) — advice only; it never supplies a rate. */
+  phAdvice?: SoilPhAdvice;
   /** `rateTHa * field.areaHa`, rounded to the same 0.01 t precision
    * every other tonnes figure in this app uses — `undefined` whenever
    * `rateTHa` is. */
@@ -875,6 +880,10 @@ export interface FarmLimeRequirement {
    * disclosed so `farmTotalTonnes` is never presented as "the complete
    * farm requirement" when it can only ever be a partial one. */
   fieldsWithoutLimeEvidence: number;
+  /** Fields whose pH is below the Teagasc target and that have no
+   * laboratory lime requirement yet — lime is likely needed, but the rate
+   * must come from a laboratory test (never from pH alone). */
+  fieldsBelowPhTargetWithoutLimeRate?: number;
 }
 
 /**
@@ -955,27 +964,38 @@ export function aggregateFarmNutrientRequirementKg(
   return { n, p, k, fieldsIncluded };
 }
 
-export function aggregateFarmLimeRequirement(fields: readonly Field[]): FarmLimeRequirement {
+export function aggregateFarmLimeRequirement(
+  fields: readonly Field[],
+  options: { cropSystemByFieldId?: ReadonlyMap<string, CropSystem> } = {},
+): FarmLimeRequirement {
   let farmTotalTonnesExact = 0;
   let fieldsWithoutLimeEvidence = 0;
+  let fieldsBelowPhTargetWithoutLimeRate = 0;
 
   const lines: FieldLimeRequirement[] = fields.map((field) => {
+    // Audit F006: the pH target comes from the field's canonical production
+    // cycle crop; no cycle (or a crop with no published target) gives no
+    // advice rather than a guessed target.
+    const ph = assessSoilPh(field, options.cropSystemByFieldId?.get(field.id));
+    const phAdvice = ph.status === "OK" ? { phAdvice: ph.value } : {};
     const rateTHa = field.fertility.verifiedTest?.limeRequirement;
     const validRate = rateTHa !== undefined && Number.isFinite(rateTHa) && rateTHa >= 0;
     const validArea = Number.isFinite(field.areaHa) && field.areaHa >= 0;
     if (!validRate || !validArea) {
       fieldsWithoutLimeEvidence += 1;
-      return { fieldId: field.id, fieldName: field.name, areaHa: field.areaHa };
+      if (ph.status === "OK" && ph.value.status === "BELOW_TARGET") fieldsBelowPhTargetWithoutLimeRate += 1;
+      return { fieldId: field.id, fieldName: field.name, areaHa: field.areaHa, ...phAdvice };
     }
     const exactTonnes = rateTHa * field.areaHa;
     farmTotalTonnesExact += exactTonnes;
     const fieldTonnes = Math.round(exactTonnes * 10 ** TONNES_ROUNDING_DECIMALS) / 10 ** TONNES_ROUNDING_DECIMALS;
-    return { fieldId: field.id, fieldName: field.name, rateTHa, fieldTonnes, areaHa: field.areaHa };
+    return { fieldId: field.id, fieldName: field.name, rateTHa, fieldTonnes, areaHa: field.areaHa, ...phAdvice };
   });
 
   return {
     fields: lines,
     farmTotalTonnes: Math.round(farmTotalTonnesExact * 10 ** TONNES_ROUNDING_DECIMALS) / 10 ** TONNES_ROUNDING_DECIMALS,
     fieldsWithoutLimeEvidence,
+    fieldsBelowPhTargetWithoutLimeRate,
   };
 }

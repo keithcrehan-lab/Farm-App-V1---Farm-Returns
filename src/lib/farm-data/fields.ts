@@ -14,6 +14,8 @@ import { fieldToInsertRow, rowToField, type NewFieldInput } from "./mappers";
 import type { FieldRow } from "./row-types";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 import { canRestoreDeletedField } from "@/domain/field-deletion";
+import { grazingSwardForCycle } from "@/domain/grass-fertiliser-engine-v2";
+import { listFieldProductionCyclesForSeason } from "./field-production-cycles";
 
 export function canApplyDerivedWaterEvidence(
   existing: Field["waterBufferContext"],
@@ -44,7 +46,19 @@ export async function listFieldsForFarm(farmId: string): Promise<Field[]> {
     .order("created_at", { ascending: true });
   if (error) throw error;
 
-  return (data as FieldRow[]).map(rowToField);
+  const fields = (data as FieldRow[]).map(rowToField);
+  // Fertiliser close-out (2026-11-11): attach this season's grazing sward
+  // from each field's production cycle, the same season rule the Fertiliser
+  // Plan uses, so the Nutrients engine and the Fertiliser Plan engine read
+  // the same clover record. A failed read throws like the field read itself
+  // — a clover sward is never silently treated as grass.
+  const season = new Date().toISOString().slice(0, 4);
+  const cycles = await listFieldProductionCyclesForSeason(fields.map((field) => field.id), season);
+  const cycleByFieldId = new Map(cycles.map((cycle) => [cycle.fieldId, cycle]));
+  return fields.map((field) => {
+    const grazingSward = grazingSwardForCycle(cycleByFieldId.get(field.id));
+    return grazingSward === undefined ? field : { ...field, grazingSward };
+  });
 }
 
 export async function createField(farmId: string, input: NewFieldInput): Promise<Field> {

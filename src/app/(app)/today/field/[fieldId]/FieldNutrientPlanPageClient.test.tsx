@@ -18,8 +18,9 @@ import { FieldNutrientPlanPageClient } from "./FieldNutrientPlanPageClient";
 afterEach(cleanup);
 
 const FARM: Farm = { id: "farm-1", name: "Test Farm", location: { county: "Cork", centroid: [0, 0] }, primaryEnterprises: ["suckler_beef"], units: "metric", ownerName: "Farmer" };
+// nutrient_engine_v1.7.0: 4 suckler cows on the 4 ha farm (65 kg organic N/ha); 20 cows (325 kg N/ha) is above Table 12-3's last row, where no requirement is given.
 const HERD = [
-  { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
+  { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 4, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
 ] as LivestockGroup[];
 
 function field(overrides: Partial<Field> = {}): Field {
@@ -118,8 +119,11 @@ describe("FieldNutrientPlanPageClient — real engine output, end to end", () =>
   });
 
   it("surfaces the engine's LESS prohibition and commonage prohibition in Legal status", () => {
-    const { container } = renderPlan([field({ commonageStatus: tracked("commonage", "farmer_adjusted", "Farmer") })]);
-    const plan = calculateNutrientPlan({ field: field({ commonageStatus: tracked("commonage", "farmer_adjusted", "Farmer") }), farmGrasslandAreaHa: 4, livestockGroups: HERD, slurryAllocation: SPLASH, nonGrassPct: 0 });
+    // nutrient_engine_v1.7.0: 10 suckler cows on 4 ha (≈162 kg organic N/ha, inside Table 12-3) so the
+    // field still needs purchased fertiliser after slurry — the commonage gate only prohibits a real purchase.
+    const heavyHerd = [{ ...HERD[0], count: { value: 10, status: "verified", source: "Farmer" } }] as LivestockGroup[];
+    const { container } = renderPlan([field({ commonageStatus: tracked("commonage", "farmer_adjusted", "Farmer") })], [SPLASH], heavyHerd);
+    const plan = calculateNutrientPlan({ field: field({ commonageStatus: tracked("commonage", "farmer_adjusted", "Farmer") }), farmGrasslandAreaHa: 4, livestockGroups: heavyHerd, slurryAllocation: SPLASH, nonGrassPct: 0 });
     expect(plan.lessMethodCompliance).toMatchObject({ status: "LEGAL_PROHIBITION", reasonCode: "LESS_REQUIRED_GSR100" });
     expect(plan.commonageFertiliserGate.status).toBe("LEGAL_PROHIBITION");
     fireEvent.click(screen.getByRole("button", { name: /legal status/i }));

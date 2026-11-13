@@ -5,10 +5,13 @@ vi.mock("@/lib/farm-data/decisions", () => ({ listDecisionsForFarm: vi.fn() }));
 
 import { listConfirmedJobSessionsForFarm, listActiveJobSessionsForFarm } from "@/lib/farm-data/job-sessions";
 import { listDecisionsForFarm } from "@/lib/farm-data/decisions";
-import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand, sanitiseDecisionRecordForClient } from "./index";
+import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand as realGetFarmFertiliserDemand, sanitiseDecisionRecordForClient } from "./index";
 import type { JobSessionWithActual } from "@/lib/farm-data/job-sessions";
 import type { JobActualRecord, DecisionRecord, JobSessionRecord } from "@/lib/farm-data/mappers";
 import type { Field } from "@/domain/types";
+
+const getFarmFertiliserDemand: typeof realGetFarmFertiliserDemand = input =>
+  realGetFarmFertiliserDemand({ grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", ...input });
 
 const mockListConfirmed = vi.mocked(listConfirmedJobSessionsForFarm);
 const mockListDecisions = vi.mocked(listDecisionsForFarm);
@@ -311,7 +314,8 @@ describe("getFarmFertiliserDemand", () => {
       farmId: "farm-1",
       category: "suckler_cow" as const,
       label: "Cows",
-      count: { value: 20, status: "verified" as const, source: "Farmer" },
+      // nutrient_engine_v1.7.0: 4 suckler cows on the ~4 ha farm (≈62–65 kg organic N/ha); 20 cows (≈310 kg N/ha) is above Table 12-3's last row, where no requirement is given.
+      count: { value: 4, status: "verified" as const, source: "Farmer" },
       system: "grazing" as const,
       value: { value: 30000, status: "estimated" as const, source: "Farm Return estimate" },
     },
@@ -1062,7 +1066,7 @@ describe("getFarmFertiliserDemand — canonical aggregation (Session 3b)", () =>
       farmId: "farm-1",
       category: "suckler_cow" as const,
       label: "Cows",
-      count: { value: 20, status: "verified" as const, source: "Farmer" },
+      count: { value: 4, status: "verified" as const, source: "Farmer" },
       system: "grazing" as const,
       value: { value: 30000, status: "estimated" as const, source: "Farm Return estimate" },
     },

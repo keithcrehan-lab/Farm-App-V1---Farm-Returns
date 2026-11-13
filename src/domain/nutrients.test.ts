@@ -4,7 +4,7 @@ import {
   allocatePurchasedProducts,
   allocatePurchasedProductsPConstrained,
   calculateGrasslandStockingRateKgHa,
-  calculateNutrientPlan,
+  calculateNutrientPlan as runNutrientPlan,
   NUTRIENT_ENGINE_VERSION,
   checkNapCompliance,
   cropGroupForFieldUse,
@@ -42,12 +42,18 @@ import {
   totalLivestockUnits,
   yearsBetweenIsoDates,
 } from "./nutrients";
+import { organicNStockingRateFromLUHa } from "./grazing-field-pressure";
 import { tracked } from "./types";
 import type { Field, LivestockGroup, NutrientPlan, SlurryAllocation } from "./types";
 import fertilityEvidenceBaseline from "./nutrients.fertility-evidence-baseline.json";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
 import type { SlurryComposition } from "./slurry-composition";
 import { CSO_MURIATE_OF_POTASH_50K } from "./market";
+
+// Legacy numerical fixtures explicitly exercise a recorded calf-to-beef
+// system. The production engine deliberately has NO implicit system default.
+const calculateNutrientPlan: typeof runNutrientPlan = (input) =>
+  runNutrientPlan({ grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", ...input });
 
 // Every expected value below is transcribed directly from the named Green
 // Book table (see file header comments in nutrients.ts and
@@ -1478,7 +1484,9 @@ describe("isEligibleForElevatedNRate / napMaxAvailableNGrazingKgHaEligibilityGat
 
 describe("calculateGrasslandStockingRateKgHa", () => {
   it("derives organic-N stocking rate from headcount and area", () => {
-    // 56.2 LU over 27 ha => ~2.081 LU/ha => interpolated N between 2.0(132) and 2.25(162).
+    // 56.2 LU over 27 ha => ~2.081 LU/ha => interpolated organic N (Table
+    // 12-3 kg/ha N excreted column) between 2.0 (158) and 2.25 (176).
+    // v1.6.0: v1.5.0 asserted the fertiliser Total N column (132-162) here.
     const groups: LivestockGroup[] = [
       { id: "a", farmId: "f", category: "suckler_cow", label: "Cows", count: tracked(32, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
       { id: "b", farmId: "f", category: "weanling", label: "Weanlings", count: tracked(18, "verified", "Keith"), system: "housed", value: tracked(0, "estimated", "x") },
@@ -1488,9 +1496,19 @@ describe("calculateGrasslandStockingRateKgHa", () => {
     ];
     const luHa = totalLivestockUnits(groups) / 27;
     const result = calculateGrasslandStockingRateKgHa(groups, 27);
-    expect(result).toBeCloseTo(nGrazingSucklerToBeefKgHa(luHa), 5);
-    expect(result).toBeGreaterThan(132);
-    expect(result).toBeLessThan(162);
+    expect(result).toBeCloseTo(organicNStockingRateFromLUHa(luHa) ?? Number.NaN, 5);
+    expect(result).toBeCloseTo(158 + ((luHa - 2.0) / 0.25) * (176 - 158), 5);
+    expect(result).toBeGreaterThan(158);
+    expect(result).toBeLessThan(176);
+    expect(result).not.toBeCloseTo(nGrazingSucklerToBeefKgHa(luHa), 0);
+  });
+
+  it("does not fabricate a held-row organic-N rate above 3.0 LU/ha", () => {
+    const groups: LivestockGroup[] = [
+      { id: "high", farmId: "f", category: "suckler_cow", label: "Cows", count: tracked(60, "verified", "Farmer"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    expect(totalLivestockUnits(groups) / 10).toBeGreaterThan(3);
+    expect(calculateGrasslandStockingRateKgHa(groups, 10)).toBeNull();
   });
 
   it("returns 0 for zero grassland area rather than dividing by zero", () => {
@@ -1532,7 +1550,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
     });
 
     expect(plan.fieldId).toBe(field.id);
-    expect(plan.calculationVersion).toBe("nutrient_engine_v1.5.0");
+    expect(plan.calculationVersion).toBe("nutrient_engine_v1.7.0");
     expect(plan.requirement.status).toBe("estimated");
     expect(plan.requirement.source).toContain("Teagasc");
     // Gross: N=125 (Table 12-7), P=0(buildup,idx3)+20(maint)=20, K=125 (Table 14-2, idx3 cut1).
@@ -1897,7 +1915,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
       it("F002: the corrected LESS behaviour carries a new engine version, distinct from the pre-fix v1.0.0", () => {
         const plan = lessPlan({ pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(1, "verified", "Lab") });
         // CC-B4A (v1.2.0) and per-nutrient P/K Increments 2 (v1.3.0) and 3 (v1.4.0) moved the engine on; the LESS correction carries forward.
-        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.5.0");
+        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.7.0");
         expect(plan.calculationVersion).not.toBe("nutrient_engine_v1.0.0");
         expect(plan.calculationVersion).toBe(NUTRIENT_ENGINE_VERSION);
         expect(plan.requirement.calculationVersion).toBe(NUTRIENT_ENGINE_VERSION);
@@ -1975,9 +1993,9 @@ describe("calculateNutrientPlan (orchestration)", () => {
 
       it("the splashplate correction carries forward into engine version v1.4.0", () => {
         const plan = splashplatePlan({});
-        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.5.0");
-        expect(plan.calculationVersion).toBe("nutrient_engine_v1.5.0");
-        expect(plan.requirement.calculationVersion).toBe("nutrient_engine_v1.5.0");
+        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.7.0");
+        expect(plan.calculationVersion).toBe("nutrient_engine_v1.7.0");
+        expect(plan.requirement.calculationVersion).toBe("nutrient_engine_v1.7.0");
       });
     });
 
@@ -3535,7 +3553,7 @@ describe("Campaign C verified rules within the existing engine", () => {
   it("no rate selector exists in the engine (AI_PROVISIONAL_RATE_SELECTOR_V1 is not implemented)", async () => {
     const engine = await import("./nutrients");
     expect(Object.keys(engine).filter((k) => /rate.?selector|selectSlurryRate/i.test(k))).toEqual([]);
-    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.5.0");
+    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.7.0");
   });
 });
 
@@ -3600,7 +3618,8 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
   // version change). Fertiliser Vertical Increment 1 also excludes the
   // additive canonical `fieldRequirement` (no version change), and
   // Increment 2b the additive `fieldRemainingRequirement` (no version
-  // change). Session 2b excludes the new `purchaseStatus` and maps v1.5.0
+  // change). Session 2b excludes the new `purchaseStatus` and maps v1.5.0 (now v1.7.0 —
+  // v1.6.0/v1.7.0 corrections do not touch first-cut silage)
   // back to v1.2.0 instead: products, delivered supply and cost are sized
   // from the canonical remaining requirement and must be unchanged here.
   // Nothing else is normalised.
@@ -3618,7 +3637,7 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
     delete organicApplication.availableNutrientBasis;
     existing.organicApplication = organicApplication as NutrientPlan["organicApplication"];
     const json = JSON.stringify(existing, (key, value) =>
-      key === "calculationVersion" && value === "nutrient_engine_v1.5.0" ? "nutrient_engine_v1.2.0" : value,
+      key === "calculationVersion" && value === "nutrient_engine_v1.7.0" ? "nutrient_engine_v1.2.0" : value,
     );
     return createHash("sha256").update(json).digest("hex");
   };
@@ -3657,7 +3676,7 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
             // for missing-index cases) equals the pre-change engine.
             expect(baseline[key]).toBeDefined();
             expect(digestWithoutNewField(plan)).toBe(baseline[key]);
-            expect(plan.calculationVersion).toBe("nutrient_engine_v1.5.0");
+            expect(plan.calculationVersion).toBe("nutrient_engine_v1.7.0");
           });
         }
       }
@@ -3953,9 +3972,19 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
   // The blend is sized from the Index-1 stand-in with no slurry P/K credit
   // (the paired assessment is blocked). Audited case: the Index-1 K blend
   // is empty, so the organic 5 m buffer applies (LEGAL_PROHIBITION at 4 m,
-  // the bfdad74 result the F001 audit recorded). Mirror: the Index-1 P
-  // blend (P build-up) is not empty, so the chemical 3 m buffer applies
-  // (OK at 4 m, as at bfdad74).
+  // the bfdad74 result the F001 audit recorded). Mirror: at bfdad74 the
+  // Index-1 P blend for this SECOND cut was not empty only because Table
+  // 13-2 build-up was added to every cut, so the chemical 3 m buffer applied
+  // (OK at 4 m). nutrient_engine_v1.7.0 applies build-up to the first cut
+  // only (Green Book §13), the second-cut blend is empty here too, and the
+  // organic 5 m buffer now applies to the 100 m3/ha slurry: LEGAL_PROHIBITION
+  // at 4 m, the same result as the audited case (evidence register,
+  // 2026-11-11 entry — a deliberate, stricter statutory output change).
+  const organicBufferProhibition = {
+    status: "LEGAL_PROHIBITION",
+    reasonCode: "NATIONAL_BUFFER_DISTANCE_NOT_MET",
+    consequence: "Proposed application at 4m to surface_water is below the statutory 5m buffer for organic_fertiliser_or_soiled_water.",
+  } as const;
   for (const [label, f, expectedBuffer] of [
     [
       "K missing, P Index 4 (audited F001 case)",
@@ -3966,9 +3995,9 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
         consequence: "Proposed application at 4m to surface_water is below the statutory 5m buffer for organic_fertiliser_or_soiled_water.",
       },
     ],
-    ["P missing, K Index 4 (mirror)", { k: 4 as Idx }, { status: "OK", value: "BOUNDARY_MET_SUBJECT_TO_OTHER_RULES", evidenceState: "DERIVED" }],
+    ["P missing, K Index 4 (mirror; v1.6.0 changed from OK — see above)", { k: 4 as Idx }, organicBufferProhibition],
   ] as const) {
-    it(`CC-B5 buffer regression — ${label}: second cut, yield 0, 100 m3/ha spring LESS at 6% DM, water 4 m keeps the bfdad74 result`, () => {
+    it(`CC-B5 buffer regression — ${label}: second cut, yield 0, 100 m3/ha spring LESS at 6% DM, water 4 m`, () => {
       const waterBufferContext = tracked({ featureType: "surface_water" as const, distanceM: 4, localOverrideStatus: "verified_none" as const }, "farmer_adjusted", "Keith");
       const allocation = { ...allocationFor(methods[1][1], "2027-03-15"), volumeM3: 100 * field.areaHa };
       const plan = calculateNutrientPlan({
@@ -4217,11 +4246,14 @@ describe("requirementByNutrient / netRequirementByNutrient (per-nutrient P/K Inc
     expect(none.requirementByNutrient.k).toEqual(missingIndex("fertility.kIndex"));
   });
 
-  it("CC-B5 buffer regression cases keep the bfdad74 result and the unknown arms carry no number", () => {
+  // v1.6.0: the K Index 4 mirror moved from OK to LEGAL_PROHIBITION once
+  // second-cut P build-up stopped being added (see the CC-B5 buffer
+  // regression comment above).
+  it("CC-B5 buffer regression cases (organic 5 m buffer at 4 m) and the unknown arms carry no number", () => {
     const waterBufferContext = tracked({ featureType: "surface_water" as const, distanceM: 4, localOverrideStatus: "verified_none" as const }, "farmer_adjusted", "Keith");
     for (const [f, unknownArm, expectedStatus] of [
       [{ p: 4 as Idx }, "k", "LEGAL_PROHIBITION"],
-      [{ k: 4 as Idx }, "p", "OK"],
+      [{ k: 4 as Idx }, "p", "LEGAL_PROHIBITION"],
     ] as const) {
       const plan = calculateNutrientPlan({
         field: { ...field, waterBufferContext, fertility: fertilityOf(f) },
@@ -4361,7 +4393,7 @@ describe("fieldRequirement (Fertiliser Vertical Increment 1)", () => {
     expect(fr.n).not.toHaveProperty("kgHa");
   });
 
-  it("grazing with no usable farm grassland area is UNKNOWN (MISSING_GRASSLAND_AREA), never a known 0; legacy paired output unchanged", () => {
+  it("grazing with no usable farm grassland area is UNKNOWN (MISSING_GRASSLAND_AREA), never a known 0; legacy paired output unavailable (v1.7.0)", () => {
     // (A NaN area already throws inside the statutory P lookup before this builder runs — pre-existing, out of scope.)
     for (const area of [0, -1]) {
       const plan = calculateNutrientPlan({ field: { ...field, fertility: fertilityOf(2, 2) }, farmGrasslandAreaHa: area, livestockGroups: herd, asOfDate: "2026-10-02" });
@@ -4370,7 +4402,10 @@ describe("fieldRequirement (Fertiliser Vertical Increment 1)", () => {
         expect(plan.fieldRequirement[nutrient]).not.toHaveProperty("kgHa");
         expect(plan.fieldRequirement[nutrient]).not.toHaveProperty("totalKg");
       }
-      expect(plan.requirement.status).toBe("estimated"); // LEGACY_COMPATIBILITY_PATH
+      // nutrient_engine_v1.7.0: the legacy paired output no longer reads a
+      // table row off an unusable stocking rate — it is unavailable too.
+      expect(plan.requirement.status).toBe("unavailable");
+      expect(plan.requirement.source).toMatch(/no usable grassland area recorded/);
     }
     // Silage does not read the stocking rate, so it is unaffected.
     const silage = calculateNutrientPlan({

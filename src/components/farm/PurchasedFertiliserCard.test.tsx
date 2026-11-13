@@ -140,7 +140,7 @@ describe("PurchasedFertiliserCard — Session 2b purchase status", () => {
 
   it("UNKNOWN (no usable grassland area): shows the reason, never a table or €0", () => {
     const plan = calculateNutrientPlan({ field, farmGrasslandAreaHa: 0, livestockGroups: livestock, asOfDate: "2026-10-03" });
-    expect(plan.requirement.status).toBe("estimated");
+    expect(plan.requirement.status).toBe("unavailable"); // nutrient_engine_v1.7.0: no grassland area → no stocking rate → no grazing requirement (fail closed)
     expect(plan.purchaseStatus).toEqual({ status: "UNKNOWN", reasonCode: "MISSING_GRASSLAND_AREA", missingInputs: ["farmGrasslandAreaHa"] });
     render2b(plan);
     expect(screen.getByText(/insufficient evidence/i)).toBeTruthy();

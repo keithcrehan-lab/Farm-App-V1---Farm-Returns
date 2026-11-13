@@ -3,11 +3,11 @@ import {
   calculateFarmConcentrateFeedCostBreakdown,
   calculateFarmConcentrateFeedCostEur,
   calculateFarmConcentrateFeedRequirement,
-  calculateFarmFertiliserCostEur,
-  calculateFarmFertiliserRequirement,
+  calculateFarmFertiliserCostEur as realCalculateFarmFertiliserCostEur,
+  calculateFarmFertiliserRequirement as realCalculateFarmFertiliserRequirement,
   calculateFarmGrassAndSilageCostEur,
   calculateFarmMineralCostEur,
-  calculateFarmSlurryNutrientValueEur,
+  calculateFarmSlurryNutrientValueEur as realCalculateFarmSlurryNutrientValueEur,
   calculateLivestockPortfolioValueEur,
   withRealBuyingOpportunityRequirement,
   withRealInputRequirements,
@@ -20,16 +20,28 @@ import {
   FEED_COST_ENGINE_VERSION,
 } from "./feed-cost";
 import { calculateFinishingBudget, calculateWeanlingConcentrateStrategies } from "./livestock";
-import { calculateNutrientPlan } from "./nutrients";
+import { calculateNutrientPlan as realCalculateNutrientPlan } from "./nutrients";
 import { tracked } from "./types";
 import type { BuyingOpportunity, Field, Housing, InputRequirement, LivestockGroup, SilagePlan, SlurryAllocation } from "./types";
+
+// These historic numerical fixtures now state their supported grazing system.
+const known = <T extends { grazingProductionSystem?: string }>(input: T): T =>
+  ({ grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", ...input });
+const calculateNutrientPlan: typeof realCalculateNutrientPlan = (input) =>
+  realCalculateNutrientPlan({ grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", ...input });
+const calculateFarmFertiliserRequirement: typeof realCalculateFarmFertiliserRequirement = (input) =>
+  realCalculateFarmFertiliserRequirement(known(input));
+const calculateFarmFertiliserCostEur: typeof realCalculateFarmFertiliserCostEur = (input) =>
+  realCalculateFarmFertiliserCostEur(known(input));
+const calculateFarmSlurryNutrientValueEur: typeof realCalculateFarmSlurryNutrientValueEur = (input) =>
+  realCalculateFarmSlurryNutrientValueEur(known(input));
 
 function makeField(id: string, overrides: Partial<Field> = {}): Field {
   return {
     id,
     farmId: "farm-test",
     name: id,
-    areaHa: 5,
+    areaHa: 20, // nutrient_engine_v1.7.0: 20 suckler cows on 20 ha (65 kg organic N/ha) — 5 ha put the herd above Table 12-3's last row
     centroid: [0, 0],
     plannedUse: tracked("grazing", "estimated", "Farm Return assumption"),
     mappedSoil: {

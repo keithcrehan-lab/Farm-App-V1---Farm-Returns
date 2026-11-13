@@ -20,7 +20,7 @@
 import { calculateNutrientPlan, NUTRIENT_ENGINE_VERSION, type CalculateNutrientPlanInput } from "@/domain/nutrients";
 import { blockedInsufficientEvidence, notApplicable, ok, type EngineOutcome } from "@/domain/evidence";
 import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
-import type { Field, FertiliserProduct, LivestockGroup, NapComplianceCheck, SlurryAllocation } from "@/domain/types";
+import type { Field, FertiliserProduct, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "@/domain/types";
 import type { SlurryComposition } from "@/domain/slurry-composition";
 import { purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
 import { buildPrompt, type Prompt } from "./index";
@@ -141,11 +141,19 @@ function describeFertiliserRecommendationOk(
   // provisional grazing route. Qualified to match the engine's own
   // regulatory confidence.
   const napConfirmed = value.napCompliance.status === "OK" && value.napCompliance.value.regulatory === "compliance_value";
+  // 2026-11-11 (fertiliser engine test plan, run 1): when the NAP check
+  // itself could not run (most often: no animal ages recorded, so the
+  // statutory stocking rate is unknown), the recommendation is still
+  // issued — spec Section A2 keeps the agronomic and compliance ledgers
+  // independent — but the farmer must be told the limits were not checked,
+  // instead of seeing an unqualified "Fertiliser recommended".
   const napWarning = napExceeded
     ? napConfirmed
       ? " This exceeds the statutory NAP ceiling for this field — check compliance before applying (see NAP compliance on the Nutrients screen)."
       : " This may exceed the NAP ceiling, but that classification isn't confirmed yet — see NAP compliance on the Nutrients screen before relying on it."
-    : "";
+    : value.napCompliance.status !== "OK"
+      ? " Nitrates (NAP) limits have not been checked for this field yet — see NAP compliance on the Nutrients screen for what is missing before applying."
+      : "";
   const provisionalNote = value.provisional ? ` Provisional — ${value.provisional.headline}: ${value.provisional.detail}` : "";
   return {
     title: `Fertiliser recommended — ${fieldName}`,
@@ -283,6 +291,20 @@ function basisFromPurchaseStatus(
   }
 }
 
+/**
+ * nutrient_engine_v1.7.0: the requirement can now be unavailable for more
+ * than a missing silage plan (an unknown statutory stocking rate, a
+ * stocking rate above the published table, a clover sward outside the
+ * Teagasc strategy, no grassland area). The canonical per-nutrient arms
+ * carry the exact reason, so the prompt asks for the right thing.
+ */
+function unavailableRequirementBasis(plan: NutrientPlan): EngineOutcome<FertiliserRecommendationSummary> {
+  for (const arm of [plan.fieldRequirement.n, plan.fieldRequirement.p, plan.fieldRequirement.k]) {
+    if (arm.status === "UNKNOWN") return blockedInsufficientEvidence(arm.reasonCode, arm.missingInputs);
+  }
+  return blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["silage"]);
+}
+
 export function promptForFertiliserRecommendation(
   field: Field,
   farmGrasslandAreaHa: number,
@@ -312,6 +334,8 @@ export function promptForFertiliserRecommendation(
   // stores with recorded composition — see
   // `resolveFieldSlurryCompositionInput` (`slurry-evidence-context.ts`).
   slurryCompositionUnresolved?: { housingIds: string[]; compositionRecordIds: string[] },
+  // The resolved real grazing system, never inferred from the livestock category.
+  grazingProductionSystem?: CalculateNutrientPlanInput["grazingProductionSystem"],
 ): Prompt {
   let basis: EngineOutcome<FertiliserRecommendationSummary>;
 
@@ -322,6 +346,7 @@ export function promptForFertiliserRecommendation(
       field,
       farmGrasslandAreaHa,
       livestockGroups,
+      grazingProductionSystem,
       slurryAllocation,
       nonGrassPct,
       asOfDate,
@@ -347,7 +372,7 @@ export function promptForFertiliserRecommendation(
           // vanished from farm-wide Recommended/Planned totals with
           // nothing disclosing it.
           plan.requirement.status !== "estimated"
-          ? blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["silage"])
+          ? unavailableRequirementBasis(plan)
           : basisFromPurchaseStatus(plan, field, livestockGroups);
   }
 

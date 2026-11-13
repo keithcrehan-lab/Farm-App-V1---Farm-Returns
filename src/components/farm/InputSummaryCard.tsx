@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { mockInputRequirements, mockSilagePlans } from "@/data/mock-farm";
-import { useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import {
   calculateFarmConcentrateFeedRequirement,
   calculateFarmFertiliserRequirement,
@@ -23,6 +23,7 @@ import { formatEur, formatNumber } from "@/lib/format";
  * farm's fabricated quantity/cost.
  */
 export function InputSummaryCard() {
+  const farm = useFarm();
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
@@ -30,6 +31,7 @@ export function InputSummaryCard() {
 
   const fertiliserRequirement = calculateFarmFertiliserRequirement({
     fields,
+    grazingProductionSystem: farm.grazingProductionSystem?.value,
     livestockGroups,
     slurryAllocations,
     silagePlans: isRealMode ? [] : mockSilagePlans,

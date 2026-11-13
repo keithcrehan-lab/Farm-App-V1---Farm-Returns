@@ -325,6 +325,7 @@ async function buildFieldEvidenceSections(
     field,
     farmGrasslandAreaHa,
     livestockGroups,
+    grazingProductionSystem: farm.grazingProductionSystem?.value,
     slurryAllocation,
     nonGrassPct,
     pBuildUpCompliance: farm.pBuildUpCompliance?.value,

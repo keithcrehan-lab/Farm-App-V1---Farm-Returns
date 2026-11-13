@@ -105,3 +105,22 @@ describe("NutrientRequirementCard", () => {
     });
   });
 });
+
+// Codex audit F008: a clover sward's N is from the 2026 Teagasc clover
+// strategy, and the card's source badge says so.
+describe("NutrientRequirementCard — clover provenance", () => {
+  it("names the clover strategy as the N source for a 10% April clover sward at 170 kg organic N/ha", () => {
+    // 34 suckler cows (65 kg N each, S.I. 588/2025 Table 7) on 13 ha = 170.0.
+    const f = field({ areaHa: 13, grazingSward: { kind: "WHITE_CLOVER", aprilWhiteCloverPct: 10 } });
+    const cows = [
+      { id: "g1", farmId: "farm-1", category: "suckler_cow" as const, label: "Cows", count: tracked(34, "verified", "Farmer"), avgAgeMonths: 60, sex: "female" as const, system: "grazing" as const, value: tracked(0, "estimated", "x") },
+    ];
+    const plan = calculateNutrientPlan({ field: f, farmGrasslandAreaHa: 13, livestockGroups: cows, slurryAllocation: undefined, nonGrassPct: 0 });
+    expect(plan.requirement.status).toBe("estimated");
+    expect(plan.requirement.value.n).toBe(75);
+    expect(plan.requirement.source).toMatch(/clover/i);
+    expect(plan.netRequirement.source).toMatch(/clover/i);
+    render(<NutrientRequirementCard plan={plan} field={f} />);
+    expect(screen.getAllByText(/clover/i).length).toBeGreaterThan(0);
+  });
+});

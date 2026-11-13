@@ -84,7 +84,7 @@ an agent uses to find the right module before writing a new one.
 | Concern | Modules |
 |---|---|
 | Provenance & evidence | `provenance.ts`, `evidence.ts`, `source-register.ts` |
-| Nutrients & statutory gates | `nutrients.ts`, `nutrient-plan-trace.ts`, `slurry-composition.ts`, `buffer-gate.ts`, `closed-period-calendar.ts`, `clover-n.ts`, `commonage-gate.ts`, `concentrate-gates.ts`, `fertiliser-admissibility-gate.ts`, `input-gates.ts`, `less-method-gate.ts`, `milking-platform.ts`, `p-build-up-eligibility.ts`, `sell-hold-economics-gate.ts`, `soiled-water-gate.ts`, `spreading-legal-gate.ts`, `statutory-excretion.ts`, `statutory-manure-value.ts` |
+| Nutrients & statutory gates | `nutrients.ts`, `nutrient-plan-trace.ts`, `slurry-composition.ts`, `buffer-gate.ts`, `closed-period-calendar.ts`, `clover-n.ts`, `commonage-gate.ts`, `concentrate-gates.ts`, `fertiliser-admissibility-gate.ts`, `input-gates.ts`, `less-method-gate.ts`, `milking-platform.ts`, `p-build-up-eligibility.ts`, `sell-hold-economics-gate.ts`, `soiled-water-gate.ts`, `spreading-legal-gate.ts`, `statutory-excretion.ts`, `statutory-manure-value.ts`, `grass-fertiliser-engine-v2.ts`, `soil-ph-advice.ts` |
 | Soil | `soil-resolution.ts`, `soil-test-validity.ts`, `soil-test-history.ts`, `field-boundary.ts` |
 | Livestock & feed | `livestock.ts`, `feed-cost.ts`, `fodder-budget.ts` |
 | Finance & market | `finance.ts`, `market.ts`, `price-resolution.ts` |
@@ -5114,3 +5114,19 @@ Reuse: `validateStoredSchemeDefinition`, `registeredSchemeDataKey`, `StoredSchem
 Runtime never reads a content pack as a source of scheme content. `documents.test.ts` checks the legacy map against actual imports and exports; a new importer of a mapped legacy module outside a campaign-writable directory fails it.
 
 Known limits, assigned to engine phases by the Standard §5: `deriveSchemeEligibility` returns `LIKELY_ELIGIBLE` for an empty rule set, drops a rule with no evaluation from its rollup, and does not change the final state for a failed rule without `hardGate`. S0 cannot edit that module.
+
+## Fertiliser close-out (2026-11-11)
+
+Changes frozen contracts, so `BUILD_STATE.json.contracts_frozen` is `false` until the close-out PR is merged and its
+final audit is clean (step 4 above). Evidence: `evidence-register.md` "Nutrient engine v1.7.0" and "Soil pH advice".
+Owner: the fertiliser vertical.
+
+| Module | Contract |
+|---|---|
+| `domain/soil-ph-advice.ts` (`soil_ph_advice_v1.1.0`, new) | `assessSoilPh(field, cropSystem): EngineOutcome<SoilPhAdvice>`; `phTargetLandUseForField(field, cropSystem): EngineOutcome<PhTargetLandUse>`; `formatPhTarget`, `formatPhReading`; `TEAGASC_PH_TARGETS`, `PEAT_ORGANIC_MATTER_THRESHOLD_PCT`; types `SoilPhAdvice`, `SoilPhReadingProvenance`, `PhTargetLandUse`. Source `TEAGASC_PH_LIME` (`soil_pH_targets.csv`). Applicability: grass systems → 6.3, white-clover grazing/silage → 6.5–6.8, peat (>20% organic matter, else mapped peat) → 5.5–5.8 overriding the crop. Fails closed: no pH or an `unavailable` reading (`MISSING_SOIL_PH`), no production cycle (`MISSING_FIELD_PRODUCTION_CYCLE`), crops with no matchable row — other cereal, forage rape/kale, red clover, horticulture, other (`PH_TARGET_NOT_PUBLISHED_FOR_CROP`). Never returns a lime rate; reading provenance travels with the advice. Consumers: `aggregateFarmLimeRequirement` (`fertiliser-plan.ts`, option `cropSystemByFieldId`), `getFarmLimeRequirementAction`, `SoilPhAdviceList`. |
+| `domain/grass-fertiliser-engine-v2.ts` (`grass_fertiliser_engine_v2.1.0`, additive exports) | `calculateGrazingGrossRequirement(input): GrazingRequirementOutcome` — the one grazing N/P/K calculation (Green Book Tables 12-2/12-3, 13-2/13-3, 14-1; Teagasc 2026 clover strategy at exactly 170 kg organic N/ha), shared by `calculateGrassFertiliserV2` and `calculateNutrientPlan`; fails closed above the last published row. `grazingSwardForCycle(cycle): GrazingSward | undefined`. Consumers: `nutrients.ts`, `lib/farm-data/fields.ts`, `store/farm-store.tsx`. |
+| `domain/nutrients.ts` (`nutrient_engine_v1.7.0`, changed) | `calculateNutrientPlan` grazing requirement from `calculateGrazingGrossRequirement` on the statutory grassland stocking rate; optional inputs `grazingSward`, `grazingProductionSystem`; grazing outputs fail closed (no requirement → per-nutrient arms blocked, legacy requirement unavailable); `calculationTrace.grazing` is the organic-N basis with source, version and inputs; N provenance follows the table or strategy that produced it. |
+| `lib/farm-data/fields.ts` `listFieldsForFarm` (changed) | Also reads the current season's `field_production_cycles` and attaches the derived `Field.grazingSward`. |
+| `store/farm-store.tsx` (additive) | `applySavedProductionCycle(fieldId, season, cycle)` keeps the derived sward in step with saved cycles (production-cycle card, field drawer, bulk crop sheet). |
+
+Deferred: FCO-F012 (`BLOCKERS.md`) — Nutrients callers do not yet pass the resolved grazing production system.

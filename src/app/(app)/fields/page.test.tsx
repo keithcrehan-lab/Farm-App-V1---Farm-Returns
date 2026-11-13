@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { FarmProvider } from "@/store/farm-store";
+import { FarmProvider, useFields } from "@/store/farm-store";
 import { mockFarm, mockFields } from "@/data/mock-farm";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import { fieldScanCentre, type FieldScanExistingField, type NamedFieldScanSelection } from "@/domain/field-scan";
@@ -362,6 +362,47 @@ describe("Fields bulk production-cycle actions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
     const list = document.querySelector("[data-multi-select-list]") as HTMLElement;
     expect(within(list).getByRole("button", { name: "Carry forward" })).toBeTruthy();
+  });
+
+  // Codex audit F010: a bulk crop change reaches the farm store's grazing
+  // sward at once, so nutrient plans never keep the previous sward.
+  it("applies each saved cycle's sward to the farm store without a reload", async () => {
+    function SwardProbe() {
+      const current = useFields().find((candidate) => candidate.id === home.id);
+      return <output data-testid="bulk-sward">{JSON.stringify(current?.grazingSward ?? null)}</output>;
+    }
+    const savedCycle = {
+      id: "cycle-home",
+      fieldId: home.id,
+      season: thisSeason,
+      cropSystem: "GRASS_WHITE_CLOVER_GRAZING",
+      status: "active",
+      evidence: {
+        cropSystem: { value: "GRASS_WHITE_CLOVER_GRAZING", method: "FARMER_DECLARED", source: "Farmer", observedAt: "2026-10-30T00:00:00.000Z" },
+        whiteCloverPct: { value: 5, method: "FARMER_DECLARED", source: "Farmer", observedAt: "2026-10-30T00:00:00.000Z" },
+      },
+      createdAt: "2026-10-30T00:00:00.000Z",
+      updatedAt: "2026-10-30T00:00:00.000Z",
+    };
+    bulk.setCrop.mockResolvedValue({
+      status: "completed",
+      season: thisSeason,
+      outcomes: [
+        { fieldId: home.id, fieldName: home.name, outcome: "saved", gateStatus: "READY_FOR_CALCULATION", savedCycle },
+        { fieldId: other.id, fieldName: other.name, outcome: "failed" },
+      ],
+    });
+    search.current = new URLSearchParams();
+    render(
+      <FarmProvider>
+        <FieldsPage />
+        <SwardProbe />
+      </FarmProvider>,
+    );
+    openAction("Set crop / use");
+    chooseCrop();
+    fireEvent.click(await screen.findByRole("button", { name: `Save 2 fields for ${thisSeason}` }));
+    await vi.waitFor(() => expect(screen.getByTestId("bulk-sward").textContent).toBe(JSON.stringify({ kind: "WHITE_CLOVER", aprilWhiteCloverPct: 5 })));
   });
 
   it("goes from selection through confirmation to success, writing nothing before the farmer confirms", async () => {

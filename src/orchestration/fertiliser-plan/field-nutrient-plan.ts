@@ -95,6 +95,7 @@ export function buildFieldNutrientPlan(input: FieldNutrientPlanInput): FieldNutr
     field,
     farmGrasslandAreaHa,
     livestockGroups,
+    grazingProductionSystem: farm.grazingProductionSystem?.value,
     slurryAllocation,
     nonGrassPct,
     // Codex audit HIGH (round 14): the farmer's recorded Article 17(6) evidence.
@@ -117,7 +118,7 @@ export function buildFieldNutrientPlan(input: FieldNutrientPlanInput): FieldNutr
   // Codex audit CRITICAL (round 4): planning is seeded only from the
   // grazing-only recommendation the server recomputes (`silage: undefined`).
   const grazingOnlyPlan = silagePlan
-    ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct, pBuildUpCompliance: farm.pBuildUpCompliance?.value, slurryComposition: compositionInput.composition, slurryCompositionUnresolved: compositionInput.unresolved, plannedRegulatoryNeatSlurry })
+    ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, grazingProductionSystem: farm.grazingProductionSystem?.value, slurryAllocation, nonGrassPct, pBuildUpCompliance: farm.pBuildUpCompliance?.value, slurryComposition: compositionInput.composition, slurryCompositionUnresolved: compositionInput.unresolved, plannedRegulatoryNeatSlurry })
     : plan;
 
   // Campaign B closure audit HIGH: while stale, no NAP verdict is shown or carried.

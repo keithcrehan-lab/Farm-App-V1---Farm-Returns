@@ -44,6 +44,8 @@ describe("grazing field pressure", () => {
     expect(organicNStockingRateFromLUHa(1)).toBe(80);
     expect(organicNStockingRateFromLUHa(1.5)).toBe(118);
     expect(organicNStockingRateFromLUHa(3)).toBe(235);
+    // Refuse to extrapolate or hold the last row beyond 3 LU/ha.
+    expect(organicNStockingRateFromLUHa(3.01)).toBeNull();
     expect(organicNStockingRateFromLUHa(1.375)).toBeCloseTo(108.5, 8);
   });
 

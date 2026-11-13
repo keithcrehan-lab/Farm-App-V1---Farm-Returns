@@ -242,6 +242,7 @@ async function buildRealCandidates(
    * writes to, never from anything else this function's own caller
    * passes in. */
   contractorCostRecord: PersistedContractorCostRate | null,
+  grazingProductionSystem?: "SUCKLER_CALF_TO_BEEF" | "SUCKLER_CALF_TO_WEANING" | "OTHER_DRYSTOCK",
 ): Promise<{ candidates: BuiltCandidate[]; sourceEngineVersion: string | null; realisationCostResolutionByRecordId: Record<string, SlurryRealisationCostResolution>; evidence: WhatMattersEvidenceSummary }> {
   const prices = await resolvedPricesByProduct(asOfDate);
   // `knownAt` is the assessment's own knowledge-cutoff, distinct from any
@@ -260,8 +261,8 @@ async function buildRealCandidates(
   for (const { field, allocation, evaluatedActionId, assessmentId, recordId } of targets) {
     const composition = compositionInputByFieldId.get(field.id) ?? {};
     const compositionInputs = { slurryComposition: composition.composition, slurryCompositionUnresolved: composition.unresolved };
-    const baselinePlan = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: undefined, asOfDate, ...compositionInputs });
-    const interventionPlan = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: allocation, asOfDate, ...compositionInputs });
+    const baselinePlan = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, grazingProductionSystem, slurryAllocation: undefined, asOfDate, ...compositionInputs });
+    const interventionPlan = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, grazingProductionSystem, slurryAllocation: allocation, asOfDate, ...compositionInputs });
 
     // Realisation cost now comes ONLY from a real farmer-entered contractor
     // rate -- never an automatic system value (see
@@ -366,7 +367,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
     const { farmGrasslandAreaHa } = evidenceContext;
     const compositionInputByFieldId = new Map(evidenceContext.fields.map((f) => [f.fieldId, f.nutrientPlanComposition]));
 
-    const { candidates, sourceEngineVersion, realisationCostResolutionByRecordId, evidence } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, compositionInputByFieldId, asOfDate, evaluatedAt, contractorCostRecord);
+    const { candidates, sourceEngineVersion, realisationCostResolutionByRecordId, evidence } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, compositionInputByFieldId, asOfDate, evaluatedAt, contractorCostRecord, farm.grazingProductionSystem?.value);
 
     const candidateContext: Record<string, WhatMattersPilotCandidateContext> = {};
     for (const candidate of candidates) {

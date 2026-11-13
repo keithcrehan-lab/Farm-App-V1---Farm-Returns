@@ -55,7 +55,7 @@ const REPORTS: ReportDef[] = [
     // identical comment); `[]` for a real account is the honest
     // equivalent rather than a relied-upon id mismatch.
     buildCsv: ({ farm, fields, livestockGroups, slurryAllocations, isRealMode }) =>
-      buildNutrientPlanReportCsv(fields, livestockGroups, slurryAllocations, isRealMode ? [] : mockSilagePlans, farm.pBuildUpCompliance?.value),
+      buildNutrientPlanReportCsv(fields, livestockGroups, slurryAllocations, isRealMode ? [] : mockSilagePlans, farm.pBuildUpCompliance?.value, farm.grazingProductionSystem?.value),
   },
   {
     id: "soil-test-history",

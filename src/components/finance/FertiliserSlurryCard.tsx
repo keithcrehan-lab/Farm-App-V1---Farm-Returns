@@ -5,11 +5,12 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { mockSilagePlans } from "@/data/mock-farm";
-import { useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { calculateFarmFertiliserCostEur, calculateFarmSlurryNutrientValueEur } from "@/domain/finance";
 import { formatEur } from "@/lib/format";
 
 export function FertiliserSlurryCard() {
+  const farm = useFarm();
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
@@ -18,7 +19,7 @@ export function FertiliserSlurryCard() {
   // comment: mockSilagePlans never matches a real farm's real field ids,
   // so `[]` for a real account is the honest way to say "no real
   // silage-plan feature yet" rather than relying on an id mismatch.
-  const fertiliserInput = { fields, livestockGroups, slurryAllocations, silagePlans: isRealMode ? [] : mockSilagePlans };
+  const fertiliserInput = { fields, livestockGroups, slurryAllocations, grazingProductionSystem: farm.grazingProductionSystem?.value, silagePlans: isRealMode ? [] : mockSilagePlans };
   const fertiliserCost = calculateFarmFertiliserCostEur(fertiliserInput);
   const slurryValue = calculateFarmSlurryNutrientValueEur(fertiliserInput);
   // Audit F001: with an unknown price the spend is only a known subtotal —

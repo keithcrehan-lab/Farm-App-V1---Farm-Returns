@@ -270,7 +270,7 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
   if (!farm) return null;
 
   const [allFields, livestockGroups, individualAnimals, slurryAllocations, slurryCompositionRecords] = await Promise.all([
-    listFieldsForFarm(farm.id),
+    listFieldsForFarm(farm.id, { farm, resolveGrazingSystems: true }),
     listLivestockGroupsForFarm(farm.id),
     listIndividualAnimalsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
@@ -290,6 +290,7 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
     farmId: farm.id,
     fields,
     livestockGroups,
+    grazingProductionSystem: farm.grazingProductionSystem?.value,
     slurryAllocations,
     // Codex audit HIGH (round 14): this farm's real Article 17(6)
     // evidence — previously never supplied, forcing every farm's

@@ -274,7 +274,7 @@ describe("buildFarmFertiliserQuoteBasket", () => {
 
 describe("Session 3b over real engine plans", () => {
   const herd: LivestockGroup[] = [
-    { id: "g1", farmId: "farm-3b", category: "suckler_cow", label: "Cows", count: tracked(30, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") },
+    { id: "g1", farmId: "farm-3b", category: "suckler_cow", label: "Cows", count: tracked(30, "verified", "Farmer"), system: "grazing", avgAgeMonths: 60, sex: "female", value: tracked(30000, "estimated", "Farm Return estimate") },
   ];
   function realField(id: string, p: 1 | 2 | 3 | 4 | undefined, k: 1 | 2 | 3 | 4 | undefined, extra: Partial<Field> = {}): Field {
     return {
@@ -297,7 +297,7 @@ describe("Session 3b over real engine plans", () => {
     realField("f4", 3, 3, { plannedUse: tracked("tillage", "farmer_adjusted", "Farmer") }),
   ];
   const farmGrasslandAreaHa = 6 + 4.3 + 6;
-  const plans: NutrientPlan[] = fields.map((f) => calculateNutrientPlan({ field: f, farmGrasslandAreaHa, livestockGroups: herd, slurryAllocation: undefined }));
+  const plans: NutrientPlan[] = fields.map((f) => calculateNutrientPlan({ field: f, farmGrasslandAreaHa, livestockGroups: herd, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryAllocation: undefined }));
   const inputs = () => plans.map((plan, i) => ({ fieldId: fields[i].id, fieldName: fields[i].name, plan }));
 
   it("18/20: farm totals are exactly the sum of each fully indexed field's own engine products — nothing recomputed", () => {

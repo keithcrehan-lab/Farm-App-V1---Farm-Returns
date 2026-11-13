@@ -130,7 +130,7 @@ const PLAN_REJECTED =(issue: string): DbError => ({ code: "P0001", message: `slu
 
 /** In-memory stand-in for the Supabase/Postgres boundary. */
 class FakeDatabase {
-  tables: Record<string, Row[]> = { farms: [], farm_preceding_year_gsr_records: [], fields: [], housing: [], livestock_groups: [], livestock_individuals: [], slurry_allocations: [], slurry_composition_records: [] };
+  tables: Record<string, Row[]> = { farms: [], farm_preceding_year_gsr_records: [], fields: [], housing: [], livestock_groups: [], livestock_individuals: [], slurry_allocations: [], slurry_composition_records: [], field_production_cycles: [], grazing_field_sessions: [] };
   currentUserId = "user-a";
   private storeLocks = new Map<string, Promise<void>>();
   private rpcArrivals = 0;
@@ -225,7 +225,9 @@ class FakeDatabase {
         const filters: [string, unknown][] = [];
         let limit: number | undefined;
         let range: [number, number] | undefined;
-        const filtered = () => visible(table).filter((r) => filters.every(([col, val]) => r[col] === val));
+        const inFilters: [string, readonly unknown[]][] = [];
+        const filtered = () =>
+          visible(table).filter((r) => filters.every(([col, val]) => r[col] === val) && inFilters.every(([col, vals]) => vals.includes(r[col])));
         const run = () => {
           let rows = filtered();
           if (range !== undefined) rows = rows.slice(range[0], range[1] + 1);
@@ -235,6 +237,7 @@ class FakeDatabase {
         const builder = {
           select: () => builder,
           eq: (col: string, val: unknown) => (filters.push([col, val]), builder),
+          in: (col: string, vals: readonly unknown[]) => (inFilters.push([col, vals]), builder),
           order: () => builder,
           limit: (n: number) => ((limit = n), builder),
           range: (from: number, to: number) => ((range = [from, to]), builder),

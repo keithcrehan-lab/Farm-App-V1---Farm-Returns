@@ -35,7 +35,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { plan, run } = await calculateNutrientPlanWithTrace("RUN_TEST_001", "REC_TEST_001", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
     });
     expect(plan.fieldId).toBe(grazingField.id);
@@ -50,7 +50,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_002", "REC_TEST_002", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
     });
     // V3 closure pass, Priority 6: this run also records a
@@ -91,7 +91,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_003", "REC_TEST_003", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
     });
     const decision = run.decisionRecords[0];
@@ -116,7 +116,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_SILAGE", "REC_TEST_SILAGE", {
       field: silageField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
     });
     const decision = run.decisionRecords[0];
@@ -141,7 +141,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_UNRESOLVED", "REC_TEST_UNRESOLVED", {
       field: unresolvedField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
     });
     const decision = run.decisionRecords[0];
@@ -168,7 +168,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_CONFIRMED", "REC_TEST_CONFIRMED", {
       field: grazingField, // plannedUse: "grazing", explicitly recorded
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
     });
     const decision = run.decisionRecords[0];
@@ -181,9 +181,9 @@ describe("calculateNutrientPlanWithTrace", () => {
     const groups: LivestockGroup[] = [
       { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
     ];
-    const runA = (await calculateNutrientPlanWithTrace("RUN_TEST_004", "REC_TEST_004", { field: grazingField, farmGrasslandAreaHa: 27, livestockGroups: groups })).run;
+    const runA = (await calculateNutrientPlanWithTrace("RUN_TEST_004", "REC_TEST_004", { field: grazingField, farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", livestockGroups: groups })).run;
     const differentField: Field = { ...grazingField, fertility: { ...grazingField.fertility, pIndex: tracked(1, "verified", "Soil test lab") } };
-    const runB = (await calculateNutrientPlanWithTrace("RUN_TEST_004", "REC_TEST_004", { field: differentField, farmGrasslandAreaHa: 27, livestockGroups: groups })).run;
+    const runB = (await calculateNutrientPlanWithTrace("RUN_TEST_004", "REC_TEST_004", { field: differentField, farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", livestockGroups: groups })).run;
     expect(runA.traceSha256).not.toBe(runB.traceSha256);
   });
 
@@ -195,7 +195,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_005", "REC_TEST_005", {
       field: commonageField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
     });
     const commonageDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_005-COMMONAGE");
@@ -218,7 +218,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_006", "REC_TEST_006", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
       slurryAllocation: {
         fieldId: grazingField.id,
@@ -241,7 +241,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_006B", "REC_TEST_006B", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
       slurryAllocation: {
         fieldId: grazingField.id,
@@ -272,11 +272,14 @@ describe("calculateNutrientPlanWithTrace", () => {
     // driven high, but the requirement figure exceeds even the
     // elevated ceiling band.
     const groups: LivestockGroup[] = [
-      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(300, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+      // nutrient_engine_v1.7.0: 85 cows on 27 ha (≈205 kg organic N/ha) is
+      // inside Table 12-3 and still over the 185 kg N ceiling; 300 cows
+      // (≈720 kg N/ha) is beyond the table, where no requirement is given.
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(85, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_007", "REC_TEST_007", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
     });
     const decision = run.decisionRecords[0];
@@ -306,7 +309,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_008", "REC_TEST_008", {
       field: fieldTooClose,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
     });
     const bufferDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_008-BUFFER");
@@ -332,7 +335,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_009", "REC_TEST_009", {
       field: fieldUnknownOverride,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
     });
     const bufferDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_009-BUFFER");
@@ -356,7 +359,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_010", "REC_TEST_010", {
       field: fieldClear,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
     });
     const bufferDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_010-BUFFER");
@@ -370,7 +373,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { plan, run } = await calculateNutrientPlanWithTrace("RUN_TEST_011", "REC_TEST_011", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
       slurryAllocation: { fieldId: grazingField.id, housingId: "h1", priority: "high", volumeM3: 33 * grazingField.areaHa, score: 90 },
       // Campaign B: only evidenced neat slurry feeds the statutory ledger.
@@ -390,7 +393,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_011B", "REC_TEST_011B", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
       slurryAllocation: { fieldId: grazingField.id, housingId: "h1", priority: "high", volumeM3: 33 * grazingField.areaHa, score: 90 },
     });
@@ -411,7 +414,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_014", "REC_TEST_014", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
       // Synthesised the way `resolveFieldSlurryAllocation` would for two
       // real, contributing allocations reporting different methods.
@@ -444,7 +447,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { run: oldRun } = await calculateNutrientPlanWithTrace("RUN_TEST_013_SILAGE", "REC_TEST_013_SILAGE", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
       silage: { cutNumber: 1, expectedYieldTDMha: 5 },
     });
@@ -452,7 +455,7 @@ describe("calculateNutrientPlanWithTrace", () => {
 
     const { run: newRun } = await calculateNutrientPlanWithTrace("RUN_TEST_013_GRAZING", "REC_TEST_013_GRAZING", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
       // no `silage` -> grazing
     });
@@ -486,7 +489,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { plan, run } = await calculateNutrientPlanWithTrace("RUN_TEST_014", "REC_TEST_014", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
       nonGrassPct: 5,
     });
@@ -529,7 +532,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { plan, run } = await calculateNutrientPlanWithTrace("RUN_TEST_UNRESOLVED_HIGH_RATE", "REC_TEST_UNRESOLVED_HIGH_RATE", {
       field: unresolvedField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
       nonGrassPct: 5,
     });
@@ -548,7 +551,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     ];
     const { plan, run } = await calculateNutrientPlanWithTrace("RUN_TEST_012", "REC_TEST_012", {
       field: grazingField,
-      farmGrasslandAreaHa: 27,
+      farmGrasslandAreaHa: 27, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       livestockGroups: groups,
     });
     expect(plan.statutoryManureValue.status).toBe("NOT_APPLICABLE");

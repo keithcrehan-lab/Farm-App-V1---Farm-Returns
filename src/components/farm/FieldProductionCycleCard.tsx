@@ -14,9 +14,18 @@ import {
   loadFieldProductionCycleAction,
   saveFieldProductionCycleAction,
 } from "@/app/actions/fertiliser-field-evidence";
-import { useFarm } from "@/store/farm-store";
+import { useFarm, useFarmActions } from "@/store/farm-store";
 import { FIELD_NUTRIENT_FOCUS_ATTRIBUTE } from "@/lib/field-nutrient-focus";
 import { CROP_SYSTEM_CONTEXT } from "@/lib/crop-system-context";
+
+/** Teagasc drystock clover strategy classes (April sward white-clover
+ * content) — stored as the class's own percentage (0 / 5 / 10), the only
+ * values the fertiliser engine's clover pathway recognises. */
+const WHITE_CLOVER_APRIL_CLASS_OPTIONS: readonly (readonly [string, string])[] = [
+  ["0", "Little or none"],
+  ["5", "About 5%"],
+  ["10", "About 10%"],
+];
 
 const INPUT = "min-h-10 w-full border border-fr-v2-cream-rule bg-white px-3 text-sm text-fr-v2-graphite outline-none focus:border-fr-v2-forest";
 const LABEL = "flex flex-col gap-1.5 text-xs font-semibold text-fr-v2-graphite";
@@ -94,6 +103,7 @@ export function FieldProductionCycleCard({
   defaultOpen?: boolean;
 }) {
   const farm = useFarm();
+  const { applySavedProductionCycle } = useFarmActions();
   const currentSeason = String(new Date().getFullYear());
   const requestedSeason = planningSeason ?? currentSeason;
   const [loaded, setLoaded] = useState<{ requested: string; season: string }>({ requested: requestedSeason, season: requestedSeason });
@@ -113,6 +123,7 @@ export function FieldProductionCycleCard({
   const [kApplied, setKApplied] = useState("");
   const [chemicalApplied, setChemicalApplied] = useState<ChemicalAppliedState>("unknown");
   const [cloverPct, setCloverPct] = useState("");
+  const [aprilClassConfirmed, setAprilClassConfirmed] = useState(false);
   const [grazingSystem, setGrazingSystem] = useState<GrazingProductionSystem | "">("");
   const [grazingMode, setGrazingMode] = useState<"baseline" | "farmer">("baseline");
   const [editingGrazingSystem, setEditingGrazingSystem] = useState(false);
@@ -145,7 +156,13 @@ export function FieldProductionCycleCard({
           setPApplied(loadedP);
           setKApplied(loadedK);
           setChemicalApplied(chemicalAppliedState(loadedN, loadedP, loadedK));
-          setCloverPct(state.cycle.evidence.whiteCloverPct?.value?.toString() ?? "");
+          const savedApril = state.cycle.evidence.aprilWhiteCloverPct;
+          const isAprilClass = state.cycle.cropSystem === "GRASS_WHITE_CLOVER_GRAZING"
+            && savedApril?.method === "FARMER_DECLARED" && savedApril.source.startsWith("April sward class · ");
+          setAprilClassConfirmed(isAprilClass);
+          setCloverPct((isAprilClass ? savedApril?.value
+            : state.cycle.cropSystem === "GRASS_WHITE_CLOVER_GRAZING" ? undefined
+            : state.cycle.evidence.whiteCloverPct?.value)?.toString() ?? "");
           const grazingEvidence = state.cycle.evidence.grazingProductionSystem;
           if (grazingEvidence?.method === "FARMER_DECLARED" && grazingEvidence.source.startsWith("Field exception · ")) {
             setGrazingSystem(grazingEvidence.value);
@@ -155,6 +172,8 @@ export function FieldProductionCycleCard({
             setGrazingMode("baseline");
           }
         } else {
+          setCloverPct("");
+          setAprilClassConfirmed(false);
           setGrazingSystem(farm.grazingProductionSystem?.value ?? "");
           setGrazingMode("baseline");
         }
@@ -206,7 +225,14 @@ export function FieldProductionCycleCard({
 
       <label className={LABEL}>
         Crop system
-        <select className={INPUT} value={cropSystem} onChange={(event) => setCropSystem(event.target.value as CropSystem)} aria-describedby={`crop-system-context-${field.id}`}>
+        <select className={INPUT} value={cropSystem} onChange={(event) => {
+          const next = event.target.value as CropSystem;
+          if (next !== cropSystem) {
+            setCloverPct("");
+            setAprilClassConfirmed(false);
+          }
+          setCropSystem(next);
+        }} aria-describedby={`crop-system-context-${field.id}`}>
           {cropOptions.map(([value, label]) => (
             <option key={value} value={value}>
               {label}{P2_SUPPORTED_CROP_SYSTEMS.includes(value) ? "" : " — not enabled yet"}
@@ -294,7 +320,32 @@ export function FieldProductionCycleCard({
         </>
       ) : null}
 
-      {needsClover ? (
+      {cropSystem === "GRASS_WHITE_CLOVER_GRAZING" ? (
+        <fieldset className="flex flex-col gap-2" aria-describedby={`clover-context-${field.id}`}>
+          <legend className="text-xs font-semibold text-fr-v2-graphite">White clover in the sward in April</legend>
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="White clover in the sward in April">
+            {WHITE_CLOVER_APRIL_CLASS_OPTIONS.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={cloverPct === value}
+                onClick={() => { setCloverPct(value); setAprilClassConfirmed(true); }}
+                className={`min-h-11 border px-2 py-2 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-gold ${
+                  cloverPct === value ? "border-fr-v2-forest-deep bg-fr-v2-forest-deep text-white" : "border-fr-v2-cream-rule bg-white text-fr-v2-graphite"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <span id={`clover-context-${field.id}`} className="text-xs leading-relaxed text-fr-v2-muted">
+            {cloverPct !== "" && !WHITE_CLOVER_APRIL_CLASS_OPTIONS.some(([value]) => value === cloverPct)
+              ? `Recorded as ${cloverPct}%, which isn't one of Teagasc's clover classes — choose the closest one above.`
+              : "Please confirm the April white-clover class. A previous generic percentage is not automatically valid April evidence."}
+          </span>
+        </fieldset>
+      ) : needsClover ? (
         <>
         <label className={LABEL}>
           White clover content (%)
@@ -384,13 +435,19 @@ export function FieldProductionCycleCard({
                 ...(!futureSeason && numericValue(nApplied) !== undefined ? { chemicalNAppliedKgHa: numericValue(nApplied) } : {}),
                 ...(!futureSeason && numericValue(pApplied) !== undefined ? { chemicalPAppliedKgHa: numericValue(pApplied) } : {}),
                 ...(!futureSeason && numericValue(kApplied) !== undefined ? { chemicalKAppliedKgHa: numericValue(kApplied) } : {}),
-                ...(numericValue(cloverPct) !== undefined ? { whiteCloverPct: numericValue(cloverPct) } : {}),
+                ...(aprilClassConfirmed && numericValue(cloverPct) !== undefined && cropSystem === "GRASS_WHITE_CLOVER_GRAZING" && !futureSeason
+                  ? { aprilWhiteCloverPct: numericValue(cloverPct) } : {}),
+                ...(numericValue(cloverPct) !== undefined && cropSystem !== "GRASS_WHITE_CLOVER_GRAZING"
+                  ? { whiteCloverPct: numericValue(cloverPct) } : {}),
                 ...(grazingMode === "farmer" && grazingSystem ? { grazingProductionSystem: grazingSystem } : {}),
                 farmerName: farm.ownerName,
               });
               setLoaded({ requested: requestedSeason, season: requestedSeason });
               setCycle(state.cycle);
               setGate(state.gate);
+              // Codex audit F010: the farm store's sward follows the save, so
+              // every nutrient plan uses the new clover evidence at once.
+              applySavedProductionCycle(field.id, requestedSeason, state.cycle);
               setMessage("Field evidence saved.");
               onSaved?.();
             } catch (error) {

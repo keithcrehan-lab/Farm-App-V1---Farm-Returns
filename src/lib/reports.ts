@@ -18,7 +18,7 @@
  */
 
 import { toCsv } from "./csv";
-import { calculateNutrientPlan, isSilageCutPlannedUse, resolveFieldSlurryAllocation } from "@/domain/nutrients";
+import { calculateNutrientPlan, isSilageCutPlannedUse, resolveFieldSlurryAllocation, type CalculateNutrientPlanInput } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { isTillageField, hasNoRecordedLivestock, type PBuildUpComplianceInput } from "@/orchestration/prompt/fertiliser-recommendation";
 import { mixedRequirementReport } from "./nutrient-card-presentation";
@@ -43,6 +43,7 @@ export function buildNutrientPlanReportCsv(
   // omitted defaults to the same safe "not proven" behaviour
   // `calculateNutrientPlan` already applies when this input is absent.
   pBuildUpCompliance?: PBuildUpComplianceInput,
+  grazingProductionSystem?: CalculateNutrientPlanInput["grazingProductionSystem"],
 ): string {
   // Codex audit CRITICAL (round 9): this report duplicated the exact
   // tillage-inclusive `farmGrasslandAreaHa`/`nonGrassPct` computation
@@ -74,6 +75,7 @@ export function buildNutrientPlanReportCsv(
       field,
       farmGrasslandAreaHa,
       livestockGroups,
+      grazingProductionSystem,
       slurryAllocation,
       nonGrassPct,
       pBuildUpCompliance,

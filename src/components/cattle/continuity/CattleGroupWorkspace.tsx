@@ -198,6 +198,7 @@ export function CattleGroupWorkspace({
       if (result.status === "saved") {
         setMoveOpen(null);
         setActiveState(null);
+        window.dispatchEvent(new Event("farm-return:grazing-moved"));
         router.refresh();
       }
     });
@@ -213,6 +214,7 @@ export function CattleGroupWorkspace({
       if (result.status === "saved" || result.status === "unchanged") {
         setMoveOpen(null);
         setActiveState(null);
+        window.dispatchEvent(new Event("farm-return:grazing-moved"));
         router.refresh();
       }
     });

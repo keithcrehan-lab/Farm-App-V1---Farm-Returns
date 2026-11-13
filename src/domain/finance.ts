@@ -64,6 +64,8 @@ export const FINANCE_ENGINE_VERSION = "finance_engine_v1.0.0";
 
 export interface FarmFertiliserCostInput {
   fields: Field[];
+  /** Actual recorded system; unknown or unsupported must fail closed. */
+  grazingProductionSystem?: "SUCKLER_CALF_TO_BEEF" | "SUCKLER_CALF_TO_WEANING" | "OTHER_DRYSTOCK";
   livestockGroups: LivestockGroup[];
   slurryAllocations: SlurryAllocation[];
   /** Silage plans (still a static mock-farm.ts export — the domain-engine
@@ -179,6 +181,7 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
       field,
       farmGrasslandAreaHa,
       livestockGroups: input.livestockGroups,
+      grazingProductionSystem: input.grazingProductionSystem,
       slurryAllocation,
       silage: silagePlan
         ? { cutNumber: silagePlan.cutNumber, expectedYieldTDMha: silagePlan.expectedYieldTDMha.value }
@@ -362,6 +365,7 @@ export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInp
       field,
       farmGrasslandAreaHa,
       livestockGroups: input.livestockGroups,
+      grazingProductionSystem: input.grazingProductionSystem,
       slurryAllocation,
       silage,
     });
@@ -395,6 +399,7 @@ export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInp
       field,
       farmGrasslandAreaHa,
       livestockGroups: input.livestockGroups,
+      grazingProductionSystem: input.grazingProductionSystem,
       slurryAllocation: undefined,
       silage,
     });

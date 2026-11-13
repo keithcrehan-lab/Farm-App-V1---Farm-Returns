@@ -152,6 +152,9 @@ export function RecommendationAuditTrailCard() {
           field,
           farmGrasslandAreaHa,
           livestockGroups,
+          // Same canonical field-first precedence as all other nutrient
+          // consumers. Do not silently default an unknown system.
+          grazingProductionSystem: field.grazingProductionSystemResolution?.value ?? farm.grazingProductionSystem?.value,
           slurryAllocation,
           nonGrassPct,
           pBuildUpCompliance: farm.pBuildUpCompliance?.value,

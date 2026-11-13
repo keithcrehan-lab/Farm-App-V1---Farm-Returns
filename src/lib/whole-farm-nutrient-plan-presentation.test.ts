@@ -187,7 +187,7 @@ describe("Plan and Market handoffs", () => {
 // → quote request. Every displayed quantity reconciles with the canonical one.
 describe("field → whole farm → fertiliser plan → Market reconciliation", () => {
   const herd: LivestockGroup[] = [
-    { id: "g1", farmId: FARM_ID, category: "suckler_cow", label: "Cows", count: tracked(40, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") },
+    { id: "g1", farmId: FARM_ID, category: "suckler_cow", label: "Cows", count: tracked(40, "verified", "Farmer"), system: "grazing", avgAgeMonths: 60, sex: "female", value: tracked(30000, "estimated", "Farm Return estimate") },
   ];
   function field(id: string, p: 1 | 2 | 3 | 4 | undefined, k: 1 | 2 | 3 | 4 | undefined): Field {
     return {
@@ -206,7 +206,7 @@ describe("field → whole farm → fertiliser plan → Market reconciliation", (
   const inputs = fields.map((f) => ({
     fieldId: f.id,
     fieldName: f.name,
-    plan: calculateNutrientPlan({ field: f, farmGrasslandAreaHa: 20, livestockGroups: herd, asOfDate: "2026-10-03" }),
+    plan: calculateNutrientPlan({ field: f, farmGrasslandAreaHa: 20, livestockGroups: herd, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", asOfDate: "2026-10-03" }),
   }));
   const aggregation = aggregateFarmFertiliserPurchasing(inputs);
   const basket = buildFarmFertiliserQuoteBasket(aggregation, BASKET_META);

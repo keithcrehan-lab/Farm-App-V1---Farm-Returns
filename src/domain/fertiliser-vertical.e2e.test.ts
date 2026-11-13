@@ -89,7 +89,7 @@ interface FieldCase {
 const GRASSLAND_HA = 20;
 
 function plan({ field: f, extra }: FieldCase): NutrientPlan {
-  return calculateNutrientPlan({ field: f, farmGrasslandAreaHa: GRASSLAND_HA, livestockGroups: herd, slurryComposition: composition, asOfDate: AS_OF, ...extra });
+  return calculateNutrientPlan({ field: f, farmGrasslandAreaHa: GRASSLAND_HA, livestockGroups: herd, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryComposition: composition, asOfDate: AS_OF, ...extra });
 }
 
 interface Chain {
@@ -222,9 +222,9 @@ function expectInvariants(c: Chain) {
 describe("Fertiliser Vertical v1 — end-to-end scenarios (real engine → quote request)", () => {
   it("engine and contract versions are the canonical v1 set", () => {
     const c = chain([{ field: field("a1", 2, 2) }]);
-    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.5.0");
-    expect(c.basket).toMatchObject({ basketVersion: "farm_fertiliser_quote_basket_v1.0.0", aggregationVersion: "farm_fertiliser_aggregation_v1.0.0", engineVersions: ["nutrient_engine_v1.5.0"] });
-    expect(c.request).toMatchObject({ requestVersion: "fertiliser_quote_request_v1.0.0", engineVersions: ["nutrient_engine_v1.5.0"] });
+    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.7.0");
+    expect(c.basket).toMatchObject({ basketVersion: "farm_fertiliser_quote_basket_v1.0.0", aggregationVersion: "farm_fertiliser_aggregation_v1.0.0", engineVersions: ["nutrient_engine_v1.7.0"] });
+    expect(c.request).toMatchObject({ requestVersion: "fertiliser_quote_request_v1.0.0", engineVersions: ["nutrient_engine_v1.7.0"] });
   });
 
   it("A: fully supported grassland farm with credited slurry — requirement → slurry → remaining → products → farm → basket → request reconcile", () => {

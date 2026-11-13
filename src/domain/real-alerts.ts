@@ -105,6 +105,7 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): DeriveRealAlerts
       field,
       farmGrasslandAreaHa,
       livestockGroups: input.livestockGroups,
+      grazingProductionSystem: input.farm.grazingProductionSystem?.value,
       slurryAllocation,
       asOfDate,
       nonGrassPct,

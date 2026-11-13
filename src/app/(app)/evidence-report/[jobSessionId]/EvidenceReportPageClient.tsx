@@ -33,6 +33,7 @@ import {
 } from "@/app/actions/scientific-evidence-report";
 import type { EngineOutcome } from "@/domain/evidence";
 import { purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
+import { grazingNSourceLabel } from "@/lib/scientific-evidence-n-source";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -320,30 +321,27 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
                 const trace = plan.calculationTrace.grazing;
                 const n = trace.n;
                 const nFormula =
-                  n.lowerRow.stockingRateLUHa === n.upperRow.stockingRateLUHa
-                    ? `Table 12-3 row ${n.lowerRow.stockingRateLUHa.toFixed(2)} LU/ha → ${n.resultKgHa.toFixed(2)} kg N/ha`
-                    : `${n.lowerRow.totalNKgHa} + ((${trace.stockingRateLUHa.toFixed(4)} − ${n.lowerRow.stockingRateLUHa}) ÷ (${n.upperRow.stockingRateLUHa} − ${n.lowerRow.stockingRateLUHa})) × (${n.upperRow.totalNKgHa} − ${n.lowerRow.totalNKgHa}) = ${n.resultKgHa.toFixed(2)} kg N/ha`;
-                const pBand = trace.p.maintenanceBandMaxOrgNKgHa === null ? "> 210" : `≤ ${trace.p.maintenanceBandMaxOrgNKgHa}`;
+                  n.lowerRowOrganicNKgHa === undefined || n.upperRowOrganicNKgHa === undefined
+                    ? `${n.source} (${n.sourceVersion}), ${n.ruleId}${n.inputs.cloverClass !== undefined ? `, April clover class ${String(n.inputs.cloverClass)}` : ""} → ${n.resultKgHa.toFixed(2)} kg N/ha`
+                    : n.lowerRowOrganicNKgHa === n.upperRowOrganicNKgHa
+                      ? `Published row ${n.lowerRowOrganicNKgHa} kg organic N/ha → ${n.resultKgHa.toFixed(2)} kg N/ha`
+                      : `Between published rows ${n.lowerRowOrganicNKgHa} and ${n.upperRowOrganicNKgHa} kg organic N/ha (fraction ${(n.interpolationFraction ?? 0).toFixed(4)}) → ${n.resultKgHa.toFixed(2)} kg N/ha`;
                 return (
                   <div className="my-3 border-l-2 border-fr-v2-straw bg-fr-v2-cream/50 px-4 py-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-fr-v2-graphite">Actual gross requirement maths</p>
                     <div className="mt-2 space-y-2">
                       <Row
                         label="Stocking rate input"
-                        value={`${trace.totalLivestockUnits.toFixed(3)} livestock units ÷ ${trace.farmGrasslandAreaHa.toFixed(3)} ha = ${trace.stockingRateLUHa.toFixed(4)} LU/ha`}
+                        value={`${trace.organicNStockingRateKgHa.toFixed(2)} kg organic N/ha (statutory grassland stocking rate; ${trace.totalLivestockUnits.toFixed(3)} livestock units ÷ ${trace.farmGrasslandAreaHa.toFixed(3)} ha = ${trace.stockingRateLUHa.toFixed(4)} LU/ha, for context)`}
                       />
-                      <Row label="N — Table 12-3" value={nFormula} />
+                      <Row label={grazingNSourceLabel(n.ruleId, n.lowerRowOrganicNKgHa === undefined)} value={nFormula} />
                       <Row
                         label="P — Tables 13-2 + 13-3"
-                        value={`Index ${trace.p.soilIndex}: build-up ${trace.p.buildUpKgHa.toFixed(2)} + maintenance ${trace.p.maintenanceKgHa.toFixed(2)} (drystock band ${pBand} kg organic N/ha) = ${trace.p.resultKgHa.toFixed(2)} kg P/ha`}
+                        value={`Index ${trace.p.soilIndex}: build-up ${trace.p.buildUpKgHa.toFixed(2)} + drystock maintenance ${trace.p.maintenanceKgHa.toFixed(2)} = ${trace.p.resultKgHa.toFixed(2)} kg P/ha`}
                       />
                       <Row
                         label="K — Table 14-1"
-                        value={`Index ${trace.k.soilIndex}: base ${trace.k.baseAt170KgOrgNHa.toFixed(2)} + stocking-rate adjustment ${trace.k.adjustmentKgHa.toFixed(2)} = ${trace.k.resultKgHa.toFixed(2)} kg K/ha`}
-                      />
-                      <Row
-                        label="K adjustment formula"
-                        value={`((${trace.k.stockingRateKgNHa.toFixed(2)} − 170) ÷ 40) × 5 = ${trace.k.adjustmentKgHa.toFixed(2)} kg K/ha`}
+                        value={`Index ${trace.k.soilIndex} at ${trace.k.stockingRateKgNHa.toFixed(2)} kg organic N/ha (±5 kg K per 40 kg from 170) = ${trace.k.resultKgHa.toFixed(2)} kg K/ha`}
                       />
                     </div>
                   </div>

@@ -14,6 +14,12 @@ import { fieldToInsertRow, rowToField, type NewFieldInput } from "./mappers";
 import type { FieldRow } from "./row-types";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 import { canRestoreDeletedField } from "@/domain/field-deletion";
+import { grazingSwardForCycle } from "@/domain/grass-fertiliser-engine-v2";
+import { listFieldProductionCyclesForSeason } from "./field-production-cycles";
+import { listGrazingFieldSessionsForFarm } from "./grazing-field-sessions";
+import { resolveGrazingProductionSystem } from "@/domain/grazing-production-system-resolution";
+import { cropFamilyFor } from "@/domain/fertiliser-field-evidence";
+import type { Farm } from "@/domain/types";
 
 export function canApplyDerivedWaterEvidence(
   existing: Field["waterBufferContext"],
@@ -35,7 +41,11 @@ async function fetchField(fieldId: string): Promise<{ supabase: Awaited<ReturnTy
   return { supabase, field: rowToField(data as FieldRow) };
 }
 
-export async function listFieldsForFarm(farmId: string): Promise<Field[]> {
+export async function listFieldsForFarm(
+  farmId: string,
+  options?: { farm: Farm; resolveGrazingSystems: true },
+): Promise<Field[]> {
+  if (options && options.farm.id !== farmId) throw new Error("Farm mismatch while resolving grazing systems.");
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("fields")
@@ -44,7 +54,40 @@ export async function listFieldsForFarm(farmId: string): Promise<Field[]> {
     .order("created_at", { ascending: true });
   if (error) throw error;
 
-  return (data as FieldRow[]).map(rowToField);
+  const fields = (data as FieldRow[]).map(rowToField);
+  // Fertiliser close-out (2026-11-11): attach this season's grazing sward
+  // from each field's production cycle, the same season rule the Fertiliser
+  // Plan uses, so the Nutrients engine and the Fertiliser Plan engine read
+  // the same clover record. A failed read throws like the field read itself
+  // — a clover sward is never silently treated as grass.
+  const season = new Date().toISOString().slice(0, 4);
+  const [cycles, sessions] = await Promise.all([
+    listFieldProductionCyclesForSeason(fields.map((field) => field.id), season),
+    options ? listGrazingFieldSessionsForFarm(farmId) : Promise.resolve([]),
+  ]);
+  const cycleByFieldId = new Map(cycles.map((cycle) => [cycle.fieldId, cycle]));
+  return fields.map((field) => {
+    const cycle = cycleByFieldId.get(field.id);
+    const grazingSward = grazingSwardForCycle(cycle);
+    // Missing a cycle is not permission to infer a field exception or
+    // movement-based system. It is safe to carry only an existing farm
+    // baseline in that case; a missing baseline stays unresolved.
+    const grazingProductionSystemResolution = options
+      ? cycle
+        ? resolveGrazingProductionSystem({ farm: options.farm, fieldId: field.id, cycle, sessions })
+        : options.farm.grazingProductionSystem?.value
+          ? { value: options.farm.grazingProductionSystem.value, basis: "FARM_BASELINE" as const,
+              source: options.farm.grazingProductionSystem.source, limitations: ["Field production cycle not recorded; using declared farm system."] }
+          : { value: null, basis: "UNRESOLVED" as const, source: "Farm grazing system baseline",
+              limitations: ["Record a field production cycle and select a farm grazing system in Settings."] }
+      : undefined;
+    return {
+      ...field,
+      currentSeasonCropFamily: cycle ? cropFamilyFor(cycle.cropSystem) : null,
+      ...(grazingSward ? { grazingSward } : {}),
+      ...(grazingProductionSystemResolution ? { grazingProductionSystemResolution } : {}),
+    };
+  });
 }
 
 export async function createField(farmId: string, input: NewFieldInput): Promise<Field> {

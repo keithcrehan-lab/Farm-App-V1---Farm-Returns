@@ -26,11 +26,13 @@
  * `system: "drystock"` until a dairy enterprise exists in the data model.
  */
 
-import type { DataStatus, Field, FertiliserProduct, FieldPurchaseStatus, FieldNutrientRemainingArm, FieldNutrientRemainingRequirement, FieldNutrientRequirement, FieldNutrientRequirementArm, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
+import type { DataStatus, Field, FertiliserProduct, GrazingSward, FieldPurchaseStatus, FieldNutrientRemainingArm, FieldNutrientRemainingRequirement, FieldNutrientRequirement, FieldNutrientRequirementArm, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
 import type { SlurryComposition, SlurryCompositionStatus } from "./slurry-composition";
 import { ambiguous, blockedInsufficientEvidence, notApplicable, ok, weakestEvidenceState, type EngineOutcome, type EvidenceState } from "./evidence";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
+import { calculateGrazingGrossRequirement, type GrazingRequirementOutcome } from "./grass-fertiliser-engine-v2";
+import type { GrazingProductionSystem } from "./fertiliser-field-evidence";
 import { statutoryManureNutrientValuePerHa } from "./statutory-manure-value";
 import { evaluatePBuildUpEligibility } from "./p-build-up-eligibility";
 import { checkFertiliserProductAdmissibility, FERTILISER_ADMISSIBILITY_GATE_VERSION, type FertiliserFormulation } from "./fertiliser-admissibility-gate";
@@ -43,6 +45,7 @@ import { resolveLocalWaterBufferOverrideStatus } from "./input-gates";
 import { checkSoilTestAgeValidity, type SoilTestAgeStatus } from "./soil-test-validity";
 import { laboratoryPIndexForSoilTestValidity, resolveFieldSoilIndexProvenance } from "./soil-index-provenance";
 import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_MURIATE_OF_POTASH_50K, CSO_UREA_46N, latestPoint } from "./market";
+import { organicNStockingRateFromLUHa } from "./grazing-field-pressure";
 
 // v1.1.0: CC-B2 / RISK-01 implementation correction — LESS P/K credit now
 // applies the Index 1/2 availability reduction; v1.0.0 results omitted it.
@@ -57,7 +60,21 @@ import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_MURIATE_OF_POTASH_50K, C
 // `requirementByNutrient` / `netRequirementByNutrient` (a known P or K gross
 // and net requirement on a field whose other index is missing); every v1.3.0
 // output is otherwise unchanged (the Index-1 placeholder stays — CC-B5).
-export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.5.0";
+// v1.6.0 (2026-11-11): three scientific corrections found by the fertiliser
+// engine test plan, run 1 — (a) the grazing P/K organic-N stocking rate now
+// reads Table 12-3's kg/ha N (excreted) column via the canonical
+// `organicNStockingRateFromLUHa`, not its fertiliser Total N column; (b) no
+// grazing P maintenance at P Index 4; (c) silage P build-up on the first cut
+// only. Grazing N and every first-cut silage figure are
+// unchanged.
+// v1.7.0 (2026-11-11, fertiliser close-out "align both"): the grazing
+// N/P/K requirement comes from the shared `calculateGrazingGrossRequirement`
+// (the same calculation as the Fertiliser Plan engine) on the statutory
+// organic-N stocking rate; it fails closed when that rate is unknown, above
+// the last published Table 12-2/12-3 row, or for a clover sward outside the
+// Teagasc strategy; white-clover swards follow the Teagasc drystock clover
+// strategy. Silage is unchanged.
+export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.7.0";
 
 // ---------------------------------------------------------------------------
 // Soil P/K Index classification — Green Book Table 6-4 / 13-1 (P, grassland
@@ -108,7 +125,24 @@ export function cropGroupForFieldUse(use: FieldUse): CropGroup {
  * drifting copy. Purely additive: `calculateNutrientPlan`/
  * `allocatePurchasedProducts` themselves are entirely unmodified.
  */
-export function farmGrasslandAggregates(fields: readonly Pick<Field, "areaHa" | "plannedUse">[]): { farmGrasslandAreaHa: number; nonGrassPct: number } {
+export function farmGrasslandAggregates(fields: readonly Pick<Field, "areaHa" | "plannedUse" | "currentSeasonCropFamily">[]): { farmGrasslandAreaHa: number; nonGrassPct: number } {
+  if (fields.some((f) => f.currentSeasonCropFamily !== undefined)) {
+    // A real season-hydrated farm must use production cycles throughout.
+    // Missing cycles mean the denominator is unknown, not permission to
+    // treat legacy plannedUse as verified grassland.
+    if (fields.some((f) => f.currentSeasonCropFamily == null)) {
+      return { farmGrasslandAreaHa: 0, nonGrassPct: 0 };
+    }
+    const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
+    const nonGrassAreaHa = fields.filter((f) => f.currentSeasonCropFamily !== "grassland").reduce((sum, f) => sum + f.areaHa, 0);
+    return {
+      farmGrasslandAreaHa: totalFarmAreaHa - nonGrassAreaHa,
+      nonGrassPct: totalFarmAreaHa > 0 ? (nonGrassAreaHa / totalFarmAreaHa) * 100 : 0,
+    };
+  }
+  // Legacy fixtures and initial mock fields do not carry a canonical cycle.
+  // This preserves their historical display behaviour; real server data
+  // always has currentSeasonCropFamily (including null for missing cycles).
   const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
   const nonGrassAreaHa = fields.filter((f) => f.plannedUse?.value === "tillage").reduce((sum, f) => sum + f.areaHa, 0);
   const farmGrasslandAreaHa = totalFarmAreaHa - nonGrassAreaHa;
@@ -453,37 +487,6 @@ export function nGrazingSucklerToBeefKgHa(stockingRateLUHa: number): number {
     }
   }
   return last.totalNKgHa;
-}
-
-function nGrazingCalculationTrace(stockingRateLUHa: number): NonNullable<NonNullable<NutrientPlan["calculationTrace"]>["grazing"]>["n"] {
-  const table = N_GRAZING_SUCKLER_TO_BEEF_TABLE;
-  if (stockingRateLUHa <= table[0].stockingRateLUHa) {
-    return {
-      lowerRow: table[0],
-      upperRow: table[0],
-      interpolationFraction: 0,
-      resultKgHa: table[0].totalNKgHa,
-    };
-  }
-  const last = table[table.length - 1];
-  if (stockingRateLUHa >= last.stockingRateLUHa) {
-    return { lowerRow: last, upperRow: last, interpolationFraction: 0, resultKgHa: last.totalNKgHa };
-  }
-  for (let i = 0; i < table.length - 1; i++) {
-    const lowerRow = table[i];
-    const upperRow = table[i + 1];
-    if (stockingRateLUHa >= lowerRow.stockingRateLUHa && stockingRateLUHa <= upperRow.stockingRateLUHa) {
-      const interpolationFraction =
-        (stockingRateLUHa - lowerRow.stockingRateLUHa) / (upperRow.stockingRateLUHa - lowerRow.stockingRateLUHa);
-      return {
-        lowerRow,
-        upperRow,
-        interpolationFraction,
-        resultKgHa: lowerRow.totalNKgHa + interpolationFraction * (upperRow.totalNKgHa - lowerRow.totalNKgHa),
-      };
-    }
-  }
-  return { lowerRow: last, upperRow: last, interpolationFraction: 0, resultKgHa: last.totalNKgHa };
 }
 
 /**
@@ -1976,6 +1979,26 @@ export function allocatePurchasedProductsPConstrained(
   return { products: lines, totalCostEur: lines.reduce((sum, l) => sum + l.costEur, 0), deliveredKgHa };
 }
 
+/**
+ * v1.6.0 — the product blend for one field. At soil P Index 4 the Green
+ * Book advises no P fertiliser (§13: "no P fertilizer is advised until the
+ * soil P level reverts to the Index 3 range") and S.I. 588/2025 Table 15a
+ * allows 0 kg/ha available P, so no P-bearing compound may be proposed
+ * even as a by-product of meeting a K requirement: the existing P-free
+ * allocation (`allocatePurchasedProductsPConstrained` with a 0 P target —
+ * Muriate of Potash for K, Protected Urea for N) is used instead. Every
+ * other field keeps the unchanged default waterfall.
+ */
+function allocateFieldProducts(
+  n: number,
+  p: number,
+  k: number,
+  areaHa: number,
+  noPhosphorusProducts: boolean,
+): ReturnType<typeof allocatePurchasedProducts> {
+  return noPhosphorusProducts ? allocatePurchasedProductsPConstrained(n, 0, k, areaHa) : allocatePurchasedProducts(n, p, k, areaHa);
+}
+
 // ---------------------------------------------------------------------------
 // Campaign B regulatory interpretation — home-produced grazing manure
 // ---------------------------------------------------------------------------
@@ -2065,7 +2088,12 @@ function buildFieldNutrientRequirement(args: {
   field: Field;
   silage: CalculateNutrientPlanInput["silage"];
   livestockGroups: readonly LivestockGroup[];
-  agronomicStockingRateKgHa: number;
+  /** nutrient_engine_v1.7.0: the statutory organic-N stocking rate the
+   * grazing tables were keyed on; undefined when it is unknown. */
+  grazingOrganicNStockingRateKgHa?: number;
+  /** Audit F008: the shared grazing calculation's N provenance, so a clover
+   * sward's requirement cites the clover strategy, not Table 12-3. */
+  grazingNProvenance?: { ruleId: string; source: string; sourceVersion: string };
   farmGrasslandAreaHa: number;
   gross: { n: number; p: number; k: number };
   requirementByNutrient: NutrientPlan["requirementByNutrient"];
@@ -2082,7 +2110,9 @@ function buildFieldNutrientRequirement(args: {
     ...(basis === "silage" && silage !== undefined
       ? { silage: { cutNumber: silage.cutNumber, expectedYieldTDMha: silage.expectedYieldTDMha, wasGrazedPreviousYear: silage.wasGrazedPreviousYear ?? false } }
       : {}),
-    ...(basis === "grazing" ? { grazingStockingRateKgNHa: args.agronomicStockingRateKgHa } : {}),
+    ...(basis === "grazing" && args.grazingOrganicNStockingRateKgHa !== undefined
+      ? { grazingStockingRateKgNHa: args.grazingOrganicNStockingRateKgHa }
+      : {}),
   };
   const areaUsable = Number.isFinite(field.areaHa) && field.areaHa > 0;
   const livestockMissing = basis === "grazing" && args.livestockGroups.length === 0;
@@ -2092,7 +2122,7 @@ function buildFieldNutrientRequirement(args: {
   const grasslandAreaMissing = basis === "grazing" && !(Number.isFinite(args.farmGrasslandAreaHa) && args.farmGrasslandAreaHa > 0);
   const commonLimitations = cropContext.plannedUseAssumed ? ["PLANNED_USE_NOT_RECORDED_GRAZING_ASSUMED"] : [];
 
-  const arm = (kgHa: number, outcome: EngineOutcome<number>, ruleRefs: string[], limitations: string[]): FieldNutrientRequirementArm => {
+  const arm = (kgHa: number, outcome: EngineOutcome<number>, ruleRefs: string[], limitations: string[], source = "Teagasc Green Book (5th Ed., 2020)"): FieldNutrientRequirementArm => {
     if (basis === "tillage") return { status: "NOT_APPLICABLE", reasonCode: "TILLAGE_FIELD_NOT_SUPPORTED" };
     if (outcome.status === "OK") {
       if (livestockMissing) return { status: "UNKNOWN", reasonCode: "MISSING_LIVESTOCK_DATA", missingInputs: ["livestockGroups"] };
@@ -2102,18 +2132,31 @@ function buildFieldNutrientRequirement(args: {
         kgHa,
         totalKg: areaUsable ? ok(kgHa * field.areaHa, outcome.evidenceState) : blockedInsufficientEvidence("MISSING_FIELD_AREA", ["field.areaHa"]),
         evidenceState: outcome.evidenceState,
-        source: "Teagasc Green Book (5th Ed., 2020)",
+        source,
         ruleRefs,
         limitations: [...commonLimitations, ...limitations],
       };
     }
     const missingInputs = outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? [...outcome.missingInputs] : [];
-    if (livestockMissing) missingInputs.push("livestockGroups");
-    if (grasslandAreaMissing) missingInputs.push("farmGrasslandAreaHa");
+    if (livestockMissing && !missingInputs.includes("livestockGroups")) missingInputs.push("livestockGroups");
+    if (grasslandAreaMissing && !missingInputs.includes("farmGrasslandAreaHa")) missingInputs.push("farmGrasslandAreaHa");
     return { status: "UNKNOWN", reasonCode: outcome.reasonCode, missingInputs };
   };
 
   const silageBasis = basis === "silage";
+  // Codex audit F008: every grazing pathway cites the table that actually
+  // produced its N (Table 12-2 calf-to-weaning, Table 12-3 calf-to-beef, or
+  // the 2026 clover strategy) — read from the shared calculation's trace.
+  const grazingN = basis === "grazing" ? args.grazingNProvenance : undefined;
+  const grazingNRuleRef =
+    grazingN === undefined
+      ? undefined
+      : grazingN.ruleId.includes("TABLE_12_2")
+        ? "Teagasc Green Book Table 12-2"
+        : grazingN.ruleId.includes("TABLE_12_3")
+          ? "Teagasc Green Book Table 12-3"
+          : grazingN.ruleId;
+  const cloverN = grazingN !== undefined && !grazingN.ruleId.startsWith("TEAGASC_GREEN_BOOK") ? grazingN : undefined;
   return {
     contractVersion: "field_nutrient_requirement_v1",
     engineVersion: NUTRIENT_ENGINE_VERSION,
@@ -2123,10 +2166,11 @@ function buildFieldNutrientRequirement(args: {
     n: arm(
       gross.n,
       requirementByNutrient.n,
-      [silageBasis ? "Teagasc Green Book Table 12-7" : "Teagasc Green Book Table 12-3"],
+      [grazingNRuleRef ?? (silageBasis ? "Teagasc Green Book Table 12-7" : "Teagasc Green Book Table 12-3")],
       // First-cut N ±25 kg per t DM (`CLM-TGC-YIELD-SCALE`) stays
       // IMPLEMENTATION_DEFERRED_SUPPORTED_RANGE_UNCLEAR: N ignores yield.
       silageBasis ? ["N_YIELD_SCALING_NOT_APPLIED"] : [],
+      cloverN !== undefined ? `${cloverN.source} (${cloverN.sourceVersion})` : undefined,
     ),
     p: {
       ...arm(gross.p, requirementByNutrient.p, ["Teagasc Green Book Table 13-2", silageBasis ? "Teagasc Green Book Table 13-4" : "Teagasc Green Book Table 13-3"], []),
@@ -2224,6 +2268,8 @@ function buildFieldPurchase(args: {
   compositionUnresolved: boolean;
   commonageProhibited: boolean;
   bufferProhibited: boolean;
+  /** v1.6.0 — soil P Index 4: no P-bearing product (`allocateFieldProducts`). */
+  noPhosphorusProducts: boolean;
 }): { status: FieldPurchaseStatus; products: FertiliserProduct[]; totalCostEur: number; deliveredKgHa: { n: number; p: number; k: number } } {
   const { fieldRequirement: req, fieldRemainingRequirement: rem } = args;
   const none = { products: [], totalCostEur: 0, deliveredKgHa: { n: 0, p: 0, k: 0 } };
@@ -2259,7 +2305,7 @@ function buildFieldPurchase(args: {
     operands = { n: req.n.kgHa, p: req.p.kgHa, k: req.k.kgHa };
     sized = { status: "RECOMMENDED_CREDIT_NOT_COUNTED", reasonCode, missingInputs };
   }
-  const allocation = allocatePurchasedProducts(operands.n, operands.p, operands.k, args.areaHa);
+  const allocation = allocateFieldProducts(operands.n, operands.p, operands.k, args.areaHa, args.noPhosphorusProducts);
   if (allocation.products.length === 0) {
     const allZero = operands.n === 0 && operands.p === 0 && operands.k === 0;
     return { status: { status: "NONE_NEEDED", basis: allZero ? "REMAINING_ZERO" : "BELOW_PRODUCT_THRESHOLD" }, ...none };
@@ -2274,6 +2320,19 @@ export interface CalculateNutrientPlanInput {
    * denominator for organic-N stocking rate (Tables 12-3/13-3/14-1 note). */
   farmGrasslandAreaHa: number;
   livestockGroups: LivestockGroup[];
+  /**
+   * nutrient_engine_v1.7.0 (fertiliser close-out, "align both"): the grazing
+   * sward from the field's production cycle — a white-clover sward uses the
+   * Teagasc drystock clover strategy (`calculateGrazingGrossRequirement`).
+   * Omitted = a grass sward, as before.
+   */
+  grazingSward?: GrazingSward;
+  /**
+   * The farm's grazing production system (Green Book Table 12-2 suckler
+   * calf-to-weaning or 12-3 calf-to-beef). Omitted/unsupported system
+   * blocks grazing recommendations: no fabricated calf-to-beef default.
+   */
+  grazingProductionSystem?: GrazingProductionSystem;
   /** This field's slurry allocation, if any (from `SlurryAllocation[]`,
    * typically pre-resolved via `resolveFieldSlurryAllocation` when the
    * field has more than one real contributing allocation — accepting
@@ -2390,30 +2449,42 @@ export function soilTestAgeValidityForFertility(fertility: Pick<Field["fertility
 }
 
 /**
- * AGRONOMIC ledger only (Green Book Table 12-3's LU-based N-requirement
- * curve) — feeds the grazing N/P/K *requirement* below (`grossN` etc.),
- * never the statutory compliance ceiling. V3 FIX (audit conflict #1): this
+ * AGRONOMIC ledger only — the Green Book organic-N grassland stocking rate
+ * (kg N excreted/ha, Table 12-3 LU → kg/ha N columns) that keys the grazing
+ * P maintenance (Table 13-3) and K (Table 14-1) advice below, never the
+ * statutory compliance ceiling.
+ *
+ * v1.6.0 CORRECTION (2026-11-11, fertiliser engine test plan run 1): this
+ * function previously returned `nGrazingSucklerToBeefKgHa` — Table 12-3's
+ * *fertiliser* "Total N" column (35, 53, 75 …) — and fed it to the P/K
+ * tables as if it were the organic-N stocking rate. Tables 13-3/14-1
+ * footnotes define their stocking rate as N *excreted* (Table 12-3's
+ * 80, 99, 118 … column), so every grazing field's P maintenance band and
+ * K adjustment were computed from a figure ~40% too low. Grazing N advice
+ * itself was never affected (it reads the shared v2 grazing requirement directly).
+ *
+ * Historical note — V3 FIX (audit conflict #1): this
  * function used to ALSO be passed to `checkNapCompliance` as the
  * statutory "stocking rate" that selects the NAP N/P ceiling band — it
- * is not that figure (it's an agronomic N-fertiliser-requirement-by-LU-
- * density curve, not S.I. 119/2026 Table 7's per-animal-category
- * excretion total) and never should have been. The real statutory GSR
+ * is not that figure (it is the Green Book's agronomic LU-density
+ * conversion, not S.I. 119/2026 Table 7's per-animal-category excretion
+ * total) and never should have been. The real statutory GSR
  * (`calculateStatutoryGrasslandStockingRateKgHa`,
- * `src/domain/statutory-excretion.ts`) is now what `calculateNutrientPlan`
- * passes to `checkNapCompliance` instead — this function's role is now
- * exactly, and only, the agronomic grazing-N-requirement curve.
+ * `src/domain/statutory-excretion.ts`) is what `calculateNutrientPlan`
+ * passes to `checkNapCompliance` — this function only keys the agronomic
+ * grazing P/K advice.
  */
 export function calculateGrasslandStockingRateKgHa(
   livestockGroups: LivestockGroup[],
   farmGrasslandAreaHa: number,
-): number {
+): number | null {
   if (farmGrasslandAreaHa <= 0) return 0;
   const stockingRateLUHa = totalLivestockUnits(livestockGroups) / farmGrasslandAreaHa;
-  // Table 12-3's own LU→kg N mapping doubles as the organic-N stocking
-  // rate used by the P/K tables (same "grassland stocking rate" concept
-  // throughout the document) — reusing it here rather than introducing a
-  // second, undocumented N-per-LU conversion.
-  return nGrazingSucklerToBeefKgHa(stockingRateLUHa);
+  // Canonical Table 12-3 LU → organic-N conversion (`grazing-field-pressure.ts`),
+  // never a second copy (Codex audit F003, 2026-11-11). The top
+  // published row is exactly 3.0 LU/ha; beyond it the conversion returns
+  // null (unsupported), never a fabricated held-row rate.
+  return organicNStockingRateFromLUHa(stockingRateLUHa);
 }
 
 /**
@@ -2432,9 +2503,43 @@ export function calculateGrasslandStockingRateKgHa(
  * even when the compliance ledger cannot be verified — the two ledgers
  * must never gate each other (spec Section A2).
  */
+/**
+ * nutrient_engine_v1.7.0 — why a grazing requirement is unavailable, as the
+ * per-nutrient blocked outcome every downstream arm, product and NAP check
+ * already understands. `undefined` when the requirement was calculated (or
+ * the field is not on the grazing basis).
+ */
+function grazingEvidenceBlockFor(
+  grazingRequirement: GrazingRequirementOutcome | undefined,
+  statutoryGsrOutcome: ReturnType<typeof calculateStatutoryGrasslandStockingRateKgHa>,
+): EngineOutcome<number> | undefined {
+  if (grazingRequirement === undefined || grazingRequirement.status === "READY") return undefined;
+  if (grazingRequirement.missingInputs.includes("annualOrganicNStockingRateKgHa")) {
+    // The statutory stocking rate itself is unknown — carry its own reason
+    // (e.g. a livestock group without an age band) so the farmer is asked
+    // for the right thing.
+    if (statutoryGsrOutcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") return statutoryGsrOutcome;
+    return blockedInsufficientEvidence("MISSING_STATUTORY_GRASSLAND_STOCKING_RATE", ["livestockGroups"]);
+  }
+  if (grazingRequirement.reasonCode === "STOCKING_RATE_BEYOND_PUBLISHED_TABLE") {
+    return blockedInsufficientEvidence("STOCKING_RATE_BEYOND_PUBLISHED_TABLE", []);
+  }
+  if (grazingRequirement.missingInputs.includes("whiteCloverPct")) return blockedInsufficientEvidence("MISSING_WHITE_CLOVER_CONTENT", ["whiteCloverPct"]);
+  return blockedInsufficientEvidence("GRAZING_PATHWAY_NOT_SUPPORTED", grazingRequirement.missingInputs);
+}
+
+function grazingRequirementUnavailableMessage(grazingRequirement: GrazingRequirementOutcome | undefined, farmGrasslandAreaHa: number): string {
+  if (grazingRequirement === undefined || grazingRequirement.status === "READY") return "";
+  if (!(Number.isFinite(farmGrasslandAreaHa) && farmGrasslandAreaHa > 0))
+    return "This farm has no usable grassland area recorded, so the grazing stocking rate this field's requirement depends on can't be worked out — no fertiliser products can be recommended yet.";
+  if (grazingRequirement.limitations.length > 0) return grazingRequirement.limitations[0];
+  return grazingRequirement.missingInputs.includes("annualOrganicNStockingRateKgHa")
+    ? "This farm's grassland stocking rate can't be worked out yet — record every livestock group's age (and sex for 1-2 year olds) to unlock a grazing fertiliser plan."
+    : "A grazing fertiliser requirement can't be worked out for this field yet.";
+}
+
 export function calculateNutrientPlan(input: CalculateNutrientPlanInput): NutrientPlan {
   const { field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, silage } = input;
-  const system: GrasslandSystem = "drystock"; // only enterprise this data model supports today
 
   // Codex remediation Priority 1 (fail-closed nutrients) — a field's P/K
   // Soil Index is no longer guaranteed to exist (Priority 2 removed the
@@ -2470,7 +2575,13 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   const kIndexKnown: SoilIndex | undefined = kIndexTracked?.value;
   const pIndex: SoilIndex = pIndexKnown ?? 1;
   const kIndex: SoilIndex = kIndexKnown ?? 1;
-  const agronomicStockingRateKgHa = calculateGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
+  // nutrient_engine_v1.7.0: the statutory grassland stocking rate (total
+  // annual N excreted / net grassland area, S.I. 588/2025 Table 7) keys the
+  // grazing N/P/K tables — Green Book Table 12-3 footnote 3's own definition
+  // and the basis the Fertiliser Plan engine (`grass-fertiliser-engine-v2`)
+  // already uses, so both engines give the same grazing requirement.
+  const statutoryGsrOutcome = calculateStatutoryGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
+  let grazingRequirement: GrazingRequirementOutcome | undefined;
 
   // V3 closure pass, Priority 5 (`SOIL_TEST_VALIDITY`, a "major gap" per
   // the original audit — nothing anywhere evaluated soil-test age before
@@ -2494,53 +2605,84 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   if (silage) {
     const { cutNumber, expectedYieldTDMha, wasGrazedPreviousYear = false } = silage;
     grossN = nSilageKgHa(cutNumber, wasGrazedPreviousYear);
-    grossP = pBuildUpKgHa(pIndex) + pMaintenanceSilageKgHa(cutNumber, pIndex, expectedYieldTDMha);
+    // v1.6.0: Green Book §13 (P maintenance for silage and hay) — "Where two
+    // or more cuts of silage are taken in one year on soils with soil P
+    // levels at Index 1 or 2, the additional 'soil P build-up' portion of
+    // the fertilizer should be applied prior to the first cut." Build-up is
+    // an annual amount applied once, so later cuts get maintenance only;
+    // v1.5.0 added the full build-up again on every cut.
+    grossP = (cutNumber === 1 ? pBuildUpKgHa(pIndex) : 0) + pMaintenanceSilageKgHa(cutNumber, pIndex, expectedYieldTDMha);
     grossK = kSilageKgHa(cutNumber, kIndex, expectedYieldTDMha);
     calculationTrace = { basis: "silage" };
   } else {
-    // The grazing N requirement (Table 12-3's "Total N" column) and the
-    // AGRONOMIC stocking rate that the P/K tables key off are the same
-    // number in this source — both are read off the same table/row. This
-    // is deliberately the Green Book figure, not the statutory GSR — see
-    // this function's own doc comment.
+    // nutrient_engine_v1.7.0: the one shared grazing calculation
+    // (`calculateGrazingGrossRequirement`, also behind the Fertiliser Plan
+    // engine) on the statutory organic-N stocking rate. It fails closed
+    // when that rate is unknown, above the last published Table 12-2/12-3
+    // row, or on a clover sward outside Teagasc's published strategy —
+    // never a held or extended table row (Codex audit F001).
     const livestockUnitsTotal = totalLivestockUnits(livestockGroups);
     const stockingRateLUHa = farmGrasslandAreaHa > 0 ? livestockUnitsTotal / farmGrasslandAreaHa : 0;
-    const nTrace = nGrazingCalculationTrace(stockingRateLUHa);
-    grossN = nTrace.resultKgHa;
-
-    const pBuildUp = pBuildUpKgHa(pIndex);
-    const pBand = P_GRAZING_MAINTENANCE_BANDS.find((band) => agronomicStockingRateKgHa <= band.maxOrgNKgHa)!;
-    const pMaintenance = pBand[system];
-    grossP = pBuildUp + pMaintenance;
-
-    const kBase = K_GRAZING_BASE_KG_HA[kIndex][system];
-    const kAdjustment =
-      kIndex === 4 ? 0 : ((agronomicStockingRateKgHa - K_GRAZING_BASE_ORG_N_KG_HA) / 40) * K_GRAZING_STEP_KG_PER_40_ORG_N;
-    grossK = Math.max(0, kBase + kAdjustment);
-
-    calculationTrace = {
-      basis: "grazing",
-      grazing: {
-        totalLivestockUnits: livestockUnitsTotal,
-        farmGrasslandAreaHa,
-        stockingRateLUHa,
-        n: nTrace,
-        p: {
-          soilIndex: pIndex,
-          buildUpKgHa: pBuildUp,
-          maintenanceBandMaxOrgNKgHa: Number.isFinite(pBand.maxOrgNKgHa) ? pBand.maxOrgNKgHa : null,
-          maintenanceKgHa: pMaintenance,
-          resultKgHa: grossP,
+    const sward: GrazingSward = input.grazingSward ?? field.grazingSward ?? { kind: "GRASS" };
+    // A field recorded as a silage cut with no silage plan is blocked for
+    // that reason (MISSING_SILAGE_PLAN_DATA) — it is never assessed as
+    // grazing, so no grazing reason can mask the real gap.
+    grazingRequirement = isSilageCutPlannedUse(field) ? undefined : calculateGrazingGrossRequirement({
+      pIndex,
+      kIndex,
+      ...(statutoryGsrOutcome.status === "OK" ? { annualOrganicNStockingRateKgHa: statutoryGsrOutcome.value.gsrKgNHa } : {}),
+      grazingProductionSystem: field.grazingProductionSystemResolution ? field.grazingProductionSystemResolution.value ?? undefined : input.grazingProductionSystem,
+      sward,
+      grazingStockingEvidence: { basis: "HOLDING_GSR" },
+    });
+    if (grazingRequirement?.status === "READY") {
+      const gross = grazingRequirement.grossRequirementKgHa;
+      const traces = grazingRequirement.traces;
+      grossN = gross.n;
+      grossP = gross.p;
+      grossK = gross.k;
+      const orgN = Number(traces.p.inputs.annualOrganicNStockingRateKgHa);
+      const nInputs = traces.n.inputs;
+      calculationTrace = {
+        basis: "grazing",
+        grazing: {
+          totalLivestockUnits: livestockUnitsTotal,
+          farmGrasslandAreaHa,
+          stockingRateLUHa,
+          organicNStockingRateKgHa: orgN,
+          stockingBasis: "STATUTORY_GSR",
+          n:
+            sward.kind === "WHITE_CLOVER"
+              ? { ruleId: traces.n.ruleId, source: traces.n.source, sourceVersion: traces.n.sourceVersion, inputs: { ...traces.n.inputs }, resultKgHa: gross.n }
+              : {
+                  ruleId: traces.n.ruleId,
+                  source: traces.n.source,
+                  sourceVersion: traces.n.sourceVersion,
+                  inputs: { ...traces.n.inputs },
+                  lowerRowOrganicNKgHa: Number(nInputs.lowerOrganicN),
+                  upperRowOrganicNKgHa: Number(nInputs.upperOrganicN),
+                  interpolationFraction: Number(nInputs.interpolationFraction),
+                  resultKgHa: gross.n,
+                },
+          p: {
+            soilIndex: pIndex,
+            buildUpKgHa: Number(traces.p.inputs.buildUpKgHa),
+            maintenanceKgHa: Number(traces.p.inputs.maintenanceKgHa),
+            resultKgHa: gross.p,
+          },
+          k: {
+            soilIndex: kIndex,
+            stockingRateKgNHa: orgN,
+            resultKgHa: gross.k,
+          },
         },
-        k: {
-          soilIndex: kIndex,
-          baseAt170KgOrgNHa: kBase,
-          stockingRateKgNHa: agronomicStockingRateKgHa,
-          adjustmentKgHa: kAdjustment,
-          resultKgHa: grossK,
-        },
-      },
-    };
+      };
+    } else {
+      grossN = 0;
+      grossP = 0;
+      grossK = 0;
+      calculationTrace = { basis: "grazing" };
+    }
   }
 
   const rateM3ha = slurryAllocation && slurryAllocation.priority !== "not_suitable" ? slurryAllocation.volumeM3 / field.areaHa : 0;
@@ -2647,11 +2789,12 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // total (both unchanged, D4 / CC-B5); the published products come from
   // `buildFieldPurchase` over the canonical remaining requirement, which
   // equals this blend for every fully indexed grassland field.
-  const { products: allocatedProducts, deliveredKgHa: allocatedDeliveredKgHa } = allocatePurchasedProducts(
+  const { products: allocatedProducts, deliveredKgHa: allocatedDeliveredKgHa } = allocateFieldProducts(
     remainingN,
     remainingP,
     remainingK,
     field.areaHa,
+    pIndexKnown === 4,
   );
 
   // V3 closure pass — Priority 11 (AF010, national buffer half) built the
@@ -2697,8 +2840,6 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
 
   const cutIntendedForSale = silage?.intendedUse === "sale" || silage?.intendedUse === "both";
   const hasWrittenSaleEvidence = silage?.saleEvidence?.hasWrittenEvidence ?? false;
-
-  const statutoryGsrOutcome = calculateStatutoryGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
 
   // V3 closure pass, Priority 4 (`LESS_METHOD_GATE`, AF004 HIGH): real,
   // wired from the field's own real slurry allocation
@@ -2959,12 +3100,44 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // dependent — only DM%/P/K-Index driven — so `organicApplication` is
   // deliberately left ungated by this new check.
   const silageEvidenceOk = !isSilageCutPlannedUse(field) || silage !== undefined;
-  const evidenceOk = fertilityEvidenceOk && silageEvidenceOk;
+  const grazingRequirementOk = grazingRequirement === undefined || grazingRequirement.status === "READY";
+  // nutrient_engine_v1.7.0: a grazing requirement the shared calculation
+  // could not give (no statutory stocking rate, above the published table,
+  // or a clover sward outside Teagasc's strategy) is unknown, never zero.
+  // No livestock / no usable grassland area keep their own established
+  // canonical reasons (MISSING_LIVESTOCK_DATA / MISSING_GRASSLAND_AREA,
+  // `buildFieldNutrientRequirement`'s arms) rather than the statutory
+  // stocking-rate calculation's restatement of the same gap.
+  // Audit F007: whenever the shared calculation gave no grazing requirement,
+  // the per-nutrient gross/net arms are blocked too (never an OK zero); a
+  // missing grassland area carries its own established reason.
+  const grasslandAreaUsable = Number.isFinite(farmGrasslandAreaHa) && farmGrasslandAreaHa > 0;
+  // A tillage field has no grazing requirement to block: its canonical arms
+  // are NOT_APPLICABLE and its paired path keeps its legacy behaviour.
+  const grazingEvidenceBlock: EngineOutcome<number> | undefined =
+    grazingRequirement === undefined || grazingRequirement.status === "READY" || field.plannedUse?.value === "tillage"
+      ? undefined
+      : !grasslandAreaUsable
+        ? blockedInsufficientEvidence("MISSING_GRASSLAND_AREA", ["farmGrasslandAreaHa"])
+        : livestockGroups.length === 0
+          ? blockedInsufficientEvidence("MISSING_LIVESTOCK_DATA", ["livestockGroups"])
+          : grazingEvidenceBlockFor(grazingRequirement, statutoryGsrOutcome);
+  const evidenceOk = fertilityEvidenceOk && silageEvidenceOk && grazingRequirementOk;
+  // Codex audit F008: a clover sward's N comes from the 2026 clover strategy,
+  // so the displayed source names it; P and K stay on the Green Book.
+  const cloverNTrace =
+    grazingRequirement?.status === "READY" && !grazingRequirement.traces.n.ruleId.startsWith("TEAGASC_GREEN_BOOK")
+      ? grazingRequirement.traces.n
+      : undefined;
+  const requirementSource =
+    cloverNTrace !== undefined
+      ? `${cloverNTrace.source} (${cloverNTrace.sourceVersion}) for N; Teagasc Green Book (5th Ed., 2020) for P and K`
+      : "Teagasc Green Book (5th Ed., 2020)";
   const requirement = evidenceOk
     ? tracked(
         { n: Math.round(grossN), p: Math.round(grossP), k: Math.round(grossK) },
         "estimated",
-        "Teagasc Green Book (5th Ed., 2020)",
+        requirementSource,
         { calculationVersion: NUTRIENT_ENGINE_VERSION },
       )
     : tracked(
@@ -2973,11 +3146,13 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
         // field's own silage evidence is missing, `grossN` itself was
         // computed via the wrong (grazing) branch above and is not a
         // real figure for this field at all, so it is suppressed too.
-        { n: silageEvidenceOk ? Math.round(grossN) : 0, p: 0, k: 0 },
+        { n: silageEvidenceOk && grazingRequirementOk ? Math.round(grossN) : 0, p: 0, k: 0 },
         "unavailable",
         !silageEvidenceOk
           ? "This field is recorded as a silage cut but has no real cut/yield plan to calculate its silage-specific N/P/K requirement from."
-          : "This field's P/K Soil Index has not been recorded — add a soil test or a farmer estimate to unlock a fertiliser plan.",
+          : !grazingRequirementOk
+            ? grazingRequirementUnavailableMessage(grazingRequirement, farmGrasslandAreaHa)
+            : "This field's P/K Soil Index has not been recorded — add a soil test or a farmer estimate to unlock a fertiliser plan.",
         { calculationVersion: NUTRIENT_ENGINE_VERSION },
       );
   // Campaign A audit HIGH: an unresolved slurry composition means the
@@ -2989,7 +3164,12 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   const napComplianceFinal: EngineOutcome<NapComplianceCheck> = !evidenceOk
     ? !fertilityEvidenceOk
       ? blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex", "fertility.kIndex"])
-      : blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["plannedUse"])
+      : !silageEvidenceOk
+        ? blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["plannedUse"])
+        : ((grazingEvidenceBlock ??
+            (statutoryGsrOutcome.status !== "OK"
+              ? statutoryGsrOutcome
+              : blockedInsufficientEvidence("MISSING_GRASSLAND_AREA", ["farmGrasslandAreaHa"]))) as EngineOutcome<NapComplianceCheck>)
     : compositionUnresolved
       ? blockedInsufficientEvidence("SLURRY_COMPOSITION_SOURCES_UNRESOLVED", ["slurryComposition"])
       : statutoryManureValueRaw.status === "BLOCKED_INSUFFICIENT_EVIDENCE"
@@ -3106,7 +3286,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
           k: Math.round(remainingK),
         },
         "estimated",
-        "Teagasc Green Book (5th Ed., 2020) requirement, less organic nutrient credit (S.I. 588/2025 slurry availability)",
+        `${requirementSource} requirement, less organic nutrient credit (S.I. 588/2025 slurry availability)`,
         { calculationVersion: NUTRIENT_ENGINE_VERSION },
       )
     : tracked({ n: 0, p: 0, k: 0 }, "unavailable", requirement.source, { calculationVersion: NUTRIENT_ENGINE_VERSION });
@@ -3121,6 +3301,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // Evidence state: the Green Book tables (Irish guidance), weakened by the
   // nutrient's own index evidence where one applies.
   const grossArm = (gross: number, fertilityArm: NutrientPlan["fertilityEvidenceByNutrient"]["p"] | undefined): EngineOutcome<number> => {
+    if (grazingEvidenceBlock !== undefined) return grazingEvidenceBlock;
     if (fertilityArm === undefined) return silageEvidenceOk ? ok(Math.round(gross), "IRISH_DEFAULT") : silageEvidenceBlock;
     if (fertilityArm.status !== "OK") return fertilityArm;
     if (!silageEvidenceOk) return silageEvidenceBlock;
@@ -3153,7 +3334,12 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     field,
     silage,
     livestockGroups,
-    agronomicStockingRateKgHa,
+    ...(statutoryGsrOutcome.status === "OK" && grazingRequirement !== undefined
+      ? { grazingOrganicNStockingRateKgHa: statutoryGsrOutcome.value.gsrKgNHa }
+      : {}),
+    ...(grazingRequirement?.status === "READY"
+      ? { grazingNProvenance: { ruleId: grazingRequirement.traces.n.ruleId, source: grazingRequirement.traces.n.source, sourceVersion: grazingRequirement.traces.n.sourceVersion } }
+      : {}),
     farmGrasslandAreaHa,
     gross: { n: grossN, p: grossP, k: grossK },
     requirementByNutrient,
@@ -3173,6 +3359,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     compositionUnresolved,
     commonageProhibited: chemicalFertiliserProhibitedByCommonage,
     bufferProhibited: chemicalFertiliserProhibitedByBuffer,
+    noPhosphorusProducts: pIndexKnown === 4,
   });
 
   // Slurry Timing Evidence Patch V1, brief §6 ("Unsupported credit

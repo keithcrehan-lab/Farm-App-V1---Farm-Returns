@@ -97,7 +97,7 @@ describe("Fertiliser P2 field evidence gate", () => {
       cycle({ cropSystem: "GRASS_WHITE_CLOVER_GRAZING", evidence: { ...cycle().evidence, cropSystem: createFarmerEvidence("GRASS_WHITE_CLOVER_GRAZING", "Farmer") } }),
     );
     expect(result.status).toBe("INCOMPLETE_EVIDENCE");
-    expect(result.missingInputs).toContain("whiteCloverPct");
+    expect(result.missingInputs).toContain("aprilWhiteCloverPct");
   });
 
   it.each(["FORAGE_KALE", "FORAGE_RAPE", "CEREAL_OTHER", "HORTICULTURE_OTHER"] as const)(

@@ -96,6 +96,10 @@ import {
   soilMaterialForOrganicCarbonStatus,
 } from "@/domain/nutrients";
 import { resolveSoilTestChain } from "@/domain/soil-test-history";
+import { grazingSwardForCycle } from "@/domain/grass-fertiliser-engine-v2";
+import { cropFamilyFor } from "@/domain/fertiliser-field-evidence";
+import { loadCanonicalGrazingFieldStateAction } from "@/app/actions/fertiliser-field-evidence";
+import type { FieldProductionCycle } from "@/domain/fertiliser-field-evidence";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import type { NamedFieldScanSelection } from "@/domain/field-scan";
 import { canRestoreDeletedField } from "@/domain/field-deletion";
@@ -343,7 +347,13 @@ export interface AddHousingInput {
  * type from two different places. */
 export type AddSlurryCompositionInput = NewSlurryCompositionInput;
 
+function staleGrazingResolution(reason: string): NonNullable<Field["grazingProductionSystemResolution"]> {
+  return { value: null, basis: "UNRESOLVED", source: "Unsynchronised field evidence", limitations: [reason] };
+}
+
 interface FarmActions {
+  /** Refresh all derived grazing systems from signed-in farm records after movements or saved edits. */
+  refreshGrazingSystemEvidence: () => Promise<boolean>;
   updateFarmProfile: (patch: { name?: string; ownerName?: string; county?: string; grazingProductionSystem?: FarmGrazingProductionSystem | null }) => void;
   /** Appends a preceding-year grassland stocking-rate record — the LESS
    * trigger's only evidence (`src/domain/preceding-year-gsr.ts`). Rejected
@@ -384,6 +394,12 @@ interface FarmActions {
   restoreField: (fieldId: string) => void;
   /** Applies a server-returned canonical field row (e.g. automatic public spatial evidence) without rewriting provenance on the client. */
   replaceFieldFromServer: (field: Field) => void;
+  /** Fertiliser close-out (Codex audit F010): after a production cycle is
+   * saved, the field's derived grazing sward follows it at once, so every
+   * client-side nutrient plan uses the saved clover evidence without a
+   * reload. Only the current season's cycle sets the sward (the same rule
+   * `listFieldsForFarm` applies). */
+  applySavedProductionCycle: (fieldId: string, season: string, cycle: FieldProductionCycle | null) => void;
   updateFieldIndex: (
     fieldId: string,
     key: "pIndex" | "kIndex",
@@ -624,6 +640,7 @@ export function FarmProvider({
   // `persistRemote` writes do the same on success.
   const markRecommendationInputSaved = useCallback(() => setSyncedWriteCount((c) => c + 1), []);
   const [syncFailures, setSyncFailures] = useState<SyncFailure[]>([]);
+  const grazingEvidenceGenerationRef = useRef(0);
   const [slurryPlanFreshness, setSlurryPlanFreshness] = useState<SlurryPlanFreshness>("current");
   const [regulatoryEvidenceFreshness, setRegulatoryEvidenceFreshness] = useState<RegulatoryEvidenceFreshness>("current");
   // A `retry()` closure needs to call `persistRemote` again, but
@@ -719,8 +736,16 @@ export function FarmProvider({
   // evidence is `stale` until a retry succeeds.
   const reloadRegulatoryEvidence = useCallback(async (): Promise<boolean> => {
     if (!remote) return true;
+    // Field grazing resolutions depend on the same farm system/cycle/movement
+    // inputs. A regulatory response started before a save must never replace
+    // a newer canonical field resolution (independent audit F002 race).
+    const grazingGeneration = grazingEvidenceGenerationRef.current;
     try {
       const { housing, fields, neatSlurryEvidenceRecords, spreadableAreaRecords } = await loadRegulatoryEvidenceStateAction();
+      if (grazingGeneration !== grazingEvidenceGenerationRef.current) {
+        setRegulatoryEvidenceFreshness("stale");
+        return false;
+      }
       setState((s) => ({ ...s, housing, fields, neatSlurryEvidenceRecords, spreadableAreaRecords }));
       setRegulatoryEvidenceFreshness("current");
       return true;
@@ -731,6 +756,66 @@ export function FarmProvider({
     }
   }, [remote]);
 
+  const refreshGrazingSystemEvidence = useCallback(async (providedGeneration?: number): Promise<boolean> => {
+    if (!remote) return true;
+    const generation = providedGeneration ?? ++grazingEvidenceGenerationRef.current;
+    if (providedGeneration === undefined) {
+      // Called following a cattle movement: all cached resolutions depend on
+      // the movement history, so none can remain authoritative during reread.
+      setState((s) => ({
+        ...s,
+        fields: s.fields.map((field) => ({
+          ...field,
+          grazingProductionSystemResolution: staleGrazingResolution("A cattle movement was saved; refreshing grazing evidence."),
+        })),
+      }));
+    }
+    const result = await loadCanonicalGrazingFieldStateAction();
+    // A newer save has invalidated any older, in-flight read.
+    if (generation !== grazingEvidenceGenerationRef.current) return false;
+    const byId = new Map(result.fields.map((field) => [field.id, field]));
+    setState((s) => {
+      if (s.farm.id !== result.farmId) return s;
+      return {
+        ...s,
+        fields: s.fields.map((field) => {
+          const fresh = byId.get(field.id);
+          if (!fresh) return { ...field, grazingProductionSystemResolution: staleGrazingResolution("Field is missing from the current authorised farm read.") };
+          const merged = {
+            ...field,
+            grazingProductionSystemResolution: fresh.grazingProductionSystemResolution ?? staleGrazingResolution("No canonical grazing system could be resolved."),
+            currentSeasonCropFamily: fresh.currentSeasonCropFamily ?? null,
+          };
+          if (fresh.grazingSward !== undefined) return { ...merged, grazingSward: fresh.grazingSward };
+          const { grazingSward: _discarded, ...rest } = merged;
+          void _discarded;
+          return rest;
+        }),
+      };
+    });
+    return true;
+  }, [remote]);
+
+  // Server-side movement actions revalidate Next routes, but a mounted
+  // FarmProvider remains alive after router.refresh. Invalidate and reload
+  // its derived field resolutions as soon as any cattle move is saved.
+  useEffect(() => {
+    if (!remote) return;
+    const onGrazingMoved = () => {
+      void refreshGrazingSystemEvidence().catch((error: unknown) => {
+        console.error("[farm-store] grazing evidence refresh after movement failed:", error);
+        setSyncFailures((failures) => [...failures, {
+          id: "refresh-grazing-" + Date.now(),
+          label: "refreshGrazingSystemEvidence",
+          message: "Grazing evidence could not be refreshed. Reload the page before relying on fertiliser advice.",
+          retry: () => void refreshGrazingSystemEvidence(),
+        }]);
+      });
+    };
+    window.addEventListener("farm-return:grazing-moved", onGrazingMoved);
+    return () => window.removeEventListener("farm-return:grazing-moved", onGrazingMoved);
+  }, [remote, refreshGrazingSystemEvidence]);
+
   const applyLocal = useCallback((result: LocalSlurryLifecycleResult): SlurryLifecycleOutcome => {
     if (result.status === "rejected") return { ...result, plan: "current" };
     setState((s) => withSlurryRecords(s, result.records, withLocalStoreWithdrawals(s.housing, result.records)));
@@ -739,9 +824,20 @@ export function FarmProvider({
 
   const actions = useMemo<FarmActions>(
     () => ({
+      refreshGrazingSystemEvidence() {
+        return refreshGrazingSystemEvidence();
+      },
       updateFarmProfile(patch) {
+        const systemChanged = patch.grazingProductionSystem !== undefined;
+        const generation = systemChanged ? ++grazingEvidenceGenerationRef.current : grazingEvidenceGenerationRef.current;
         setState((s) => ({
           ...s,
+          fields: systemChanged
+            ? s.fields.map((field) => ({
+                ...field,
+                grazingProductionSystemResolution: staleGrazingResolution("Farm grazing production system has changed; awaiting refreshed field evidence."),
+              }))
+            : s.fields,
           farm: {
             ...s.farm,
             ...(patch.name !== undefined ? { name: patch.name } : {}),
@@ -756,7 +852,10 @@ export function FarmProvider({
               : {}),
           },
         }));
-        persistRemote("updateFarmProfile", () => updateFarmProfileAction(state.farm.id, patch));
+        void persistRemote("updateFarmProfile", async () => {
+          await updateFarmProfileAction(state.farm.id, patch);
+          if (systemChanged) await refreshGrazingSystemEvidence(generation);
+        });
       },
 
       async recordPrecedingYearGsr(input) {
@@ -960,8 +1059,53 @@ export function FarmProvider({
         persistRemote("archiveField", () => archiveFieldAction(fieldId));
       },
 
+      applySavedProductionCycle(fieldId, season, cycle) {
+        if (season !== new Date().toISOString().slice(0, 4)) return;
+        const generation = ++grazingEvidenceGenerationRef.current;
+        const sward = grazingSwardForCycle(cycle ?? undefined);
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((candidate) => {
+            if (candidate.id !== fieldId) return candidate;
+            const next = {
+              ...candidate,
+              currentSeasonCropFamily: cycle ? cropFamilyFor(cycle.cropSystem) : null,
+              ...(remote ? {
+                grazingProductionSystemResolution: staleGrazingResolution("Saved field cycle has changed; awaiting canonical movement and exception resolution."),
+              } : {}),
+            };
+            if (sward !== undefined) return { ...next, grazingSward: sward };
+            const { grazingSward: _dropped, ...rest } = next;
+            void _dropped;
+            return rest;
+          }),
+        }));
+        if (remote) void persistRemote("refreshSavedProductionCycleEvidence", () => refreshGrazingSystemEvidence(generation));
+      },
+
       replaceFieldFromServer(field) {
-        setState((s) => ({ ...s, fields: s.fields.map((candidate) => (candidate.id === field.id ? field : candidate)) }));
+        // A single-field server read does not carry cycle-derived fields.
+        // Preserve the existing resolution for a purely unrelated edit;
+        // invalidate it if the field's agronomic identity/area/use changed.
+        const existing = state.fields.find((candidate) => candidate.id === field.id);
+        const sameInputs = existing?.farmId === field.farmId
+          && existing.areaHa === field.areaHa
+          && existing.plannedUse?.value === field.plannedUse?.value;
+        const generation = sameInputs ? grazingEvidenceGenerationRef.current : ++grazingEvidenceGenerationRef.current;
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((candidate) => {
+            if (candidate.id !== field.id) return candidate;
+            return {
+              ...field,
+              ...(field.grazingSward !== undefined ? {} : candidate.grazingSward !== undefined ? { grazingSward: candidate.grazingSward } : {}),
+              currentSeasonCropFamily: field.currentSeasonCropFamily !== undefined ? field.currentSeasonCropFamily : candidate.currentSeasonCropFamily,
+              grazingProductionSystemResolution: field.grazingProductionSystemResolution
+                ?? (sameInputs ? candidate.grazingProductionSystemResolution : staleGrazingResolution("Field inputs changed; awaiting updated canonical resolution.")),
+            };
+          }),
+        }));
+        if (remote && !sameInputs) void persistRemote("refreshReplacedFieldEvidence", () => refreshGrazingSystemEvidence(generation));
       },
 
       restoreField(fieldId) {
@@ -1478,7 +1622,7 @@ export function FarmProvider({
         return record;
       },
     }),
-    [state.farm.id, state.farm.ownerName, state.fields, state.housing, remote, persistRemote, refreshSlurryPlan, runRemoteLifecycle, applyLocal, reloadRegulatoryEvidence, markRecommendationInputSaved],
+    [state.farm.id, state.farm.ownerName, state.fields, state.housing, remote, persistRemote, refreshSlurryPlan, runRemoteLifecycle, applyLocal, reloadRegulatoryEvidence, refreshGrazingSystemEvidence, markRecommendationInputSaved],
   );
 
   const dismissSyncFailure = useCallback((id: string) => {
@@ -1658,6 +1802,7 @@ export function useSyncStatus(): { pendingCount: number; syncedCount: number; fa
 
 export function useFarmActions(): FarmActions {
   const {
+    refreshGrazingSystemEvidence,
     updateFarmProfile,
     recordPrecedingYearGsr,
     addField,
@@ -1668,6 +1813,7 @@ export function useFarmActions(): FarmActions {
     splitField,
     restoreField,
     replaceFieldFromServer,
+    applySavedProductionCycle,
     updateFieldIndex,
     addLivestockGroup,
     deleteLivestockGroup,
@@ -1691,6 +1837,7 @@ export function useFarmActions(): FarmActions {
     refreshRegulatoryEvidence,
   } = useFarmStore();
   return {
+    refreshGrazingSystemEvidence,
     recordSlurryOriginDeclaration,
     recordNeatSlurryDeclaration,
     recordSpreadableAreaDeclaration,
@@ -1709,6 +1856,7 @@ export function useFarmActions(): FarmActions {
     splitField,
     restoreField,
     replaceFieldFromServer,
+    applySavedProductionCycle,
     updateFieldIndex,
     addLivestockGroup,
     deleteLivestockGroup,

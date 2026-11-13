@@ -22,7 +22,7 @@ import {
   type FarmFertiliserProductDemand,
   type FarmFertiliserAggregation,
 } from "@/domain/fertiliser-plan";
-import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
+import { calculateNutrientPlan, resolveFieldSlurryAllocation, type CalculateNutrientPlanInput } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { currentSlurryCompositionByHousing, type SlurryComposition } from "@/domain/slurry-composition";
 import { resolveFieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
@@ -318,6 +318,7 @@ export async function getFieldRemainingFertiliserRequirement(
 
 export interface FarmFertiliserDemandInput {
   farmId: string;
+  grazingProductionSystem?: CalculateNutrientPlanInput["grazingProductionSystem"];
   fields: readonly Field[];
   livestockGroups: readonly LivestockGroup[];
   slurryAllocations: readonly SlurryAllocation[];
@@ -508,6 +509,7 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
           input.pBuildUpCompliance,
           compositionInput.composition,
           compositionInput.unresolved,
+          input.grazingProductionSystem,
         );
         if (prompt.basis.status === "BLOCKED_INSUFFICIENT_EVIDENCE") fieldsWithBlockedEvidence++;
         return prompt.basis.status === "OK" ? [field.id, prompt.basis.value as FertiliserRecommendationSummary] : undefined;
@@ -531,6 +533,7 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
         field,
         farmGrasslandAreaHa,
         livestockGroups: [...input.livestockGroups],
+        grazingProductionSystem: input.grazingProductionSystem,
         slurryAllocation,
         nonGrassPct,
         // Codex audit MEDIUM/HIGH (round 14): same `now`/`pBuildUpCompliance`

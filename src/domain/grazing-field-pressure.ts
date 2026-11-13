@@ -1,6 +1,6 @@
 import type { LivestockGroup } from "./types";
 
-export const GRAZING_FIELD_PRESSURE_VERSION = "grazing_field_pressure_v1.0.0";
+export const GRAZING_FIELD_PRESSURE_VERSION = "grazing_field_pressure_v1.1.0";
 
 export interface GrazingFieldSession {
   id: string;
@@ -66,7 +66,10 @@ export function organicNStockingRateFromLUHa(stockRateLUHa: number): number | nu
   const rows = SUCKLER_CALF_TO_BEEF_LU_ORGANIC_N_ROWS;
   if (stockRateLUHa <= rows[0].stockingRateLUHa) return rows[0].organicNKgHa;
   const last = rows[rows.length - 1];
-  if (stockRateLUHa >= last.stockingRateLUHa) return last.organicNKgHa;
+  // No published Table 12-3 conversion above 3.0 LU/ha. Never silently
+  // clamp excessive stocking pressure to the highest supported row.
+  if (stockRateLUHa > last.stockingRateLUHa) return null;
+  if (stockRateLUHa === last.stockingRateLUHa) return last.organicNKgHa;
   for (let i = 0; i < rows.length - 1; i += 1) {
     const lower = rows[i];
     const upper = rows[i + 1];

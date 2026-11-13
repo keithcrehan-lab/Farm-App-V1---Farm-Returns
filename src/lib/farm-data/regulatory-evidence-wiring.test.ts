@@ -193,7 +193,11 @@ const CATTLE: LivestockGroup[] = [
     farmId: FARM_ID,
     category: "suckler_cow",
     label: "Cows",
-    count: { value: 20, status: "verified", source: "Farmer" },
+    // The organic-manure-origin tests use a supported grazing stocking
+    // rate so an unrelated beyond-Table-12-3 block does not mask origin.
+    count: { value: 10, status: "verified", source: "Farmer" },
+    avgAgeMonths: 60,
+    sex: "female",
     system: "grazing",
     value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
   } as LivestockGroup,
@@ -442,6 +446,7 @@ describe("Campaign B live evidence wiring — origin, regressions and one canoni
       field: b.fields[0],
       farmGrasslandAreaHa: 8,
       livestockGroups: CATTLE,
+      grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       slurryAllocation: b.allocationRecords[0],
       asOfDate: "2026-03-01",
       plannedRegulatoryNeatSlurry: plannedRegulatoryNeatSlurryForNutrientPlan(c, "field-1", b.allocationRecords[0]),
@@ -509,6 +514,7 @@ describe("Campaign B live evidence wiring — slurry origin", () => {
       field: b.fields[0],
       farmGrasslandAreaHa: 8,
       livestockGroups: CATTLE,
+      grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       slurryAllocation: b.allocationRecords[0],
       asOfDate: "2026-03-01",
       plannedRegulatoryNeatSlurry: plannedRegulatoryNeatSlurryForNutrientPlan(c, "field-1", b.allocationRecords[0]),

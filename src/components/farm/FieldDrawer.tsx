@@ -479,6 +479,7 @@ function OverviewChapter({
 }) {
   const isRealMode = useIsRealMode();
   const farm = useFarm();
+  const { applySavedProductionCycle } = useFarmActions();
   const slurryAllocations = useSlurryAllocations();
   const housing = useHousingList();
   const planResult = useFieldNutrientPlan(field);
@@ -655,6 +656,8 @@ function OverviewChapter({
                                         : "active",
                                     farmerName: farm.ownerName,
                                   });
+                                // Codex audit F010: keep the store's sward in step.
+                                applySavedProductionCycle(field.id, season, saved.cycle);
                                 setEditingUse(false);
                                 setUseMessage(
                                   saved.gate?.status === "READY_FOR_CALCULATION"

@@ -241,6 +241,9 @@ export const mockLivestockGroups: LivestockGroup[] = [
     label: "Suckler Cows",
     count: tracked(32, "verified", "Keith"),
     avgWeightKg: tracked(612, "estimated", SOURCE_ASSUMPTION),
+    // Demo-only age/sex assumption, not a record from a real farmer.
+    avgAgeMonths: 60,
+    sex: "female",
     system: "grazing",
     housingId: "housing-shed-1",
     goal: "breed",
@@ -254,6 +257,9 @@ export const mockLivestockGroups: LivestockGroup[] = [
     label: "Weanlings",
     count: tracked(18, "verified", "Keith"),
     avgWeightKg: tracked(335, "estimated", SOURCE_ASSUMPTION),
+    // Demo-only age/sex assumption, not a record from a real farmer.
+    avgAgeMonths: 9,
+    sex: "mixed",
     system: "housed",
     housingId: "housing-shed-1",
     goal: "grow",
@@ -267,6 +273,9 @@ export const mockLivestockGroups: LivestockGroup[] = [
     label: "Heifers",
     count: tracked(12, "verified", "Keith"),
     avgWeightKg: tracked(412, "estimated", SOURCE_ASSUMPTION),
+    // Demo-only age/sex assumption, not a record from a real farmer.
+    avgAgeMonths: 18,
+    sex: "female",
     system: "housed",
     housingId: "housing-shed-1",
     goal: "grow",
@@ -280,6 +289,9 @@ export const mockLivestockGroups: LivestockGroup[] = [
     label: "Bull",
     count: tracked(1, "verified", "Keith"),
     avgWeightKg: tracked(920, "estimated", SOURCE_ASSUMPTION),
+    // Demo-only age/sex assumption, not a record from a real farmer.
+    avgAgeMonths: 48,
+    sex: "male",
     system: "grazing",
     goal: "maintain",
     value: tracked(2_380, "estimated", SOURCE_ASSUMPTION),
@@ -292,6 +304,9 @@ export const mockLivestockGroups: LivestockGroup[] = [
     label: "Continental Steers",
     count: tracked(18, "verified", "Keith"),
     avgWeightKg: tracked(520, "estimated", SOURCE_ASSUMPTION),
+    // Demo-only age/sex assumption, not a record from a real farmer.
+    avgAgeMonths: 24,
+    sex: "male",
     system: "housed",
     housingId: "housing-shed-1",
     goal: "finish_slaughter",

@@ -11,6 +11,7 @@ const farm: Farm = {
   primaryEnterprises: ["suckler_beef"],
   units: "metric",
   ownerName: "Keith",
+  grazingProductionSystem: tracked("SUCKLER_CALF_TO_BEEF", "farmer_adjusted", "Farmer"),
 };
 
 const field: Field = {
@@ -37,7 +38,7 @@ const field: Field = {
 };
 
 const groups: LivestockGroup[] = [
-  { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(10, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+  { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(10, "verified", "Keith"), system: "grazing", avgAgeMonths: 60, sex: "female", value: tracked(0, "estimated", "x") },
 ];
 
 describe("normaliseCountyForZoneLookup", () => {
@@ -215,9 +216,13 @@ describe("deriveRealAlerts", () => {
 
   // Codex audit HIGH (round 11): a real, heavily-stocked field genuinely
   // exceeding its NAP ceiling.
-  const heavyField: Field = { ...field, id: "field-heavy", fertility: { pIndex: tracked(1, "verified", "Soil test lab"), kIndex: tracked(1, "farmer_adjusted", "Keith") } };
+  // nutrient_engine_v1.7.0: 40 suckler cows on 13 ha (≈200 kg organic N/ha)
+  // — inside Table 12-3, where the N requirement still exceeds the 185 kg N
+  // ceiling. The previous 10 ha (260 kg N/ha) is above the table's last row,
+  // where no requirement is given at all.
+  const heavyField: Field = { ...field, id: "field-heavy", areaHa: 13, fertility: { pIndex: tracked(1, "verified", "Soil test lab"), kIndex: tracked(1, "farmer_adjusted", "Keith") } };
   const heavyGroups: LivestockGroup[] = [
-    { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(40, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(40, "verified", "Keith"), system: "grazing", avgAgeMonths: 60, sex: "female", value: tracked(0, "estimated", "x") },
   ];
 
   it("raises a real attention alert when a real, evidenced field genuinely exceeds its NAP ceiling", () => {
@@ -329,7 +334,10 @@ describe("deriveRealAlerts", () => {
         farmId: "farm-test",
         category: "dairy_cow",
         label: "Cows",
-        count: tracked(25, "verified", "Keith"),
+        // nutrient_engine_v1.7.0: 22 cows on 10 ha (≈202 kg organic N/ha) puts
+        // the statutory-basis N requirement (≈200) between the lower (185)
+        // and the elevated grazing ceiling, the window this case exercises.
+        count: tracked(22, "verified", "Keith"),
         system: "grazing",
         avgAgeMonths: 48,
         sex: "female",

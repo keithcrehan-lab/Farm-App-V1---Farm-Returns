@@ -116,8 +116,8 @@ describe("buildSlurryRateAllocation — separate concepts, no production effect"
     const before = JSON.stringify(plan);
     const allocation = buildSlurryRateAllocation({ plan });
     expect(JSON.stringify(plan)).toBe(before);
-    expect(plan.calculationVersion).toBe("nutrient_engine_v1.5.0");
-    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.5.0");
+    expect(plan.calculationVersion).toBe("nutrient_engine_v1.7.0");
+    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.7.0");
     expect(allocation.upstreamCalculationVersion).toBe(NUTRIENT_ENGINE_VERSION);
     expect(allocation.calculationVersion).toBe(SLURRY_RATE_ALLOCATION_VERSION);
     expect(SLURRY_RATE_ALLOCATION_VERSION).toBe("slurry_rate_allocation_v0.3.0-draft");
@@ -382,6 +382,7 @@ function contextPlan(fertility: Field["fertility"], context: SlurryContext, opti
     field: { ...field, fertility, ...("plannedUse" in options ? { plannedUse: options.plannedUse } : {}) },
     farmGrasslandAreaHa: options.farmGrasslandAreaHa ?? 20,
     livestockGroups: options.livestockGroups ?? [],
+    grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
     slurryAllocation: {
       fieldId: field.id,
       housingId: "housing-1",
@@ -567,8 +568,11 @@ describe("canonical remap — tillage and grazing without livestock or grassland
             plannedUse: tracked("grazing", "farmer_adjusted", "Keith"),
             silage: false,
           });
-          // The paired legacy path still carries a figure (LEGACY_COMPATIBILITY_PATH).
-          expect(plan.requirementByNutrient.p.status, caseLabel).toBe("OK");
+          // The per-nutrient soil-index P arm can remain a known raw
+          // agronomic figure when the production system is explicitly
+          // recorded; overall actionability is still blocked without livestock.
+          // With no grassland area even that arm is unsupported.
+          expect(plan.requirementByNutrient.p.status, caseLabel).toBe(label === "no livestock" ? "OK" : "BLOCKED_INSUFFICIENT_EVIDENCE");
           const allocation = buildSlurryRateAllocation({ plan, plannedUse: "grazing" });
           for (const nutrient of ["n", "p", "k"] as const) {
             expect(allocation.requirement[nutrient], caseLabel).toMatchObject({ status: "UNKNOWN", reasonCode });

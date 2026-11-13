@@ -266,3 +266,60 @@ describe("mixedRequirementReport", () => {
     expect(mixedRequirementReport(blocked)?.evidence.availableNutrientBasis).toEqual(blocked.organicApplication.availableNutrientAssessment);
   });
 });
+
+// Audit F007 (fertiliser close-out): a grazing field on a farm with no usable
+// grassland area has no grazing requirement — the mixed-index card and the
+// CSV/Evidence report must not publish a calculated-looking N or P of 0.
+describe("no usable grassland area, only P indexed (audit F007)", () => {
+  const grazingField: Field = {
+    ...field,
+    plannedUse: tracked("grazing", "farmer_adjusted", "Farmer"),
+    fertility: { pIndex: idx(2) },
+  };
+  const cows = [
+    { id: "g1", farmId: "farm-5a", category: "suckler_cow" as const, label: "Cows", count: tracked(10, "verified", "Farmer"), system: "grazing" as const, value: tracked(0, "estimated", "x") },
+  ];
+  it("blocks every per-nutrient arm and shows no mixed figures", () => {
+    for (const area of [0, -1]) {
+      const plan = calculateNutrientPlan({ field: grazingField, farmGrasslandAreaHa: area, livestockGroups: cows, asOfDate: "2026-10-02" });
+      for (const nutrient of ["n", "p", "k"] as const) {
+        expect(plan.requirementByNutrient[nutrient].status, `${area} gross ${nutrient}`).not.toBe("OK");
+        expect(plan.netRequirementByNutrient[nutrient].status, `${area} net ${nutrient}`).not.toBe("OK");
+      }
+      expect(plan.requirementByNutrient.n).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_GRASSLAND_AREA" });
+      expect(requirementCardPresentation(plan)).toEqual({ kind: "paired" });
+      expect(mixedRequirementReport(plan)).toBeUndefined();
+      expect(plan.requirement.status).toBe("unavailable");
+    }
+  });
+});
+
+// Codex audit F008: a clover sward's N comes from the 2026 Teagasc clover
+// strategy — the mixed-index card and report must say so, with either index
+// missing.
+describe("mixed-index clover provenance (audit F008)", () => {
+  // 34 suckler cows (65 kg N each, S.I. 588/2025 Table 7) on 13 ha = 170.0.
+  const cows = [
+    { id: "g1", farmId: "farm-5a", category: "suckler_cow" as const, label: "Cows", count: tracked(34, "verified", "Farmer"), avgAgeMonths: 60, sex: "female" as const, system: "grazing" as const, value: tracked(0, "estimated", "x") },
+  ];
+  for (const fertility of [{ pIndex: idx(3) }, { kIndex: idx(3) }]) {
+    const known = "pIndex" in fertility ? "P" : "K";
+    it(`cites the clover strategy for N and the Green Book for ${known}`, () => {
+      const cloverField: Field = { ...field, areaHa: 13, plannedUse: tracked("grazing", "farmer_adjusted", "Farmer"), fertility, grazingSward: { kind: "WHITE_CLOVER", aprilWhiteCloverPct: 10 } };
+      const plan = calculateNutrientPlan({ field: cloverField, farmGrasslandAreaHa: 13, livestockGroups: cows, nonGrassPct: 0, asOfDate: "2026-10-02" });
+      const card = requirementCardPresentation(plan);
+      if (card.kind !== "mixed") throw new Error(`expected mixed, got ${card.kind}`);
+      expect(card.values.n).toBe(75);
+      expect(card.source).toMatch(/clover/i);
+      expect(card.source).toContain(`${REQUIREMENT_SOURCE} for ${known}`);
+      expect(mixedRequirementReport(plan)?.source).toBe(card.source);
+    });
+  }
+  it("keeps the plain Green Book source for a grass sward", () => {
+    const grassField: Field = { ...field, areaHa: 13, plannedUse: tracked("grazing", "farmer_adjusted", "Farmer"), fertility: { pIndex: idx(3) } };
+    const plan = calculateNutrientPlan({ field: grassField, farmGrasslandAreaHa: 13, livestockGroups: cows.map((cow) => ({...cow, avgAgeMonths: 60, sex: "female" as const})), grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", nonGrassPct: 0, asOfDate: "2026-10-02" });
+    const card = requirementCardPresentation(plan);
+    if (card.kind !== "mixed") throw new Error("expected mixed");
+    expect(card.source).toBe(REQUIREMENT_SOURCE);
+  });
+});

@@ -28,7 +28,7 @@ function labField(pIndex: 1 | 2 | 3 | 4, extra: Partial<Field["fertility"]> = {}
 }
 
 const grazingHerd: LivestockGroup[] = [
-  { id: "g1", farmId: "farm-a", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(0, "estimated", "x") },
+  { id: "g1", farmId: "farm-a", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", avgAgeMonths: 60, sex: "female", value: tracked(0, "estimated", "x") },
 ];
 
 const NEAT_M3 = 5 * AREA_HA;
@@ -40,6 +40,7 @@ function plan(opts: { field: Field; origin?: RegulatoryManureOrigin; herd?: Live
     field: opts.field,
     farmGrasslandAreaHa: FARM_GRASS_HA,
     livestockGroups: opts.herd ?? grazingHerd,
+    grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
     slurryAllocation: slurry ? allocation : undefined,
     ...(slurry ? { plannedRegulatoryNeatSlurry: { volumeM3: NEAT_M3, status: "farmer_adjusted" as const, source: "test", ...(opts.origin ? { origin: opts.origin } : {}) } } : {}),
     ...(opts.silage ? { silage: opts.silage } : {}),
@@ -174,7 +175,7 @@ describe("S.I. 588/2025 Art. 17(8) — home-produced grazing-livestock manure an
 
   it("I: unavailable evidence stays UNKNOWN — unestablished origin or neat volume blocks, never counted as zero", () => {
     expect(blockedReason(plan({ field: labField(2) }))).toBe("PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED");
-    const noNeat = calculateNutrientPlan({ field: labField(2), farmGrasslandAreaHa: FARM_GRASS_HA, livestockGroups: grazingHerd, slurryAllocation: allocation });
+    const noNeat = calculateNutrientPlan({ field: labField(2), farmGrasslandAreaHa: FARM_GRASS_HA, livestockGroups: grazingHerd, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryAllocation: allocation });
     expect(blockedReason(noNeat as ReturnType<typeof plan>)).toBe("REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN");
     const farm = buildFarmRegulatoryContext(grazingHerd, FARM_GRASS_HA);
     expect(farm.manureImports.state).toBe("missing");

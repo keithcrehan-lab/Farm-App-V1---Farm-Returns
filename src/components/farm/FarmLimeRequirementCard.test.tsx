@@ -73,4 +73,55 @@ describe("FarmLimeRequirementCard", () => {
     expect(screen.getByText(/couldn't check your farm-wide lime requirement/i)).toBeTruthy();
     consoleErrorSpy.mockRestore();
   });
+
+  it("lists fields whose pH is below the Teagasc target without inventing a lime rate", async () => {
+    mockAction.mockResolvedValue(
+      result({
+        fields: [
+          {
+            fieldId: "field-1",
+            fieldName: "Low Field",
+            areaHa: 8,
+            phAdvice: {
+              version: "soil_ph_advice_v1.1.0",
+              ph: 5.6,
+              landUse: "grass",
+              target: { min: 6.3 },
+              status: "BELOW_TARGET",
+              limeRate: "LABORATORY_LIME_REQUIREMENT_NEEDED",
+              sourceId: "TEAGASC_PH_LIME",
+              cropSystem: "GRASS_GRAZING",
+              reading: { kind: "LABORATORY_TEST", status: "verified", source: "Laboratory soil test", laboratory: "Lab", date: "2026-02-01", evidenceState: "MEASURED" },
+            },
+          },
+          {
+            fieldId: "field-2",
+            fieldName: "Estimated Field",
+            areaHa: 5,
+            phAdvice: {
+              version: "soil_ph_advice_v1.1.0",
+              ph: 5.9,
+              landUse: "grass",
+              target: { min: 6.3 },
+              status: "BELOW_TARGET",
+              limeRate: "LABORATORY_LIME_REQUIREMENT_NEEDED",
+              sourceId: "TEAGASC_PH_LIME",
+              cropSystem: "GRASS_GRAZING",
+              reading: { kind: "RECORDED_VALUE", status: "estimated", source: "Farm Return assumption", evidenceState: "IRISH_DEFAULT" },
+            },
+          },
+        ],
+        fieldsWithoutLimeEvidence: 2,
+        fieldsBelowPhTargetWithoutLimeRate: 2,
+      }),
+    );
+    render(<FarmLimeRequirementCard canRecord />);
+    const advice = await screen.findByRole("region", { name: /lime likely needed/i });
+    expect(advice.textContent).toContain("Low Field");
+    // Audit F005: each reading shows where it came from.
+    expect(advice.textContent).toContain("pH 5.6 (lab test, Lab, 2026-02-01) · target 6.3");
+    expect(advice.textContent).toContain("pH 5.9 (estimate, Farm Return assumption) · target 6.3");
+    expect(advice.textContent).toMatch(/lime requirement/i);
+    expect(advice.textContent).not.toMatch(/t\/ha/);
+  });
 });

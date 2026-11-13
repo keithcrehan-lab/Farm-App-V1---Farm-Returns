@@ -10,9 +10,10 @@ import { fieldNutrientPlanView, nutrientCellText, NUTRIENT_KEYS } from "./field-
  * arm, and the adapter neither recomputes nor mutates it.
  */
 
-const FARM: Farm = { id: "farm-1", name: "Test Farm", location: { county: "Cork", centroid: [0, 0] }, primaryEnterprises: ["suckler_beef"], units: "metric", ownerName: "Farmer" };
+const FARM: Farm = { id: "farm-1", name: "Test Farm", location: { county: "Cork", centroid: [0, 0] }, primaryEnterprises: ["suckler_beef"], units: "metric", ownerName: "Farmer", grazingProductionSystem: tracked("SUCKLER_CALF_TO_BEEF", "farmer_adjusted", "Farmer") };
+// nutrient_engine_v1.7.0: 4 suckler cows on the 4 ha farm (65 kg organic N/ha); 20 cows (325 kg N/ha) is above Table 12-3's last row, where no requirement is given.
 const HERD = [
-  { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
+  { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 4, status: "verified", source: "Farmer" }, system: "grazing", avgAgeMonths: 60, sex: "female", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
 ] as LivestockGroup[];
 
 function field(overrides: Partial<Field> = {}): Field {

@@ -19,8 +19,11 @@ vi.mock("./nutrients", async (importOriginal) => {
   };
 });
 
-const { calculateFarmFertiliserCostEur, calculateFarmFertiliserRequirement, withRealInputRequirements } = await import("./finance");
-const { calculateNutrientPlan, farmGrasslandAggregates } = await import("./nutrients");
+const { calculateFarmFertiliserCostEur: realCost, calculateFarmFertiliserRequirement: realRequirement, withRealInputRequirements } = await import("./finance");
+const { calculateNutrientPlan: realNutrients, farmGrasslandAggregates } = await import("./nutrients");
+const calculateFarmFertiliserCostEur: typeof realCost = input => realCost({ grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", ...input });
+const calculateFarmFertiliserRequirement: typeof realRequirement = input => realRequirement({ grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", ...input });
+const calculateNutrientPlan: typeof realNutrients = input => realNutrients({ grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", ...input });
 
 function makeField(id: string, areaHa = 5): Field {
   return {
@@ -44,7 +47,7 @@ const livestockGroups: LivestockGroup[] = [
     farmId: "farm-test",
     category: "suckler_cow",
     label: "g1",
-    count: tracked(20, "verified", "Farmer"),
+    count: tracked(12, "verified", "Farmer"), // nutrient_engine_v1.7.0: 12 suckler cows (≈60–156 kg organic N/ha across these fixtures), inside Table 12-3; 20 on a single 5 ha field is above its last row
     system: "grazing",
     value: tracked(20_000, "estimated", "Farm Return assumption"),
   },

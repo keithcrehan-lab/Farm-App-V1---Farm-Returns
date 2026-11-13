@@ -41,7 +41,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     const { farm } = status;
 
     const [fields, livestockGroups, housing, slurryAllocations, slurryCompositionRecords, slurryAllocationRecords, regulatoryEvidence] = await Promise.all([
-      listFieldsForFarm(farm.id),
+      listFieldsForFarm(farm.id, { farm, resolveGrazingSystems: true }),
       listLivestockGroupsForFarm(farm.id),
       listHousingForFarm(farm.id),
       listSlurryAllocationsForFarm(farm.id),

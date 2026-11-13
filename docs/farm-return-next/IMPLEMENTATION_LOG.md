@@ -1154,3 +1154,160 @@ providers; no second source of truth, no migration.
 - Fix: `getGrassManagementDataAction` reads this season's production cycles (then last season's, carried forward),
   mapped by `fieldUseFromCropSystem` in `src/domain/grass-wedge-target.ts`; legacy planned use is the fallback; a
   failed cycle read falls back rather than breaking the page. Tests added. No migration.
+
+## Nutrient engine v1.6.0 — fertiliser engine test plan run 1 corrections (2026-11-11)
+
+Branch `fix/nutrient-engine-orgn-index4-silage-buildup` from `release/farm-return-current-2026-11-07` (`182629a`).
+Authorised by Keith after the test-farm run (Docs: "Farm Return — Fertiliser Engine Test Plan").
+
+- `nutrients.ts` → `nutrient_engine_v1.6.0`: (a) `calculateGrasslandStockingRateKgHa` now returns Table 12-3's organic-N
+  (excreted) column via new export `organicNStockingRateFromLUHaKgHa` — it previously returned the fertiliser Total N
+  column, understating every grazing field's P maintenance band and K adjustment; (b) no grazing P maintenance at
+  P Index 4, and Index 4 fields are sized with the existing P-free allocation (`allocateFieldProducts` →
+  `allocatePurchasedProductsPConstrained`, 0 P target) in both the published purchase and the legacy NAP blend;
+  (c) silage P build-up on the first cut only. No exported signature changed; no migration.
+- `fertiliser-recommendation.ts`: the Today prompt now says Nitrates limits were not checked when `napCompliance`
+  is not OK (e.g. herd ages missing) — the recommendation is still issued (spec Section A2).
+- Tests: new `fertiliser-engine-test-farm.test.ts` (scenarios 1–4 asserted; clover, tillage, lime-from-pH and
+  per-field grazing recorded as `it.todo`); one new prompt test; engine-version assertions moved to v1.6.0 in domain
+  tests that read the real engine output (UI/fixture strings left as fixtures).
+- Two frozen CC-B5 buffer regressions updated: the K Index 4 second-cut mirror moves from OK to
+  LEGAL_PROHIBITION (organic 5 m buffer) because its chemical blend existed only through the repeated build-up
+  (evidence register 2026-11-11). The calculateGrasslandStockingRateKgHa unit test now asserts the organic-N column.
+- Evidence register entry added. Quality gate and `scripts/codex-audit.sh` run on Keith's MacBook in a fresh clone of
+  this branch — results in BUILD_STATE `nutrient_engine_v1_6_0`.
+- Codex campaign audit (182629a..fb5c050, Keith's MacBook): HIGH F001 out-of-range organic-N extrapolation → the
+  ratio extrapolation is removed; outside Table 12-3's printed rows the end row is held, as the Total N column already
+  is. A fail-closed variant above 3.0 LU/ha (8bcf137) broke 41 existing tests built on 4.5 LU/ha fixtures, so it was
+  withdrawn and F001's residual question (hold vs fail closed above 3.0 LU/ha) is left OPEN for Keith / an
+  agronomist. MEDIUM F002 BUILD_STATE drift → entry added.
+- Final Codex campaign audit (182629a..435ed0e): F001 still open (holding the last row above 3.0 LU/ha is also
+  unsupported — scientific decision required); HIGH F003 duplicated conversion → the engine now calls the canonical
+  `organicNStockingRateFromLUHa` (`grazing-field-pressure.ts`, present at baseline) and the duplicate table is removed
+  (outputs identical on the test farm).
+- Gate evidence at 435ed0e (Keith's MacBook, fresh clone): vitest 7868 passed / 3 failed / 5 todo with
+  `src/tooling/agent-run.test.ts` excluded (its harness shell test hangs on this machine; file untouched by this
+  branch); the 3 failures (cattle component-boundary R4, Schemes demo mode, Plan empty state) fail identically at
+  182629a. Lint pass; build pass; typecheck pass after `next build` generated route types (a fresh clone lacks
+  `LayoutProps` before the first build).
+
+## Fertiliser close-out, Phase A — engine v2.1.0, clover, pH advice, holding stocking input (2026-11-11)
+
+Keith chose to converge on `grass-fertiliser-engine-v2.ts` (the engine behind the Fertiliser Plan page, field status,
+lime and the RFQ basket). Phase A makes it correct and complete; Phase B moves the screens still on
+`calculateNutrientPlan` (Today prompts, Nutrients/field plan, reports, finance, alerts, evidence report, what-matters,
+plan overview totals) onto it.
+
+- `grass_fertiliser_engine_v2.1.0`: no grazing P maintenance at Index 4; grazing fails closed above the last published
+  Table 12-2/12-3 row; white-clover grazing pathway (Teagasc drystock clover strategy, only at 170 kg organic N/ha and
+  only for the published April classes); grazing stocking input is the holding statutory GSR with the field's movement
+  record disclosed as `fieldGrazingContext` (v2.0.0 keyed rows on in-season paddock pressure, which doubled N on the
+  test farm's rotation). `fertiliser-plan.ts` action and quote readiness route clover grazing cycles; the
+  production-cycle card records clover as the three Teagasc April classes.
+- `soil-ph-advice.ts`: pH vs Teagasc target by land use; lime-likely-needed advice without a rate;
+  `aggregateFarmLimeRequirement` attaches it per field and counts `fieldsBelowPhTargetWithoutLimeRate`; shown via
+  `SoilPhAdviceList` on the lime card and plan overview.
+- Tests: v2.1.0 engine cases; `soil-ph-advice.test.ts`; `fertiliser-engine-v2-test-farm.test.ts` (all seven test-farm
+  scenarios through v2, including the cattle rotation's LU-day allocation); two action tests updated to the holding
+  stocking basis. Run locally with a vitest-compatible runner for pure domain files; the full gate and Codex audit run
+  on Keith's MacBook.
+
+## Fertiliser close-out — "align both": nutrient_engine_v1.7.0 (2026-11-11)
+
+Keith chose to align the two engines rather than merge them (Phase B as first written — moving every screen onto
+engine v2 and rebuilding the NAP/buffer/product layers — is withdrawn).
+
+- `grass-fertiliser-engine-v2.ts`: grazing and clover requirement extracted into the exported
+  `calculateGrazingGrossRequirement` (behaviour-neutral: all v2, test-farm, plan and quote-readiness tests unchanged).
+- `nutrients.ts` → `nutrient_engine_v1.7.0`: grazing requirement from that function on the statutory grassland
+  stocking rate; fails closed (per-nutrient `UNKNOWN`, legacy requirement `unavailable`, NAP blocked, no products)
+  when the rate is unknown, above the last published row, or a clover sward is outside the Teagasc strategy; optional
+  `grazingSward` / `grazingProductionSystem` inputs; a silage-cut field with no silage plan keeps its own reason.
+  `calculationTrace.grazing` now records the organic-N basis; the Evidence Report page shows it.
+- `fertiliser-recommendation.ts`: an unavailable requirement takes its reason from the canonical arms (was always
+  "missing silage plan").
+- Tests: fixtures that put 20 suckler cows on 4–5 ha (≈260–325 kg N/ha, above the table) moved to realistic stocking;
+  NAP-breach cases rebuilt inside the table (85 cows on 27 ha; 40 cows on 13 ha; 22 dairy cows on 10 ha for the
+  elevated-ceiling window); `fertiliser-engine-test-farm.test.ts` rewritten for v1.7.0 with a both-engines-agree block.
+  Every locally runnable test file matches the pre-change baseline; the mock/UI files run on Keith's MacBook.
+- Still to do in the close-out: pass the field's clover sward and the farm's grazing production system from the
+  production cycles into the Nutrients engine's callers; clean final audit; agronomist pack.
+- Clover plumbing: `GrazingSward` moved to `types.ts`; `grazingSwardForCycle` (engine v2) maps a production cycle to
+  its sward; `listFieldsForFarm` attaches the current season's sward to each `Field` (one choke point for the farm
+  store, prompts, reports, finance and alerts); `calculateNutrientPlan` reads `input.grazingSward ?? field.grazingSward`;
+  `replaceFieldFromServer` keeps the derived sward. Known limit: after the farmer edits a field's production cycle the
+  Today/Nutrients screens pick up the new sward on the next page load.
+- Mac verification at 90ded93 (before the clover plumbing) was cut short when the MacBook stopped responding: the
+  release-baseline failures (Plan page, Schemes, cattle boundary) reproduced; `fertiliser-plan.test.ts` showed 2
+  failures and two cattle files slow-test failures, not yet diagnosed. Typecheck/lint/build not yet run on this
+  commit range.
+
+
+## Fertiliser close-out — Mac verification and fixes (2026-11-11)
+
+- Typecheck: removed the dead `nGrazingCalculationTrace` helper (its return shape no longer matched the new grazing
+  trace type) and the now-unused `system` variable in `calculateNutrientPlan`.
+- The no-grassland-area message now uses the same wording as the purchase-status card, so the card shows the reason.
+- Test fixtures that still put a herd above Table 12-3's last row moved inside it: reports (4 suckler cows on 5 ha;
+  25 dairy cows on 10 ha), finance unknown-cost (12 suckler cows), purchase/slurry/audit-trail cards (4 cows on 4 ha),
+  canonical aggregation (4 cows), recompute and audit-trail P build-up cases (25 dairy cows on 10 ha), Nutrients page
+  commonage/LESS case (10 cows on 4 ha so a purchase still exists to prohibit).
+- `PurchasedFertiliserCard` no-area case now expects the legacy requirement `unavailable` (fail closed).
+- The action test that expected a grazing field to be sized from its movement history while another field had no
+  production cycle now expects `MISSING_FARM_PRODUCTION_CYCLES_FOR_GRASSLAND_AREA` in both paths, per Keith's decision
+  that field grazing records are context only.
+- `listFieldsForFarm` now reads `field_production_cycles`; the strict Supabase mocks in `job-actuals.test.ts` and
+  `farm-slurry-allocation.test.ts` were taught that table (empty).
+- Mac results: next build, `tsc --noEmit` and lint pass. Full suite: every failure either fixed above, a release
+  baseline failure, or a slow-test timeout; the 17 affected files re-run green except `SlurryFirstPlanningPanel` F010
+  (passes alone) and one cattle recommendations seam test (cattle code untouched).
+
+## Fertiliser close-out — Codex audit 182629a..f6e4a86 (6 HIGH) fixed (2026-11-11)
+
+**In-flight worktree agents: `contracts_frozen` is now `false` — rebase before continuing.** The close-out changes
+frozen contracts (`calculateNutrientPlan`'s grazing behaviour and `calculationTrace.grazing` shape,
+`FieldNutrientRequirement` provenance, `aggregateFarmLimeRequirement`'s options, `listFieldsForFarm` now reading
+production cycles). The earlier close-out commits left the flag `true` — a real process omission (F009), recorded here
+rather than rewritten. It stays `false` until the PR is merged and its final audit is clean.
+
+- F004: clover N passes the field's actual stocking rate to the canonical `lookupDrystockCloverN` gate — advice only at
+  exactly 170 kg organic N/ha; regression tests at 169.6/169.99/170.01/170.4.
+- F008: a clover sward's N requirement cites the 2026 Teagasc clover strategy (source, version, rule), not Table 12-3;
+  `calculationTrace.grazing.n` keeps source, version and every input (April class, timing schedule); the Evidence
+  Report shows them.
+- F007: when the shared calculation gives no grazing requirement (e.g. no grassland area), the per-nutrient gross and
+  net arms are blocked too — the mixed-index card and CSV/Evidence report no longer show N/P of 0.
+- F005/F006: `soil_ph_advice_v1.1.0` — the pH target comes from the field's canonical production-cycle crop (never the
+  legacy planned use) and fails closed with no cycle or no matchable published row; each reading carries its provenance
+  (lab, sample date, reference; or recorded status, source, date), shown on the lime card.
+- Follow-up from the Mac run at 64baa76: the F007 block no longer applies to tillage fields (their canonical arms are
+  `NOT_APPLICABLE`; the mixed-index Evidence Report section keeps its slurry basis), and the slurry-rate allocation
+  test now expects blocked per-nutrient arms when there is no grassland area. typecheck and lint pass at 64baa76.
+
+## Fertiliser close-out — Codex audit 182629a..aef72d6 (3 HIGH, 1 MEDIUM) fixed (2026-11-11)
+
+- F010: saving a production cycle now updates the farm store's field sward at once (`applySavedProductionCycle`, from
+  both the production-cycle card and the field drawer's use editor), so client nutrient plans pick up clover evidence
+  without a reload. This removes the "next page load" limitation noted above. Test: save clover → store sward is the
+  clover class; save grass → back to grass.
+- F011: an `unavailable` recorded pH is never used — no advice directly or in the farm lime aggregation.
+- F008 (follow-up): every grazing pathway's N requirement cites the table that produced it — Table 12-2 for
+  calf-to-weaning, 12-3 for calf-to-beef, the clover strategy for clover.
+- F005 (MEDIUM): the lime card labels verified, farmer-adjusted and estimated pH readings distinctly.
+
+## Fertiliser close-out — Codex audit 182629a..12c48b3 (3 HIGH) (2026-11-11)
+
+- F010 (bulk): `setBulkFieldCropSystemAction` returns each saved cycle; the bulk sheet applies it to the store, so a
+  bulk crop change updates the grazing sward at once. Test on the Fields page.
+- F008 (legacy outputs): `requirement.source` and `netRequirement.source` name the 2026 clover strategy for a clover
+  sward's N (Green Book for P and K); the Nutrients card shows it. Rendered test.
+- F012 (PRE-EXISTING): callers never pass the resolved grazing production system — **deferred** with reason in
+  `BLOCKERS.md` (FCO-F012).
+- Audit 182629a..a9bfcfe: 1 HIGH (F013) — `soil-ph-advice.ts` and the close-out's other contract changes are now
+  registered in `DOMAIN_CONTRACTS.md` ("Fertiliser close-out"). Mac at a9bfcfe: typecheck and lint pass; 2590 tests
+  pass, 1 failure (`SlurryFirstPlanningPanel` F010, a mocked-UI test untouched by this work that passes on its own).
+- Audit 182629a..23b0c64: 1 HIGH (F008, mixed-index) — the mixed-index card and CSV/Evidence report name the clover
+  strategy for a clover sward's N (Green Book for the known P or K); tests with either index missing.
+  `SlurryFirstPlanningPanel` passes on its own on the Mac (7/7).
+- **Final task audit 182629a..9d0f9d3: 0 Critical / 0 High / 0 Medium / 0 Low** (`audit-20261111T165350Z-31123`).
+  `contracts_frozen` stays `false` until the PR is merged. Not merged, not deployed.

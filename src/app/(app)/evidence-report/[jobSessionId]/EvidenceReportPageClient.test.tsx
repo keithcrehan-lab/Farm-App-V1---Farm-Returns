@@ -163,11 +163,11 @@ describe("EvidenceReportPageClient — Session 2b purchase status", () => {
     history: [],
   } as Field;
   const herd = [
-    { id: "g1", farmId: "farm-1", category: "suckler_cow" as const, label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing" as const, value: tracked(30000, "estimated", "x") },
+    { id: "g1", farmId: "farm-1", category: "suckler_cow" as const, label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing" as const, avgAgeMonths: 60, sex: "female" as const, value: tracked(30000, "estimated", "x") },
   ];
 
   it("UNKNOWN (no usable grassland area): shows the reason, never 'No real product recommended'", async () => {
-    const plan = calculateNutrientPlan({ field: field2b, farmGrasslandAreaHa: 0, livestockGroups: herd, asOfDate: "2026-10-03" });
+    const plan = calculateNutrientPlan({ field: field2b, farmGrasslandAreaHa: 0, livestockGroups: herd, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", asOfDate: "2026-10-03" });
     expect(plan.purchaseStatus.status).toBe("UNKNOWN");
     mockAction.mockResolvedValue({ ...baseReport(), nutrientPlan: plan });
     renderPage();
@@ -186,7 +186,7 @@ describe("EvidenceReportPageClient — Session 2b purchase status", () => {
       applicationMethod: tracked("LESS", "farmer_adjusted", "Farmer"),
       applicationDate: tracked("2026-09-10", "farmer_adjusted", "Farmer"),
     };
-    const plan = calculateNutrientPlan({ field: field2b, farmGrasslandAreaHa: 20, livestockGroups: herd, slurryAllocation: allocation, asOfDate: "2026-10-03" });
+    const plan = calculateNutrientPlan({ field: field2b, farmGrasslandAreaHa: 20, livestockGroups: herd, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryAllocation: allocation, asOfDate: "2026-10-03" });
     expect(plan.purchaseStatus.status).toBe("RECOMMENDED_CREDIT_NOT_COUNTED");
     mockAction.mockResolvedValue({ ...baseReport(), nutrientPlan: plan });
     renderPage();
@@ -449,7 +449,8 @@ describe("EvidenceReportPageClient", () => {
       const plan = calculateNutrientPlan({
         field: { id: "field-1", farmId: "farm-1", name: "Back Meadow", areaHa: 4.2, centroid: [0, 0], plannedUse, fertility, history: [] },
         farmGrasslandAreaHa: 20,
-        livestockGroups: [],
+        livestockGroups: [{ id: "group-matrix", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: tracked(4, "verified", "Farmer"), avgAgeMonths: 60, sex: "female", system: "grazing", value: tracked(0, "estimated", "Test") }],
+        grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
         slurryAllocation,
         asOfDate: "2026-10-02",
       });

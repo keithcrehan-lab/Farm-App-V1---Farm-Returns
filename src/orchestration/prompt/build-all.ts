@@ -72,7 +72,7 @@ export function buildAllRealPrompts(
   // `promptForFertiliserRecommendation` below, rather than every caller
   // of this function only ever supplying the two fields the old, narrower
   // Pick allowed.
-  farm: Pick<Farm, "id" | "location" | "pBuildUpCompliance">,
+  farm: Pick<Farm, "id" | "location" | "pBuildUpCompliance"> & { grazingProductionSystem?: Farm["grazingProductionSystem"] },
   fields: readonly Field[],
   livestockGroups: readonly LivestockGroup[],
   slurryAllocations: readonly SlurryAllocation[],
@@ -131,6 +131,7 @@ export function buildAllRealPrompts(
         // on the combined allocation, so resolve per contributing store.
         compositionInput.composition,
         compositionInput.unresolved,
+        farm.grazingProductionSystem?.value,
       ),
     );
   }

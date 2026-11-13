@@ -50,6 +50,9 @@ const farm: Farm = {
   primaryEnterprises: [],
   units: "metric",
   ownerName: "Keith",
+  // The test farm explicitly declared this system. Without it a
+  // newly fail-closed fertiliser recommendation is correctly unavailable.
+  grazingProductionSystem: {value: "SUCKLER_CALF_TO_BEEF", status: "farmer_adjusted", source: "Farmer"},
 };
 
 function field(overrides: Partial<Field> = {}): Field {
@@ -100,7 +103,7 @@ describe("submitPromptDecisionAction", () => {
     // a caller-supplied one — there is no farmId parameter on this action
     // at all, so a request for another farm's field can only ever resolve
     // against this farm's own field list and fail to match.
-    expect(mockListFields).toHaveBeenCalledWith("farm-1");
+    expect(mockListFields).toHaveBeenCalledWith("farm-1", expect.objectContaining({farm: expect.objectContaining({id: "farm-1"}), resolveGrazingSystems: true}));
   });
 
   // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
@@ -218,6 +221,8 @@ describe("submitPromptDecisionAction", () => {
         // nutrient_engine_v1.7.0: 4 suckler cows on the ~4 ha farm (≈62–65 kg organic N/ha); 20 cows (≈310 kg N/ha) is above Table 12-3's last row, where no requirement is given.
         count: { value: 4, status: "verified" as const, source: "Farmer" },
         system: "grazing" as const,
+        avgAgeMonths: 60,
+        sex: "female" as const,
         value: { value: 30000, status: "estimated" as const, source: "Farm Return estimate" },
       },
     ];

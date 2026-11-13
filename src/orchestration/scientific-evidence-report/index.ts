@@ -425,7 +425,7 @@ export async function buildScientificEvidenceReport(jobSessionId: string): Promi
   if (!fieldId) return { status: "not_found", reasonCode: "SAMPLE_HAS_NO_REAL_FIELD" };
 
   const [fields, livestockGroups, slurryAllocations, slurryCompositionRecords, decision, labStatus] = await Promise.all([
-    listFieldsForFarm(farm.id),
+    listFieldsForFarm(farm.id, { farm, resolveGrazingSystems: true }),
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
     listSlurryCompositionRecordsForFarm(farm.id),
@@ -482,7 +482,7 @@ export async function buildScientificEvidenceReportForField(fieldId: string): Pr
   const farm = await getFarmForCurrentUser();
   if (!farm) return { status: "not_found", reasonCode: "NO_REAL_FARM_FOR_CURRENT_SESSION" };
 
-  const fields = await listFieldsForFarm(farm.id);
+  const fields = await listFieldsForFarm(farm.id, { farm, resolveGrazingSystems: true });
   const field = fields.find((f) => f.id === fieldId);
   if (!field) return { status: "not_found", reasonCode: "FIELD_NOT_FOUND_ON_THIS_FARM" };
   // Codex audit round 3 HIGH — unlike the GPS-guided path (which reviews

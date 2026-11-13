@@ -21,12 +21,12 @@ const FIELD = {
 
 // nutrient_engine_v1.7.0: 4 suckler cows on the 4 ha farm (65 kg organic N/ha); 20 cows (325 kg N/ha) is above Table 12-3's last row, where no requirement is given.
 const HERD = [
-  { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 4, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
+  { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 4, status: "verified", source: "Farmer" }, system: "grazing", avgAgeMonths: 60, sex: "female", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
 ] as LivestockGroup[];
 
 function planFor(method: "LESS" | "splashplate") {
   const slurryAllocation: SlurryAllocation = { fieldId: "field-1", housingId: "h1", volumeM3: 100, priority: "high", applicationMethod: tracked(method, "farmer_adjusted", "Farmer") };
-  return calculateNutrientPlan({ field: FIELD, farmGrasslandAreaHa: 4, livestockGroups: HERD, nonGrassPct: 0, slurryAllocation });
+  return calculateNutrientPlan({ field: FIELD, farmGrasslandAreaHa: 4, livestockGroups: HERD, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", nonGrassPct: 0, slurryAllocation });
 }
 
 describe("field nutrient plan fixtures — engine branches the presentation tests exercise", () => {

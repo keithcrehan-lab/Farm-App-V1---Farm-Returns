@@ -43,7 +43,7 @@ const field: Field = {
 };
 
 const groups: LivestockGroup[] = [
-  { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+  { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", avgAgeMonths: 60, sex: "female", value: tracked(0, "estimated", "x") },
 ];
 
 async function realRun() {
@@ -51,6 +51,7 @@ async function realRun() {
     field,
     farmGrasslandAreaHa: 27,
     livestockGroups: groups,
+    grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
   });
   return run;
 }
@@ -219,6 +220,7 @@ describe("audit-export — JSON trace (schemas/recommendation_trace.schema.json)
       field: differentField,
       farmGrasslandAreaHa: 27,
       livestockGroups: groups,
+    grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
     });
     const jsonA = buildRecommendationTraceJson(runA);
     const jsonB = buildRecommendationTraceJson(runB);
@@ -242,6 +244,7 @@ describe("audit-export — human-readable Recommendation Audit Report", () => {
       field: commonageField,
       farmGrasslandAreaHa: 27,
       livestockGroups: groups,
+    grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
     });
     const text = buildRecommendationAuditReportText(run);
     const commonageDecision = run.decisionRecords.find((d) => d.decisionType === "LEGAL_PROHIBITION");
@@ -265,6 +268,7 @@ describe("audit-export — run comparison (RPT024)", () => {
       field: differentField,
       farmGrasslandAreaHa: 27,
       livestockGroups: groups,
+    grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
     });
 
     const [comparison] = compareCalculationRuns(runA, runB);
@@ -279,6 +283,7 @@ describe("audit-export — run comparison (RPT024)", () => {
       field,
       farmGrasslandAreaHa: 27,
       livestockGroups: groups,
+    grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
     });
     const [comparison] = compareCalculationRuns(runA, runB);
     expect(comparison.inputChanges).toEqual([]);
@@ -315,11 +320,13 @@ describe("audit-export — run comparison (RPT024)", () => {
       field: unresolvedField,
       farmGrasslandAreaHa: 27,
       livestockGroups: groups,
+    grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
     });
     const { run: runB } = await calculateNutrientPlanWithTrace("RUN_EXPORT_CONFIRMED", "REC_EXPORT_001", {
       field, // plannedUse explicitly "grazing" — the same real field, now confirmed
       farmGrasslandAreaHa: 27,
       livestockGroups: groups,
+    grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
     });
     const [comparison] = compareCalculationRuns(runA, runB);
     expect(comparison.inputChanges).toEqual([]);

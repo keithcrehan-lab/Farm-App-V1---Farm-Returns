@@ -172,7 +172,7 @@ export async function getFertiliserPlanOverviewAction(
     demandResult,
     limeResult,
   ] = await Promise.all([
-    listFieldsForFarm(farm.id),
+    listFieldsForFarm(farm.id, { farm, resolveGrazingSystems: true }),
     listSlurryAllocationsForFarm(farm.id),
     listHousingForFarm(farm.id),
     listFertiliserStockRecordsForFarm(farm.id),

@@ -2614,7 +2614,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
       pIndex,
       kIndex,
       ...(statutoryGsrOutcome.status === "OK" ? { annualOrganicNStockingRateKgHa: statutoryGsrOutcome.value.gsrKgNHa } : {}),
-      grazingProductionSystem: input.grazingProductionSystem,
+      grazingProductionSystem: field.grazingProductionSystemResolution ? field.grazingProductionSystemResolution.value ?? undefined : input.grazingProductionSystem,
       sward,
       grazingStockingEvidence: { basis: "HOLDING_GSR" },
     });

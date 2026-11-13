@@ -215,7 +215,7 @@ describe("getFarmContextForCurrentUser", () => {
 
     const context = await getFarmContextForCurrentUser();
 
-    expect(mockListFields).toHaveBeenCalledWith("farm-a");
+    expect(mockListFields).toHaveBeenCalledWith("farm-a", expect.objectContaining({farm: expect.objectContaining({id: "farm-a"}), resolveGrazingSystems: true}));
     expect(mockListGroups).toHaveBeenCalledWith("farm-a");
     expect(mockListAnimals).toHaveBeenCalledWith("farm-a");
     expect(mockListSlurryAllocations).toHaveBeenCalledWith("farm-a");

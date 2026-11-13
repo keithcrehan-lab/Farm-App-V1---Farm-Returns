@@ -89,7 +89,7 @@ interface FieldCase {
 const GRASSLAND_HA = 20;
 
 function plan({ field: f, extra }: FieldCase): NutrientPlan {
-  return calculateNutrientPlan({ field: f, farmGrasslandAreaHa: GRASSLAND_HA, livestockGroups: herd, slurryComposition: composition, asOfDate: AS_OF, ...extra });
+  return calculateNutrientPlan({ field: f, farmGrasslandAreaHa: GRASSLAND_HA, livestockGroups: herd, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryComposition: composition, asOfDate: AS_OF, ...extra });
 }
 
 interface Chain {

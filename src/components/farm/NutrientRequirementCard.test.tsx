@@ -10,6 +10,15 @@ afterEach(() => {
   cleanup();
 });
 
+// A recorded suckler calf-to-beef system and age evidence are present in
+// positive fixtures. Missing-index and missing-silage tests keep those gaps.
+const HERD = [
+  {id: "g1", farmId: "farm-1", category: "suckler_cow" as const,
+   label: "Cows", count: tracked(4, "verified", "Farmer"),
+   avgAgeMonths: 60, sex: "female" as const, system: "grazing" as const,
+   value: tracked(0, "estimated", "test")},
+];
+
 function field(overrides: Partial<Field> = {}): Field {
   return {
     id: "field-1",
@@ -33,7 +42,7 @@ function field(overrides: Partial<Field> = {}): Field {
 describe("NutrientRequirementCard", () => {
   it("shows the real N/P/K requirement when it is genuinely calculable", () => {
     const f = field();
-    const plan = calculateNutrientPlan({ field: f, farmGrasslandAreaHa: f.areaHa, livestockGroups: [], slurryAllocation: undefined });
+    const plan = calculateNutrientPlan({ field: f, farmGrasslandAreaHa: f.areaHa, livestockGroups: HERD, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryAllocation: undefined });
     render(<NutrientRequirementCard plan={plan} field={f} />);
     expect(screen.queryByText(/insufficient evidence/i)).toBeNull();
     expect(screen.getByText(/total for field/i)).toBeTruthy();
@@ -41,7 +50,7 @@ describe("NutrientRequirementCard", () => {
 
   it("discloses the real reason instead of a false zero when the P/K Soil Index is missing", () => {
     const f = field({ fertility: {} });
-    const plan = calculateNutrientPlan({ field: f, farmGrasslandAreaHa: f.areaHa, livestockGroups: [], slurryAllocation: undefined });
+    const plan = calculateNutrientPlan({ field: f, farmGrasslandAreaHa: f.areaHa, livestockGroups: HERD, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryAllocation: undefined });
     render(<NutrientRequirementCard plan={plan} field={f} />);
     expect(screen.getByText(/insufficient evidence/i)).toBeTruthy();
     expect(screen.getByText(/p\/k soil index has not been recorded/i)).toBeTruthy();
@@ -49,7 +58,7 @@ describe("NutrientRequirementCard", () => {
 
   it("discloses the real silage-evidence reason instead of a false zero for a silage field with no real cut/yield plan", () => {
     const f = field({ plannedUse: tracked("silage_1st_cut", "farmer_adjusted", "Farmer") });
-    const plan = calculateNutrientPlan({ field: f, farmGrasslandAreaHa: f.areaHa, livestockGroups: [], slurryAllocation: undefined });
+    const plan = calculateNutrientPlan({ field: f, farmGrasslandAreaHa: f.areaHa, livestockGroups: HERD, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryAllocation: undefined });
     render(<NutrientRequirementCard plan={plan} field={f} />);
     expect(screen.getByText(/insufficient evidence/i)).toBeTruthy();
     expect(screen.getByText(/silage cut but has no real cut\/yield plan/i)).toBeTruthy();
@@ -84,7 +93,7 @@ describe("NutrientRequirementCard", () => {
       ["paired", field()],
       ["mixed", field({ fertility: { pIndex: tracked(3, "farmer_adjusted", "Farmer") } })],
     ] as const)("%s state: header and badge group wrap, badge group can shrink", (kind, f) => {
-      const plan = calculateNutrientPlan({ field: f, farmGrasslandAreaHa: f.areaHa, livestockGroups: [], slurryAllocation: undefined });
+      const plan = calculateNutrientPlan({ field: f, farmGrasslandAreaHa: f.areaHa, livestockGroups: HERD, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryAllocation: undefined });
       expect(requirementCardPresentation(plan).kind).toBe(kind);
       const { container } = render(<NutrientRequirementCard plan={plan} field={f} />);
       const header = headerOf(screen.getByText("Nutrient requirement"));
@@ -99,7 +108,7 @@ describe("NutrientRequirementCard", () => {
 
     it("insufficient-evidence state: header wraps", () => {
       const f = field({ fertility: {} });
-      const plan = calculateNutrientPlan({ field: f, farmGrasslandAreaHa: f.areaHa, livestockGroups: [], slurryAllocation: undefined });
+      const plan = calculateNutrientPlan({ field: f, farmGrasslandAreaHa: f.areaHa, livestockGroups: HERD, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryAllocation: undefined });
       render(<NutrientRequirementCard plan={plan} field={f} />);
       expect(headerOf(screen.getByText("Nutrient requirement")).className).toContain("flex-wrap");
     });

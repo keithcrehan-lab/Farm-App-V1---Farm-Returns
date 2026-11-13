@@ -49,7 +49,7 @@ function buildDecisionRecord(input: Omit<BuildAuditedWholeFarmDecisionRecordInpu
 // ---------------------------------------------------------------------------
 
 const livestockGroups: LivestockGroup[] = [
-  { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") },
+  { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", avgAgeMonths: 60, sex: "female", value: tracked(30000, "estimated", "Farm Return estimate") },
 ];
 const farmGrasslandAreaHa = 27;
 const asOfDate = "2026-09-25";
@@ -75,10 +75,10 @@ function slurryOn(field: Field, volumeM3: number): SlurryAllocation {
 const unsupportedMethodOn = (field: Field, volumeM3: number): SlurryAllocation => ({ fieldId: field.id, housingId: "h1", priority: "high", volumeM3, score: 90, applicationMethod: tracked("incorporate_24h", "farmer_adjusted", "Keith"), applicationDate: tracked("2026-02-15", "farmer_adjusted", "Keith") });
 
 function planWithout(field: Field): NutrientPlan {
-  return calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: undefined, asOfDate });
+  return calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryAllocation: undefined, asOfDate });
 }
 function planWith(field: Field, allocation: SlurryAllocation): NutrientPlan {
-  return calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: allocation, asOfDate });
+  return calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryAllocation: allocation, asOfDate });
 }
 function observation(overrides: Partial<CreateMarketPriceObservationInput>): MarketPriceObservation {
   const fields = {

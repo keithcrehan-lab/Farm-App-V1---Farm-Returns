@@ -344,7 +344,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
     if (!farm) return { status: "error", message: "No farm found for this account." };
 
     const [allFields, slurryAllocations, livestockGroups, contractorCostRecord, housing, allocationRecords, compositionRecords] = await Promise.all([
-      listFieldsForFarm(farm.id),
+      listFieldsForFarm(farm.id, { farm, resolveGrazingSystems: true }),
       listSlurryAllocationsForFarm(farm.id),
       listLivestockGroupsForFarm(farm.id),
       getLatestContractorCostRateForFarm(farm.id),

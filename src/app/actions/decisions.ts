@@ -95,7 +95,7 @@ export async function submitPromptDecisionAction(input: SubmitPromptDecisionInpu
   // farm.id itself already came from getFarmForCurrentUser() above, so
   // this can only ever read this farm's own fields (same ownership
   // boundary `(app)/layout.tsx`'s identical real call already relies on).
-  const fields = await listFieldsForFarm(farm.id);
+  const fields = await listFieldsForFarm(farm.id, { farm, resolveGrazingSystems: true });
   const field = fields.find((f) => f.id === input.fieldId);
   if (!field) {
     throw new Error(`submitPromptDecisionAction: field ${input.fieldId} not found on the current session's farm`);

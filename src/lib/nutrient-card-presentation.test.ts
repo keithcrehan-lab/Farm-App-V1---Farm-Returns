@@ -317,7 +317,7 @@ describe("mixed-index clover provenance (audit F008)", () => {
   }
   it("keeps the plain Green Book source for a grass sward", () => {
     const grassField: Field = { ...field, areaHa: 13, plannedUse: tracked("grazing", "farmer_adjusted", "Farmer"), fertility: { pIndex: idx(3) } };
-    const plan = calculateNutrientPlan({ field: grassField, farmGrasslandAreaHa: 13, livestockGroups: cows, nonGrassPct: 0, asOfDate: "2026-10-02" });
+    const plan = calculateNutrientPlan({ field: grassField, farmGrasslandAreaHa: 13, livestockGroups: cows.map((cow) => ({...cow, avgAgeMonths: 60, sex: "female" as const})), grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", nonGrassPct: 0, asOfDate: "2026-10-02" });
     const card = requirementCardPresentation(plan);
     if (card.kind !== "mixed") throw new Error("expected mixed");
     expect(card.source).toBe(REQUIREMENT_SOURCE);

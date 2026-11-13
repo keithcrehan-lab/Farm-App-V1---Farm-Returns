@@ -11,6 +11,7 @@ const farm: Farm = {
   primaryEnterprises: ["suckler_beef"],
   units: "metric",
   ownerName: "Keith",
+  grazingProductionSystem: tracked("SUCKLER_CALF_TO_BEEF", "farmer_adjusted", "Farmer"),
 };
 
 const field: Field = {
@@ -37,7 +38,7 @@ const field: Field = {
 };
 
 const groups: LivestockGroup[] = [
-  { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(10, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+  { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(10, "verified", "Keith"), system: "grazing", avgAgeMonths: 60, sex: "female", value: tracked(0, "estimated", "x") },
 ];
 
 describe("normaliseCountyForZoneLookup", () => {
@@ -221,7 +222,7 @@ describe("deriveRealAlerts", () => {
   // where no requirement is given at all.
   const heavyField: Field = { ...field, id: "field-heavy", areaHa: 13, fertility: { pIndex: tracked(1, "verified", "Soil test lab"), kIndex: tracked(1, "farmer_adjusted", "Keith") } };
   const heavyGroups: LivestockGroup[] = [
-    { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(40, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(40, "verified", "Keith"), system: "grazing", avgAgeMonths: 60, sex: "female", value: tracked(0, "estimated", "x") },
   ];
 
   it("raises a real attention alert when a real, evidenced field genuinely exceeds its NAP ceiling", () => {

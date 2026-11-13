@@ -61,7 +61,7 @@ describe("Session 2b — canonical product recommendation (purchaseStatus)", () 
   const silage = { cutNumber: 1 as const, expectedYieldTDMha: 5, wasGrazedPreviousYear: false };
   type PlanInput = Parameters<typeof calculateNutrientPlan>[0];
   const plan = (field: Field, extra: Partial<PlanInput> = {}) =>
-    calculateNutrientPlan({ field, farmGrasslandAreaHa: 20, livestockGroups: herd, slurryComposition, asOfDate: "2026-10-03", ...extra });
+    calculateNutrientPlan({ field, farmGrasslandAreaHa: 20, livestockGroups: herd, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryComposition, asOfDate: "2026-10-03", ...extra });
 
   // The NAP total counts the LEGACY blend's delivered N/P (plus the
   // statutory manure N/P for imported slurry) — compare the published blend.

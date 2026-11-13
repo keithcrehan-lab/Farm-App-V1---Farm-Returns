@@ -224,7 +224,9 @@ describe("A2.2 — recorded slurry dry matter", () => {
         farmId: "farm-1",
         category: "suckler_cow" as const,
         label: "Cows",
-        count: tracked(20, "verified", "Farmer"),
+        count: tracked(10, "verified", "Farmer"),
+        avgAgeMonths: 60,
+        sex: "female" as const,
         system: "grazing" as const,
         value: tracked(30000, "estimated", "Farm Return estimate"),
       },
@@ -233,7 +235,7 @@ describe("A2.2 — recorded slurry dry matter", () => {
       fertility: { pIndex: { value: 1, status: "verified", source: "Lab soil test" }, kIndex: { value: 1, status: "verified", source: "Lab soil test" } },
     });
     const combined: SlurryAllocation = { fieldId: "field-1", housingId: "multiple", volumeM3: 200, applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") };
-    const base = { field: lowIndexField, farmGrasslandAreaHa: 8, livestockGroups: groups, slurryAllocation: combined, asOfDate: "2026-03-01" };
+    const base = { field: lowIndexField, farmGrasslandAreaHa: 8, livestockGroups: groups, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF" as const, slurryAllocation: combined, asOfDate: "2026-03-01" };
     expect(calculateNutrientPlan(base).purchasedProducts.length).toBeGreaterThan(0);
 
     const plan = calculateNutrientPlan({ ...base, slurryCompositionUnresolved: { housingIds: ["housing-1", "housing-2"], compositionRecordIds: ["comp-1", "comp-2"] } });

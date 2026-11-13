@@ -123,7 +123,7 @@ describe("PurchasedFertiliserCard — Session 2b purchase status", () => {
     history: [],
   };
   const livestock: LivestockGroup[] = [
-    { id: "g1", farmId: "farm-2b", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") },
+    { id: "g1", farmId: "farm-2b", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", avgAgeMonths: 60, sex: "female", value: tracked(30000, "estimated", "Farm Return estimate") },
   ];
   const render2b = (plan: NutrientPlan) =>
     render(
@@ -139,7 +139,7 @@ describe("PurchasedFertiliserCard — Session 2b purchase status", () => {
     );
 
   it("UNKNOWN (no usable grassland area): shows the reason, never a table or €0", () => {
-    const plan = calculateNutrientPlan({ field, farmGrasslandAreaHa: 0, livestockGroups: livestock, asOfDate: "2026-10-03" });
+    const plan = calculateNutrientPlan({ field, farmGrasslandAreaHa: 0, livestockGroups: livestock, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", asOfDate: "2026-10-03" });
     expect(plan.requirement.status).toBe("unavailable"); // nutrient_engine_v1.7.0: no grassland area → no stocking rate → no grazing requirement (fail closed)
     expect(plan.purchaseStatus).toEqual({ status: "UNKNOWN", reasonCode: "MISSING_GRASSLAND_AREA", missingInputs: ["farmGrasslandAreaHa"] });
     render2b(plan);
@@ -153,6 +153,7 @@ describe("PurchasedFertiliserCard — Session 2b purchase status", () => {
       field: { ...field, commonageStatus: tracked("commonage", "verified", "Farmer") },
       farmGrasslandAreaHa: 20,
       livestockGroups: livestock,
+      grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       asOfDate: "2026-10-03",
     });
     expect(plan.purchaseStatus).toEqual({ status: "PROHIBITED", reasonCode: "COMMONAGE_CHEMICAL_FERTILISER_PROHIBITED" });
@@ -168,6 +169,7 @@ describe("PurchasedFertiliserCard — Session 2b purchase status", () => {
       field: { ...field, fertility: {}, commonageStatus: tracked("commonage", "verified", "Farmer") },
       farmGrasslandAreaHa: 20,
       livestockGroups: livestock,
+      grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       asOfDate: "2026-10-03",
     });
     expect(plan.requirement.status).not.toBe("estimated");
@@ -184,6 +186,7 @@ describe("PurchasedFertiliserCard — Session 2b purchase status", () => {
       field: { ...field, fertility: { pIndex: tracked(4, "verified", "Lab"), kIndex: tracked(4, "verified", "Lab") } },
       farmGrasslandAreaHa: 20,
       livestockGroups: livestock,
+      grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       silage: { cutNumber: 2, expectedYieldTDMha: 0, wasGrazedPreviousYear: false },
       slurryAllocation: {
         fieldId: field.id,
@@ -221,6 +224,7 @@ describe("PurchasedFertiliserCard — Session 2b purchase status", () => {
       field,
       farmGrasslandAreaHa: 20,
       livestockGroups: livestock,
+      grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
       slurryAllocation: {
         fieldId: field.id,
         housingId: "h1",

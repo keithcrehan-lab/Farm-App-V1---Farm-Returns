@@ -382,6 +382,7 @@ function contextPlan(fertility: Field["fertility"], context: SlurryContext, opti
     field: { ...field, fertility, ...("plannedUse" in options ? { plannedUse: options.plannedUse } : {}) },
     farmGrasslandAreaHa: options.farmGrasslandAreaHa ?? 20,
     livestockGroups: options.livestockGroups ?? [],
+    grazingProductionSystem: "SUCKLER_CALF_TO_BEEF",
     slurryAllocation: {
       fieldId: field.id,
       housingId: "housing-1",
@@ -567,10 +568,10 @@ describe("canonical remap — tillage and grazing without livestock or grassland
             plannedUse: tracked("grazing", "farmer_adjusted", "Keith"),
             silage: false,
           });
-          // No livestock: the paired legacy path still carries a figure
-          // (LEGACY_COMPATIBILITY_PATH). No grassland area: no grazing
-          // requirement exists, so the per-nutrient arms are blocked too
-          // (fertiliser close-out, Codex audit F007 — UNKNOWN is never 0).
+          // The per-nutrient soil-index P arm can remain a known raw
+          // agronomic figure when the production system is explicitly
+          // recorded; overall actionability is still blocked without livestock.
+          // With no grassland area even that arm is unsupported.
           expect(plan.requirementByNutrient.p.status, caseLabel).toBe(label === "no livestock" ? "OK" : "BLOCKED_INSUFFICIENT_EVIDENCE");
           const allocation = buildSlurryRateAllocation({ plan, plannedUse: "grazing" });
           for (const nutrient of ["n", "p", "k"] as const) {

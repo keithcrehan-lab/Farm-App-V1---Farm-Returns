@@ -93,7 +93,7 @@ function slurry(field: Field, rateM3Ha: number): SlurryAllocation {
 const base = { farmGrasslandAreaHa: GRASSLAND_HA, asOfDate: AS_OF, nonGrassPct: (8 / 48) * 100 };
 
 function grazingPlan(field: Field, livestockGroups: LivestockGroup[] = herd, extra: Partial<Parameters<typeof calculateNutrientPlan>[0]> = {}) {
-  return calculateNutrientPlan({ ...base, field, livestockGroups, ...extra });
+  return calculateNutrientPlan({ ...base, field, livestockGroups, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", ...extra });
 }
 
 function productPhosphorusPct(name: string): number {
@@ -285,6 +285,26 @@ describe("fertiliser engine test farm (Teagasc Green Book 2020) — Nutrients en
     });
   });
 
+  it("a field-level production-system decision overrides a different farm baseline", () => {
+    const field: Field = {
+      ...testField("FS", 8, "grazing", 3, 3),
+      grazingProductionSystemResolution: { value: "SUCKLER_CALF_TO_WEANING", basis: "FIELD_OVERRIDE", source: "Field exception · Farmer", limitations: [] },
+    };
+    const result = grazingPlan(field, herd, { grazingProductionSystem: "SUCKLER_CALF_TO_BEEF" });
+    expect(result.calculationTrace?.grazing?.n.ruleId).toBe("TEAGASC_GREEN_BOOK_2020_TABLE_12_2_SUCKLER_CALF_TO_WEANING");
+  });
+
+  it("does not use an old farm baseline when field evidence is explicitly unresolved", () => {
+    const field: Field = {
+      ...testField("FU", 8, "grazing", 3, 3),
+      grazingProductionSystemResolution: { value: null, basis: "UNRESOLVED", source: "Farm baseline", limitations: ["No system declared"] },
+    };
+    const result = grazingPlan(field, herd, { grazingProductionSystem: "SUCKLER_CALF_TO_BEEF" });
+    expect(result.requirement.status).toBe("unavailable");
+    expect(result.fieldRequirement.n).toMatchObject({ status: "UNKNOWN", reasonCode: "GRAZING_PATHWAY_NOT_SUPPORTED" });
+    expect(result.purchasedProducts).toEqual([]);
+  });
+
   it("an unknown statutory stocking rate (ages missing) gives no grazing requirement and asks for the ages", () => {
     const plan = grazingPlan(testField("F1", 8, "grazing", 1, 1), herdWithoutAges);
     expect(plan.requirement.status).toBe("unavailable");
@@ -294,7 +314,7 @@ describe("fertiliser engine test farm (Teagasc Green Book 2020) — Nutrients en
 
   it("fails closed above the last published Table 12-3 row — no requirement, no products (Keith, 2026-11-11)", () => {
     // 20 suckler cows on 4 ha = 325 kg organic N/ha; the table stops at 235.
-    const plan = calculateNutrientPlan({ ...base, farmGrasslandAreaHa: 4, field: testField("FX", 4, "grazing", 2, 2), livestockGroups: [group("cows", "suckler_cow", 20)] });
+    const plan = calculateNutrientPlan({ ...base, farmGrasslandAreaHa: 4, field: testField("FX", 4, "grazing", 2, 2), livestockGroups: [group("cows", "suckler_cow", 20, 60, "female")], grazingProductionSystem: "SUCKLER_CALF_TO_BEEF" });
     expect(plan.requirement.status).toBe("unavailable");
     for (const nutrient of ["n", "p", "k"] as const) {
       expect(plan.fieldRequirement[nutrient]).toMatchObject({ status: "UNKNOWN", reasonCode: "STOCKING_RATE_BEYOND_PUBLISHED_TABLE" });

@@ -30,6 +30,7 @@ const FARM: Farm = {
   primaryEnterprises: ["suckler_beef"],
   units: "metric",
   ownerName: "Farmer",
+  grazingProductionSystem: {value: "SUCKLER_CALF_TO_BEEF", status: "farmer_adjusted", source: "Farmer"},
 };
 
 function field(overrides: Partial<Field> = {}): Field {
@@ -47,7 +48,7 @@ function field(overrides: Partial<Field> = {}): Field {
 }
 
 const LIVESTOCK_GROUPS: LivestockGroup[] = [
-  { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") },
+  { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", avgAgeMonths: 60, sex: "female", value: tracked(30000, "estimated", "Farm Return estimate") },
 ];
 
 function renderCard(fields: Field[], livestockGroups: LivestockGroup[]) {

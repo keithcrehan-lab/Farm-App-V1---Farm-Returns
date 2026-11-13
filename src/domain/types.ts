@@ -310,6 +310,9 @@ export interface Field {
    * Absent = no grazing cycle recorded (treated as a grass sward).
    */
   grazingSward?: GrazingSward;
+  /** Server-resolved season-specific system, from movements > field exception
+   * > farm baseline. Never stored on the field; null means unresolved. */
+  grazingProductionSystemResolution?: import("./grazing-production-system-resolution").GrazingProductionSystemResolution;
 }
 
 /**

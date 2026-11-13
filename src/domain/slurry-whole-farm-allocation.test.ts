@@ -27,7 +27,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const livestockGroups: LivestockGroup[] = [
-  { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") },
+  { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", avgAgeMonths: 60, sex: "female", value: tracked(30000, "estimated", "Farm Return estimate") },
 ];
 const farmGrasslandAreaHa = 27;
 const asOfDate = "2026-09-25";
@@ -70,10 +70,10 @@ const unsupportedMethodOn = (field: Field, volumeM3: number): SlurryAllocation =
 });
 
 function planWithout(field: Field): NutrientPlan {
-  return calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: undefined, asOfDate });
+  return calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryAllocation: undefined, asOfDate });
 }
 function planWith(field: Field, allocation: SlurryAllocation): NutrientPlan {
-  return calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: allocation, asOfDate });
+  return calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, grazingProductionSystem: "SUCKLER_CALF_TO_BEEF", slurryAllocation: allocation, asOfDate });
 }
 
 function hash(input: string): string {

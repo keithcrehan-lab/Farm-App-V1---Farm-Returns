@@ -270,7 +270,7 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
   if (!farm) return null;
 
   const [allFields, livestockGroups, individualAnimals, slurryAllocations, slurryCompositionRecords] = await Promise.all([
-    listFieldsForFarm(farm.id),
+    listFieldsForFarm(farm.id, { farm, resolveGrazingSystems: true }),
     listLivestockGroupsForFarm(farm.id),
     listIndividualAnimalsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),

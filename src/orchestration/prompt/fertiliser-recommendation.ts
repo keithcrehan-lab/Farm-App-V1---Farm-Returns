@@ -17,7 +17,8 @@
  * this into the silage branch is deliberately out of this campaign's
  * scope, not silently forgotten.
  */
-import { calculateNutrientPlan, NUTRIENT_ENGINE_VERSION, type CalculateNutrientPlanInput } from "@/domain/nutrients";
+import {
+  isNonGrasslandField, calculateNutrientPlan, NUTRIENT_ENGINE_VERSION, type CalculateNutrientPlanInput } from "@/domain/nutrients";
 import { blockedInsufficientEvidence, notApplicable, ok, type EngineOutcome } from "@/domain/evidence";
 import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
 import type { Field, FertiliserProduct, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "@/domain/types";
@@ -234,8 +235,7 @@ function describeFertiliserRecommendationOk(
  * that only need "is this field even eligible at all" combine both.
  */
 export function isTillageField(field: Pick<Field, "plannedUse" | "currentSeasonCropFamily">): boolean {
-  if (field.currentSeasonCropFamily !== undefined) return field.currentSeasonCropFamily !== null && field.currentSeasonCropFamily !== "grassland";
-  return field.plannedUse?.value === "tillage";
+  return isNonGrasslandField(field);
 }
 
 export function hasNoRecordedLivestock(livestockGroups: readonly LivestockGroup[]): boolean {

@@ -47,7 +47,7 @@ import {
   WEANLING_STRATEGY_TARGET_WEIGHT_KG,
 } from "./livestock";
 import { aggregateFarmFertiliserPurchasing, type FarmFertiliserAggregationFieldInput } from "./fertiliser-plan";
-import { calculateNutrientPlan, farmGrasslandAggregates, resolveFieldSlurryAllocation } from "./nutrients";
+import { calculateNutrientPlan, farmGrasslandAggregates, isNonGrasslandField, resolveFieldSlurryAllocation } from "./nutrients";
 import { tracked } from "./types";
 import type {
   BuyingOpportunity,
@@ -161,7 +161,7 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
   let fieldsWithBlockedEvidence = 0;
 
   for (const field of input.fields) {
-    if (field.plannedUse?.value === "tillage") continue;
+    if (isNonGrasslandField(field)) continue;
     const silagePlan = input.silagePlans.find((p) => p.fieldId === field.id);
     // The missing-livestock ambiguity only ever affects the *grazing*
     // branch (`calculateGrasslandStockingRateKgHa`'s own stocking-rate
@@ -331,7 +331,7 @@ export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInp
   let fieldsWithBlockedEvidence = 0;
 
   for (const field of input.fields) {
-    if (field.plannedUse?.value === "tillage") continue;
+    if (isNonGrasslandField(field)) continue;
     const silagePlan = input.silagePlans.find((p) => p.fieldId === field.id);
     // Codex audit HIGH (round 24): the missing-livestock check used to
     // run before confirming this field even has a real, applicable

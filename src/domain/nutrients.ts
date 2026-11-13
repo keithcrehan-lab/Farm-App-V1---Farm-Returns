@@ -125,6 +125,15 @@ export function cropGroupForFieldUse(use: FieldUse): CropGroup {
  * drifting copy. Purely additive: `calculateNutrientPlan`/
  * `allocatePurchasedProducts` themselves are entirely unmodified.
  */
+/** Canonical domain-level eligibility; real field lists carry current
+ * cycle family. Only historical/mock fields fall back to plannedUse. */
+export function isNonGrasslandField(field: Pick<Field, "plannedUse" | "currentSeasonCropFamily">): boolean {
+  if (field.currentSeasonCropFamily !== undefined) {
+    return field.currentSeasonCropFamily !== null && field.currentSeasonCropFamily !== "grassland";
+  }
+  return field.plannedUse?.value === "tillage";
+}
+
 export function farmGrasslandAggregates(fields: readonly Pick<Field, "areaHa" | "plannedUse" | "currentSeasonCropFamily">[]): { farmGrasslandAreaHa: number; nonGrassPct: number } {
   if (fields.some((f) => f.currentSeasonCropFamily !== undefined)) {
     // A real season-hydrated farm must use production cycles throughout.
@@ -2102,7 +2111,7 @@ function buildFieldNutrientRequirement(args: {
   const { field, silage, gross, requirementByNutrient, fertilityEvidenceByNutrient } = args;
   const plannedUse = field.plannedUse?.value;
   const basis: FieldNutrientRequirement["cropContext"]["basis"] =
-    plannedUse === "tillage" ? "tillage" : silage !== undefined || isSilageCutPlannedUse(field) ? "silage" : "grazing";
+    isNonGrasslandField(field) ? "tillage" : silage !== undefined || isSilageCutPlannedUse(field) ? "silage" : "grazing";
   const cropContext: FieldNutrientRequirement["cropContext"] = {
     basis,
     ...(plannedUse !== undefined ? { plannedUse } : {}),
@@ -2860,7 +2869,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
           return checkLessMethodGate({
             material: "cattle_slurry",
             gsrKgNHa: statutoryGsrOutcome.status === "OK" ? statutoryGsrOutcome.value.gsrKgNHa : undefined,
-            landUse: field.plannedUse?.value === "tillage" ? "arable" : "grass",
+            landUse: isNonGrasslandField(field) ? "arable" : "grass",
             method: methodOutcome.value,
           });
         })();
@@ -3016,7 +3025,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // correct, disclosed "estimated" agronomic assumption): only the
   // COMPLIANCE ledger's own regulatory confidence is downgraded here,
   // using the identical `soilTestDisregarded`-style mechanism.
-  const plannedUseUnresolved = field.plannedUse === undefined && !silage;
+  const plannedUseUnresolved = field.plannedUse === undefined && field.currentSeasonCropFamily === undefined && !silage;
   // Campaign B (B2.4): the Table 15a/15b P ceiling is keyed on the soil P
   // Index, and S.I. 588/2025's soil-test rules (`soil_test_compliance_rules_2026.csv`)
   // classify P from a soil test. A farmer override or an unconfirmed
@@ -3115,7 +3124,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // A tillage field has no grazing requirement to block: its canonical arms
   // are NOT_APPLICABLE and its paired path keeps its legacy behaviour.
   const grazingEvidenceBlock: EngineOutcome<number> | undefined =
-    grazingRequirement === undefined || grazingRequirement.status === "READY" || field.plannedUse?.value === "tillage"
+    grazingRequirement === undefined || grazingRequirement.status === "READY" || isNonGrasslandField(field)
       ? undefined
       : !grasslandAreaUsable
         ? blockedInsufficientEvidence("MISSING_GRASSLAND_AREA", ["farmGrasslandAreaHa"])
@@ -3133,7 +3142,14 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     cloverNTrace !== undefined
       ? `${cloverNTrace.source} (${cloverNTrace.sourceVersion}) for N; Teagasc Green Book (5th Ed., 2020) for P and K`
       : "Teagasc Green Book (5th Ed., 2020)";
-  const requirement = evidenceOk
+  const requirement = isNonGrasslandField(field)
+    ? tracked(
+        { n: 0, p: 0, k: 0 },
+        "unavailable",
+        "Current production cycle is not grassland; no grassland nutrient recommendation applies.",
+        { calculationVersion: NUTRIENT_ENGINE_VERSION },
+      )
+    : evidenceOk
     ? tracked(
         { n: Math.round(grossN), p: Math.round(grossP), k: Math.round(grossK) },
         "estimated",
@@ -3160,8 +3176,10 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // quantity sized from it (products, delivered supply, cost, and the NAP
   // total that includes that supply) stay closed until it is resolved.
   // The gross `requirement` above does not depend on slurry and is kept.
-  const netEvidenceOk = evidenceOk && !compositionUnresolved;
-  const napComplianceFinal: EngineOutcome<NapComplianceCheck> = !evidenceOk
+  const netEvidenceOk = evidenceOk && !compositionUnresolved && !isNonGrasslandField(field);
+  const napComplianceFinal: EngineOutcome<NapComplianceCheck> = isNonGrasslandField(field)
+    ? notApplicable("TILLAGE_FIELD_NOT_SUPPORTED")
+    : !evidenceOk
     ? !fertilityEvidenceOk
       ? blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex", "fertility.kIndex"])
       : !silageEvidenceOk
@@ -3209,7 +3227,9 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
         // instead of a compliance verdict computed from a partial total.
         blockedInsufficientEvidence("MISSING_STATUTORY_MANURE_VALUE", ["field.areaHa"])
       : napCompliance;
-  const statutoryManureValue: NutrientPlan["statutoryManureValue"] = fertilityEvidenceOk
+  const statutoryManureValue: NutrientPlan["statutoryManureValue"] = isNonGrasslandField(field)
+    ? notApplicable("TILLAGE_FIELD_NOT_SUPPORTED")
+    : fertilityEvidenceOk
     ? statutoryManureValueRaw
     : blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex"]);
 
@@ -3301,6 +3321,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // Evidence state: the Green Book tables (Irish guidance), weakened by the
   // nutrient's own index evidence where one applies.
   const grossArm = (gross: number, fertilityArm: NutrientPlan["fertilityEvidenceByNutrient"]["p"] | undefined): EngineOutcome<number> => {
+    if (isNonGrasslandField(field)) return notApplicable("TILLAGE_FIELD_NOT_SUPPORTED");
     if (grazingEvidenceBlock !== undefined) return grazingEvidenceBlock;
     if (fertilityArm === undefined) return silageEvidenceOk ? ok(Math.round(gross), "IRISH_DEFAULT") : silageEvidenceBlock;
     if (fertilityArm.status !== "OK") return fertilityArm;

@@ -81,6 +81,8 @@ export interface SaveFieldProductionCycleActionInput {
   /** Explicit April class; do not infer from legacy whiteCloverPct. */
   aprilWhiteCloverPct?: number;
   grazingProductionSystem?: GrazingProductionSystem;
+  /** Explicitly remove the existing field override; omission alone preserves it. */
+  clearGrazingException?: boolean;
   farmerName: string;
 }
 
@@ -101,6 +103,9 @@ export async function saveFieldProductionCycleAction(
     throw new Error("April clover class must be confirmed for a current or previous-season clover grazing field.");
   }
 
+  if (input.clearGrazingException && input.grazingProductionSystem !== undefined) {
+    throw new Error("Cannot set and clear a field grazing exception in the same save.");
+  }
   const source = input.farmerName.trim() || "Farmer";
   const existing = await getFieldProductionCycle(input.fieldId, input.season);
   const previousEvidence = existing?.evidence ?? {};
@@ -130,7 +135,11 @@ export async function saveFieldProductionCycleAction(
       : {}),
   };
 
-  if (
+  if (input.clearGrazingException) {
+    // This is an explicit farmer action, not an omission: removing this
+    // field override restores the canonical movement -> farm baseline rule.
+    delete evidence.grazingProductionSystem;
+  } else if (
     !input.grazingProductionSystem &&
     evidence.grazingProductionSystem &&
     !(evidence.grazingProductionSystem.method === "FARMER_DECLARED" && evidence.grazingProductionSystem.source.startsWith("Field exception · "))

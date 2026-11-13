@@ -44,7 +44,7 @@ import { buildSlurryEvidenceContext, type FieldSlurryCompositionInput } from "@/
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { getLatestContractorCostRateForFarm, createContractorCostRateRecord, type PersistedContractorCostRate } from "@/lib/farm-data/slurry-contractor-cost";
 import { createClient } from "@/lib/supabase/server";
-import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
+import { calculateNutrientPlan, isNonGrasslandField, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { findObservationsByMappedProduct } from "@/server/market/cso-fertiliser-repository";
 import { resolveMarketReferencePrice, type AuditableMarketPriceResolution } from "@/domain/market-price-resolution";
 import type { EngineOutcome } from "@/domain/evidence";
@@ -201,6 +201,7 @@ interface RealSlurryActionTarget {
 function listRealSlurryActionTargets(fields: Field[], slurryAllocations: Awaited<ReturnType<typeof listSlurryAllocationsForFarm>>, asOfDate: string): RealSlurryActionTarget[] {
   const targets: RealSlurryActionTarget[] = [];
   for (const field of fields) {
+    if (isNonGrasslandField(field)) continue; // No grassland fertiliser economic advice for current cereal/other crop cycle.
     const allocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
     if (!allocation || !allocation.applicationMethod || !allocation.applicationDate) continue; // real, honest exclusion -- no fabricated method/date.
     const evaluatedActionId = `slurry-allocation-${field.id}-${allocation.housingId}`;

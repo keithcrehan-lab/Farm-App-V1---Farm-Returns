@@ -4377,7 +4377,7 @@ describe("fieldRequirement (Fertiliser Vertical Increment 1)", () => {
     expect(fr.cropContext.silage).toEqual({ cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false });
   });
 
-  it("tillage is NOT_APPLICABLE; the paired requirement keeps its legacy behaviour", () => {
+  it("tillage is NOT_APPLICABLE in all arms and the paired requirement is unavailable, not estimated grazing advice", () => {
     const plan = calculateNutrientPlan({
       field: { ...field, plannedUse: tracked("tillage", "farmer_adjusted", "Keith"), fertility: fertilityOf(2, 2) },
       farmGrasslandAreaHa: 27,
@@ -4387,7 +4387,7 @@ describe("fieldRequirement (Fertiliser Vertical Increment 1)", () => {
     for (const nutrient of ["n", "p", "k"] as const) {
       expect(plan.fieldRequirement[nutrient]).toMatchObject({ status: "NOT_APPLICABLE", reasonCode: "TILLAGE_FIELD_NOT_SUPPORTED" });
     }
-    expect(plan.requirement.status).toBe("estimated"); // LEGACY_COMPATIBILITY_PATH
+    expect(plan.requirement.status).toBe("unavailable"); // Never publish the old grazing estimate for a non-grass crop
   });
 
   it("grazing with no recorded livestock is UNKNOWN (MISSING_LIVESTOCK_DATA), never the clamped 35 kg N row", () => {

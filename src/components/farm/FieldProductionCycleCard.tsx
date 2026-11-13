@@ -440,11 +440,20 @@ export function FieldProductionCycleCard({
                 ...(numericValue(cloverPct) !== undefined && cropSystem !== "GRASS_WHITE_CLOVER_GRAZING"
                   ? { whiteCloverPct: numericValue(cloverPct) } : {}),
                 ...(grazingMode === "farmer" && grazingSystem ? { grazingProductionSystem: grazingSystem } : {}),
+                ...(grazingMode === "baseline" ? { clearGrazingException: true } : {}),
                 farmerName: farm.ownerName,
               });
               setLoaded({ requested: requestedSeason, season: requestedSeason });
               setCycle(state.cycle);
               setGate(state.gate);
+              const retainedOverride = state.cycle?.evidence.grazingProductionSystem;
+              if (retainedOverride?.method === "FARMER_DECLARED" && retainedOverride.source.startsWith("Field exception · ")) {
+                setGrazingMode("farmer");
+                setGrazingSystem(retainedOverride.value);
+              } else {
+                setGrazingMode("baseline");
+                setGrazingSystem(farm.grazingProductionSystem?.value ?? "");
+              }
               // Codex audit F010: the farm store's sward follows the save, so
               // every nutrient plan uses the new clover evidence at once.
               applySavedProductionCycle(field.id, requestedSeason, state.cycle);

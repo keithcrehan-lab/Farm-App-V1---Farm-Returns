@@ -166,6 +166,19 @@ describe("calculateFarmFertiliserRequirement", () => {
     expect(sumCost).toBe(requirement.totalCostEur);
   });
 
+  it("excludes a current cereal cycle even when legacy plannedUse says grazing", () => {
+    const cereal = makeField("cereal", { areaHa: 10, plannedUse: tracked("grazing", "estimated", "Old use"), currentSeasonCropFamily: "cereal" });
+    const grass = makeField("grass", { areaHa: 20, currentSeasonCropFamily: "grassland" });
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const both = calculateFarmFertiliserRequirement({ fields: [cereal, grass], livestockGroups, slurryAllocations: [], silagePlans: [] });
+    const onlyGrass = calculateFarmFertiliserRequirement({ fields: [grass], livestockGroups, slurryAllocations: [], silagePlans: [] });
+    expect(both).toEqual(onlyGrass);
+    const directCereal = calculateNutrientPlan({ field: cereal, farmGrasslandAreaHa: grass.areaHa, livestockGroups });
+    expect(directCereal.fieldRequirement.n.status).toBe("NOT_APPLICABLE");
+    expect(directCereal.purchaseStatus.status).toBe("NOT_APPLICABLE");
+    expect(directCereal.napCompliance.status).toBe("NOT_APPLICABLE");
+    expect(directCereal.requirement.status).toBe("unavailable");
+  });
   it("zero fields requires nothing", () => {
     const requirement = calculateFarmFertiliserRequirement({ fields: [], livestockGroups: [], slurryAllocations: [], silagePlans: [] });
     expect(requirement.totalTonnes).toBe(0);
@@ -328,6 +341,14 @@ describe("calculateFarmSlurryNutrientValueEur", () => {
     expect(result.fieldsWithBlockedEvidence).toBe(0);
   });
 
+  it("excludes a real slurry allocation on a current cereal cycle, despite old grazing plannedUse", () => {
+    const cereal = makeField("cereal", { areaHa: 10, plannedUse: tracked("grazing", "estimated", "Old use"), currentSeasonCropFamily: "cereal" });
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const allocations: SlurryAllocation[] = [{ fieldId: "cereal", housingId: "h1", priority: "high", volumeM3: 40, score: 95 }];
+    const outcome = calculateFarmSlurryNutrientValueEur({ fields: [cereal], livestockGroups, slurryAllocations: allocations, silagePlans: [] });
+    expect(outcome.value.value).toBe(0);
+    expect(outcome.fieldsWithBlockedEvidence).toBe(0);
+  });
   it("a not_suitable allocation contributes nothing, even with a nonzero volumeM3", () => {
     const field = makeField("field-river");
     const livestockGroups = [makeGroup("g1", 20, 20_000)];

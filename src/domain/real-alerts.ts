@@ -16,7 +16,7 @@
  * see `spreading-legal-gate.ts`'s own doc comment).
  */
 
-import { calculateNutrientPlan, farmGrasslandAggregates, isSilageCutPlannedUse, resolveFieldSlurryAllocation } from "./nutrients";
+import { calculateNutrientPlan, farmGrasslandAggregates, isNonGrasslandField, isSilageCutPlannedUse, resolveFieldSlurryAllocation } from "./nutrients";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "./closed-period-calendar";
 import type { Farm, Field, FarmAlert, LivestockGroup, SlurryAllocation } from "./types";
 
@@ -141,7 +141,7 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): DeriveRealAlerts
     // tillage/missing-livestock, reproduced here for the newer reason.
     const missingSilageEvidence = isSilageCutPlannedUse(field);
     const ledgerDependentAlertsEligible =
-      field.plannedUse?.value !== "tillage" && !missingSilageEvidence && input.livestockGroups.length > 0;
+      !isNonGrasslandField(field) && !missingSilageEvidence && input.livestockGroups.length > 0;
     // Codex audit HIGH (round 24): a tillage field is genuinely
     // NOT_APPLICABLE for these checks (never counted); a non-tillage
     // field with no recorded livestock is genuinely blocked — its own
@@ -157,7 +157,7 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): DeriveRealAlerts
     // silently never counted. Counted once per field even if both
     // reasons apply — the disclosure is "was this field's ledger-
     // dependent checks blocked", not a reason tally.
-    const missingFertilityEvidence = field.plannedUse?.value !== "tillage" && plan.fertilityEvidence.status !== "OK";
+    const missingFertilityEvidence = !isNonGrasslandField(field) && plan.fertilityEvidence.status !== "OK";
     // Codex audit HIGH (round 26): even with real livestock and complete
     // fertility evidence, `plan.napCompliance` can still resolve to
     // `BLOCKED_INSUFFICIENT_EVIDENCE` — the real statutory GSR
@@ -174,7 +174,7 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): DeriveRealAlerts
     // diluting it into noise rather than a genuine, actionable signal.
     const napComplianceUnresolved =
       ledgerDependentAlertsEligible && !missingFertilityEvidence && plan.napCompliance.status !== "OK";
-    if ((!ledgerDependentAlertsEligible || missingFertilityEvidence || napComplianceUnresolved) && field.plannedUse?.value !== "tillage") {
+    if ((!ledgerDependentAlertsEligible || missingFertilityEvidence || napComplianceUnresolved) && !isNonGrasslandField(field)) {
       fieldsWithBlockedChecks++;
     }
 

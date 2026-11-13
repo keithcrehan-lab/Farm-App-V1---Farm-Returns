@@ -12,9 +12,12 @@ export interface GrazingProductionSystemResolution {
 function movementSystem(fieldId: string, season: string, sessions: readonly GrazingFieldSession[]): GrazingProductionSystem | null {
   const fieldSessions = sessions.filter((session) => {
     if (session.fieldId !== fieldId) return false;
-    const startsInSeason = session.startedAt.slice(0, 4) === season;
-    const endsInSeason = session.endedAt?.slice(0, 4) === season;
-    return startsInSeason || endsInSeason;
+    const from = Date.parse(season + "-01-01T00:00:00.000Z");
+    const until = Date.parse(String(Number(season) + 1) + "-01-01T00:00:00.000Z");
+    const start = Date.parse(session.startedAt);
+    const end = session.endedAt === undefined ? Number.POSITIVE_INFINITY : Date.parse(session.endedAt);
+    return Number.isFinite(start) && (session.endedAt === undefined || Number.isFinite(end))
+      && start < until && end > from;
   });
   if (fieldSessions.length === 0) return null;
   const categories = new Set(fieldSessions.map((session) => session.livestockCategorySnapshot));

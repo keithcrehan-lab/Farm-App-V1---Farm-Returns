@@ -106,6 +106,32 @@ describe("fertiliser field evidence actions", () => {
     expect(saved.evidence.grazingProductionSystem).toBeUndefined();
   });
 
+  it("clears an existing field override only when explicitly requested", async () => {
+    const oldException = savedCycle({
+      evidence: {
+        grazingProductionSystem: { value: "SUCKLER_CALF_TO_BEEF", method: "FARMER_DECLARED", source: "Field exception · Keith" },
+      },
+    });
+    vi.mocked(getFieldProductionCycle).mockResolvedValue(oldException);
+    vi.mocked(upsertFieldProductionCycle).mockImplementation(async (input) => savedCycle({ cropSystem: input.cropSystem, evidence: input.evidence }));
+    await saveFieldProductionCycleAction({
+      fieldId: "field-1", season: "2026", cropSystem: "GRASS_GRAZING", clearGrazingException: true, farmerName: "Keith",
+    });
+    expect(vi.mocked(upsertFieldProductionCycle).mock.calls[0][0].evidence.grazingProductionSystem).toBeUndefined();
+  });
+  it("does not infer deletion of a field override from omission alone", async () => {
+    const oldException = savedCycle({
+      evidence: {
+        grazingProductionSystem: { value: "SUCKLER_CALF_TO_BEEF", method: "FARMER_DECLARED", source: "Field exception · Keith" },
+      },
+    });
+    vi.mocked(getFieldProductionCycle).mockResolvedValue(oldException);
+    vi.mocked(upsertFieldProductionCycle).mockImplementation(async (input) => savedCycle({ cropSystem: input.cropSystem, evidence: input.evidence }));
+    await saveFieldProductionCycleAction({
+      fieldId: "field-1", season: "2026", cropSystem: "GRASS_GRAZING", farmerName: "Keith",
+    });
+    expect(vi.mocked(upsertFieldProductionCycle).mock.calls[0][0].evidence.grazingProductionSystem?.value).toBe("SUCKLER_CALF_TO_BEEF");
+  });
   it("chains prior evidence instead of overwriting provenance on edit", async () => {
     const previous = savedCycle({
       evidence: {

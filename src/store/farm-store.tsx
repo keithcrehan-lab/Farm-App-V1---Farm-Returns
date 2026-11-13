@@ -736,8 +736,16 @@ export function FarmProvider({
   // evidence is `stale` until a retry succeeds.
   const reloadRegulatoryEvidence = useCallback(async (): Promise<boolean> => {
     if (!remote) return true;
+    // Field grazing resolutions depend on the same farm system/cycle/movement
+    // inputs. A regulatory response started before a save must never replace
+    // a newer canonical field resolution (independent audit F002 race).
+    const grazingGeneration = grazingEvidenceGenerationRef.current;
     try {
       const { housing, fields, neatSlurryEvidenceRecords, spreadableAreaRecords } = await loadRegulatoryEvidenceStateAction();
+      if (grazingGeneration !== grazingEvidenceGenerationRef.current) {
+        setRegulatoryEvidenceFreshness("stale");
+        return false;
+      }
       setState((s) => ({ ...s, housing, fields, neatSlurryEvidenceRecords, spreadableAreaRecords }));
       setRegulatoryEvidenceFreshness("current");
       return true;

@@ -33,7 +33,11 @@ vi.mock("@/app/actions/farm", () => ({
 vi.mock("@/app/actions/fertiliser-field-evidence", () => ({
   loadCanonicalGrazingFieldStateAction: vi.fn(),
 }));
+vi.mock("@/app/actions/regulatory-evidence", () => ({
+  loadRegulatoryEvidenceStateAction: vi.fn(),
+}));
 import { loadCanonicalGrazingFieldStateAction } from "@/app/actions/fertiliser-field-evidence";
+import { loadRegulatoryEvidenceStateAction } from "@/app/actions/regulatory-evidence";
 import { updateFarmProfileAction } from "@/app/actions/farm";
 import { updateFieldIndexAction } from "@/app/actions/farm";
 const mockUpdateFieldIndexAction = vi.mocked(updateFieldIndexAction);
@@ -167,7 +171,7 @@ const GRAZING_FARM: Farm = {
 };
 
 function GrazingResolutionProbe() {
-  const { updateFarmProfile, replaceFieldFromServer, applySavedProductionCycle, refreshGrazingSystemEvidence } = useFarmActions();
+  const { updateFarmProfile, replaceFieldFromServer, applySavedProductionCycle, refreshGrazingSystemEvidence, refreshRegulatoryEvidence } = useFarmActions();
   const field = useFieldById(GRAZING_FIELD.id);
   return (
     <>
@@ -181,6 +185,7 @@ function GrazingResolutionProbe() {
         createdAt: "2026-01-01", updatedAt: "2026-11-13",
       })}>Apply saved field exception</button>
       <button onClick={() => void refreshGrazingSystemEvidence()}>Refresh after movement</button>
+      <button onClick={() => void refreshRegulatoryEvidence()}>Refresh regulatory evidence</button>
     </>
   );
 }
@@ -230,6 +235,28 @@ describe("farm store field grazing-system synchronisation", () => {
       }] });
     });
     await waitFor(() => expect(screen.getByTestId("grazing-basis").textContent).toBe("FIELD_OVERRIDE"));
+  });
+
+  it("an older regulatory read cannot roll back a newer saved farm grazing baseline", async () => {
+    let finishRegulatory!: (value: Awaited<ReturnType<typeof loadRegulatoryEvidenceStateAction>>) => void;
+    vi.mocked(loadRegulatoryEvidenceStateAction).mockReturnValue(
+      new Promise((resolve) => { finishRegulatory = resolve; }),
+    );
+    vi.mocked(updateFarmProfileAction).mockResolvedValue(GRAZING_FARM);
+    vi.mocked(loadCanonicalGrazingFieldStateAction).mockResolvedValue({
+      farmId: "farm-1",
+      fields: [{ id: "field-1", currentSeasonCropFamily: "grassland", grazingSward: { kind: "GRASS" },
+        grazingProductionSystemResolution: { value: "SUCKLER_CALF_TO_BEEF", basis: "FARM_BASELINE", source: "New farm baseline", limitations: [] } }],
+    });
+    renderGrazing();
+    fireEvent.click(screen.getByText("Refresh regulatory evidence")); // starts the slow read first
+    fireEvent.click(screen.getByText("Save farm grazing system"));
+    await waitFor(() => expect(screen.getByTestId("grazing-system").textContent).toBe("SUCKLER_CALF_TO_BEEF"));
+    await act(async () => {
+      finishRegulatory({ housing: [], fields: [GRAZING_FIELD], neatSlurryEvidenceRecords: [], spreadableAreaRecords: [] });
+    });
+    expect(screen.getByTestId("grazing-system").textContent).toBe("SUCKLER_CALF_TO_BEEF");
+    expect(screen.getByTestId("grazing-basis").textContent).toBe("FARM_BASELINE");
   });
 
   it("invalidates cached resolution immediately when a cattle movement is reported", async () => {

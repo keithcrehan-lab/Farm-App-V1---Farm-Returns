@@ -160,6 +160,40 @@ export interface GrazingPlatform<F extends WedgeField = WedgeField> {
   areaHa: number;
 }
 
+/**
+ * The grass-wedge use of a field from its season's production cycle — the
+ * "Current crop / use" the farmer sets in the field drawer. Grazing crops
+ * count as grazing, mixed grazing/silage as mixed, everything else is kept
+ * out of the grazing area. Returns undefined for an unknown crop system.
+ */
+export function fieldUseFromCropSystem(cropSystem: string | undefined): string | undefined {
+  switch (cropSystem) {
+    case "GRASS_GRAZING":
+    case "GRASS_WHITE_CLOVER_GRAZING":
+      return "grazing";
+    case "GRASS_MIXED":
+      return "mixed";
+    case "GRASS_FIRST_CUT_SILAGE":
+    case "GRASS_WHITE_CLOVER_SILAGE":
+    case "RED_CLOVER_SILAGE":
+      return "silage_1st_cut";
+    case "GRASS_SECOND_CUT_SILAGE":
+      return "silage_2nd_cut";
+    case "GRASS_THIRD_CUT_SILAGE":
+      return "silage_3rd_cut";
+    case "CEREAL_OTHER":
+      return "tillage";
+    case "GRASS_HAY":
+    case "FORAGE_KALE":
+    case "FORAGE_RAPE":
+    case "HORTICULTURE_OTHER":
+    case "OTHER_UNSUPPORTED":
+      return "other";
+    default:
+      return undefined;
+  }
+}
+
 /** Which fields make up the grazing area, from each field's recorded planned use (enter once, use everywhere). */
 export function grazingPlatform<F extends WedgeField>(fields: readonly F[]): GrazingPlatform<F> {
   const platform = fields.filter((f) => f.use !== undefined && GRAZING_USES.has(f.use));

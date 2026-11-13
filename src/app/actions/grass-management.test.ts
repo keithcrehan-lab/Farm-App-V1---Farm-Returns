@@ -4,6 +4,7 @@ import { tracked } from "@/domain/types";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
 vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/field-production-cycles", () => ({ listFieldProductionCyclesForSeason: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/grazing-field-sessions", () => ({ listGrazingFieldSessionsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/grass-growth-forecasts", () => ({ listFarmGrassGrowthForecasts: vi.fn() }));
@@ -17,6 +18,7 @@ vi.mock("@/lib/farm-data/grass-management", () => ({
 import { revalidatePath } from "next/cache";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
+import { listFieldProductionCyclesForSeason } from "@/lib/farm-data/field-production-cycles";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listGrazingFieldSessionsForFarm } from "@/lib/farm-data/grazing-field-sessions";
 import { listFarmGrassGrowthForecasts } from "@/lib/farm-data/grass-growth-forecasts";
@@ -61,6 +63,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2026-05-10T12:00:00.000Z"));
   vi.mocked(getFarmForCurrentUser).mockResolvedValue(FARM);
   vi.mocked(listFieldsForFarm).mockResolvedValue([FIELD, ARCHIVED]);
+  vi.mocked(listFieldProductionCyclesForSeason).mockResolvedValue([]);
   vi.mocked(listLivestockGroupsForFarm).mockResolvedValue([GROUP]);
   vi.mocked(listGrazingFieldSessionsForFarm).mockResolvedValue([]);
   vi.mocked(listFarmGrassGrowthForecasts).mockResolvedValue([]);
@@ -137,6 +140,40 @@ describe("recordGrassGrowthObservationAction", () => {
   ])("rejects %o", async (patch, reasonCode) => {
     await expect(recordGrassGrowthObservationAction({ ...growthInput, ...patch })).resolves.toEqual({ status: "rejected", reasonCode });
     expect(insertFarmGrassGrowthObservation).not.toHaveBeenCalled();
+  });
+});
+
+describe("getGrassManagementDataAction — field use from the field drawer's production cycle", () => {
+  type Cycle = Awaited<ReturnType<typeof listFieldProductionCyclesForSeason>>[number];
+  const cycle = (season: string, cropSystem: string) => ({ fieldId: FIELD_ID, season, cropSystem }) as unknown as Cycle;
+
+  it("uses this season's crop/use, ahead of last season's and the legacy planned use", async () => {
+    vi.mocked(listFieldsForFarm).mockResolvedValue([{ ...FIELD, plannedUse: tracked("silage_1st_cut", "farmer_adjusted", "Keith") }]);
+    vi.mocked(listFieldProductionCyclesForSeason).mockImplementation(async (_ids, season) =>
+      season === "2026" ? [cycle("2026", "GRASS_GRAZING")] : [cycle("2025", "GRASS_MIXED")]);
+    const data = await getGrassManagementDataAction();
+    if (data.status !== "ok") throw new Error("expected ok");
+    expect(data.fields).toEqual([{ id: FIELD_ID, name: "Home", areaHa: 5, plannedUse: "grazing" }]);
+    expect(listFieldProductionCyclesForSeason).toHaveBeenCalledWith([FIELD_ID], "2026");
+    expect(listFieldProductionCyclesForSeason).toHaveBeenCalledWith([FIELD_ID], "2025");
+  });
+
+  it("carries last season's crop/use forward when this season has none", async () => {
+    vi.mocked(listFieldProductionCyclesForSeason).mockImplementation(async (_ids, season) =>
+      season === "2025" ? [cycle("2025", "GRASS_WHITE_CLOVER_GRAZING")] : []);
+    const data = await getGrassManagementDataAction();
+    if (data.status !== "ok") throw new Error("expected ok");
+    expect(data.fields).toEqual([{ id: FIELD_ID, name: "Home", areaHa: 5, plannedUse: "grazing" }]);
+  });
+
+  it("falls back to the legacy planned use when cycles can't be read", async () => {
+    vi.mocked(listFieldsForFarm).mockResolvedValue([{ ...FIELD, plannedUse: tracked("grazing", "farmer_adjusted", "Keith") }]);
+    vi.mocked(listFieldProductionCyclesForSeason).mockRejectedValue(new Error("db down"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const data = await getGrassManagementDataAction();
+    spy.mockRestore();
+    if (data.status !== "ok") throw new Error("expected ok");
+    expect(data.fields).toEqual([{ id: FIELD_ID, name: "Home", areaHa: 5, plannedUse: "grazing" }]);
   });
 });
 

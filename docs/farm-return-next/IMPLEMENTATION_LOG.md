@@ -1145,3 +1145,12 @@ providers; no second source of truth, no migration.
   are dashed slots; tap targets no longer cover the legend; dead variables removed.
 - Still open: targets and guide are stored per device (needs a per-user table and migration).
 
+
+### 2026-11-13 — Grass: field use read from the field drawer (product owner bug report)
+
+- Bug: the Grass page read only the legacy `fields.planned_use`, which no screen sets any more; the field drawer's
+  "Current crop / use" writes the season's production cycle. Fields set to grazing still showed "Tell us which
+  fields are grazed" and no target line.
+- Fix: `getGrassManagementDataAction` reads this season's production cycles (then last season's, carried forward),
+  mapped by `fieldUseFromCropSystem` in `src/domain/grass-wedge-target.ts`; legacy planned use is the fallback; a
+  failed cycle read falls back rather than breaking the page. Tests added. No migration.

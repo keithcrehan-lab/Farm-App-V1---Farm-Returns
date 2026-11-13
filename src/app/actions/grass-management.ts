@@ -17,6 +17,8 @@ import {
 } from "@/domain/grass-grazing-demand";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
+import { listFieldProductionCyclesForSeason } from "@/lib/farm-data/field-production-cycles";
+import { fieldUseFromCropSystem } from "@/domain/grass-wedge-target";
 import {
   insertFarmGrassGrowthObservation,
   insertGrassCoverObservation,
@@ -203,6 +205,27 @@ export async function getGrassManagementDataAction(): Promise<GrassManagementDat
   ]);
 
   const activeFields = fields.filter((field) => !field.archivedAt);
+
+  // A field's use is set in the field drawer ("Current crop / use"), which
+  // records it on the season's production cycle — not on field.plannedUse.
+  // Read this season's cycle first, then last season's carried forward, and
+  // only then the legacy planned use (enter once, use everywhere).
+  const thisSeason = new Date().getFullYear();
+  const useByField = new Map<string, string>();
+  try {
+    const ids = activeFields.map((field) => field.id);
+    const [current, previous] = await Promise.all([
+      listFieldProductionCyclesForSeason(ids, String(thisSeason)),
+      listFieldProductionCyclesForSeason(ids, String(thisSeason - 1)),
+    ]);
+    for (const cycle of [...previous, ...current]) {
+      const use = fieldUseFromCropSystem(cycle.cropSystem);
+      if (use) useByField.set(cycle.fieldId, use);
+    }
+  } catch (err) {
+    console.error("[Grass] production cycles unavailable", err);
+  }
+  const fieldUse = (field: (typeof activeFields)[number]) => useByField.get(field.id) ?? field.plannedUse?.value;
   const fieldNameById = new Map(fields.map((field) => [field.id, field.name]));
   const groupById = new Map(groups.map((group) => [group.id, group]));
 
@@ -250,7 +273,7 @@ export async function getGrassManagementDataAction(): Promise<GrassManagementDat
 
   return {
     status: "ok",
-    fields: activeFields.map((field) => ({ id: field.id, name: field.name, areaHa: field.areaHa, ...(field.plannedUse ? { plannedUse: field.plannedUse.value } : {}) })),
+    fields: activeFields.map((field) => { const use = fieldUse(field); return { id: field.id, name: field.name, areaHa: field.areaHa, ...(use ? { plannedUse: use } : {}) }; }),
     coverObservations,
     growthObservations: mergedGrowth,
     growthForecasts: mergedForecasts,

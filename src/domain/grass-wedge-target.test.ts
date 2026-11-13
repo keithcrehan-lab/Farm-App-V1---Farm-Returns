@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fieldUseFromCropSystem, grazingPlatform as platformForCycles } from "./grass-wedge-target";
 import {
   buildDemandLine,
   grassInsights,
@@ -242,5 +243,25 @@ describe("supply vs demand, insights and scenarios", () => {
     if (longer.line.status !== "OK") throw new Error("line");
     expect(longer.line.line.rotationDays).toBe(30);
     expect(fields).toHaveLength(4);
+  });
+});
+
+
+describe("fieldUseFromCropSystem — use from the field drawer's production cycle", () => {
+  it("counts grazing and white-clover grazing as grazing, mixed as mixed", () => {
+    expect(fieldUseFromCropSystem("GRASS_GRAZING")).toBe("grazing");
+    expect(fieldUseFromCropSystem("GRASS_WHITE_CLOVER_GRAZING")).toBe("grazing");
+    expect(fieldUseFromCropSystem("GRASS_MIXED")).toBe("mixed");
+  });
+  it("keeps silage, cereals and other crops out of the grazing area", () => {
+    for (const c of ["GRASS_FIRST_CUT_SILAGE", "GRASS_SECOND_CUT_SILAGE", "GRASS_HAY", "CEREAL_OTHER", "FORAGE_KALE"]) {
+      const use = fieldUseFromCropSystem(c);
+      expect(use).toBeDefined();
+      expect(platformForCycles([{ fieldId: "f", name: "F", areaHa: 2, ...(use ? { use } : {}) }]).excluded).toHaveLength(1);
+    }
+  });
+  it("leaves an unknown or missing crop system unset", () => {
+    expect(fieldUseFromCropSystem(undefined)).toBeUndefined();
+    expect(fieldUseFromCropSystem("NOT_A_CROP")).toBeUndefined();
   });
 });

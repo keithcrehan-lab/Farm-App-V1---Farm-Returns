@@ -10,7 +10,8 @@ import {
   type GrassCoverObservation,
 } from "@/domain/grass-management";
 import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
-import type { LivestockCategory } from "@/domain/types";
+import { tracked, type LivestockCategory } from "@/domain/types";
+import { loadRealCattle, realGroupLiveweights } from "@/server/cattle-real/real-service";
 import {
   resolveGrassGrazingDemand,
   type GrassGrazingDemandResolution,
@@ -172,7 +173,12 @@ export interface GrassGrazingSessionView {
   livestockGroupId: string;
   groupLabel: string;
   category: LivestockCategory;
+  /** Original movement-time count; never rewrite this historical evidence. */
   headCountSnapshot: number;
+  /** For open sessions, the count from today's Cattle records. */
+  currentHeadCount?: number;
+  /** Count first verified at this read (not the unknown date it changed). */
+  countObservedAt?: string;
   startedAt: string;
   endedAt?: string;
   demand: GrassGrazingDemandResolution;
@@ -229,15 +235,49 @@ export async function getGrassManagementDataAction(): Promise<GrassManagementDat
   const fieldNameById = new Map(fields.map((field) => [field.id, field.name]));
   const groupById = new Map(groups.map((group) => [group.id, group]));
 
+  // Cattle already treats complete individual weight records as authoritative.
+  // Grass must not silently fall back to a stored group weight when individual
+  // members exist. Read the SAME approved cattle evaluation only when an open
+  // grazing group has individual members; do not invent a mean if it is unavailable.
+  const needsIndividualWeights = sessions.some(
+    (session) => !session.endedAt && groupById.get(session.livestockGroupId)?.count.source === "Individual animal records",
+  );
+  let individualGroupWeights: ReturnType<typeof realGroupLiveweights> = {};
+  if (needsIndividualWeights) {
+    const cattle = await loadRealCattle();
+    if (cattle.state === "OK" && cattle.evaluation.farmId === farm.id) {
+      individualGroupWeights = realGroupLiveweights(cattle.evaluation);
+    }
+  }
+  const countReadAt = new Date().toISOString();
+
   const grazingSessions: GrassGrazingSessionView[] = sessions.map((session) => {
     const group = groupById.get(session.livestockGroupId);
-    const demand: GrassGrazingDemandResolution = group
-      ? resolveGrassGrazingDemand({ group, headCount: session.headCountSnapshot })
+    const open = !session.endedAt;
+    const currentHeadCount = open && group ? group.count.value : undefined;
+    const headCount = currentHeadCount ?? session.headCountSnapshot;
+    const countChanged = open && group && currentHeadCount !== session.headCountSnapshot;
+
+    // The stored movement snapshot is evidence of the original count, not
+    // permission to claim those animals are still grazing today.
+    const currentWeight = group?.count.source === "Individual animal records"
+      ? individualGroupWeights[group.id]
+      : undefined;
+    const demandGroup = open && group?.count.source === "Individual animal records"
+      ? {
+          ...group,
+          avgWeightKg: currentWeight?.state === "INDIVIDUAL_FULL"
+            ? tracked(currentWeight.meanKg, "verified", "Cattle individual weights: complete current group coverage")
+            : undefined,
+        }
+      : group;
+    const demand: GrassGrazingDemandResolution = demandGroup
+      ? resolveGrassGrazingDemand({ group: demandGroup, headCount })
       : {
           status: "unresolved",
           groupId: session.livestockGroupId,
           category: session.livestockCategorySnapshot,
-          headCount: session.headCountSnapshot,
+          headCount,
           reason: "GROUP_NOT_FOUND",
         };
 
@@ -249,6 +289,8 @@ export async function getGrassManagementDataAction(): Promise<GrassManagementDat
       groupLabel: group?.label ?? "Recorded group",
       category: session.livestockCategorySnapshot,
       headCountSnapshot: session.headCountSnapshot,
+      ...(currentHeadCount !== undefined ? { currentHeadCount } : {}),
+      ...(countChanged ? { countObservedAt: countReadAt } : {}),
       startedAt: session.startedAt,
       ...(session.endedAt ? { endedAt: session.endedAt } : {}),
       demand,

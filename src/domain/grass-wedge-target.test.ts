@@ -200,7 +200,7 @@ describe("supply vs demand, insights and scenarios", () => {
     const line = buildDemandLine({ groups: [{ groupId: "g3", label: "weanlings", headCount: 12, fieldId: "a", missingReason: "their average liveweight is missing" }], grazingAreaHa: 10, targets });
     const insights = grassInsights({ fields: fields.map((f) => ({ ...f, ageDays: 2, occupied: false })), line, asOf: NOV });
     expect(insights[0]).toMatchObject({ title: "Complete your grazing demand", actionLabel: "Add cattle liveweight", action: { kind: "add_liveweight", groupId: "g3" } });
-    expect(insights[0].why).toMatch(/12 weanlings/);
+    expect(insights[0].why).toMatch(/weanlings: 12 animals are recorded/);
     const noTargets = grassInsights({ fields: [], line: buildDemandLine({ groups, grazingAreaHa: 10, targets: {} }), asOf: NOV });
     expect(noTargets[0]).toMatchObject({ actionLabel: "Set rotation length" });
   });

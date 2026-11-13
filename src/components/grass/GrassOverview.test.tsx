@@ -98,7 +98,7 @@ describe("Grass V2 overview", () => {
     resetGrassSettingsForTest();
     renderOverview({ groups: [{ groupId: "g9", label: "weanlings", headCount: 12, fieldId: "a", missingReason: "we need their average liveweight before working out their grass demand" }] });
     expect(screen.getByText("Complete your grazing demand")).toBeInTheDocument();
-    expect(screen.getByText(/Your 12 weanlings are recorded on grass/)).toBeInTheDocument();
+    expect(screen.getByText(/weanlings: 12 animals are recorded on grass/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Add cattle liveweight" })).toHaveAttribute("href", "/cattle/groups/g9");
   });
 

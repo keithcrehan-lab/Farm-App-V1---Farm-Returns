@@ -402,7 +402,9 @@ describe("Fields bulk production-cycle actions", () => {
     openAction("Set crop / use");
     chooseCrop();
     fireEvent.click(await screen.findByRole("button", { name: `Save 2 fields for ${thisSeason}` }));
-    await vi.waitFor(() => expect(screen.getByTestId("bulk-sward").textContent).toBe(JSON.stringify({ kind: "WHITE_CLOVER", aprilWhiteCloverPct: 5 })));
+    // Bulk crop changes never establish April evidence. The saved generic
+    // content stays in the historical record but cannot issue clover N.
+    await vi.waitFor(() => expect(screen.getByTestId("bulk-sward").textContent).toBe(JSON.stringify({ kind: "WHITE_CLOVER" })));
   });
 
   it("goes from selection through confirmation to success, writing nothing before the farmer confirms", async () => {

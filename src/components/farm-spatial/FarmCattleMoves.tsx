@@ -217,6 +217,7 @@ export function FarmCattleMoves({ map, fields, enabled, onMoved }: {
         return next.kind === "error" ? { kind: "pending", text: `${current.text}. Earlier move not saved: ${next.text}` } : current;
       });
       if (result.status === "saved") {
+        window.dispatchEvent(new Event("farm-return:grazing-moved"));
         note({ kind: "saved", text: `${move.group.label} moved to ${move.toFieldName}.` });
         onMovedRef.current?.();
       } else {

@@ -33,6 +33,7 @@ import {
 } from "@/app/actions/scientific-evidence-report";
 import type { EngineOutcome } from "@/domain/evidence";
 import { purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
+import { grazingNSourceLabel } from "@/lib/scientific-evidence-n-source";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -333,7 +334,7 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
                         label="Stocking rate input"
                         value={`${trace.organicNStockingRateKgHa.toFixed(2)} kg organic N/ha (statutory grassland stocking rate; ${trace.totalLivestockUnits.toFixed(3)} livestock units ÷ ${trace.farmGrasslandAreaHa.toFixed(3)} ha = ${trace.stockingRateLUHa.toFixed(4)} LU/ha, for context)`}
                       />
-                      <Row label={n.lowerRowOrganicNKgHa === undefined ? "N — clover strategy" : "N — Table 12-3"} value={nFormula} />
+                      <Row label={grazingNSourceLabel(n.ruleId, n.lowerRowOrganicNKgHa === undefined)} value={nFormula} />
                       <Row
                         label="P — Tables 13-2 + 13-3"
                         value={`Index ${trace.p.soilIndex}: build-up ${trace.p.buildUpKgHa.toFixed(2)} + drystock maintenance ${trace.p.maintenanceKgHa.toFixed(2)} = ${trace.p.resultKgHa.toFixed(2)} kg P/ha`}

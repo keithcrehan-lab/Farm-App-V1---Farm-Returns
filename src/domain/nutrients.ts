@@ -125,7 +125,24 @@ export function cropGroupForFieldUse(use: FieldUse): CropGroup {
  * drifting copy. Purely additive: `calculateNutrientPlan`/
  * `allocatePurchasedProducts` themselves are entirely unmodified.
  */
-export function farmGrasslandAggregates(fields: readonly Pick<Field, "areaHa" | "plannedUse">[]): { farmGrasslandAreaHa: number; nonGrassPct: number } {
+export function farmGrasslandAggregates(fields: readonly Pick<Field, "areaHa" | "plannedUse" | "currentSeasonCropFamily">[]): { farmGrasslandAreaHa: number; nonGrassPct: number } {
+  if (fields.some((f) => f.currentSeasonCropFamily !== undefined)) {
+    // A real season-hydrated farm must use production cycles throughout.
+    // Missing cycles mean the denominator is unknown, not permission to
+    // treat legacy plannedUse as verified grassland.
+    if (fields.some((f) => f.currentSeasonCropFamily == null)) {
+      return { farmGrasslandAreaHa: 0, nonGrassPct: 0 };
+    }
+    const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
+    const nonGrassAreaHa = fields.filter((f) => f.currentSeasonCropFamily !== "grassland").reduce((sum, f) => sum + f.areaHa, 0);
+    return {
+      farmGrasslandAreaHa: totalFarmAreaHa - nonGrassAreaHa,
+      nonGrassPct: totalFarmAreaHa > 0 ? (nonGrassAreaHa / totalFarmAreaHa) * 100 : 0,
+    };
+  }
+  // Legacy fixtures and initial mock fields do not carry a canonical cycle.
+  // This preserves their historical display behaviour; real server data
+  // always has currentSeasonCropFamily (including null for missing cycles).
   const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
   const nonGrassAreaHa = fields.filter((f) => f.plannedUse?.value === "tillage").reduce((sum, f) => sum + f.areaHa, 0);
   const farmGrasslandAreaHa = totalFarmAreaHa - nonGrassAreaHa;

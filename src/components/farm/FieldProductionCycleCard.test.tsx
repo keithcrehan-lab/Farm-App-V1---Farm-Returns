@@ -95,7 +95,7 @@ describe("FieldProductionCycleCard — streamlined chemical-fertiliser evidence"
     fireEvent.click(screen.getByRole("radio", { name: "No" }));
     fireEvent.click(screen.getByRole("button", { name: /save production evidence/i }));
     await waitFor(() => expect(saveFieldProductionCycleAction).toHaveBeenCalled());
-    expect(vi.mocked(saveFieldProductionCycleAction).mock.calls[0][0]).toMatchObject({ whiteCloverPct: 5 });
+    expect(vi.mocked(saveFieldProductionCycleAction).mock.calls[0][0]).toMatchObject({ aprilWhiteCloverPct: 5 });
   });
 
   it("asks one farmer-facing question first and only shows N/P/K boxes after Yes", async () => {
@@ -214,7 +214,7 @@ describe("FieldProductionCycleCard — the saved sward reaches the farm store", 
       evidence: {
         ...clover.cycle.evidence,
         cropSystem: { value: "GRASS_WHITE_CLOVER_GRAZING", method: "FARMER_DECLARED", source: "Farmer", observedAt: "2026-10-30T00:00:00.000Z" },
-        whiteCloverPct: { value: 10, method: "FARMER_DECLARED", source: "Farmer", observedAt: "2026-10-30T00:00:00.000Z" },
+        aprilWhiteCloverPct: { value: 10, method: "FARMER_DECLARED", source: "April sward class · Farmer", observedAt: "2026-10-30T00:00:00.000Z" },
       },
     } as typeof clover.cycle;
     vi.mocked(saveFieldProductionCycleAction).mockResolvedValue(clover);

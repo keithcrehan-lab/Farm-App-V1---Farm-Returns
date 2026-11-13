@@ -190,6 +190,22 @@ describe("farmGrasslandAggregates", () => {
     expect(nonGrassPct).toBe(0);
   });
 
+  it("uses current season production-cycle crop family instead of legacy plannedUse", () => {
+    const fields = [
+      { areaHa: 10, plannedUse: { value: "grazing" as const, status: "farmer_adjusted" as const, source: "Farmer" }, currentSeasonCropFamily: "grassland" as const },
+      { areaHa: 10, plannedUse: { value: "grazing" as const, status: "farmer_adjusted" as const, source: "Farmer" }, currentSeasonCropFamily: "cereal" as const },
+    ];
+    expect(farmGrasslandAggregates(fields)).toEqual({ farmGrasslandAreaHa: 10, nonGrassPct: 50 });
+  });
+
+  it("refuses a numeric area derived from legacy plannedUse when a canonical production cycle is missing", () => {
+    const fields = [
+      { areaHa: 10, plannedUse: { value: "grazing" as const, status: "farmer_adjusted" as const, source: "Farmer" }, currentSeasonCropFamily: "grassland" as const },
+      { areaHa: 10, plannedUse: { value: "grazing" as const, status: "farmer_adjusted" as const, source: "Farmer" }, currentSeasonCropFamily: null },
+    ];
+    expect(farmGrasslandAggregates(fields)).toEqual({ farmGrasslandAreaHa: 0, nonGrassPct: 0 });
+  });
+
   it("returns a real, honest zero for an empty field list, never a division error", () => {
     expect(farmGrasslandAggregates([])).toEqual({ farmGrasslandAreaHa: 0, nonGrassPct: 0 });
   });

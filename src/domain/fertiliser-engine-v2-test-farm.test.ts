@@ -128,7 +128,7 @@ describe(`fertiliser engine test farm through v2 (${GRASS_ENGINE_V2_VERSION})`, 
   it("scenario 5 — F5 white-clover grazing (April ~10%): no clover N rate at 100 kg organic N/ha (Teagasc publishes it only at 170)", () => {
     const r = calculateGrassFertiliserV2({
       field: field("F5", 3, 3),
-      cycle: cycle("GRASS_WHITE_CLOVER_GRAZING", { whiteCloverPct: createFarmerEvidence(10, "Test farm") }),
+      cycle: cycle("GRASS_WHITE_CLOVER_GRAZING", { aprilWhiteCloverPct: createFarmerEvidence(10, "April sward class · Test farm") }),
       annualOrganicNStockingRateKgHa: HOLDING_GSR,
     });
     expect(r.status).toBe("UNSUPPORTED_PATHWAY");

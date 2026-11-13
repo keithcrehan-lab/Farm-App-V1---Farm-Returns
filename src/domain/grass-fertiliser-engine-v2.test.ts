@@ -4,7 +4,7 @@ import {
   createFarmerEvidence,
   type FieldProductionCycle,
 } from "./fertiliser-field-evidence";
-import { calculateGrassFertiliserV2 } from "./grass-fertiliser-engine-v2";
+import { calculateGrassFertiliserV2, grazingSwardForCycle } from "./grass-fertiliser-engine-v2";
 
 const field = (
   p: 1 | 2 | 3 | 4 = 2,
@@ -211,7 +211,7 @@ describe("grass fertiliser engine v2.1.0 — fertiliser close-out", () => {
 
   describe("white-clover grazing (Teagasc drystock clover strategy, 170 kg organic N/ha)", () => {
     const clover = (pct: number | undefined) =>
-      cycle("GRASS_WHITE_CLOVER_GRAZING", pct === undefined ? {} : { whiteCloverPct: createFarmerEvidence(pct, "Farmer") });
+      cycle("GRASS_WHITE_CLOVER_GRAZING", pct === undefined ? {} : { aprilWhiteCloverPct: createFarmerEvidence(pct, "April sward class · Farmer") });
 
     it.each([
       [0, 150],
@@ -254,6 +254,16 @@ describe("grass fertiliser engine v2.1.0 — fertiliser close-out", () => {
       const result = calculateGrassFertiliserV2({ field: field(3, 3), cycle: clover(7), annualOrganicNStockingRateKgHa: 170 });
       expect(result.status).toBe("UNSUPPORTED_PATHWAY");
       expect(result.limitations.join(" ")).toMatch(/never interpolated/);
+    });
+
+    it("never converts a legacy summer clover percentage into an April class or actionable advice", () => {
+      const historical = cycle("GRASS_WHITE_CLOVER_GRAZING", {
+        whiteCloverPct: createFarmerEvidence(10, "Summer sward assessment", "2026-07-15T10:00:00.000Z"),
+      });
+      expect(grazingSwardForCycle(historical)).toEqual({ kind: "WHITE_CLOVER" });
+      const result = calculateGrassFertiliserV2({ field: field(3, 3), cycle: historical, annualOrganicNStockingRateKgHa: 170 });
+      expect(result.status).toBe("INCOMPLETE_EVIDENCE");
+      expect(result.grossRequirementKgHa).toBeUndefined();
     });
 
     it("asks for the clover content when it is missing", () => {

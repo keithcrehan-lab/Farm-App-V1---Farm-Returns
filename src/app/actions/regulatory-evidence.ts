@@ -104,7 +104,7 @@ export async function loadRegulatoryEvidenceStateAction(): Promise<{
   if (!farm) throw new Error("No farm found for this account.");
   const [housing, fields, evidence] = await Promise.all([
     listHousingForFarm(farm.id),
-    listFieldsForFarm(farm.id),
+    listFieldsForFarm(farm.id, { farm, resolveGrazingSystems: true }),
     loadRegulatoryEvidenceRecordsForFarm(farm.id),
   ]);
   return { housing, fields, neatSlurryEvidenceRecords: evidence.neatSlurryEvidenceRecords, spreadableAreaRecords: evidence.spreadableAreaRecords };

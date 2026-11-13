@@ -259,8 +259,8 @@ export function calculateGrassFertiliserV2(
         cycle.cropSystem === "GRASS_WHITE_CLOVER_GRAZING"
           ? {
               kind: "WHITE_CLOVER",
-              ...(cycle.evidence.whiteCloverPct?.value !== undefined
-                ? { aprilWhiteCloverPct: cycle.evidence.whiteCloverPct.value }
+              ...(confirmedAprilCloverPct(cycle) !== undefined
+                ? { aprilWhiteCloverPct: confirmedAprilCloverPct(cycle) }
                 : {}),
             }
           : { kind: "GRASS" },
@@ -402,6 +402,19 @@ const DRYSTOCK_CLOVER_TIMINGS: readonly DrystockCloverTiming[] = ["Feb_Mar", "Ap
 export type { GrazingSward };
 
 /**
+ * Generic historic clover percentages cannot be silently reinterpreted as
+ * April measurements. Only an explicit April-qualified farmer declaration
+ * may supply the drystock strategy's April class.
+ */
+function confirmedAprilCloverPct(cycle: FieldProductionCycle): number | undefined {
+  const evidence = cycle.evidence.aprilWhiteCloverPct;
+  return evidence?.method === "FARMER_DECLARED" && evidence.source.startsWith("April sward class · ")
+    && Number.isFinite(evidence.value) && evidence.value >= 0 && evidence.value <= 100
+    ? evidence.value
+    : undefined;
+}
+
+/**
  * The grazing sward a field's production cycle records (fertiliser
  * close-out, 2026-11-11): the single mapping both engines use, so a clover
  * cycle is never read as grass by one and clover by the other. Non-grazing
@@ -411,7 +424,7 @@ export function grazingSwardForCycle(cycle: FieldProductionCycle | undefined): G
   if (cycle === undefined) return undefined;
   if (cycle.cropSystem === "GRASS_GRAZING") return { kind: "GRASS" };
   if (cycle.cropSystem === "GRASS_WHITE_CLOVER_GRAZING") {
-    const pct = cycle.evidence.whiteCloverPct?.value;
+    const pct = confirmedAprilCloverPct(cycle);
     return pct !== undefined ? { kind: "WHITE_CLOVER", aprilWhiteCloverPct: pct } : { kind: "WHITE_CLOVER" };
   }
   return undefined;

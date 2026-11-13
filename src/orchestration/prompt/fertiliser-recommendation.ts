@@ -233,7 +233,8 @@ function describeFertiliserRecommendationOk(
  * everything else about the field would otherwise be `OK`) — callers
  * that only need "is this field even eligible at all" combine both.
  */
-export function isTillageField(field: Pick<Field, "plannedUse">): boolean {
+export function isTillageField(field: Pick<Field, "plannedUse" | "currentSeasonCropFamily">): boolean {
+  if (field.currentSeasonCropFamily !== undefined) return field.currentSeasonCropFamily !== null && field.currentSeasonCropFamily !== "grassland";
   return field.plannedUse?.value === "tillage";
 }
 

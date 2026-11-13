@@ -19,6 +19,27 @@ import {
   upsertFieldProductionCycle,
 } from "@/lib/farm-data/field-production-cycles";
 
+/** Read only, authenticated hydration of the season's canonical field
+ * evidence after a saved farm system, cycle or grazing movement. No
+ * client-side resolver is allowed to recalculate that precedence. */
+export async function loadCanonicalGrazingFieldStateAction(): Promise<{
+  farmId: string;
+  fields: Array<Pick<Field, "id" | "grazingSward" | "grazingProductionSystemResolution" | "currentSeasonCropFamily">>;
+}> {
+  const farm = await getFarmForCurrentUser();
+  if (!farm) throw new Error("No signed-in farm for grazing-system evidence.");
+  const fields = await listFieldsForFarm(farm.id, { farm, resolveGrazingSystems: true });
+  return {
+    farmId: farm.id,
+    fields: fields.map((field) => ({
+      id: field.id,
+      grazingSward: field.grazingSward,
+      grazingProductionSystemResolution: field.grazingProductionSystemResolution,
+      currentSeasonCropFamily: field.currentSeasonCropFamily,
+    })),
+  };
+}
+
 export interface FieldProductionCycleState {
   cycle: FieldProductionCycle | null;
   gate: FertiliserInputGateResult | null;
@@ -57,6 +78,8 @@ export interface SaveFieldProductionCycleActionInput {
   chemicalPAppliedKgHa?: number;
   chemicalKAppliedKgHa?: number;
   whiteCloverPct?: number;
+  /** Explicit April class; do not infer from legacy whiteCloverPct. */
+  aprilWhiteCloverPct?: number;
   grazingProductionSystem?: GrazingProductionSystem;
   farmerName: string;
 }
@@ -70,6 +93,12 @@ export async function saveFieldProductionCycleAction(
 
   if (input.whiteCloverPct !== undefined && (!Number.isFinite(input.whiteCloverPct) || input.whiteCloverPct < 0 || input.whiteCloverPct > 100)) {
     throw new Error("White clover percentage must be between 0 and 100.");
+  }
+  if (input.aprilWhiteCloverPct !== undefined && (!Number.isFinite(input.aprilWhiteCloverPct) || ![0, 5, 10].includes(input.aprilWhiteCloverPct))) {
+    throw new Error("April clover assessment must be a recorded 0%, 5% or 10% class.");
+  }
+  if (input.aprilWhiteCloverPct !== undefined && (input.cropSystem !== "GRASS_WHITE_CLOVER_GRAZING" || input.season > new Date().toISOString().slice(0, 4))) {
+    throw new Error("April clover class must be confirmed for a current or previous-season clover grazing field.");
   }
 
   const source = input.farmerName.trim() || "Farmer";
@@ -95,6 +124,9 @@ export async function saveFieldProductionCycleAction(
       : {}),
     ...(finiteNonNegative(input.whiteCloverPct)
       ? { whiteCloverPct: createFarmerEvidence(input.whiteCloverPct, source, undefined, previousEvidence.whiteCloverPct) }
+      : {}),
+    ...(input.aprilWhiteCloverPct !== undefined
+      ? { aprilWhiteCloverPct: createFarmerEvidence(input.aprilWhiteCloverPct, "April sward class · " + source, undefined, previousEvidence.aprilWhiteCloverPct) }
       : {}),
   };
 

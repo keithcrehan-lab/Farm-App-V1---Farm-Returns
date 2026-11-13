@@ -229,7 +229,7 @@ describe("fertiliser engine test farm (Teagasc Green Book 2020) — Nutrients en
       status: "active",
       evidence: {
         cropSystem: createFarmerEvidence(cropSystem, "Test farm"),
-        ...(whiteCloverPct !== undefined ? { whiteCloverPct: createFarmerEvidence(whiteCloverPct, "Test farm") } : {}),
+        ...(whiteCloverPct !== undefined ? { aprilWhiteCloverPct: createFarmerEvidence(whiteCloverPct, "April sward class · Test farm") } : {}),
       },
       createdAt: "2026-02-01T00:00:00.000Z",
       updatedAt: "2026-02-01T00:00:00.000Z",

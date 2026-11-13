@@ -209,6 +209,7 @@ export function FieldGrazingMovementCard({ fieldId }: { fieldId: string }) {
                     setEditing(false);
                     setMessage("Cattle moved. Grazing pressure and fertiliser evidence will use this field session automatically.");
                     reload();
+                    window.dispatchEvent(new Event("farm-return:grazing-moved"));
                     router.refresh();
                   } catch {
                     setMessage("The cattle move could not be saved. Please try again.");

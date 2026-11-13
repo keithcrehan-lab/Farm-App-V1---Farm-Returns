@@ -18,6 +18,7 @@ import { grazingSwardForCycle } from "@/domain/grass-fertiliser-engine-v2";
 import { listFieldProductionCyclesForSeason } from "./field-production-cycles";
 import { listGrazingFieldSessionsForFarm } from "./grazing-field-sessions";
 import { resolveGrazingProductionSystem } from "@/domain/grazing-production-system-resolution";
+import { cropFamilyFor } from "@/domain/fertiliser-field-evidence";
 import type { Farm } from "@/domain/types";
 
 export function canApplyDerivedWaterEvidence(
@@ -82,6 +83,7 @@ export async function listFieldsForFarm(
       : undefined;
     return {
       ...field,
+      currentSeasonCropFamily: cycle ? cropFamilyFor(cycle.cropSystem) : null,
       ...(grazingSward ? { grazingSward } : {}),
       ...(grazingProductionSystemResolution ? { grazingProductionSystemResolution } : {}),
     };

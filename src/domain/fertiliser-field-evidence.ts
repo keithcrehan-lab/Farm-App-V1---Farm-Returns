@@ -114,8 +114,10 @@ export interface FieldProductionCycleEvidence {
   chemicalNAppliedKgHa?: EvidenceValue<number>;
   chemicalPAppliedKgHa?: EvidenceValue<number>;
   chemicalKAppliedKgHa?: EvidenceValue<number>;
-  /** White-clover content is only meaningful for a clover pathway. */
+  /** Generic sward cover percentage: legacy evidence, never an April class. */
   whiteCloverPct?: EvidenceValue<number>;
+  /** Explicit farmer-confirmed April cover class for the drystock clover N rule. */
+  aprilWhiteCloverPct?: EvidenceValue<number>;
   reseededOn?: EvidenceValue<string>;
 }
 
@@ -149,6 +151,7 @@ export type FertiliserEvidenceInputKey =
   | "chemicalPAppliedKgHa"
   | "chemicalKAppliedKgHa"
   | "whiteCloverPct"
+  | "aprilWhiteCloverPct"
   | "grazingProductionSystem";
 
 export interface FertiliserInputGateResult {
@@ -223,11 +226,18 @@ export function evaluateFertiliserInputGate(
     missingInputs.push("chemicalKAppliedKgHa");
   }
 
-  if (
-    (cycle.cropSystem === "GRASS_WHITE_CLOVER_GRAZING" || cycle.cropSystem === "GRASS_WHITE_CLOVER_SILAGE") &&
-    (!validNonNegativeEvidence(cycle.evidence.whiteCloverPct) ||
-      (cycle.evidence.whiteCloverPct?.value ?? 0) > 100)
-  ) {
+  // April class and generic sward content are separate evidence fields.
+  // A historical summer observation cannot satisfy the April-specific N rule.
+  if (cycle.cropSystem === "GRASS_WHITE_CLOVER_GRAZING") {
+    const april = cycle.evidence.aprilWhiteCloverPct;
+    if (!april || april.method !== "FARMER_DECLARED"
+      || !april.source.startsWith("April sward class · ")
+      || ![0, 5, 10].includes(april.value)) {
+      missingInputs.push("aprilWhiteCloverPct");
+    }
+  } else if (cycle.cropSystem === "GRASS_WHITE_CLOVER_SILAGE"
+    && (!validNonNegativeEvidence(cycle.evidence.whiteCloverPct)
+      || (cycle.evidence.whiteCloverPct?.value ?? 0) > 100)) {
     missingInputs.push("whiteCloverPct");
   }
 

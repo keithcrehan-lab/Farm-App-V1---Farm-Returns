@@ -472,9 +472,8 @@ describe("EvidenceReportPageClient", () => {
     it.each([
       { name: "P only", fertility: { pIndex: tracked(2 as const, "verified", "Lab") }, missing: "K" },
       { name: "K only", fertility: { kIndex: tracked(1 as const, "verified", "Lab") }, missing: "P" },
-      { name: "tillage, P only", fertility: { pIndex: tracked(3 as const, "verified", "Lab") }, missing: "K", tillage: true },
-    ])("$name: per-nutrient rows, \"—\", the D3 line and the slurry basis", async ({ fertility, missing, ...rest }) => {
-      const { plan, report } = engineReport(fertility, "tillage" in rest ? tracked("tillage", "verified", "Farmer") : undefined);
+    ])("$name: per-nutrient rows, \"—\", the D3 line and the slurry basis", async ({ fertility, missing }) => {
+      const { plan, report } = engineReport(fertility);
       const mixed = report.mixedNutrientRequirement;
       if (!mixed) throw new Error("expected a mixed report");
       mockAction.mockResolvedValue(report);
@@ -496,6 +495,22 @@ describe("EvidenceReportPageClient", () => {
       expect(screen.getByText(basis.value.scientificBasisNote)).toBeTruthy();
       fireEvent.click(screen.getByText(/machine-reproducible manifest/));
       expect(screen.getByText(/"availableNutrientBasis"/).textContent).toContain('"ruleId": "SLURRY_TABLE_9_8"');
+    });
+
+    it("tillage with one soil index has no grassland mixed requirement or slurry-derived recommendation", async () => {
+      const { plan, report } = engineReport(
+        { pIndex: tracked(3 as const, "verified", "Lab") },
+        tracked("tillage", "verified", "Farmer"),
+      );
+      expect(plan.requirement.status).toBe("unavailable");
+      expect(plan.purchaseStatus.status).toBe("NOT_APPLICABLE");
+      expect(report.mixedNutrientRequirement).toBeUndefined();
+      mockAction.mockResolvedValue(report);
+      renderPage();
+      await waitFor(() => expect(screen.getByText(report.nutrientPlanUnavailableReason!)).toBeTruthy());
+      expect(screen.queryByText("Gross N / P / K")).toBeNull();
+      expect(screen.queryByText("Slurry application method")).toBeNull();
+      expect(screen.queryByText("Product allocation")).toBeNull();
     });
 
     it("both indices: the paired rows, unchanged, with no per-nutrient line or slurry basis rows", async () => {

@@ -156,8 +156,12 @@ describe("Session 2b — canonical product recommendation (purchaseStatus)", () 
     expect(p.purchasedProducts).toEqual([]);
     expect(p.deliveredKgHa).toEqual({ n: 0, p: 0, k: 0 });
     expect(p.estimatedFieldCostEur).toBe(0);
-    // The paired requirement keeps its legacy figure (LEGACY_COMPATIBILITY_PATH).
-    expect(p.requirement.status).toBe("estimated");
+    // A tillage field has no validated grassland-table requirement.
+    // Both the paired and per-nutrient requirements must stay unavailable.
+    expect(p.requirement.status).toBe("unavailable");
+    expect(p.requirementByNutrient.n.status).toBe("NOT_APPLICABLE");
+    expect(p.requirementByNutrient.p.status).toBe("NOT_APPLICABLE");
+    expect(p.requirementByNutrient.k.status).toBe("NOT_APPLICABLE");
   });
 
   it("grazing with no recorded livestock: UNKNOWN (MISSING_LIVESTOCK_DATA), no products", () => {

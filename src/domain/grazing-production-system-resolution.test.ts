@@ -31,6 +31,19 @@ describe("resolveGrazingProductionSystem", () => {
     expect(resolveGrazingProductionSystem({ farm, fieldId: "f", cycle, sessions: [ended] }))
       .toMatchObject({ value: "SUCKLER_CALF_TO_WEANING", basis: "FARM_BASELINE" });
   });
+  it("blocks dairy-only movements even if the farm has a suckler production-system baseline", () => {
+    expect(resolveGrazingProductionSystem({ farm, fieldId: "f", cycle, sessions: [session("dairy_cow")] }))
+      .toMatchObject({ value: null, basis: "FIELD_MOVEMENTS", source: "Recorded dairy livestock movements" });
+  });
+  it("blocks mixed dairy and suckler movements rather than treating the field as calf-to-beef", () => {
+    expect(resolveGrazingProductionSystem({ farm, fieldId: "f", cycle, sessions: [session("dairy_cow"), session("suckler_cow"), session("store")] }))
+      .toMatchObject({ value: null, basis: "FIELD_MOVEMENTS" });
+  });
+  it("does not block on a dairy movement outside the selected production season", () => {
+    const priorSeasonDairy = { ...session("dairy_cow"), startedAt: "2025-03-01", endedAt: "2025-05-01" };
+    expect(resolveGrazingProductionSystem({ farm, fieldId: "f", cycle, sessions: [priorSeasonDairy] }))
+      .toMatchObject({ value: "SUCKLER_CALF_TO_WEANING", basis: "FARM_BASELINE" });
+  });
   it("uses an explicit field exception before the farm baseline when movements do not resolve", () => {
     const withOverride={...cycle,evidence:{...cycle.evidence,grazingProductionSystem:{value:"OTHER_DRYSTOCK" as const,method:"FARMER_DECLARED" as const,source:"Field exception · Farmer"}}};
     expect(resolveGrazingProductionSystem({farm,fieldId:"f",cycle:withOverride,sessions:[]})).toMatchObject({value:"OTHER_DRYSTOCK",basis:"FIELD_OVERRIDE"});

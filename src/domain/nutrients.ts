@@ -2090,8 +2090,9 @@ function pairedFertilityEvidence(
  * `NOT_APPLICABLE` (no tillage table — `isTillageField`, prompt producer)
  * and a grazing field with no recorded livestock is `UNKNOWN`
  * (`MISSING_LIVESTOCK_DATA` — Table 12-3's clamped 35 kg N/ha row,
- * `hasNoRecordedLivestock`). The paired `requirement` keeps its legacy
- * behaviour for both (LEGACY_COMPATIBILITY_PATH).
+ * `hasNoRecordedLivestock`). The paired `requirement` is unavailable
+ * for non-grassland fields rather than displaying a grassland figure.
+ * Grazing without recorded livestock remains blocked as unknown.
  */
 function buildFieldNutrientRequirement(args: {
   field: Field;

@@ -436,12 +436,10 @@ describe("buildScientificEvidenceReport", () => {
     it.each([
       { name: "P only", known: "p", fertility: { pIndex: verified(2) } },
       { name: "K only", known: "k", fertility: { kIndex: verified(1) } },
-      { name: "tillage, P only", known: "p", fertility: { pIndex: verified(3) }, plannedUse: "tillage" },
-    ] as const)("$name: the mixed section carries the slurry basis though the paired assessment is blocked", async ({ known, fertility, ...rest }) => {
+    ] as const)("$name: the mixed section carries the slurry basis though the paired assessment is blocked", async ({ known, fertility }) => {
       defaultMocks();
       mockListSlurryAllocations.mockResolvedValue(slurry() as never);
-      const plannedUse = "plannedUse" in rest ? { plannedUse: { value: rest.plannedUse, status: "verified" as const, source: "Farmer" } } : {};
-      mockListFields.mockResolvedValue([field({ fertility: fertility as Field["fertility"], ...plannedUse } as Partial<Field>)]);
+      mockListFields.mockResolvedValue([field({ fertility: fertility as Field["fertility"] } as Partial<Field>)]);
       const result = await buildScientificEvidenceReport(SESSION_ID);
       if ("reasonCode" in result) throw new Error("expected a real report");
       expect(result.nutrientPlan).toBeUndefined();
@@ -450,7 +448,21 @@ describe("buildScientificEvidenceReport", () => {
       expect(mixed.known).toBe(known);
       expect(mixed.organicOffset[known]).toBeGreaterThan(0);
       expect(mixed.evidence.availableNutrientBasis).toMatchObject({ status: "OK", value: expectedBasis, evidenceState: "IRISH_DEFAULT" });
-      if ("plannedUse" in rest) expect(result.fieldFertiliserStatus).toEqual({ status: "not_applicable" });
+
+    });
+
+    it("tillage with incomplete soil evidence is not mistaken for grazing with a mixed nutrient requirement", async () => {
+      defaultMocks();
+      mockListSlurryAllocations.mockResolvedValue(slurry() as never);
+      mockListFields.mockResolvedValue([field({
+        fertility: { pIndex: verified(3) } as Field["fertility"],
+        plannedUse: { value: "tillage", status: "verified", source: "Farmer" },
+      })]);
+      const result = await buildScientificEvidenceReport(SESSION_ID);
+      if ("reasonCode" in result) throw new Error("expected a real report");
+      expect(result.fieldFertiliserStatus).toEqual({ status: "not_applicable" });
+      expect(result.nutrientPlan).toBeUndefined();
+      expect(result.mixedNutrientRequirement).toBeUndefined();
     });
 
     it("both: no mixed section; the plan's basis equals the paired assessment's basis fields", async () => {

@@ -9,7 +9,7 @@ export interface GrazingProductionSystemResolution {
   limitations: string[];
 }
 
-function movementSystem(fieldId: string, season: string, sessions: readonly GrazingFieldSession[]): GrazingProductionSystem | null {
+function movementSystem(fieldId: string, season: string, sessions: readonly GrazingFieldSession[]): GrazingProductionSystem | "UNSUPPORTED_DAIRY" | null {
   const fieldSessions = sessions.filter((session) => {
     if (session.fieldId !== fieldId) return false;
     const from = Date.parse(season + "-01-01T00:00:00.000Z");
@@ -21,6 +21,10 @@ function movementSystem(fieldId: string, season: string, sessions: readonly Graz
   });
   if (fieldSessions.length === 0) return null;
   const categories = new Set(fieldSessions.map((session) => session.livestockCategorySnapshot));
+  // Dairy grazing is not covered by our beef-focused validated nutrient tables.
+  // Recorded dairy cattle override any suckler baseline/exception: block rather
+  // than presenting suckler recommendations for a mixed or dairy-only field.
+  if (categories.has("dairy_cow")) return "UNSUPPORTED_DAIRY";
   const hasSucklerCow = categories.has("suckler_cow");
   const hasClearRetainedBeef = categories.has("store") || categories.has("steer");
   const hasDrystock = [...categories].some((category) => ["calf", "weanling", "store", "steer", "heifer", "bull"].includes(category));
@@ -37,6 +41,14 @@ export function resolveGrazingProductionSystem(args: {
   sessions: readonly GrazingFieldSession[];
 }): GrazingProductionSystemResolution {
   const fromMovements = movementSystem(args.fieldId, args.cycle.season, args.sessions);
+  if (fromMovements === "UNSUPPORTED_DAIRY") {
+    return {
+      value: null,
+      basis: "FIELD_MOVEMENTS",
+      source: "Recorded dairy livestock movements",
+      limitations: ["This field has recorded dairy cattle, but Farm Return does not yet have a validated dairy grazing N/P/K pathway. No suckler-farm fallback is permitted."],
+    };
+  }
   if (fromMovements) {
     return {
       value: fromMovements,

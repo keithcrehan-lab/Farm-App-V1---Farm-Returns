@@ -352,6 +352,28 @@ describe("GrassPageClient", () => {
     expect(screen.getByText(/Automatically linked from Cattle movements/i)).toBeTruthy();
   });
 
+  it("shows today's group count instead of a stale movement snapshot and explains the historical gap", async () => {
+    const session = {
+      sessionId: "s-stale", fieldId: FIELD_ID, fieldName: "Home Field",
+      livestockGroupId: "g-stale", groupLabel: "Weanlings", category: "weanling" as const,
+      headCountSnapshot: 12, currentHeadCount: 1,
+      countObservedAt: isoDaysAgo(0), startedAt: isoDaysAgo(10),
+      demand: {
+        status: "unresolved" as const, groupId: "g-stale", category: "weanling" as const,
+        headCount: 1, reason: "MISSING_AVG_WEIGHT" as const,
+      },
+    };
+    getData.mockResolvedValue({
+      ...empty, grazingSessions: [session], openGrazingSessions: [session],
+    });
+    render(<GrassPageClient />);
+    expect(await screen.findByText(/Original movement: 12 head/)).toBeTruthy();
+    expect(screen.getByText(/1 head · weanling/)).toBeTruthy();
+    // The demand warning is present even when target settings or field use
+    // prevents a separate wedge recommendation from being generated.
+    expect(screen.getByText(/Animal demand: Unresolved/)).toBeTruthy();
+  });
+
   it("records a cover reading only after the farmer chooses a field, then reloads real data", async () => {
     recordCover.mockResolvedValue({ status:"saved", observation:{ id:"55555555-5555-4555-8555-555555555555", farmId:FARM_ID, fieldId:FIELD_ID, coverKgDmHa:1420, method:"plate_meter", observedAt:new Date().toISOString(), source:"Farmer", createdAt:new Date().toISOString() } });
     render(<GrassPageClient />);

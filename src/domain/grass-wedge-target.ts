@@ -505,7 +505,7 @@ export function grassInsights(input: InsightInput): GrassInsight[] {
         id: `demand-${g.groupId}`,
         tone: "action",
         title: "Complete your grazing demand",
-        why: `Your ${g.headCount} ${g.label} are recorded on grass, but ${g.missingReason ?? "their average liveweight is missing"}. Without it the target line would understate what they eat.`,
+        why: `${g.label}: ${g.headCount} ${g.headCount === 1 ? "animal is" : "animals are"} recorded on grass, but ${g.missingReason ?? "their average liveweight is missing"}. Without it the target line would understate what they eat.`,
         figures: [],
         confidence: "low",
         actionLabel: "Add cattle liveweight",

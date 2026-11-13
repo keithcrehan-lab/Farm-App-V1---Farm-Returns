@@ -7,6 +7,10 @@ vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/field-production-cycles", () => ({ listFieldProductionCyclesForSeason: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/grazing-field-sessions", () => ({ listGrazingFieldSessionsForFarm: vi.fn() }));
+vi.mock("@/server/cattle-real/real-service", () => ({
+  loadRealCattle: vi.fn(),
+  realGroupLiveweights: vi.fn(),
+}));
 vi.mock("@/lib/farm-data/grass-growth-forecasts", () => ({ listFarmGrassGrowthForecasts: vi.fn() }));
 vi.mock("@/lib/farm-data/grass-management", () => ({
   insertGrassCoverObservation: vi.fn(),
@@ -21,6 +25,7 @@ import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listFieldProductionCyclesForSeason } from "@/lib/farm-data/field-production-cycles";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listGrazingFieldSessionsForFarm } from "@/lib/farm-data/grazing-field-sessions";
+import { loadRealCattle, realGroupLiveweights } from "@/server/cattle-real/real-service";
 import { listFarmGrassGrowthForecasts } from "@/lib/farm-data/grass-growth-forecasts";
 import {
   insertFarmGrassGrowthObservation,
@@ -66,6 +71,8 @@ beforeEach(() => {
   vi.mocked(listFieldProductionCyclesForSeason).mockResolvedValue([]);
   vi.mocked(listLivestockGroupsForFarm).mockResolvedValue([GROUP]);
   vi.mocked(listGrazingFieldSessionsForFarm).mockResolvedValue([]);
+  vi.mocked(loadRealCattle).mockResolvedValue({ state: "UNAVAILABLE" });
+  vi.mocked(realGroupLiveweights).mockReturnValue({});
   vi.mocked(listFarmGrassGrowthForecasts).mockResolvedValue([]);
   vi.mocked(listGrassCoverObservationsForFarm).mockResolvedValue([]);
   vi.mocked(listFarmGrassGrowthObservations).mockResolvedValue([]);
@@ -204,6 +211,7 @@ describe("getGrassManagementDataAction", () => {
         groupLabel: "Cows",
         category: "suckler_cow",
         headCountSnapshot: 20,
+        currentHeadCount: 20,
         startedAt: "2026-05-01T00:00:00.000Z",
         demand: {
           status: "resolved",
@@ -230,6 +238,73 @@ describe("getGrassManagementDataAction", () => {
     });
     expect(listGrassCoverObservationsForFarm).toHaveBeenCalledWith("farm-1");
     expect(listFarmGrassGrowthObservations).toHaveBeenCalledWith("farm-1");
+  });
+
+  it("uses today's individually recorded headcount and complete liveweights without rewriting the movement snapshot", async () => {
+    vi.mocked(listLivestockGroupsForFarm).mockResolvedValue([{
+      ...GROUP,
+      count: tracked(1, "verified", "Individual animal records"),
+      avgWeightKg: tracked(999, "farmer_adjusted", "Stale group estimate"),
+    }]);
+    vi.mocked(listGrazingFieldSessionsForFarm).mockResolvedValue([{
+      id: "s-current", farmId: "farm-1", livestockGroupId: "group-1", fieldId: FIELD_ID,
+      startedAt: "2026-05-01T00:00:00.000Z", headCountSnapshot: 12,
+      livestockCategorySnapshot: "suckler_cow", livestockUnitsPerHeadSnapshot: 0.9,
+      source: "Keith", createdAt: "2026-05-01T00:00:00.000Z",
+    }]);
+    vi.mocked(loadRealCattle).mockResolvedValue({ state: "OK", evaluation: { farmId: "farm-1" } } as never);
+    vi.mocked(realGroupLiveweights).mockReturnValue({
+      "group-1": {
+        state: "INDIVIDUAL_FULL", meanKg: 300, weighed: 1, members: 1,
+        oldestAt: "2026-05-09T08:00:00.000Z", newestAt: "2026-05-09T08:00:00.000Z",
+      },
+    });
+
+    const data = await getGrassManagementDataAction();
+    if (data.status !== "ok") throw new Error("expected ok");
+    expect(loadRealCattle).toHaveBeenCalledTimes(1);
+    expect(data.openGrazingSessions[0]).toMatchObject({
+      headCountSnapshot: 12,
+      currentHeadCount: 1,
+      countObservedAt: "2026-05-10T12:00:00.000Z",
+      demand: {
+        status: "resolved", headCount: 1, dailyDemandKgDm: 6,
+        evidence: expect.arrayContaining([
+          expect.objectContaining({ key: "head_count", value: 1 }),
+          expect.objectContaining({ key: "avg_weight_kg", value: 300 }),
+        ]),
+      },
+    });
+    expect(data.grazingSessions[0].headCountSnapshot).toBe(12);
+  });
+
+  it("does not use a stale group average when individual weights have incomplete coverage", async () => {
+    vi.mocked(listLivestockGroupsForFarm).mockResolvedValue([{
+      ...GROUP,
+      count: tracked(2, "verified", "Individual animal records"),
+      avgWeightKg: tracked(650, "farmer_adjusted", "Old group average"),
+    }]);
+    vi.mocked(listGrazingFieldSessionsForFarm).mockResolvedValue([{
+      id: "s-current", farmId: "farm-1", livestockGroupId: "group-1", fieldId: FIELD_ID,
+      startedAt: "2026-05-01T00:00:00.000Z", headCountSnapshot: 12,
+      livestockCategorySnapshot: "suckler_cow", livestockUnitsPerHeadSnapshot: 0.9,
+      source: "Keith", createdAt: "2026-05-01T00:00:00.000Z",
+    }]);
+    vi.mocked(loadRealCattle).mockResolvedValue({ state: "OK", evaluation: { farmId: "farm-1" } } as never);
+    vi.mocked(realGroupLiveweights).mockReturnValue({
+      "group-1": {
+        state: "INDIVIDUAL_PARTIAL", coveredMeanKg: 400, weighed: 1, members: 2,
+        oldestAt: "2026-05-09T08:00:00.000Z", newestAt: "2026-05-09T08:00:00.000Z",
+      },
+    });
+
+    const data = await getGrassManagementDataAction();
+    if (data.status !== "ok") throw new Error("expected ok");
+    expect(data.openGrazingSessions[0]).toMatchObject({
+      headCountSnapshot: 12,
+      currentHeadCount: 2,
+      demand: { status: "unresolved", headCount: 2, reason: "MISSING_AVG_WEIGHT" },
+    });
   });
 
   it("returns no_farm without reading data", async () => {

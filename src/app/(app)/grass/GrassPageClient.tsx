@@ -9,7 +9,6 @@ import { GrassOverview, type OverviewField } from "@/components/grass/GrassOverv
 import { selectGrowthEvidence, type DemandGroup } from "@/domain/grass-wedge-target";
 import { MapHero } from "@/components/farm/MapHero";
 import type { MapTone } from "@/components/farm/FieldMap";
-import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { captureReadingLocation, isLiveReading } from "@/lib/location/reading-location";
 import { useFarm, useFields } from "@/store/farm-store";
@@ -244,18 +243,29 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
     }>();
     for (const session of okData?.grazingSessions ?? []) {
       const entry = byField.get(session.fieldId) ?? { demandWindows: [], unresolvedDemandWindows: [] };
+      if (session.countObservedAt) {
+        // The original headcount may have changed at any point since the
+        // recorded move. Past demand is therefore unknown, not today's
+        // headcount retroactively applied to the whole historical period.
+        entry.unresolvedDemandWindows.push({
+          id: `${session.sessionId}:historical-headcount`,
+          startedAt: session.startedAt,
+          endedAt: session.countObservedAt,
+        });
+      }
+      const effectiveStart = session.countObservedAt ?? session.startedAt;
       if (session.demand.status === "resolved") {
         entry.demandWindows.push({
           id: session.sessionId,
           dailyDemandKgDm: session.demand.dailyDemandKgDm,
-          startedAt: session.startedAt,
+          startedAt: effectiveStart,
           ...(session.endedAt ? { endedAt: session.endedAt } : {}),
           source: session.demand.source,
         });
       } else {
         entry.unresolvedDemandWindows.push({
           id: session.sessionId,
-          startedAt: session.startedAt,
+          startedAt: effectiveStart,
           ...(session.endedAt ? { endedAt: session.endedAt } : {}),
         });
       }
@@ -348,7 +358,7 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
     const shown = coverForState(state, horizon);
     const occupants = (okData?.openGrazingSessions ?? [])
       .filter((session) => session.fieldId === field.id)
-      .map((session) => `${session.groupLabel} (${formatNumber(session.headCountSnapshot, 0)})`);
+      .map((session) => `${session.groupLabel} (${formatNumber(session.currentHeadCount ?? session.headCountSnapshot, 0)})`);
     return {
       fieldId: field.id,
       name: field.name,
@@ -367,7 +377,7 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
     .map((session) => ({
       groupId: session.livestockGroupId,
       label: session.groupLabel,
-      headCount: session.headCountSnapshot,
+      headCount: session.currentHeadCount ?? session.headCountSnapshot,
       fieldId: session.fieldId,
       ...(session.demand.status === "resolved"
         ? { dailyDemandKgDm: session.demand.dailyDemandKgDm, kgDmPerHeadDay: session.demand.kgDmPerHeadDay, ruleSource: session.demand.source }
@@ -827,7 +837,10 @@ function GrazingRow({ session }: { session: GrassOpenGrazingSessionView }) {
     <div className="flex items-start justify-between gap-4 border-l-[3px] border-fr-v2-teal bg-fr-v2-cream px-4 py-3">
       <div>
         <p className="text-sm font-semibold text-fr-v2-charcoal">{session.groupLabel}</p>
-        <p className="mt-1 text-xs text-fr-v2-muted">{formatNumber(session.headCountSnapshot, 0)} head · {session.category.replaceAll("_", " ")}</p>
+        <p className="mt-1 text-xs text-fr-v2-muted">{formatNumber(session.currentHeadCount ?? session.headCountSnapshot, 0)} head · {session.category.replaceAll("_", " ")}</p>
+        {session.countObservedAt ? (
+          <p className="mt-1 text-xs text-fr-v2-muted">Original movement: {formatNumber(session.headCountSnapshot, 0)} head. Current number from Cattle; earlier grazing demand is unverified.</p>
+        ) : null}
         <p className="mt-1 text-xs text-fr-v2-charcoal">{grazingDemandLabel(session)}</p>
       </div>
       <div className="text-right">

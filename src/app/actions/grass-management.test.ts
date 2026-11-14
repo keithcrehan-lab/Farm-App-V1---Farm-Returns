@@ -7,6 +7,10 @@ vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/field-production-cycles", () => ({ listFieldProductionCyclesForSeason: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/grazing-field-sessions", () => ({ listGrazingFieldSessionsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/regional-grass-growth", () => ({
+  latestApprovedCountyGrowth: vi.fn(),
+  regionalGrowthEvidence: vi.fn((_row, farmId) => ({ forecast: { farmId, provider: "teagasc_most_regional" }, observation: null })),
+}));
 vi.mock("@/server/cattle-real/real-service", () => ({
   loadRealCattle: vi.fn(),
   realGroupLiveweights: vi.fn(),
@@ -25,6 +29,7 @@ import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listFieldProductionCyclesForSeason } from "@/lib/farm-data/field-production-cycles";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listGrazingFieldSessionsForFarm } from "@/lib/farm-data/grazing-field-sessions";
+import { latestApprovedCountyGrowth } from "@/lib/farm-data/regional-grass-growth";
 import { loadRealCattle, realGroupLiveweights } from "@/server/cattle-real/real-service";
 import { listFarmGrassGrowthForecasts } from "@/lib/farm-data/grass-growth-forecasts";
 import {
@@ -43,7 +48,7 @@ const FIELD_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ARCHIVED_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const OBS_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
-const FARM = { id: "farm-1", ownerName: "Keith" } as Awaited<ReturnType<typeof getFarmForCurrentUser>>;
+const FARM = { id: "farm-1", ownerName: "Keith", location: { county: "Galway" } } as Awaited<ReturnType<typeof getFarmForCurrentUser>>;
 const FIELD = { id: FIELD_ID, farmId: "farm-1", name: "Home", areaHa: 5, centroid: [-8, 53], fertility: {}, history: [] } as Awaited<ReturnType<typeof listFieldsForFarm>>[number];
 const ARCHIVED = { ...FIELD, id: ARCHIVED_ID, name: "Old", archivedAt: "2026-01-01T00:00:00.000Z" };
 const GROUP = {
@@ -71,6 +76,7 @@ beforeEach(() => {
   vi.mocked(listFieldProductionCyclesForSeason).mockResolvedValue([]);
   vi.mocked(listLivestockGroupsForFarm).mockResolvedValue([GROUP]);
   vi.mocked(listGrazingFieldSessionsForFarm).mockResolvedValue([]);
+  vi.mocked(latestApprovedCountyGrowth).mockResolvedValue(null);
   vi.mocked(loadRealCattle).mockResolvedValue({ state: "UNAVAILABLE" });
   vi.mocked(realGroupLiveweights).mockReturnValue({});
   vi.mocked(listFarmGrassGrowthForecasts).mockResolvedValue([]);
@@ -305,6 +311,57 @@ describe("getGrassManagementDataAction", () => {
       currentHeadCount: 2,
       demand: { status: "unresolved", headCount: 2, reason: "MISSING_AVG_WEIGHT" },
     });
+  });
+
+  it("keeps the farmer's 50 and shows a separate approved Galway forecast of 34", async () => {
+    const own = {
+      id: OBS_ID, farmId: "farm-1", growthRateKgDmHaDay: 50,
+      origin: "farmer_entered" as const, observedAt: "2026-05-09T10:00:00.000Z",
+      source: "Keith", createdAt: "2026-05-09T10:00:00.000Z",
+    };
+    vi.mocked(listFarmGrassGrowthObservations).mockResolvedValue([own]);
+    vi.mocked(latestApprovedCountyGrowth).mockResolvedValue({
+      id: "county-1", batchId: "batch-1", county: "Galway",
+      growthKgDmHaDay: 34, validFrom: "2026-05-08", validTo: "2026-05-14",
+      status: "approved", confidence: "high", sourceUrl: "https://teagasc.ie/",
+      imageUrl: null, caption: null, extractedAt: "2026-05-08T10:00:00.000Z",
+    });
+
+    const data = await getGrassManagementDataAction();
+    if (data.status !== "ok") throw new Error("expected ok");
+    expect(latestApprovedCountyGrowth).toHaveBeenCalledWith("Galway");
+    expect(data.regionalGrowth).toMatchObject({
+      status: "published", county: "Galway", growthKgDmHaDay: 34, current: true,
+      validFrom: "2026-05-08", validTo: "2026-05-14",
+    });
+    expect(data.growthObservations).toEqual([own]);
+    expect(data.growthForecasts).toContainEqual(expect.objectContaining({ provider: "teagasc_most_regional" }));
+  });
+
+  it("reports not published rather than inventing a county number", async () => {
+    const data = await getGrassManagementDataAction();
+    if (data.status !== "ok") throw new Error("expected ok");
+    expect(data.regionalGrowth).toEqual({ status: "not_published", county: "Galway" });
+    expect(data.growthForecasts).toEqual([]);
+  });
+
+  it("labels a failed county lookup without erasing the farmer's growth evidence", async () => {
+    const own = {
+      id: OBS_ID, farmId: "farm-1", growthRateKgDmHaDay: 50,
+      origin: "farmer_entered" as const, observedAt: "2026-05-09T10:00:00.000Z",
+      source: "Keith", createdAt: "2026-05-09T10:00:00.000Z",
+    };
+    vi.mocked(listFarmGrassGrowthObservations).mockResolvedValue([own]);
+    vi.mocked(latestApprovedCountyGrowth).mockRejectedValue(new Error("Temporarily unavailable"));
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const data = await getGrassManagementDataAction();
+      if (data.status !== "ok") throw new Error("expected ok");
+      expect(data.regionalGrowth).toEqual({ status: "unavailable", county: "Galway" });
+      expect(data.growthObservations).toEqual([own]);
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it("returns no_farm without reading data", async () => {

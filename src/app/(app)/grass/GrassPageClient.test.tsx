@@ -291,6 +291,45 @@ describe("GrassPageClient", () => {
     expect(screen.queryByText(/configurable visual reference/i)).toBeNull();
   });
 
+  it("shows the farmer's entered rate and a distinct current county forecast", async () => {
+    const observedAt = isoDaysAgo(1);
+    getData.mockResolvedValue({
+      ...empty,
+      growthObservations: [{
+        id: "44444444-4444-4444-8444-444444444444", farmId: FARM_ID,
+        growthRateKgDmHaDay: 50, origin: "farmer_entered",
+        observedAt, source: "Farmer", createdAt: observedAt,
+      }],
+      regionalGrowth: {
+        status: "published", county: "Galway", growthKgDmHaDay: 34,
+        validFrom: "2026-11-12", validTo: "2026-11-18", current: true,
+        sourceUrl: "https://teagasc.ie/",
+      },
+    });
+    render(<GrassPageClient />);
+    const regional = await screen.findByRole("region", { name: "Regional grass growth" });
+    expect(regional.textContent).toContain("Co. Galway");
+    expect(regional.textContent).toContain("34");
+    expect(screen.getByRole("region", { name: "Grass summary" }).textContent).toContain("50");
+    expect(screen.getByText("Entered by you")).toBeTruthy();
+  });
+
+  it("keeps entered growth visible when no county data is published", async () => {
+    const observedAt = isoDaysAgo(1);
+    getData.mockResolvedValue({
+      ...empty,
+      growthObservations: [{
+        id: "44444444-4444-4444-8444-444444444444", farmId: FARM_ID,
+        growthRateKgDmHaDay: 50, origin: "farmer_entered",
+        observedAt, source: "Farmer", createdAt: observedAt,
+      }],
+      regionalGrowth: { status: "not_published", county: "Galway" },
+    });
+    render(<GrassPageClient />);
+    expect((await screen.findByRole("region", { name: "Regional grass growth" })).textContent).toContain("Awaiting county figures");
+    expect(screen.getByRole("region", { name: "Grass summary" }).textContent).toContain("50");
+  });
+
   it("automatically subtracts demand from a cattle movement using the recorded liveweight", async () => {
     const observedAt = isoDaysAgo(2);
     const startedAt = isoDaysAgo(1);

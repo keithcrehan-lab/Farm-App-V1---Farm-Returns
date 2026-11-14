@@ -13,6 +13,8 @@ import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { GrassWedgeChart } from "@/components/grass/GrassWedgeChart";
 import { GrassGuide, HelpTip } from "@/components/grass/GrassGuide";
+import { RegionalGrowthStatus } from "@/components/grass/RegionalGrowthStatus";
+import type { RegionalGrassDisplay } from "@/domain/regional-grass-display";
 import { openGrassGuide, setGrazingTargets, setWedgeWidthMode, useGrassSettings } from "@/lib/grass-settings";
 import {
   buildDemandLine,
@@ -75,6 +77,7 @@ export function GrassOverview({
   fields,
   groups,
   growth,
+  regionalGrowth,
   averageCoverKgDmHa,
   averageBasis,
   latestWalkAt,
@@ -93,6 +96,7 @@ export function GrassOverview({
   fields: readonly OverviewField[];
   groups: readonly DemandGroup[];
   growth: GrowthSelection;
+  regionalGrowth?: RegionalGrassDisplay;
   averageCoverKgDmHa?: number;
   averageBasis?: string;
   latestWalkAt?: string;
@@ -201,8 +205,8 @@ export function GrassOverview({
           detail={averageBasis ? `${averageBasis} basis` : undefined}
         />
         <Metric
-          label="Growth"
-          help={<HelpTip term="grass growth rate">How much new grass grows per hectare per day. {growth.reason}</HelpTip>}
+          label="Growth in use"
+          help={<HelpTip term="grass growth rate">The growth rate used for farm cover estimates. Your recent observations take precedence over county predictions. {growth.reason}</HelpTip>}
           value={growth.chosen ? kg(growth.chosen.rateKgDmHaDay) : "Not recorded"}
           unit={growth.chosen ? "kg DM/ha/day" : undefined}
           detail={growth.chosen ? (
@@ -230,6 +234,7 @@ export function GrassOverview({
           <HelpTip term="measurement freshness">Covers older than a week are estimated forward from growth and cattle demand; after two weeks a field should be walked again.</HelpTip>
         </p>
       </section>
+      <RegionalGrowthStatus regional={regionalGrowth} />
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex rounded-fr-v2-control border border-fr-v2-cream-rule bg-fr-v2-cream p-1" role="group" aria-label="Grass view">

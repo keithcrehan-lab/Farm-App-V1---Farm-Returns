@@ -32,6 +32,29 @@ export interface GroupRecordEdit {
   headcountEditable: boolean;
   /** Retained for component compatibility; legacy stored-count discrepancies are no longer surfaced. */
   headcountNote: string | null;
+  /** Authoritative breed identities of every active individually tracked member. */
+  members: GroupMemberBreed[];
+}
+
+export interface GroupMemberBreed {
+  animalId: string;
+  breed: string | null;
+}
+
+/** Reads membership from the already-evaluated, farm-scoped C1 records.
+ * Removed animals are absent from this evaluation; breed follows the latest
+ * append-only identity correction, never a stale group default.
+ */
+export function groupMemberBreedsOf(e: RealEvaluation, groupRef: string): GroupMemberBreed[] {
+  return e.records.assertions
+    .filter((r) => r.inputs.some((input) => input.kind === "MANAGEMENT_GROUP" && input.value === groupRef))
+    .map((r) => {
+      const snap = e.outputs.snapshots[r.animalId];
+      return {
+        animalId: r.animalId,
+        breed: snap?.breed.state === "KNOWN" ? (snap.breed.value?.label ?? null) : null,
+      };
+    });
 }
 
 /** Pure: the editable group record for one of the evaluated farm's groups, or `null` if it isn't one. */
@@ -48,5 +71,6 @@ export function groupRecordEditOf(e: RealEvaluation, groupRef: string): GroupRec
     individuals: fact.individuals,
     headcountEditable: fact.individuals === 0,
     headcountNote: null,
+    members: groupMemberBreedsOf(e, groupRef),
   };
 }

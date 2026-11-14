@@ -403,7 +403,7 @@ interface FarmActions {
       label?: string;
       count?: number;
       avgWeightKg?: number;
-      breed?: string;
+      breed?: string | null;
       system?: "grazing" | "housed";
       goal?: LivestockGoal;
       housingId?: string | null;
@@ -1204,7 +1204,7 @@ export function FarmProvider({
               ...(patch.label !== undefined ? { label: patch.label } : {}),
               ...(patch.count !== undefined ? { count: tracked(patch.count, "verified", farmerName) } : {}),
               ...(patch.avgWeightKg !== undefined ? { avgWeightKg: tracked(patch.avgWeightKg, "farmer_adjusted", farmerName) } : {}),
-              ...(patch.breed !== undefined ? { breed: patch.breed } : {}),
+              ...(patch.breed !== undefined ? { breed: patch.breed ?? undefined } : {}),
               ...(patch.system !== undefined ? { system: patch.system } : {}),
               ...(patch.goal !== undefined ? { goal: patch.goal } : {}),
               ...(patch.housingId !== undefined ? { housingId: patch.housingId ?? undefined } : {}),

@@ -20,6 +20,13 @@ import { addIdentityCorrections, removeIndividualAnimalForFarm, restoreIndividua
 import { effectiveIdentityOf } from "@/server/cattle-real/real-records";
 import { ANIMAL_DETAILS_SOURCE, identityCorrectionsFor, readAnimalDetailsRequest, refuseDetails, type AnimalDetailsResult } from "@/server/cattle-real/animal-details";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { createClient } from "@/lib/supabase/server";
+import { loadRealCattle } from "@/server/cattle-real/real-service";
+import { groupMemberBreedsOf } from "@/server/cattle-real/group-record-edit";
+import {
+  GROUP_BREED_BULK_SOURCE, identicalGroupMembers,
+  parseGroupBreedBulk, refuseGroupBreedBulk, type GroupBreedBulkResult,
+} from "@/server/cattle-real/group-breed-bulk";
 import { REAL_WEIGHT_SOURCE, irelandCalendarDate, readRecordWeightRequest, refuse, type RecordWeightResult } from "@/server/cattle-real/record-weight";
 
 export async function recordRealCattleWeight(raw: unknown): Promise<RecordWeightResult> {
@@ -50,6 +57,57 @@ export async function recordRealCattleWeight(raw: unknown): Promise<RecordWeight
     if ((e as { code?: unknown } | null)?.code === "23503") return refuse("ANIMAL_NOT_FOUND");
     console.error("[cattle] recording a weight failed:", e);
     return refuse("WRITE_FAILED");
+  }
+}
+
+
+/**
+ * An explicitly confirmed bulk breed correction. The client supplies the
+ * membership it saw so a stale group cannot silently include new animals.
+ * Current member IDs and current effective breeds are re-read from the
+ * authenticated farm's evaluated cattle records, not trusted from the client.
+ * All changed members are inserted in one database statement (atomic) and
+ * earlier individual identity values remain in the correction history.
+ */
+export async function applyBreedToCurrentGroupMembers(raw: unknown): Promise<GroupBreedBulkResult> {
+  const request = parseGroupBreedBulk(raw);
+  if (!request) return refuseGroupBreedBulk("INVALID_REQUEST");
+  if (!isSupabaseConfigured()) return refuseGroupBreedBulk("NOT_SIGNED_IN");
+  try {
+    const loaded = await loadRealCattle();
+    if (loaded.state === "NO_FARM") return refuseGroupBreedBulk("NOT_SIGNED_IN");
+    if (loaded.state !== "OK") return refuseGroupBreedBulk("WRITE_FAILED");
+    const e = loaded.evaluation;
+    const fact = e.records.groupFacts.find((g) => g.groupRef === request.groupId);
+    if (!fact) return refuseGroupBreedBulk("GROUP_NOT_FOUND");
+    const members = groupMemberBreedsOf(e, request.groupId);
+    if (members.length !== fact.individuals || members.some((m) => !e.outputs.snapshots[m.animalId])) {
+      return refuseGroupBreedBulk("UNREADABLE_MEMBERS");
+    }
+    if (!identicalGroupMembers(request.expectedAnimalIds, members.map((m) => m.animalId))) {
+      return refuseGroupBreedBulk("MEMBERS_CHANGED");
+    }
+    const corrections = members.filter((member) => member.breed !== request.breed).map((member) => ({
+      farm_id: e.farmId, animal_id: member.animalId, fact: "breed",
+      value: request.breed, source: GROUP_BREED_BULK_SOURCE,
+    }));
+    if (corrections.length === 0) return { ok: true, updated: 0 };
+    const db = await createClient();
+    const { error } = await db.from("livestock_individual_identity_corrections").insert(corrections);
+    if (error) throw error;
+    try {
+      revalidatePath("/cattle", "layout");
+      revalidatePath("/grass");
+      revalidatePath("/today");
+    } catch (e) {
+      unstable_rethrow(e);
+      console.error("[cattle] revalidation after group breed corrections failed:", e);
+    }
+    return { ok: true, updated: corrections.length };
+  } catch (e) {
+    unstable_rethrow(e);
+    console.error("[cattle] bulk breed correction failed:", e);
+    return refuseGroupBreedBulk("WRITE_FAILED");
   }
 }
 

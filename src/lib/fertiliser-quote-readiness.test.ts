@@ -362,6 +362,20 @@ describe("buildFertiliserQuoteReadiness", () => {
     );
   });
 
+  it("does not ask about calves when field-level evidence already resolves the grazing pathway", () => {
+    const aggregation = aggregateFarmFertiliserPurchasing([{
+      fieldId: "f1", fieldName: "P Collins",
+      plan: {
+        purchaseStatus: { status: "NONE_NEEDED", basis: "REMAINING_ZERO" },
+        purchasedProducts: [], calculationVersion: "p3",
+      },
+    }]);
+    const result = buildFertiliserQuoteReadiness({
+      fields: [field()], cycles: [cycle], slurryAllocations: [], aggregation,
+    });
+    expect(result.items.find((row) => row.id === "farm:grazing-system")).toBeUndefined();
+  });
+
   it("never reports 100% when the canonical fertiliser aggregation is still unresolved", () => {
     const aggregation = aggregateFarmFertiliserPurchasing([
       {

@@ -14,8 +14,6 @@ import { Plus, X } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { AddAnimalCard } from "@/components/farm/AddAnimalCard";
-import { CalfSystemQuestion } from "@/components/farm/CalfSystemQuestion";
-import type { FarmGrazingProductionSystem } from "@/domain/types";
 import { BackLink } from "@/components/cattle/ui";
 import { useFarmActions, useLivestockGroups } from "@/store/farm-store";
 import { GROUP_CATEGORY_LABEL } from "@/server/cattle-real/group-record-edit";
@@ -32,8 +30,7 @@ const GOAL_OPTIONS = Object.keys(LIVESTOCK_GOAL_LABEL) as LivestockGoal[];
  */
 const NEW_GROUP_BASELINE_SYSTEM = "grazing" as const;
 
-/** `calfSystem` is passed only for suckler farms: null means not answered yet. */
-export function HerdManagementClient({ farmId, calfSystem }: { farmId: string; calfSystem?: FarmGrazingProductionSystem | null }) {
+export function HerdManagementClient({ farmId }: { farmId: string }) {
   const router = useRouter();
   const livestockGroups = useLivestockGroups();
   const { addLivestockGroup } = useFarmActions();
@@ -174,7 +171,6 @@ export function HerdManagementClient({ farmId, calfSystem }: { farmId: string; c
         )}
 
         <AddAnimalCard farmId={farmId} groups={livestockGroups} />
-        {calfSystem !== undefined ? <CalfSystemQuestion value={calfSystem} /> : null}
       </div>
     </>
   );

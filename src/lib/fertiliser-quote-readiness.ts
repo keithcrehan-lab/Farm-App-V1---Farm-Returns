@@ -284,17 +284,21 @@ export function buildFertiliserQuoteReadiness(input: {
   const hasGrazingField = fields.some(
     (field) => cycleByField.get(field.id)?.cropSystem === "GRASS_GRAZING",
   );
-  if (hasGrazingField) {
+  // Field-level resolution may already be supplied by cattle movements or a
+  // field override. Ask for the farm baseline only when the canonical P3
+  // result explicitly reports an unresolved grazing production system.
+  const unresolvedGrazingSystem = aggregation.fields.some((entry) =>
+    entry.purchaseStatus.missingInputs?.includes("grazingProductionSystem"),
+  );
+  if (hasGrazingField && unresolvedGrazingSystem && !input.farmGrazingProductionSystem) {
     items.unshift({
       id: "farm:grazing-system",
       fieldId: "__farm__",
       fieldName: "Farm setup",
       label: "What you do with the calves",
-      complete: Boolean(input.farmGrazingProductionSystem),
+      complete: false,
       href: "/settings#grazing-production-system",
-      detail: input.farmGrazingProductionSystem
-        ? "Used as the farm baseline. Recorded cattle movements override it when they provide stronger field-specific evidence."
-        : "Tell us once whether you sell weanlings or keep calves to stores or beef. It sets the nitrogen table for your grazing fields.",
+      detail: "The fertiliser calculation cannot yet establish the applicable grazing nitrogen table from recorded movements or field evidence. Confirm the production pathway to proceed.",
     });
   }
 

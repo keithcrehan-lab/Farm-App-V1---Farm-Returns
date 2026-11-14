@@ -16,7 +16,5 @@ export default async function ManageHerdPage() {
   if (isCattleDemoMode()) return <CattleUnavailable {...REAL_UNAVAILABLE.MANAGE_DEMO} />;
   const farm = await getFarmForCurrentUser();
   if (!farm) return <CattleUnavailable {...REAL_UNAVAILABLE.NO_FARM} />;
-  // Suckler farms are asked here what they do with the calves (it sets the grass nitrogen table).
-  const asksCalfSystem = farm.primaryEnterprises.includes("suckler_beef");
-  return <HerdManagementClient farmId={farm.id} {...(asksCalfSystem ? { calfSystem: farm.grazingProductionSystem?.value ?? null } : {})} />;
+  return <HerdManagementClient farmId={farm.id} />;
 }

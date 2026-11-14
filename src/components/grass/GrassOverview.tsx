@@ -33,6 +33,8 @@ import {
 } from "@/domain/grass-wedge-target";
 
 export interface OverviewField extends WedgeField {
+  /** Cover in the same field as of today, before the selected forecast horizon. */
+  currentCoverKgDmHa?: number;
   basis?: string;
   ageDays?: number;
   method?: string;
@@ -270,9 +272,16 @@ export function GrassOverview({
         <div className={view === "wedge" ? undefined : "hidden"}>
           <p className="mb-2 text-xs text-fr-v2-muted">
             Fields by cover, tallest first{settings.widthMode === "area" ? ", each as wide as its area" : ""}{horizon > 0 ? `, projected +${horizon} days` : ""}.
-            <HelpTip term="the grass wedge">Each bar is a field. Bars above the red line have more grass than your cattle need at that point in the rotation; bars below have less.</HelpTip>
+            <HelpTip term="the grass wedge">Each bar is a field. The solid portion is cover at the start of the forecast; the hatched portion is projected change over the selected days. Light teal means an increase, amber shows a projected decrease. The red line is your grazing target. Estimates are not new measurements.</HelpTip>
           </p>
-          <GrassWedgeChart bars={bars} line={okLine} selectedFieldId={selectedFieldId} onSelect={(id) => onSelectField(id === selectedFieldId ? undefined : id)} occupiedFieldIds={occupied} />
+          <GrassWedgeChart
+            bars={bars}
+            line={okLine}
+            horizonDays={horizon}
+            selectedFieldId={selectedFieldId}
+            onSelect={(id) => onSelectField(id === selectedFieldId ? undefined : id)}
+            occupiedFieldIds={occupied}
+          />
           {!okLine && line.status === "BLOCKED" ? <p className="mt-2 text-xs text-fr-v2-muted">No target line yet: {line.block.message}</p> : null}
           {okLine ? <Working lines={okLine.working} source={okLine.source} /> : null}
         </div>

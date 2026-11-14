@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import { isValidElement } from "react";
+import { Fragment, isValidElement, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -28,6 +28,8 @@ vi.mock("@/lib/supabase/server", () => {
   };
   function query(table: string) {
     const filters: [string, unknown][] = [];
+    const exclusions: [string, unknown][] = [];
+    const minima: [string, unknown][] = [];
     let range: [number, number] | null = null;
     let insertRow: Row | null = null;
     let patch: Row | null = null;
@@ -48,7 +50,11 @@ vi.mock("@/lib/supabase/server", () => {
         all.push(stored);
         return { data: { ...stored }, error: null };
       }
-      let rows = visible(table).filter((r) => filters.every(([c, v]) => r[c] === v));
+      let rows = visible(table).filter((r) =>
+        filters.every(([c, v]) => (r[c] ?? null) === v) &&
+        exclusions.every(([c, v]) => (r[c] ?? null) !== v) &&
+        minima.every(([c, v]) => r[c] !== undefined && String(r[c]) >= String(v)),
+      );
       if (remove) {
         db.tables[table] = (db.tables[table] ?? []).filter((r) => !rows.includes(r));
         if (rows.length > 0) db.writes += 1;
@@ -71,6 +77,9 @@ vi.mock("@/lib/supabase/server", () => {
       update: (row: Row) => ((patch = row), q),
       delete: () => ((remove = true), q),
       eq: (c: string, v: unknown) => (filters.push([c, v]), q),
+      is: (c: string, v: unknown) => (filters.push([c, v]), q),
+      not: (c: string, _op: string, v: unknown) => (exclusions.push([c, v]), q),
+      gte: (c: string, v: unknown) => (minima.push([c, v]), q),
       order: () => q,
       range: (a: number, b: number) => ((range = [a, b]), q),
       single: () => ((single = true), Promise.resolve(run())),
@@ -137,6 +146,13 @@ async function herd() {
   return r.evaluation;
 }
 /** The group page as the route renders it, inside the real-mode store (writes go through the livestock actions). */
+function manageClientElement(element: unknown): ReactElement {
+  if (!isValidElement(element)) throw new Error("expected a Manage herd element");
+  if (element.type !== Fragment) return element;
+  const children = (element.props as { children: ReactElement[] }).children;
+  return children[0];
+}
+
 function renderGroup(e: RealEvaluation, groupRef: string) {
   return render(
     <FarmProvider remote initialState={{ farm: { id: FARM_A, name: "Farm A", ownerName: "Owner" } as never, fields: [], livestockGroups: e.sourceGroups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
@@ -180,7 +196,7 @@ describe("Pilot P3 — navigation", () => {
 
   it("4: Add cattle renders and never redirects (no loop), signed in or in demo mode", async () => {
     const real = await ManageHerdPage();
-    expect(isValidElement(real) && real.type).toBe(HerdManagementClient);
+    expect(manageClientElement(real).type).toBe(HerdManagementClient);
     vi.mocked(isSupabaseConfigured).mockReturnValue(false);
     const demo = await ManageHerdPage();
     expect(isValidElement(demo) && demo.type).toBe(CattleUnavailable);
@@ -218,7 +234,7 @@ describe("Pilot P3 — navigation", () => {
     // The page takes no query at all: whatever Next passes, it renders the admin screen.
     const page = ManageHerdPage as unknown as (props: { searchParams: Promise<Record<string, string>> }) => ReturnType<typeof ManageHerdPage>;
     const el = await page({ searchParams: Promise.resolve({ tab: "Groups" }) });
-    expect(isValidElement(el) && el.type).toBe(HerdManagementClient);
+    expect(manageClientElement(el).type).toBe(HerdManagementClient);
     render(<FarmProvider>{el}</FarmProvider>);
     expect(screen.getAllByRole("heading", { name: "Add cattle", level: 1 }).length).toBeGreaterThan(0);
     for (const tab of ["Overview", "Groups", "Housing"]) {
@@ -236,7 +252,9 @@ describe("Group workspace — Edit group details (the group's own record only)",
     renderGroup(await herd(), G_HEAD);
     fireEvent.click(screen.getByRole("button", { name: "Edit group details" }));
     fireEvent.change(editor().getByLabelText("Group name"), { target: { value: "Suckler cows" } });
-    fireEvent.change(editor().getByLabelText("Breed"), { target: { value: "Limousin" } });
+    fireEvent.click(editor().getByRole("button", { name: "Breed" }));
+    fireEvent.click(editor().getByRole("radio", { name: "One breed" }));
+    fireEvent.click(editor().getByRole("button", { name: "Limousin" }));
     fireEvent.change(editor().getByLabelText(/^Headcount/), { target: { value: "42" } });
     fireEvent.click(editor().getByRole("button", { name: "Save group details" }));
     await waitFor(() => expect(refresh).toHaveBeenCalled());
@@ -254,9 +272,10 @@ describe("Group workspace — Edit group details (the group's own record only)",
     expect(editor().queryByLabelText(/^Headcount/)).toBeNull();
     const head = document.querySelector('[data-group-editor-fact="headcount"]') as HTMLElement;
     expect(head).toHaveTextContent("1 animal recorded");
-    expect(head).toHaveTextContent("Headcount comes from the animals recorded in this group.");
+    expect(head).toHaveTextContent("Calculated from individual animal records.");
     expect(head).not.toHaveTextContent("3");
-    fireEvent.change(editor().getByLabelText("Breed"), { target: { value: "Charolais" } });
+    fireEvent.click(editor().getByRole("button", { name: "Breed" }));
+    fireEvent.click(editor().getByRole("button", { name: "Charolais" }));
     fireEvent.click(editor().getByRole("button", { name: "Save group details" }));
     await waitFor(() => expect(refresh).toHaveBeenCalled());
     expect(groupRow(G_A)).toMatchObject({ label: "Bullocks", breed: "Charolais", count: { value: 3, status: "verified", source: "x" } });
@@ -266,7 +285,8 @@ describe("Group workspace — Edit group details (the group's own record only)",
     renderGroup(await herd(), G_HEAD);
     fireEvent.click(screen.getByRole("button", { name: "Edit group details" }));
     const inputs = [...screen.getByRole("region", { name: "Edit group details" }).querySelectorAll("input, select, textarea")];
-    expect(inputs.map((i) => i.closest("label")?.querySelector("span")?.textContent)).toEqual(["Group name", "Breed", "Headcount"]);
+    expect(inputs.map((i) => i.closest("label")?.querySelector("span")?.textContent)).toEqual(["Group name", "Headcount"]);
+    expect(editor().getByRole("button", { name: "Breed" })).toBeInTheDocument();
     expect(document.querySelector('[data-group-editor-fact="category"]')).toHaveTextContent("Steer");
     for (const word of [/weight/i, /system/i, /housing/i, /goal/i]) expect(editor().queryByLabelText(word)).toBeNull();
   });
@@ -483,7 +503,7 @@ describe("Pilot P3 — security (the farm is the server's)", () => {
     await expect(addIndividualAnimalAction(FARM_B, { category: "steer" })).rejects.toThrow(refused);
     expect(db.writes).toBe(0);
     const el = await ManageHerdPage();
-    expect(isValidElement<{ farmId: string }>(el) && el.props.farmId).toBe(FARM_A);
+    expect((manageClientElement(el).props as { farmId: string }).farmId).toBe(FARM_A);
   });
 
   it("an animal can't be added to another farm's group, and the refusal is the same as for an unknown group", async () => {

@@ -12,6 +12,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useFarm, useFarmActions } from "@/store/farm-store";
 import type { GroupRecordEdit } from "@/server/cattle-real/group-record-edit";
+import { applyBreedToCurrentGroupMembers } from "@/app/(app)/cattle/real-actions";
+import { GroupBreedSelector } from "@/components/cattle/continuity/GroupBreedSelector";
+import { groupBreedDraft, groupBreedValue, individualBreedSummary } from "@/domain/cattle/group-breed-selection";
 import s from "@/components/cattle/continuity/continuity.module.css";
 
 const input = "w-full rounded-[10px] border border-[var(--cc-rule)] bg-white px-3 py-2.5 text-base text-[var(--cc-ink)]";
@@ -29,8 +32,11 @@ export function GroupDetailsEditor({ record }: { record: GroupRecordEdit }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const [name, setName] = useState(record.name);
-  const [breed, setBreed] = useState(record.breed ?? "");
+  const [breedDraft, setBreedDraft] = useState(() => groupBreedDraft(record.breed, record.members));
+  const [applyToAll, setApplyToAll] = useState(false);
+  const [confirmBulk, setConfirmBulk] = useState(false);
   const [count, setCount] = useState(record.storedHeadcount === null ? "" : String(record.storedHeadcount));
 
   // The production recommendation's "Add the breed in Edit group details" links to #edit-group-details.
@@ -46,33 +52,74 @@ export function GroupDetailsEditor({ record }: { record: GroupRecordEdit }) {
 
   function start() {
     setName(record.name);
-    setBreed(record.breed ?? "");
+    setBreedDraft(groupBreedDraft(record.breed, record.members));
     setCount(record.storedHeadcount === null ? "" : String(record.storedHeadcount));
     setConfirmDelete(false);
+    setApplyToAll(false);
+    setConfirmBulk(false);
+    setErrorMessage("");
     setFailed(false);
     setOpen(true);
   }
 
   const countValid = !record.headcountEditable || (Number.isInteger(Number(count)) && Number(count) > 0);
-  const canSave = name.trim() !== "" && countValid && !busy;
+  const chosenBreed = groupBreedValue(breedDraft);
+  const canApplyToAll = record.members.length > 0 && typeof chosenBreed === "string" && breedDraft.mode !== "mixed";
+  const canSave = name.trim() !== "" && countValid && chosenBreed !== undefined && !busy;
 
-  async function save() {
+  function save() {
+    if (!canSave) return;
+    if (applyToAll && canApplyToAll) {
+      setConfirmBulk(true);
+      return;
+    }
+    void persist();
+  }
+
+  async function persist() {
     if (!canSave) return;
     setBusy(true);
     setFailed(false);
-    const ok = await updateLivestockGroup(
-      record.groupId,
-      {
-        label: name.trim(),
-        ...(breed.trim() ? { breed: breed.trim() } : {}),
-        ...(record.headcountEditable ? { count: Number(count) } : {}),
-      },
-      farm.ownerName,
-    );
-    setBusy(false);
-    if (!ok) return setFailed(true);
-    setOpen(false);
-    router.refresh();
+    setErrorMessage("");
+    setConfirmBulk(false);
+    try {
+      // Group metadata is a separate record; it never edits individual breed
+      // identities unless the farmer explicitly confirms the bulk correction.
+      const ok = await updateLivestockGroup(
+        record.groupId,
+        {
+          label: name.trim(),
+          breed: chosenBreed,
+          ...(record.headcountEditable ? { count: Number(count) } : {}),
+        },
+        farm.ownerName,
+      );
+      if (!ok) {
+        setFailed(true);
+        return;
+      }
+      if (applyToAll && canApplyToAll && typeof chosenBreed === "string") {
+        const applied = await applyBreedToCurrentGroupMembers({
+          groupId: record.groupId,
+          breed: chosenBreed,
+          expectedAnimalIds: record.members.map((m) => m.animalId),
+        });
+        if (!applied.ok) {
+          // Group metadata may already be saved; say so instead of pretending
+          // both operations were atomic, and allow a safe retry.
+          setErrorMessage(`Group details were saved, but animal breeds were not updated: ${applied.message}`);
+          router.refresh();
+          return;
+        }
+      }
+      setOpen(false);
+      router.refresh();
+    } catch (error) {
+      console.error("[cattle] saving group breed details failed", error);
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function remove() {
@@ -101,17 +148,39 @@ export function GroupDetailsEditor({ record }: { record: GroupRecordEdit }) {
           Cancel
         </button>
       </div>
-      <p className="mt-1 text-[13px] text-[var(--cc-muted)]">Corrects the group record. Moves to a field or a shed and weighings are recorded in their own workflows; the production goal is set in Override / edit production target.</p>
+      <details className="mt-1 text-xs leading-relaxed text-[var(--cc-muted)]">
+        <summary className="cursor-pointer font-medium">About group details</summary>
+        <p className="mt-1">Edit the group name and breed here. Record field moves, weighings and production targets in their own sections. Individual animal breeds are never changed without confirmation.</p>
+      </details>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <label className="block">
           <span className={fieldLabel}>Group name</span>
           <input value={name} onChange={(e) => setName(e.target.value)} className={input} />
         </label>
-        <label className="block">
-          <span className={fieldLabel}>Breed</span>
-          <input value={breed} onChange={(e) => setBreed(e.target.value)} placeholder="Not recorded" className={input} />
-        </label>
+        <div className="min-w-0 sm:col-span-2">
+          <GroupBreedSelector
+            value={breedDraft}
+            onChange={(next) => { setBreedDraft(next); setApplyToAll(false); setConfirmBulk(false); }}
+            disabled={busy}
+          />
+          <p className={`${hint} mt-1`}>Optional. Crosses name their breeds without assuming genetic percentages.</p>
+          {record.members.length ? (
+            <div className="mt-2 rounded-[10px] border border-[var(--cc-rule)] bg-white/60 p-3">
+              <p className="text-xs font-semibold text-[var(--cc-ink)]">Recorded animals · {record.members.length}</p>
+              <p className={`${hint} mt-1`}>{individualBreedSummary(record.members)}</p>
+              <p className={`${hint} mt-1`}>Animal records remain authoritative. Changing the group description alone won&apos;t overwrite them.</p>
+              {canApplyToAll ? (
+                <label className="mt-2 flex min-h-11 cursor-pointer items-start gap-2 text-xs leading-5 text-[var(--cc-ink)]">
+                  <input type="checkbox" className="mt-1 size-4 shrink-0 accent-[var(--cc-green)]"
+                    checked={applyToAll} disabled={busy}
+                    onChange={(e) => { setApplyToAll(e.target.checked); setConfirmBulk(false); }} />
+                  <span>Apply this breed to all {record.members.length} individually recorded {record.members.length === 1 ? "animal" : "animals"} (optional)</span>
+                </label>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
         {record.headcountEditable ? (
           <label className="block">
             <span className={fieldLabel}>Headcount</span>
@@ -124,23 +193,42 @@ export function GroupDetailsEditor({ record }: { record: GroupRecordEdit }) {
             <p className={readValue}>
               {record.individuals} {record.individuals === 1 ? "animal" : "animals"} recorded
             </p>
-            <span className={hint}>Headcount comes from the animals recorded in this group. Add or move animals to change it.</span>
+            <span className={hint}>Calculated from individual animal records. Add or move animals to change it.</span>
             {record.headcountNote ? <span className="mt-1 block text-[11px] font-semibold text-[var(--cc-quiet)]">{record.headcountNote}</span> : null}
           </div>
         )}
         <div data-group-editor-fact="category">
           <span className={fieldLabel}>Category</span>
           <p className={readValue}>{record.categoryLabel}</p>
-          <span className={hint} data-group-editor-category-note>
-            Fixed once the group is added: field movements keep the category they were recorded with, so it isn&apos;t rewritten here. If it&apos;s wrong, add a new group with the right category in Add cattle and record the cattle there; a group with no animals recorded individually can then be deleted below.
-          </span>
+          <span className={hint} data-group-editor-category-note>Set when this group was created.</span>
+          <details className="mt-1 text-[11px] leading-relaxed text-[var(--cc-muted)]">
+            <summary className="cursor-pointer">Why can&apos;t I change this?</summary>
+            <p className="mt-1">Movements retain their original animal category. If it is wrong, create a group with the correct category and move the animals to it rather than rewriting their movement history.</p>
+          </details>
         </div>
       </div>
 
-      {failed ? (
+      {failed || errorMessage ? (
         <p role="alert" className="mt-3 text-[13px] font-semibold text-[#9b2c2c]">
-          That change couldn&apos;t be saved to your farm&apos;s records — try again.
+          {errorMessage || "That change couldn't be saved to your farm's records — try again."}
         </p>
+      ) : null}
+
+      {confirmBulk ? (
+        <div role="alertdialog" aria-label="Confirm animal breed changes"
+          className="mt-3 rounded-[10px] border border-[var(--cc-green)] bg-white p-3">
+          <p className="text-sm font-semibold text-[var(--cc-ink)]">Apply {chosenBreed} to {record.members.length} animals?</p>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--cc-muted)]">This will correct existing individual breed records, including any different breeds already entered. Earlier breed values remain in each animal&apos;s correction history.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className="min-h-10 rounded-full border border-[var(--cc-rule)] px-4 text-sm" onClick={() => setConfirmBulk(false)}>
+              Go back
+            </button>
+            <button type="button" disabled={busy} onClick={() => void persist()}
+              className="min-h-10 rounded-full bg-[var(--cc-green)] px-4 text-sm font-semibold text-white disabled:opacity-40">
+              Confirm and save
+            </button>
+          </div>
+        </div>
       ) : null}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
@@ -153,7 +241,7 @@ export function GroupDetailsEditor({ record }: { record: GroupRecordEdit }) {
           onClick={save}
           className="min-h-11 rounded-full bg-[var(--cc-green)] px-5 text-sm font-semibold text-white disabled:opacity-40"
         >
-          {busy && !confirmDelete ? "Saving…" : "Save group details"}
+          {busy && !confirmDelete ? "Saving…" : applyToAll && canApplyToAll ? "Review breed changes" : "Save group details"}
         </button>
       </div>
 

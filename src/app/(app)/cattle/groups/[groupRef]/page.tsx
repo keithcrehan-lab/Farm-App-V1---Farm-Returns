@@ -20,7 +20,7 @@ export default async function CattleGroupPage({ params, searchParams }: { params
     const operational = await loadCattleOperationalView(real.evaluation.farmId, real.evaluation.sourceGroups, asOfDate, realGroupLiveweights(real.evaluation));
     const record = groupRecordEditOf(real.evaluation, groupRef);
     // Keyed by the saved record so a refresh after saving re-opens the control on the new values.
-    const editor = record ? <GroupDetailsEditor key={`${record.name}|${record.breed}|${record.storedHeadcount}`} record={record} /> : null;
+    const editor = record ? <GroupDetailsEditor key={`${record.name}|${record.breed}|${record.storedHeadcount}|${record.members.map((m) => `${m.animalId}:${m.breed ?? ""}`).join("|")}`} record={record} /> : null;
     return <RealGroupScreen view={realHerdView(real.evaluation, operational)} groupRef={groupRef} editor={editor} />;
   }
   const scenario = scenarioOf((await searchParams).scenario);

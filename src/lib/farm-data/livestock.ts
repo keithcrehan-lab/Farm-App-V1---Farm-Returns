@@ -125,7 +125,8 @@ export interface UpdateLivestockGroupInput {
   label?: string;
   count?: number;
   avgWeightKg?: number;
-  breed?: string;
+  /** Null clears a stale or unknown group breed. */
+  breed?: string | null;
   system?: "grazing" | "housed";
   /** `null` clears the goal. */
   goal?: LivestockGoal | null;

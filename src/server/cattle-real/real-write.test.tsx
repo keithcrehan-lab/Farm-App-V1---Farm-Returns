@@ -53,7 +53,7 @@ vi.mock("@/lib/supabase/server", () => {
         all.push(stored);
         return { data: { ...stored }, error: null };
       }
-      let rows = visible(table).filter((r) => filters.every(([c, v]) => r[c] === v));
+      let rows = visible(table).filter((r) => filters.every(([c, v]) => (r[c] ?? null) === v));
       rows = [...rows].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)));
       const count = rows.length;
       if (range) rows = rows.slice(range[0], range[1] + 1);
@@ -64,6 +64,7 @@ vi.mock("@/lib/supabase/server", () => {
       select: (_c?: string, o?: { count?: string }) => ((wantCount = o?.count === "exact"), q),
       insert: (row: Row) => ((insertRow = row), q),
       eq: (c: string, v: unknown) => (filters.push([c, v]), q),
+      is: (c: string, v: unknown) => (filters.push([c, v]), q),
       order: () => q,
       range: (a: number, b: number) => ((range = [a, b]), q),
       single: () => ((single = true), Promise.resolve(run())),

@@ -82,13 +82,13 @@ export async function readCattleSourceForCurrentFarm(): Promise<CattleSourceRead
     const supabase = await createClient();
     const [groups, animals, weights, corrections] = await Promise.all([
       listLivestockGroupsForFarm(farm.id),
-      readAllRows<LivestockIndividualRow>(supabase, "livestock_individuals", farm.id),
+      readAllRows<LivestockIndividualRow & { deleted_at?: string | null }>(supabase, "livestock_individuals", farm.id),
       readAllRows<WeightObservationRow>(supabase, "livestock_weight_observations", farm.id),
       readAllRows<IdentityCorrectionRow>(supabase, "livestock_individual_identity_corrections", farm.id, "recorded_at"),
     ]);
     // A farm's handful of groups is read by the existing reader; at a full page it fails closed rather than trust it.
     if (groups.length >= CATTLE_SOURCE_PAGE_SIZE) return { state: "INCOMPLETE" };
-    const activeAnimals = animals.filter((animal) => !(animal as LivestockIndividualRow & { deleted_at?: string | null }).deleted_at);
+    const activeAnimals = animals.filter((animal) => !animal.deleted_at);
     const activeIds = new Set(activeAnimals.map((animal) => animal.id));
     return { state: "OK", records: { farmId: farm.id, groups, animals: activeAnimals,
       weights: weights.filter((weight) => activeIds.has(weight.animal_id)),

@@ -287,9 +287,14 @@ export function buildFertiliserQuoteReadiness(input: {
   // Field-level resolution may already be supplied by cattle movements or a
   // field override. Ask for the farm baseline only when the canonical P3
   // result explicitly reports an unresolved grazing production system.
-  const unresolvedGrazingSystem = aggregation.fields.some((entry) =>
-    entry.purchaseStatus.missingInputs?.includes("grazingProductionSystem"),
-  );
+  const unresolvedGrazingSystem = aggregation.fields.some((entry) => {
+    const status = entry.purchaseStatus;
+    return (
+      status.status === "UNKNOWN" ||
+      status.status === "WITHHELD_MIXED_EVIDENCE" ||
+      status.status === "RECOMMENDED_CREDIT_NOT_COUNTED"
+    ) && status.missingInputs.includes("grazingProductionSystem");
+  });
   if (hasGrazingField && unresolvedGrazingSystem && !input.farmGrazingProductionSystem) {
     items.unshift({
       id: "farm:grazing-system",

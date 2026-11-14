@@ -16,7 +16,7 @@
 import { revalidatePath } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
-import { addIdentityCorrections, addWeightObservationIdempotent, getIndividualAnimalForFarm, listIdentityCorrectionsForAnimal } from "@/lib/farm-data/individual-animals";
+import { addIdentityCorrections, removeIndividualAnimalForFarm, restoreIndividualAnimalForFarm, addWeightObservationIdempotent, getIndividualAnimalForFarm, listIdentityCorrectionsForAnimal } from "@/lib/farm-data/individual-animals";
 import { effectiveIdentityOf } from "@/server/cattle-real/real-records";
 import { ANIMAL_DETAILS_SOURCE, identityCorrectionsFor, readAnimalDetailsRequest, refuseDetails, type AnimalDetailsResult } from "@/server/cattle-real/animal-details";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
@@ -92,4 +92,31 @@ export async function correctRealAnimalDetails(raw: unknown): Promise<AnimalDeta
     console.error("[cattle] correcting animal details failed:", e);
     return refuseDetails("WRITE_FAILED");
   }
+}
+
+export async function removeRealAnimal(raw: unknown): Promise<{ ok: boolean; message: string }> {
+  if (!isSupabaseConfigured() || typeof raw !== "string" || !/^[0-9a-f-]{36}$/i.test(raw)) return { ok: false, message: "Invalid animal record." };
+  try {
+    const farm = await getFarmForCurrentUser();
+    if (!farm) return { ok: false, message: "Sign in to remove an animal." };
+    const animal = await getIndividualAnimalForFarm(farm.id, raw);
+    if (!animal) return { ok: false, message: "Animal not found on your farm." };
+    if (!await removeIndividualAnimalForFarm(farm.id, raw)) return { ok: false, message: "Animal could not be removed." };
+    revalidatePath("/cattle", "layout");
+    revalidatePath("/livestock");
+    return { ok: true, message: "Animal removed. You can restore it for 30 days from Add cattle." };
+  } catch (e) { unstable_rethrow(e); console.error("[cattle] removal failed", e); return { ok: false, message: "Unable to remove the animal. Please try again." }; }
+}
+
+export async function restoreRealAnimal(raw: unknown): Promise<{ ok: boolean; message: string }> {
+  if (!isSupabaseConfigured() || typeof raw !== "string" || !/^[0-9a-f-]{36}$/i.test(raw)) return { ok: false, message: "Invalid animal record." };
+  try {
+    const farm = await getFarmForCurrentUser();
+    if (!farm) return { ok: false, message: "Sign in to restore an animal." };
+    const restored = await restoreIndividualAnimalForFarm(farm.id, raw);
+    if (!restored) return { ok: false, message: "Recovery period expired or animal not found." };
+    revalidatePath("/cattle", "layout");
+    revalidatePath("/livestock");
+    return { ok: true, message: "Animal restored." };
+  } catch (e) { unstable_rethrow(e); console.error("[cattle] restoration failed", e); return { ok: false, message: "Unable to restore the animal." }; }
 }

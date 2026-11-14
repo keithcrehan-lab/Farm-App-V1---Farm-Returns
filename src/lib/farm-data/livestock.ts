@@ -21,6 +21,7 @@ async function individualMembershipCountsForFarm(farmId: string): Promise<Map<st
       .from("livestock_individuals")
       .select("id,group_id,created_at", { count: "exact" })
       .eq("farm_id", farmId)
+      .is("deleted_at", null)
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
       .range(from, from + INDIVIDUAL_MEMBERSHIP_PAGE_SIZE - 1);

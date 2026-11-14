@@ -23,6 +23,7 @@ export async function listIndividualAnimalsForFarm(farmId: string): Promise<Indi
     .from("livestock_individuals")
     .select("*")
     .eq("farm_id", farmId)
+    .is("deleted_at", null)
     .order("created_at", { ascending: true });
   if (error) throw error;
 
@@ -150,7 +151,7 @@ export async function getWeightObservationById(farmId: string, observationId: st
  */
 export async function getIndividualAnimalForFarm(farmId: string, animalId: string): Promise<IndividualAnimal | null> {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("livestock_individuals").select("*").eq("farm_id", farmId).eq("id", animalId).maybeSingle();
+  const { data, error } = await supabase.from("livestock_individuals").select("*").eq("farm_id", farmId).eq("id", animalId).is("deleted_at", null).maybeSingle();
   if (error) throw error;
   return data ? rowToIndividualAnimal(data as LivestockIndividualRow) : null;
 }
@@ -228,4 +229,34 @@ export async function listIdentityCorrectionsForAnimal(farmId: string, animalId:
     .order("id", { ascending: true });
   if (error) throw error;
   return (data ?? []) as IdentityCorrectionRow[];
+}
+
+/** Soft removal retains the animal and its history for recovery. */
+export async function removeIndividualAnimalForFarm(farmId: string, animalId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("livestock_individuals")
+    .update({ deleted_at: new Date().toISOString() }).eq("farm_id", farmId).eq("id", animalId)
+    .is("deleted_at", null).select("id").maybeSingle();
+  if (error) throw error;
+  return data !== null;
+}
+
+export async function listRemovedIndividualAnimalsForFarm(farmId: string): Promise<{ id: string; tagNumber: string | null; deletedAt: string }[]> {
+  const supabase = await createClient();
+  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString();
+  const { data, error } = await supabase.from("livestock_individuals")
+    .select("id,tag_number,deleted_at").eq("farm_id", farmId).not("deleted_at", "is", null)
+    .gte("deleted_at", cutoff).order("deleted_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row) => ({ id: row.id, tagNumber: row.tag_number, deletedAt: row.deleted_at }));
+}
+
+export async function restoreIndividualAnimalForFarm(farmId: string, animalId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString();
+  const { data, error } = await supabase.from("livestock_individuals")
+    .update({ deleted_at: null }).eq("farm_id", farmId).eq("id", animalId)
+    .gte("deleted_at", cutoff).select("id").maybeSingle();
+  if (error) throw error;
+  return data !== null;
 }

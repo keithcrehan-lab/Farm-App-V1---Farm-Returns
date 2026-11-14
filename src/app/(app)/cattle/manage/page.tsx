@@ -2,6 +2,8 @@ import { CattleUnavailable } from "@/components/cattle/CattleUnavailable";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { isCattleDemoMode } from "@/server/cattle-demo/demo-service";
 import { REAL_UNAVAILABLE } from "@/server/cattle-real/real-service";
+import { listRemovedIndividualAnimalsForFarm } from "@/lib/farm-data/individual-animals";
+import { RemovedAnimals } from "@/components/cattle/RemovedAnimals";
 import { HerdManagementClient } from "./HerdManagementClient";
 
 export const metadata = { title: "Add cattle · Farm Return" };
@@ -16,5 +18,6 @@ export default async function ManageHerdPage() {
   if (isCattleDemoMode()) return <CattleUnavailable {...REAL_UNAVAILABLE.MANAGE_DEMO} />;
   const farm = await getFarmForCurrentUser();
   if (!farm) return <CattleUnavailable {...REAL_UNAVAILABLE.NO_FARM} />;
-  return <HerdManagementClient farmId={farm.id} />;
+  const removed = await listRemovedIndividualAnimalsForFarm(farm.id);
+  return <><HerdManagementClient farmId={farm.id} /><RemovedAnimals animals={removed} /></>;
 }

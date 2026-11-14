@@ -22,7 +22,7 @@ import { useEffect, useRef, useState, useTransition, type ReactNode } from "reac
 import type { AnimalProfileVM, WeightChartVM } from "@/domain/cattle/presentation";
 import type { RealAnimalView } from "@/server/cattle-real/real-service";
 import type { HistoryFamily, LivingRecordVM } from "@/server/cattle-real/living-record";
-import { recordRealCattleWeight } from "@/app/(app)/cattle/real-actions";
+import { recordRealCattleWeight, removeRealAnimal } from "@/app/(app)/cattle/real-actions";
 import { HealthSection } from "../AnimalSections";
 import { Disclosure, StateLabel } from "../ui";
 import { WorkWhy } from "../WorkPanel";
@@ -52,6 +52,9 @@ export function RealAnimalProfileScreen({ view, editor }: { view: RealAnimalView
   const [lens, setLens] = useState<LensId>("overview");
   const [railOpen, setRailOpen] = useState(true);
   const [sheet, setSheet] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   // One submission id per opening of the sheet: a double press, a network retry or an action retry of the same
   // weight sends the same id, so the server returns the row it already wrote instead of writing a second (D13).
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -144,6 +147,23 @@ export function RealAnimalProfileScreen({ view, editor }: { view: RealAnimalView
 
         <Masthead p={p} r={r} tag={tag} weightKey={weightKey} onRecordWeight={openSheet} saved={saved} justSaved={justSaved} refreshing={refreshing} />
         {editor}
+        <div className="px-4 pb-4 lg:px-7">
+          <button type="button" onClick={() => setRemoveOpen(true)} className="min-h-11 rounded-full border border-red-300 px-4 text-sm font-semibold text-red-800">Remove animal</button>
+          {removeOpen ? <div role="dialog" aria-modal="true" aria-label="Confirm animal removal" className="mt-3 max-w-lg rounded-2xl border border-red-200 bg-white p-4 shadow-sm">
+            <h2 className="text-base font-semibold">Remove {tag}?</h2>
+            <p className="mt-2 text-sm text-[#5f685f]">Only use this for an animal added by mistake. For a sale, death or departure, record the livestock event instead. This animal will stop appearing in active records and calculations. Its history can be restored within 30 days from Add cattle.</p>
+            {removeError ? <p role="alert" className="mt-2 text-sm text-red-700">{removeError}</p> : null}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button type="button" disabled={removeBusy} onClick={() => setRemoveOpen(false)} className="min-h-11 rounded-full border px-4">Cancel</button>
+              <button type="button" disabled={removeBusy} onClick={async () => {
+                setRemoveBusy(true); setRemoveError(null);
+                try { const result = await removeRealAnimal(p.animalId); if (result.ok) router.push("/cattle/manage"); else setRemoveError(result.message); }
+                catch { setRemoveError("Removal failed. Please try again."); }
+                finally { setRemoveBusy(false); }
+              }} className="min-h-11 rounded-full bg-red-800 px-4 font-semibold text-white disabled:opacity-50">{removeBusy ? "Removing…" : "Confirm removal"}</button>
+            </div>
+          </div> : null}
+        </div>
 
         <div role="tablist" aria-label="Animal record chapters" className={`${styles.chapterbar} sticky top-0 z-20 grid grid-flow-col auto-cols-[minmax(124px,1fr)] overflow-x-auto lg:auto-cols-fr`}>
           {LENSES.map((l, i) => (

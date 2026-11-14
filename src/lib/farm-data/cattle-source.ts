@@ -88,7 +88,11 @@ export async function readCattleSourceForCurrentFarm(): Promise<CattleSourceRead
     ]);
     // A farm's handful of groups is read by the existing reader; at a full page it fails closed rather than trust it.
     if (groups.length >= CATTLE_SOURCE_PAGE_SIZE) return { state: "INCOMPLETE" };
-    return { state: "OK", records: { farmId: farm.id, groups, animals, weights, corrections } };
+    const activeAnimals = animals.filter((animal) => !(animal as LivestockIndividualRow & { deleted_at?: string | null }).deleted_at);
+    const activeIds = new Set(activeAnimals.map((animal) => animal.id));
+    return { state: "OK", records: { farmId: farm.id, groups, animals: activeAnimals,
+      weights: weights.filter((weight) => activeIds.has(weight.animal_id)),
+      corrections: corrections.filter((correction) => activeIds.has(correction.animal_id)) } };
   } catch (e) {
     // Next's own control-flow signals (dynamic rendering, redirect, not-found) are never a "read failed".
     unstable_rethrow(e);

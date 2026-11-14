@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition, type FormEvent } from "react";
+import { useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, CalendarDays, Check, ChevronDown, CircleDollarSign, Compass, HeartPulse, Home, MapPin, MoveRight, Scale, Wheat } from "lucide-react";
 import { moveLivestockGroupToFieldAction, moveLivestockGroupToHousingAction } from "@/app/actions/grazing-field-movements";
@@ -171,6 +171,7 @@ export function CattleGroupWorkspace({
   const [activeState, setActiveState] = useState<StatePanel>(null);
   const [moveOpen, setMoveOpen] = useState<"field" | "housing" | null>(null);
   const [editPlanOpen, setEditPlanOpen] = useState(false);
+  const [showPlanning, setShowPlanning] = useState(false);
   const [fieldId, setFieldId] = useState(vm.defaultFieldId);
   const [movedOn, setMovedOn] = useState(asOfDate);
   const [housingId, setHousingId] = useState(vm.defaultHousingId);
@@ -180,12 +181,17 @@ export function CattleGroupWorkspace({
   const set = (key: keyof NutritionDraft) => (value: string) => setDraft((d) => ({ ...d, [key]: value }));
   const nutrition = useMemo(() => buildGroupNutritionVM(vm.nutrition, draft, asOfDate), [vm.nutrition, draft, asOfDate]);
   const options = useMemo(() => nutritionFormOptions(vm.nutrition), [vm.nutrition]);
+  useEffect(() => {
+    if (editPlanOpen && showPlanning) {
+      document.getElementById("production-plan-editor")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }
+  }, [editPlanOpen, showPlanning]);
 
   const toggleState = (next: Exclude<StatePanel, null>) => {
     setActiveState((current) => (current === next ? null : next));
   };
   const advisory = vm.advisory;
-  const openEditor = () => setEditPlanOpen(true);
+  const openEditor = () => { setShowPlanning(true); setEditPlanOpen(true); };
   const openLocation = () => setActiveState("location");
 
   async function moveGroup(e: FormEvent) {
@@ -251,39 +257,47 @@ export function CattleGroupWorkspace({
         </div>
       ) : null}
 
-      <section aria-label="Group state" className={styles.stateGrid}>
-        <StateTile
-          id="group-state-location"
-          label="Current location"
-          value={vm.location.value ?? vm.location.state.label}
-          detail={vm.locationDetail}
-          active={activeState === "location"}
-          onClick={() => toggleState("location")}
-        />
-        <StateTile
-          id="group-state-weight"
-          label={vm.currentWeight.label}
-          value={metricLine(vm.currentWeight)}
-          detail={weightDetail}
-          active={activeState === "weight"}
-          onClick={() => toggleState("weight")}
-        />
-        <StateTile
-          id="group-state-production"
-          label="Production target"
-          value={productionValue}
-          detail={productionDetail}
-          active={activeState === "production"}
-          onClick={() => toggleState("production")}
-        />
-        <StateTile
-          id="group-state-feeding"
-          label="Feeding"
-          value={feedingValue}
-          detail={nutrition.status.label}
-          active={activeState === "feeding"}
-          onClick={() => toggleState("feeding")}
-        />
+      <section className={`${styles.surface} p-5`} aria-label="Outstanding cattle information" data-cattle-priorities>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-gold">Your next steps</p>
+            <h2 className="mt-1 text-lg font-semibold text-fr-v2-charcoal">{vm.currentWeight.value === null || !nutrition.targetWeight.value || !draft.targetDate || !draft.feedingSituation ? "Complete your cattle records" : "Your cattle records are up to date"}</h2>
+          </div>
+        </div>
+        <p className="mt-2 text-xs leading-relaxed text-fr-v2-muted">Only information that helps with your next recommendation is highlighted here. You can still view all records and calculations below.</p>
+        <div className="mt-4 divide-y divide-fr-v2-rule border-y border-fr-v2-rule">
+          {vm.currentWeight.value === null ? (
+            <a href="#group-animals" className="flex min-h-14 items-center gap-3 py-3 text-left">
+              <Scale className="size-5 shrink-0 text-fr-v2-gold" />
+              <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-fr-v2-charcoal">Record missing weights</span><span className="block text-xs text-fr-v2-muted">{vm.currentWeightDetail}</span></span>
+              <ArrowUpRight className="size-4 shrink-0 text-fr-v2-forest" />
+            </a>
+          ) : null}
+          {(!nutrition.targetWeight.value || !draft.targetDate) ? (
+            <button type="button" onClick={openEditor} className="flex min-h-14 w-full items-center gap-3 py-3 text-left">
+              <Compass className="size-5 shrink-0 text-fr-v2-gold" />
+              <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-fr-v2-charcoal">Set a finishing target</span><span className="block text-xs text-fr-v2-muted">Add a target weight and date if you want a finishing plan</span></span>
+              <ArrowUpRight className="size-4 shrink-0 text-fr-v2-forest" />
+            </button>
+          ) : null}
+          {!draft.feedingSituation ? (
+            <button type="button" onClick={openEditor} className="flex min-h-14 w-full items-center gap-3 py-3 text-left">
+              <Wheat className="size-5 shrink-0 text-fr-v2-gold" />
+              <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-fr-v2-charcoal">Confirm feeding situation</span><span className="block text-xs text-fr-v2-muted">Only needed for feeding advice</span></span>
+              <ArrowUpRight className="size-4 shrink-0 text-fr-v2-forest" />
+            </button>
+          ) : null}
+          {vm.currentWeight.value !== null && nutrition.targetWeight.value && draft.targetDate && draft.feedingSituation ? (
+            <p className="py-3 text-sm text-fr-v2-forest">No immediate record updates needed.</p>
+          ) : null}
+        </div>
+      </section>
+
+      <section aria-label="Group overview" className="grid grid-cols-2 gap-3" data-cattle-overview>
+        <StateTile id="group-state-location" label="Current location" value={vm.location.value ?? vm.location.state.label} detail={vm.locationDetail} active={activeState === "location"} onClick={() => toggleState("location")} />
+        <StateTile id="group-state-weight" label="Average weight" value={metricLine(vm.currentWeight)} detail={weightDetail} active={activeState === "weight"} onClick={() => toggleState("weight")} />
+        <StateTile id="group-state-production" label="Production goal" value={vm.goalLabel} detail={nutrition.targetWeight.value ? productionDetail : "Finishing target not set"} active={activeState === "production"} onClick={() => toggleState("production")} />
+        <StateTile id="group-state-feeding" label="Feeding plan" value={nutrition.concentrate.value ? metricLine(nutrition.concentrate) : "Needs inputs"} detail={nutrition.status.label} active={activeState === "feeding"} onClick={() => toggleState("feeding")} />
       </section>
 
       <div className={`${styles.reveal} ${activeState ? styles.revealOpen : ""}`}>
@@ -413,7 +427,11 @@ export function CattleGroupWorkspace({
         </div>
       </div>
 
-      <section className={`${styles.surface} ${styles.primarySurface} p-5`} aria-labelledby="production-recommendation-title" data-production-advisory={advisory.state}>
+      <details className={`${styles.surface} ${styles.primarySurface} p-5`} data-production-advisory={advisory.state}>
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-fr-v2-forest">
+          <span>Production advice &amp; supporting evidence</span><ChevronDown className="size-4 shrink-0" />
+        </summary>
+        <div className="mt-4" aria-labelledby="production-recommendation-title">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-fr-v2-gold"><Compass className="size-4" /><p className="text-[10px] font-semibold uppercase tracking-[0.13em]">Production recommendation</p></div>
@@ -511,9 +529,15 @@ export function CattleGroupWorkspace({
             </div>
           </div>
         </details>
-      </section>
+        </div>
+      </details>
 
       <section className={`${styles.surface} p-5`} data-production-plan>
+        <button type="button" onClick={() => setShowPlanning((value) => !value)} aria-expanded={showPlanning} className="flex min-h-11 w-full items-center justify-between gap-3 text-left">
+          <span><span className="block text-sm font-semibold text-fr-v2-forest">Finishing target &amp; feeding setup</span><span className="block text-xs text-fr-v2-muted">{vm.goalLabel} · {nutrition.targetWeight.value ? metricLine(nutrition.targetWeight) : "Target not set"}</span></span>
+          <ChevronDown className={`size-4 shrink-0 text-fr-v2-muted transition-transform ${showPlanning ? "rotate-180" : ""}`} />
+        </button>
+        {showPlanning ? <div className="mt-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-gold">Your production target</p>
@@ -582,9 +606,12 @@ export function CattleGroupWorkspace({
             </form>
           </div>
         ) : null}
+        </div> : null}
       </section>
 
-      <section className={`${styles.surface} p-5`} data-feeding-plan={nutrition.status.code}>
+      <details className={`${styles.surface} p-5`} data-feeding-plan={nutrition.status.code}>
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-fr-v2-forest"><span>Feeding plan <span className="ml-2 text-xs font-normal text-fr-v2-muted">{nutrition.status.label}</span></span><ChevronDown className="size-4" /></summary>
+        <div className="mt-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2"><Wheat className="size-4 text-fr-v2-gold" /><p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-fr-v2-muted">Recommended feeding plan</p></div>
@@ -642,7 +669,8 @@ export function CattleGroupWorkspace({
             </div>
           </div>
         </details>
-      </section>
+        </div>
+      </details>
 
       <details className={`${styles.surface} px-5`}>
         <summary className={styles.disclosureSummary}>

@@ -42,6 +42,7 @@ function renderWorkspace(o: {
   animals?: GroupAnimalFacts;
   /** Housed groups are in the shed (no open field session); grazing groups are on the field. */
   conflict?: boolean;
+  collapsed?: boolean;
 } = {}) {
   const system = o.system ?? "housed";
   const weight = o.weight ?? 300;
@@ -78,7 +79,7 @@ function renderWorkspace(o: {
       },
     }],
   }, AS_OF, o.animals ? { "group-1": o.animals } : {});
-  return render(
+  const result = render(
     <CattleGroupWorkspace
       vm={cattleGroupOperationsFor(operations, "group-1")}
       asOfDate={AS_OF}
@@ -86,6 +87,12 @@ function renderWorkspace(o: {
       workDetail="Other work not inferred"
     />,
   );
+  if (!o.collapsed) {
+    fireEvent.click(screen.getByRole("button", { name: /Finishing target & feeding setup/i }));
+    fireEvent.click(screen.getByText("Production advice & supporting evidence"));
+    fireEvent.click(document.querySelector("[data-feeding-plan] > summary") as HTMLElement);
+  }
+  return result;
 }
 
 const labPlan: CattleGroupProductionPlan = {
@@ -102,11 +109,19 @@ const labPlan: CattleGroupProductionPlan = {
 const feedingPlan = () => within(document.querySelector("[data-feeding-plan]") as HTMLElement);
 
 describe("CattleGroupWorkspace — interaction-first group state", () => {
+  it("keeps detailed advice and editing collapsed by default", () => {
+    renderWorkspace({ plan: labPlan, collapsed: true });
+    expect(screen.getByLabelText("Outstanding cattle information")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Finishing target & feeding setup/i })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("Target weight (kg)")).toBeNull();
+    expect((screen.getByText("Production advice & supporting evidence").closest("details") as HTMLDetailsElement).open).toBe(false);
+  });
+
   it("shows the important group state immediately and keeps the production form closed", () => {
     renderWorkspace({ plan: labPlan });
     expect(screen.getByRole("button", { name: /Current location/i })).toHaveTextContent("Housed · Slatted shed");
-    expect(screen.getByRole("button", { name: /^Production target/i })).toHaveTextContent("360");
-    expect(screen.getByRole("button", { name: /^Feeding/i })).toHaveTextContent("1.2");
+    expect(screen.getByRole("button", { name: /^Production goal/i })).toHaveTextContent("Grow");
+    expect(screen.getByRole("button", { name: /^Feeding plan/i })).toHaveTextContent("1.2");
     const edit = screen.getByRole("button", { name: "Override / edit production target" });
     expect(edit).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByLabelText("Target weight (kg)")).toBeNull();
@@ -202,7 +217,7 @@ describe("CattleGroupWorkspace — interaction-first group state", () => {
         ],
       },
     });
-    const tile = screen.getByRole("button", { name: /Current avg weight/i });
+    const tile = screen.getByRole("button", { name: /Average weight/i });
     expect(tile).toHaveTextContent("1 of 2 weighed");
     expect(tile).toHaveTextContent(/isn't the group's average/);
     expect(tile).not.toHaveTextContent("300");
@@ -212,7 +227,7 @@ describe("CattleGroupWorkspace — interaction-first group state", () => {
     renderWorkspace({ plan: labPlan });
     const card = feedingPlan();
     expect(card.getByRole("heading", { name: "1.2 kg/head/day" })).toBeInTheDocument();
-    expect(card.getByText("Teagasc guideline")).toBeInTheDocument();
+    expect(card.getAllByText("Teagasc guideline")[0]).toBeInTheDocument();
     expect(card.getByRole("link", { name: /inputs market/i })).toHaveAttribute("href", "/inputs-market?category=feed");
     const why = card.getByText("Why this recommendation?").closest("details") as HTMLDetailsElement;
     expect(why.open).toBe(false);
@@ -249,7 +264,7 @@ describe("CattleGroupWorkspace — interaction-first group state", () => {
   it("labels a farmer/advisor override and only exposes override inputs in edit mode", () => {
     renderWorkspace({ plan: { ...labPlan, concentrateKgHeadDay: 2 } });
     const card = feedingPlan();
-    expect(card.getByText("Farmer/advisor override")).toBeInTheDocument();
+    expect(card.getAllByText("Farmer/advisor override")[0]).toBeInTheDocument();
     expect(card.getByText(/The Teagasc guideline is shown alongside for comparison/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Concentrate kg/head/day")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Override / edit production target" }));
@@ -330,7 +345,7 @@ describe("CattleGroupWorkspace — production recommendation", () => {
     const card = advisory();
     expect(card.getByRole("heading", { name: /Grow on as weanlings/ })).toBeInTheDocument();
     expect(card.getByText("Age (evidence, not used by a v1 rule): 8 months · from 1 date of birth.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Current avg weight/i })).toHaveTextContent("310");
+    expect(screen.getByRole("button", { name: /Average weight/i })).toHaveTextContent("310");
   });
 
   it("an improvement action opens the existing override editor", () => {

@@ -318,17 +318,20 @@ export function RealGroupScreen({ view, groupRef, editor }: { view: RealHerdView
         />
 
         <div className={`${s.detailGrid} mt-8`}>
-          <section aria-labelledby="group-animals" className="min-w-0">
-            <h2 id="group-animals" className={s.quietLabel}>
+          <section id="group-animals" aria-labelledby="group-animals-heading" className="min-w-0 scroll-mt-24">
+            <h2 id="group-animals-heading" className={s.quietLabel}>
               Individual animals
             </h2>
             <p className="mt-2 text-[14px] text-[var(--cc-muted)]">{g.membersIntro}</p>
             {g.members.state === "ITEMS" ? (
-              <ul className="mt-3">
+              <details className="mt-3 rounded-xl border border-[var(--cc-rule)] bg-white/70 px-4 py-3">
+                <summary className="min-h-10 cursor-pointer text-sm font-semibold text-[var(--cc-ink)]">View individual cattle ({g.members.items.length})</summary>
+                <ul className="mt-3">
                 {g.members.items.map((a) => (
                   <AnimalRow key={a.row.animalId} a={a} />
                 ))}
-              </ul>
+                </ul>
+              </details>
             ) : (
               <div className="mt-3 border-t border-[var(--cc-rule)] pt-4">
                 <StateLabel state={g.members.display} />
@@ -355,6 +358,8 @@ export function RealGroupScreen({ view, groupRef, editor }: { view: RealHerdView
           </section>
 
           <aside className={s.aside} aria-labelledby="group-context">
+            <details className="rounded-xl border border-[var(--cc-rule)] px-4 py-3">
+              <summary className="min-h-10 cursor-pointer text-sm font-semibold text-[var(--cc-ink)]">Records &amp; background</summary>
             <h2 id="group-context" className={s.quietLabel}>
               Group context
             </h2>
@@ -366,7 +371,7 @@ export function RealGroupScreen({ view, groupRef, editor }: { view: RealHerdView
                   <span>{g.work.detail}</span>
                 </dd>
               </div>
-              {g.context.map((f) => (
+              {g.context.filter((f) => f.label.toLowerCase() !== "location").map((f) => (
                 <div key={f.label}>
                   <dt>{f.label}</dt>
                   <dd className={f.technical ? s.mono : ""}>
@@ -377,6 +382,7 @@ export function RealGroupScreen({ view, groupRef, editor }: { view: RealHerdView
               ))}
             </dl>
             <AboutRecords about={c.about} asOf={c.asOfLabel} align="left" />
+            </details>
           </aside>
         </div>
       </div>

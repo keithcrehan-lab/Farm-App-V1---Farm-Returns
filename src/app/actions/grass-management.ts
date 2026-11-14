@@ -30,6 +30,7 @@ import { listFarmGrassGrowthForecasts } from "@/lib/farm-data/grass-growth-forec
 import { listGrazingFieldSessionsForFarm } from "@/lib/farm-data/grazing-field-sessions";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { latestApprovedCountyGrowth, regionalGrowthEvidence } from "@/lib/farm-data/regional-grass-growth";
+import { regionalGrowthForDisplay, type RegionalGrassDisplay } from "@/domain/regional-grass-display";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Device clock skew tolerance, same as `record_grazing_field_move`. */
@@ -194,6 +195,8 @@ export type GrassManagementData =
       coverObservations: GrassCoverObservation[];
       growthObservations: FarmGrassGrowthObservation[];
       growthForecasts: import("@/domain/grass-management").FarmGrassGrowthForecast[];
+      /** Independent county forecast, even when an own-farm rate takes precedence. */
+      regionalGrowth: RegionalGrassDisplay;
       grazingSessions: GrassGrazingSessionView[];
       openGrazingSessions: GrassOpenGrazingSessionView[];
     };
@@ -301,8 +304,10 @@ export async function getGrassManagementDataAction(): Promise<GrassManagementDat
   // stand-in growth rate only when the farm has no recent growth of its own.
   let mergedForecasts = growthForecasts;
   let mergedGrowth = growthObservations;
+  let regionalGrowth: RegionalGrassDisplay = regionalGrowthForDisplay(farm.location?.county, null);
   try {
-    const regional = await latestApprovedCountyGrowth(farm.location.county);
+    const regional = await latestApprovedCountyGrowth(farm.location?.county);
+    regionalGrowth = regionalGrowthForDisplay(farm.location?.county, regional);
     if (regional) {
       const evidence = regionalGrowthEvidence(regional, farm.id);
       if (evidence.forecast) mergedForecasts = [...growthForecasts, evidence.forecast];
@@ -310,6 +315,11 @@ export async function getGrassManagementDataAction(): Promise<GrassManagementDat
       if (evidence.observation && !recentOwn) mergedGrowth = [...growthObservations, evidence.observation];
     }
   } catch (err) {
+    // Distinguish a failed lookup from "not published", avoiding a misleading
+    // zero or an invented county value. Own-farm growth stays unchanged.
+    regionalGrowth = farm.location?.county?.trim()
+      ? { status: "unavailable", county: farm.location.county.trim() }
+      : { status: "county_missing" };
     console.error("[Grass] regional growth unavailable", err);
   }
 
@@ -319,6 +329,7 @@ export async function getGrassManagementDataAction(): Promise<GrassManagementDat
     coverObservations,
     growthObservations: mergedGrowth,
     growthForecasts: mergedForecasts,
+    regionalGrowth,
     grazingSessions,
     openGrazingSessions: grazingSessions.filter((session) => !session.endedAt),
   };

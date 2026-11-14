@@ -820,10 +820,17 @@ export default function TodayPage() {
                       <FarmGrassMapOverlay
                         view={grassView}
                         onViewChange={setGrassView}
-                        estimateLabel={grassGrowth ? `${formatNumber(grassGrowth.growthRateKgDmHaDay, 0)} kg/day · ${grassGrowth.origin === "regional_estimate" ? "Teagasc county" : "your walks"}` : undefined}
+                        estimateLabel={grassGrowth
+                          ? `${formatNumber(grassGrowth.growthRateKgDmHaDay, 0)} kg DM/ha/day · ${grassGrowth.origin === "regional_estimate"
+                            ? "Teagasc county"
+                            : grassGrowth.source?.startsWith("Grass walk ")
+                              ? "your walks"
+                              : "entered by you"}`
+                          : undefined}
                         summary={{
                           averageCoverKgDmHa: grassFarmSummary.averageCoverKgDmHa,
                           growthRateKgDmHaDay: grassFarmSummary.growthRateKgDmHaDay,
+                          regionalGrowth: grassOkData?.regionalGrowth,
                           animalDemandKgDmDay: grassCurrentAnimalDemandKgDmDay > 0 ? grassCurrentAnimalDemandKgDmDay : undefined,
                           lastWalkAt: grassFarmSummary.latestWalkAt,
                           knownFieldCount: grassFarmSummary.states.filter((state) => state.status === "known").length,

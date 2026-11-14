@@ -6,10 +6,14 @@ import { ArrowUpRight, ChevronDown, Leaf } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { DEFAULT_GRASS_PRESENTATION_TARGETS } from "@/domain/grass-management";
+import { RegionalGrowthStatus } from "@/components/grass/RegionalGrowthStatus";
+import type { RegionalGrassDisplay } from "@/domain/regional-grass-display";
 
 export interface FarmGrassMapSummary {
   averageCoverKgDmHa?: number;
   growthRateKgDmHaDay?: number;
+  /** Independent shared county forecast; never overwrite the farm rate. */
+  regionalGrowth?: RegionalGrassDisplay;
   animalDemandKgDmDay?: number;
   lastWalkAt?: string;
   knownFieldCount: number;
@@ -126,6 +130,10 @@ export function FarmGrassMapOverlay({ summary, view = "today", onViewChange, est
             </span>
           ))}
         </div>
+
+        {/* The county figure stays visible even while the main map details
+            are collapsed, without adding another full-size metric. */}
+        <RegionalGrowthStatus regional={summary.regionalGrowth} theme="dark" />
 
         {/* Detail block: desktop always, phone only when expanded. */}
         <div id={`${detailsId}-details`} className={cn("max-lg:border-t max-lg:border-white/10 max-lg:px-3.5 max-lg:pb-3 max-lg:pt-3", !expanded && "max-lg:hidden")}>

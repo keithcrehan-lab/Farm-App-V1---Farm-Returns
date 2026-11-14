@@ -570,6 +570,7 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
         fields={overviewFields}
         groups={demandGroups}
         growth={growthSelection}
+        regionalGrowth={okData.regionalGrowth}
         averageCoverKgDmHa={currentSummary.averageCoverKgDmHa}
         averageBasis={currentSummary.averageCoverBasis}
         latestWalkAt={currentSummary.latestWalkAt}

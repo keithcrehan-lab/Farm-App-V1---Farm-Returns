@@ -45,6 +45,26 @@ const cycle = (
 });
 
 describe("grass fertiliser engine v2", () => {
+  // Independent 2026 first-cut Teagasc published reference (Table 2), exactly
+  // 5 t DM/ha, no previously applied chemical nutrients or organic credits.
+  // https://teagasc.ie/wp-content/uploads/uploads/media/website/publications/2026/Fertilising-for-First-Cut-Grass-Silage.pdf
+  it.each([
+    [1, 40, 175],
+    [2, 30, 155],
+    [3, 20, 125],
+    [4, 0, 0],
+  ] as const)("reproduces Teagasc 2026 first-cut N/P/K at soil Index %i", (index, expectedP, expectedK) => {
+    const r = calculateGrassFertiliserV2({
+      field: field(index, index),
+      cycle: cycle("GRASS_FIRST_CUT_SILAGE", {
+        productionTargetTDMHa: createFarmerEvidence(5, "Published scenario"),
+      }),
+    });
+    expect(r.status).toBe("READY");
+    expect(r.grossRequirementKgHa).toEqual({ n: 100, p: expectedP, k: expectedK });
+    expect(r.remainingRequirementKgHa).toEqual({ n: 100, p: expectedP, k: expectedK });
+  });
+
   it("uses organic-N stocking directly for grazing and never a chemical-N output as the P/K input", () => {
     const result = calculateGrassFertiliserV2({
       field: field(2, 1),

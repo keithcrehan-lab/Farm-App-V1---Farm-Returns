@@ -6,6 +6,7 @@ import { ChevronDown, ChevronUp, Crosshair, MapPin, RefreshCw } from "lucide-rea
 import { PageHeader } from "@/components/shell/PageHeader";
 import { GrowthInsights } from "@/components/grass/GrowthInsights";
 import { GrassOverview, type OverviewField } from "@/components/grass/GrassOverview";
+import { GrassIntakePreview } from "@/components/grass/GrassIntakePreview";
 import { selectGrowthEvidence, type DemandGroup } from "@/domain/grass-wedge-target";
 import { MapHero } from "@/components/farm/MapHero";
 import type { MapTone } from "@/components/farm/FieldMap";
@@ -130,7 +131,7 @@ function grazingDemandLabel(session: GrassOpenGrazingSessionView): string {
   }
 }
 
-export function GrassPageClient({ initialFieldId }: { initialFieldId?: string }) {
+export function GrassPageClient({ initialFieldId, intakePreview = false }: { initialFieldId?: string; intakePreview?: boolean }) {
   const farm = useFarm();
   const storeFields = useFields();
   const [data, setData] = useState<GrassManagementData | null>(null);
@@ -830,6 +831,14 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
       </section>
         </div>
       </details>
+
+      {/* Server-gated (private flag + app-admin). Separate, read-only; never feeds the cover, wedge or demand above. */}
+      {intakePreview ? (
+        <GrassIntakePreview
+          fieldId={selectedFieldId && activeFieldIds.has(selectedFieldId) ? selectedFieldId : undefined}
+          fieldName={selectedFieldId ? fieldNameById.get(selectedFieldId) : undefined}
+        />
+      ) : null}
     </div>
   );
 }

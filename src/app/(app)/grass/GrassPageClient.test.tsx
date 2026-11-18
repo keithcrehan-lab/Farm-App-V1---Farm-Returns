@@ -26,6 +26,10 @@ vi.mock("@/app/actions/grass-management", () => ({
   recordGrassCoverObservationAction: (...args: unknown[]) => recordCover(...args),
   recordGrassGrowthObservationAction: (...args: unknown[]) => recordGrowth(...args),
 }));
+const getIntakePreview = vi.fn();
+vi.mock("@/app/actions/grass-intake-preview", () => ({
+  getGrassIntakePreviewAction: (...args: unknown[]) => getIntakePreview(...args),
+}));
 const SECOND_FIELD_ID = "55555555-5555-4555-8555-555555555555";
 const secondField = {
   id: SECOND_FIELD_ID,
@@ -39,8 +43,8 @@ const secondField = {
 let storeFields: Field[] = [field];
 vi.mock("@/store/farm-store", () => ({ useFarm: () => farm, useFields: () => storeFields }));
 vi.mock("@/components/farm/MapHero", () => ({
-  MapHero: (props: { fields: Field[]; getStatusLabel?: (f: Field) => string | undefined; getTone: (f: Field) => string }) => (
-    <div data-testid="grass-map">{props.fields.map((f) => <span key={f.id}>{f.name}:{props.getStatusLabel?.(f)}:{props.getTone(f)}</span>)}</div>
+  MapHero: (props: { fields: Field[]; getStatusLabel?: (f: Field) => string | undefined; getTone: (f: Field) => string; onSelectField?: (id: string) => void }) => (
+    <div data-testid="grass-map">{props.fields.map((f) => <span key={f.id}>{f.name}:{props.getStatusLabel?.(f)}:{props.getTone(f)}<button type="button" aria-label={`Select ${f.name} on map`} onClick={() => props.onSelectField?.(f.id)} /></span>)}</div>
   ),
 }));
 let gpsFix: { lat: number; lng: number; accuracyMeters: number } | null = null;
@@ -425,5 +429,91 @@ describe("GrassPageClient", () => {
     fireEvent.click(screen.getByRole("button", { name: "Record grass reading" }));
     await waitFor(() => expect(recordCover).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(getData.mock.calls.length).toBeGreaterThan(1));
+  });
+});
+
+describe("GrassPageClient grass intake research preview (flag-gated, read-only)", () => {
+  const observedAt = isoDaysAgo(2);
+  const session = {
+    sessionId: "session-1", fieldId: FIELD_ID, fieldName: "Home Field", livestockGroupId: "group-1", groupLabel: "Stores",
+    category: "store" as const, headCountSnapshot: 20, startedAt: isoDaysAgo(1),
+    demand: {
+      status: "resolved" as const, provider: "beef_liveweight_v1" as const, groupId: "group-1", category: "store" as const,
+      headCount: 20, kgDmPerHeadDay: 10, dailyDemandKgDm: 200, confidence: "medium" as const, ruleId: "TEAGASC_BEEF_GRAZING_2PCT_LW",
+      source: "Teagasc beef grazing guidance", evidence: [],
+    },
+  };
+  const live = {
+    ...empty,
+    coverObservations: [{ id: "33333333-3333-4333-8333-333333333333", farmId: FARM_ID, fieldId: FIELD_ID, coverKgDmHa: 1500, method: "plate_meter", observedAt, source: "Farmer", createdAt: observedAt }],
+    growthObservations: [{ id: "44444444-4444-4444-8444-444444444444", farmId: FARM_ID, growthRateKgDmHaDay: 50, origin: "farmer_entered", observedAt, source: "Farmer", createdAt: observedAt }],
+    grazingSessions: [session], openGrazingSessions: [session],
+  };
+  const previewWindow = { from: "2026-06-01T00:00:00.000Z", to: "2026-06-08T00:00:00.000Z", days: 7 };
+
+  beforeEach(() => { vi.clearAllMocks(); storeFields = [field]; getData.mockResolvedValue(live); });
+  afterEach(() => cleanup());
+
+  it("is absent by default (flag off): no preview section, no preview call, live cover and demand unchanged", async () => {
+    render(<GrassPageClient />);
+    expect(await screen.findByText(/Animal demand: 200 kg DM\/day/i)).toBeTruthy();
+    showFarmMap();
+    await waitFor(() => expect(screen.getByTestId("grass-map").textContent).toMatch(/1,550 kg DM\/ha/));
+    expect(screen.queryByText(/research preview/i)).toBeNull();
+    expect(document.querySelector("[data-grass-intake-preview]")).toBeNull();
+    expect(getIntakePreview).not.toHaveBeenCalled();
+  });
+
+  it("when enabled, is collapsed, makes no call until the farmer asks, and never changes live cover or demand", async () => {
+    getIntakePreview.mockResolvedValue({
+      status: "READY", version: "grass_session_segment_demand_v1.0.0", resolutionVersion: "grass_evidence_resolution_v1.0.0", window: previewWindow,
+      quantityBasis: "PLANNING_ALLOCATION_ONLY", completeness: "PARTIAL_UNRECORDED_OCCUPANCY", grazedKgDm: 4928, grazedDays: 5, unrecordedDays: 2,
+      models: ["suckler_pair"], ruleIds: ["TEAGASC_BEEF2026_COW_CALF_ATOMIC_V1"], sources: ["Teagasc Beef Manual 2026"], gateVersions: ["grass_intake_evidence_gate_v1.0.0"],
+      limitations: ["Planning allocation only."], evidenceRecordIds: [], sourceSessionIds: [],
+    });
+    render(<GrassPageClient intakePreview />);
+    expect(await screen.findByText(/Animal demand: 200 kg DM\/day/i)).toBeTruthy();
+    const section = document.querySelector("[data-grass-intake-preview]") as HTMLDetailsElement;
+    expect(section.open).toBe(false);
+    expect(within(section).getByText("Select a field on the map to check it.")).toBeTruthy();
+    expect(getIntakePreview).not.toHaveBeenCalled();
+
+    showFarmMap();
+    fireEvent.click(screen.getByRole("button", { name: "Select Home Field on map" }));
+    section.open = true;
+    expect(getIntakePreview).not.toHaveBeenCalled();
+    fireEvent.click(within(section).getByRole("button", { name: "Check Home Field" }));
+    await waitFor(() => expect(section.querySelector("[data-preview-status='READY']")).not.toBeNull());
+    expect(getIntakePreview).toHaveBeenCalledTimes(1);
+    expect(getIntakePreview).toHaveBeenCalledWith({ fieldId: FIELD_ID });
+    const ready = section.querySelector("[data-preview-status='READY']")!;
+    expect(ready.textContent).toContain("Research preview — planning allocation, not measured grass eaten");
+    expect(ready.textContent).toContain("4,928");
+    expect(ready.textContent).toMatch(/unknown, not zero/);
+    // Live screen untouched by the preview figure.
+    expect(screen.getByTestId("grass-map").textContent).toMatch(/1,550 kg DM\/ha/);
+    expect(screen.getByText(/Animal demand: 200 kg DM\/day/i)).toBeTruthy();
+    expect(getData).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows actionable HELD and UNAVAILABLE reasons with no figure and no internal ids", async () => {
+    getIntakePreview.mockResolvedValueOnce({ status: "HELD", version: "grass_session_segment_demand_v1.0.0", window: previewWindow, reasons: ["EVIDENCE_MISSING"] });
+    render(<GrassPageClient intakePreview />);
+    await screen.findByText(/Animal demand: 200 kg DM\/day/i);
+    showFarmMap();
+    fireEvent.click(screen.getByRole("button", { name: "Select Home Field on map" }));
+    const section = document.querySelector("[data-grass-intake-preview]") as HTMLDetailsElement;
+    section.open = true;
+    fireEvent.click(within(section).getByRole("button", { name: "Check Home Field" }));
+    await waitFor(() => expect(section.querySelector("[data-preview-status='HELD']")).not.toBeNull());
+    expect(section.textContent).toMatch(/Intake evidence is missing/);
+    expect(section.textContent).toMatch(/no figure shown/);
+    expect(section.textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+
+    getIntakePreview.mockResolvedValueOnce({ status: "UNAVAILABLE", reason: "EVIDENCE_SCHEMA_UNAVAILABLE" });
+    fireEvent.click(within(section).getByRole("button", { name: "Check Home Field" }));
+    await waitFor(() => expect(section.querySelector("[data-preview-status='UNAVAILABLE']")).not.toBeNull());
+    expect(section.textContent).toMatch(/not set up for this environment/);
+    expect(section.textContent).not.toMatch(/kg DM allocated/);
   });
 });

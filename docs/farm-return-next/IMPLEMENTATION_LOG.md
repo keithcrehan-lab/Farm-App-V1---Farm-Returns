@@ -1159,3 +1159,21 @@ providers; no second source of truth, no migration.
 
 - GitHub release run `44357206392` on grass wedge candidate `f9e3152` failed static solely for a test fixture type omission, plus 12 tests not listed in the CI known-failing baseline. The same **exact 12** test names were already failing on live base `83aa833` in run `43608579641`; no grass-specific test failures. Corrected fixture type (`GrassWedgeChart.test.tsx`) and added only those 12 pre-existing failures to `.github/known-failing-tests.txt`, retaining automatic rejection of any other failure.
 - No cattle, slurry, schemes, fertiliser, science engine or production database behaviour changed in this reconciliation. Carry-forward does **not** establish that unrelated failing functionality is correct; those areas remain tracked for targeted repairs and need independent review before feature expansion. Release must still pass CI static and baseline guard.
+
+### 18 Nov 2026 — Grass intake research preview (read-only, flag-gated, OFF by default)
+
+- Branch `integration/grass-intake-live-wiring-20261118` on live base `8bf56ee8`. The verified segment-demand engines
+  and the farm-bound adapter were copied unchanged from `e4fce8a`, with their tests. The new gate
+  `src/lib/farm-data/grass-intake-preview.ts` checks four things in order: the private flag
+  `GRASS_INTAKE_RESEARCH_PREVIEW` is exactly `on` (otherwise zero SQL), the field id is a UUID, the existing app-admin
+  check passes (owner email + `app_admins` row), and the farm comes from `getFarmForCurrentUser`. The window is fixed
+  on the server at 7 days. Results are bounded statuses, and a missing table returns an explicit UNAVAILABLE.
+  There's a new action `getGrassIntakePreviewAction` and a collapsed `GrassIntakePreview` section on the Grass
+  screen. It's labelled "Research preview — planning allocation, not measured grass eaten" and runs only when the
+  farmer clicks.
+- Live cover, wedge, forecasts, demand, fertiliser, Cattle, Today and Plan are unchanged. There's no migration, no
+  evidence writes and no mass-balance deduction. Blocked on BLOCKERS `GRASS-INTAKE-PREVIEW-1`: the schema rehearsal,
+  an evidence write interface, and the scientist decision.
+- Verification: new tests were written (`grass-intake-preview.test.ts`, `GrassPageClient.test.tsx`), but **none were
+  run**. Vitest, typecheck and lint were refused permission in this session. Status note:
+  [GRASS_INTAKE_PREVIEW_STATUS.md](GRASS_INTAKE_PREVIEW_STATUS.md).

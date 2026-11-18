@@ -95,7 +95,7 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
                   />
                   {b.currentBasis === "estimated" ? (
                     // Estimated today: a dotted top edge so it never reads as a fresh measurement.
-                    <line x1={x} x2={x + w} y1={TOP + plotH - retainedH} y2={TOP + plotH - retainedH} stroke="currentColor" strokeDasharray="2 3" strokeWidth={2} className="text-fr-v2-charcoal" vectorEffect="non-scaling-stroke" />
+                    <line x1={x} x2={x + w} y1={forecast?.lostKgDmHa ? y(b.currentCoverKgDmHa!) : TOP + plotH - retainedH} y2={forecast?.lostKgDmHa ? y(b.currentCoverKgDmHa!) : TOP + plotH - retainedH} stroke="currentColor" strokeDasharray="2 3" strokeWidth={2} className="text-fr-v2-charcoal" vectorEffect="non-scaling-stroke" />
                   ) : null}
                   {gainH > 0 ? (
                     <g data-wedge-forecast-gain={b.fieldId}>
@@ -174,7 +174,7 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
       <figcaption className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-fr-v2-muted">
         {splitExists ? (
           <>
-            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-fr-v2-forest" aria-hidden />Today&apos;s cover</span>
+            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-fr-v2-forest" aria-hidden />Solid cover (base or remainder)</span>
             <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border border-[#639d8d]" style={{ background: "repeating-linear-gradient(135deg, #8ebeb2, #8ebeb2 3px, #d9eae5 3px, #d9eae5 5px)" }} aria-hidden />Projected gain</span>
             <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border border-dashed border-[#ae844b]" style={{ background: "repeating-linear-gradient(135deg, #d8b06f, #d8b06f 3px, #f5e6ca 3px, #f5e6ca 5px)" }} aria-hidden />Projected loss</span>
           </>

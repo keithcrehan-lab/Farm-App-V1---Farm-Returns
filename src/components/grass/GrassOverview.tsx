@@ -274,7 +274,7 @@ export function GrassOverview({
         <div className={view === "wedge" ? undefined : "hidden"}>
           <p className="mb-2 text-xs text-fr-v2-muted">
             Fields by cover, tallest first{settings.widthMode === "area" ? ", each as wide as its area" : ""}{horizon > 0 ? `, projected +${horizon} days` : ""}.
-            <HelpTip term="the grass wedge">Each bar is a field. A solid bar is a recorded reading (not necessarily taken today). A paler bar with a dotted top is an estimate brought forward to today using growth and grazing evidence. The hatched portion shows projected change: teal gain or amber loss. The red line is your grazing target. Estimates are not new measurements.</HelpTip>
+            <HelpTip term="the grass wedge">Each bar is a field. At Now, solid bars show recorded readings (not necessarily taken today); paler bars with a dotted edge are estimates updated to today. In a forecast, the solid portion is retained cover, while teal hatching shows projected gain and amber hatching shows projected loss. The red line is your grazing target. Estimates are not new measurements.</HelpTip>
           </p>
           <GrassWedgeChart
             bars={bars}

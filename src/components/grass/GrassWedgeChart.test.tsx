@@ -42,7 +42,7 @@ describe("Grass wedge projected portions", () => {
     expect(Number(loss.querySelector("rect")!.getAttribute("height"))).toBeCloseTo(lossH, 5);
     expect(Number(container.querySelector('[data-wedge-current="loss"]')!.getAttribute("height"))).toBeCloseTo((1400 / yMax) * plotH, 5);
     // F20: the old "Current cover (measured/est.)" legend lumped both together.
-    expect(screen.getByText("Today's cover")).toBeInTheDocument();
+    expect(screen.getByText("Solid cover (base or remainder)")).toBeInTheDocument();
     expect(screen.queryByText("Current cover (measured/est.)")).toBeNull();
     expect(screen.getByText("Projected gain")).toBeInTheDocument();
     expect(screen.getByText("Projected loss")).toBeInTheDocument();
@@ -64,6 +64,15 @@ describe("Grass wedge projected portions", () => {
     expect(container.querySelectorAll("[data-wedge-current]")).toHaveLength(0);
     expect(screen.queryByText("Projected gain")).toBeNull();
   });
+  it("positions the estimated current-cover marker above forecast losses, not on the remaining bar", () => {
+    const { container } = renderChart(7, [{ ...bars[1], currentBasis: "estimated" }]);
+    const marker = container.querySelector('line[stroke-dasharray="2 3"]');
+    expect(marker).toBeTruthy();
+    const plotH = 300 - 12 - 4;
+    const yMax = 2000; // max(1,400 projected, 1,750 current) × 1.1, rounded up to 500
+    expect(Number(marker?.getAttribute("y1"))).toBeCloseTo(12 + plotH - (1750 / yMax) * plotH, 5);
+  });
+
   it("F20: an estimated 'today' cover is drawn and labelled differently from a reading taken today", () => {
     const { container } = renderChart(0, [
       { fieldId: "m", name: "Measured", areaHa: 1, coverKgDmHa: 1800, currentCoverKgDmHa: 1800, currentBasis: "measured", x: 0, width: .5, centre: .25 },

@@ -45,6 +45,17 @@ describe("Grass V2 overview", () => {
   beforeEach(() => { window.localStorage.clear(); resetGrassSettingsForTest(); });
   afterEach(cleanup);
 
+  it("passes recorded versus estimated cover provenance into the visible grass wedge", () => {
+    renderOverview({ fields: [
+      { ...FIELDS[0], currentBasis: "measured", currentCoverKgDmHa: 1600 },
+      { ...FIELDS[1], currentBasis: "estimated", currentCoverKgDmHa: 900 },
+    ] });
+    expect(document.querySelector('[data-wedge-basis="measured"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-wedge-basis="estimated"]')).toBeInTheDocument();
+    expect(screen.getByText("Recorded reading")).toBeInTheDocument();
+    expect(screen.getByText("Estimated for today (not a new reading)")).toBeInTheDocument();
+  });
+
   it("opens on the wedge, mounts the map when first shown, and keeps it while switching back", () => {
     renderOverview();
     const view = screen.getByRole("group", { name: "Grass view" });

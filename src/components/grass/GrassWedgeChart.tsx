@@ -18,7 +18,9 @@ const BOTTOM = 4;
 /** Left gutter (fraction of the width) for the HTML axis labels, so text stays readable at phone widths. */
 const LEFT = 60;
 
-type ForecastWedgeBar = WedgeBar & { currentCoverKgDmHa?: number };
+/** `currentBasis`: scientific-validation F20 — today's cover is drawn differently when it is
+ * an estimate brought forward rather than a reading taken today. */
+type ForecastWedgeBar = WedgeBar & { currentCoverKgDmHa?: number; currentBasis?: "measured" | "estimated" };
 
 export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, onSelect, occupiedFieldIds }: {
   bars: readonly ForecastWedgeBar[];
@@ -46,6 +48,8 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
   const last = measured[measured.length - 1];
   const showForecast = horizonDays > 0;
   const splitExists = showForecast && bars.some((b) => wedgeForecastParts(b.currentCoverKgDmHa, b.coverKgDmHa, horizonDays));
+  const anyEstimated = bars.some((b) => b.coverKgDmHa !== undefined && b.currentBasis === "estimated");
+  const anyRecorded = bars.some((b) => b.coverKgDmHa !== undefined && b.currentBasis === "measured");
 
   if (bars.length === 0) return <p className="py-10 text-center text-sm text-fr-v2-muted">Map a field to begin your grass wedge.</p>;
 
@@ -81,12 +85,18 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
                 <>
                   <rect
                     data-wedge-current={forecast ? b.fieldId : undefined}
+                    data-wedge-basis={b.currentBasis}
                     x={x}
                     y={TOP + plotH - retainedH}
                     width={w}
                     height={retainedH}
+                    fillOpacity={b.currentBasis === "estimated" ? 0.62 : 1}
                     className={cn(above === undefined ? "fill-fr-v2-teal" : above ? "fill-fr-v2-forest" : "fill-fr-v2-harvest")}
                   />
+                  {b.currentBasis === "estimated" ? (
+                    // Estimated today: a dotted top edge so it never reads as a fresh measurement.
+                    <line x1={x} x2={x + w} y1={TOP + plotH - retainedH} y2={TOP + plotH - retainedH} stroke="currentColor" strokeDasharray="2 3" strokeWidth={2} className="text-fr-v2-charcoal" vectorEffect="non-scaling-stroke" />
+                  ) : null}
                   {gainH > 0 ? (
                     <g data-wedge-forecast-gain={b.fieldId}>
                       <rect x={x} y={y(b.coverKgDmHa!)} width={w} height={gainH} fill="#8ebeb2" />
@@ -141,8 +151,8 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
             onClick={() => onSelect(b.fieldId)}
             aria-pressed={b.fieldId === selectedFieldId}
             aria-label={`${b.name}: ${b.coverKgDmHa === undefined ? "not measured" : horizonDays > 0 && b.currentCoverKgDmHa !== undefined
-              ? `current ${formatNumber(b.currentCoverKgDmHa, 0)} kg DM/ha, projected ${formatNumber(b.coverKgDmHa, 0)} kg DM/ha after ${horizonDays} days, net change ${b.coverKgDmHa >= b.currentCoverKgDmHa ? "+" : "−"}${formatNumber(Math.abs(b.coverKgDmHa - b.currentCoverKgDmHa), 0)} kg DM/ha`
-              : `${formatNumber(b.coverKgDmHa, 0)} kg DM/ha`}, ${formatNumber(b.areaHa, 2)} ha${b.targetKgDmHa !== undefined ? `, line at ${formatNumber(b.targetKgDmHa, 0)}` : ""}`}
+              ? `current ${b.currentBasis === "estimated" ? "(estimated) " : b.currentBasis === "measured" ? "(last recorded) " : ""}${formatNumber(b.currentCoverKgDmHa, 0)} kg DM/ha, projected ${formatNumber(b.coverKgDmHa, 0)} kg DM/ha after ${horizonDays} days, net change ${b.coverKgDmHa >= b.currentCoverKgDmHa ? "+" : "−"}${formatNumber(Math.abs(b.coverKgDmHa - b.currentCoverKgDmHa), 0)} kg DM/ha`
+              : `${b.currentBasis === "estimated" ? "estimated for today " : b.currentBasis === "measured" ? "last recorded " : ""}${formatNumber(b.coverKgDmHa, 0)} kg DM/ha`}, ${formatNumber(b.areaHa, 2)} ha${b.targetKgDmHa !== undefined ? `, line at ${formatNumber(b.targetKgDmHa, 0)}` : ""}`}
             className="absolute inset-y-0 focus-visible:outline-2 focus-visible:outline-fr-v2-forest"
             style={{ left: `${b.x * 100}%`, width: `${b.width * 100}%` }}
           />
@@ -164,11 +174,13 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
       <figcaption className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-fr-v2-muted">
         {splitExists ? (
           <>
-            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-fr-v2-forest" aria-hidden />Current cover (measured/est.)</span>
+            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-fr-v2-forest" aria-hidden />Today&apos;s cover</span>
             <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border border-[#639d8d]" style={{ background: "repeating-linear-gradient(135deg, #8ebeb2, #8ebeb2 3px, #d9eae5 3px, #d9eae5 5px)" }} aria-hidden />Projected gain</span>
             <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border border-dashed border-[#ae844b]" style={{ background: "repeating-linear-gradient(135deg, #d8b06f, #d8b06f 3px, #f5e6ca 3px, #f5e6ca 5px)" }} aria-hidden />Projected loss</span>
           </>
         ) : null}
+        {anyRecorded ? <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-fr-v2-forest" aria-hidden />Recorded reading</span> : null}
+        {anyEstimated ? <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border-t-2 border-dotted border-fr-v2-charcoal bg-fr-v2-forest/60" aria-hidden />Estimated for today (not a new reading)</span> : null}
         <span className="inline-flex items-center gap-1.5"><span className="h-[3px] w-4 rounded-full bg-[#C0362C]" aria-hidden />Target line</span>
         {line ? (
           <>

@@ -41,7 +41,9 @@ describe("Grass wedge projected portions", () => {
     expect(Number(gain.querySelector("rect")!.getAttribute("height"))).toBeCloseTo(gainH, 5);
     expect(Number(loss.querySelector("rect")!.getAttribute("height"))).toBeCloseTo(lossH, 5);
     expect(Number(container.querySelector('[data-wedge-current="loss"]')!.getAttribute("height"))).toBeCloseTo((1400 / yMax) * plotH, 5);
-    expect(screen.getByText("Current cover (measured/est.)")).toBeInTheDocument();
+    // F20: the old "Current cover (measured/est.)" legend lumped both together.
+    expect(screen.getByText("Today's cover")).toBeInTheDocument();
+    expect(screen.queryByText("Current cover (measured/est.)")).toBeNull();
     expect(screen.getByText("Projected gain")).toBeInTheDocument();
     expect(screen.getByText("Projected loss")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Meadow: current 1,700 kg DM\/ha, projected 2,000 kg DM\/ha after 7 days/ })).toBeInTheDocument();
@@ -61,5 +63,17 @@ describe("Grass wedge projected portions", () => {
     expect(container.querySelectorAll("[data-wedge-forecast-gain], [data-wedge-forecast-loss]")).toHaveLength(0);
     expect(container.querySelectorAll("[data-wedge-current]")).toHaveLength(0);
     expect(screen.queryByText("Projected gain")).toBeNull();
+  });
+  it("F20: an estimated 'today' cover is drawn and labelled differently from a reading taken today", () => {
+    const { container } = renderChart(0, [
+      { fieldId: "m", name: "Measured", areaHa: 1, coverKgDmHa: 1800, currentCoverKgDmHa: 1800, currentBasis: "measured", x: 0, width: .5, centre: .25 },
+      { fieldId: "e", name: "Estimated", areaHa: 1, coverKgDmHa: 1500, currentCoverKgDmHa: 1500, currentBasis: "estimated", x: .5, width: .5, centre: .75 },
+    ] as Array<WedgeBar & { currentCoverKgDmHa?: number; currentBasis?: "measured" | "estimated" }>);
+    expect(container.querySelector('[data-wedge-basis="estimated"]')!.getAttribute("fill-opacity")).toBe("0.62");
+    expect(container.querySelector('[data-wedge-basis="measured"]')!.getAttribute("fill-opacity")).toBe("1");
+    expect(screen.getByText("Recorded reading")).toBeInTheDocument();
+    expect(screen.getByText("Estimated for today (not a new reading)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Estimated: estimated for today 1,500 kg DM\/ha/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Measured: last recorded 1,800 kg DM\/ha/ })).toBeInTheDocument();
   });
 });

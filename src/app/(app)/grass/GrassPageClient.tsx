@@ -365,7 +365,7 @@ export function GrassPageClient({ initialFieldId }: { initialFieldId?: string })
       areaHa: field.areaHa,
       ...(field.plannedUse ? { use: field.plannedUse } : {}),
       ...(shown.cover !== undefined ? { coverKgDmHa: shown.cover } : {}),
-      ...(state && state.status !== "unknown" ? { currentCoverKgDmHa: state.current.coverKgDmHa } : {}),
+      ...(state && state.status !== "unknown" ? { currentCoverKgDmHa: state.current.coverKgDmHa, currentBasis: state.current.basis } : {}),
       ...(shown.basis ? { basis: shown.basis } : {}),
       ...(state && state.status !== "unknown" ? { ageDays: state.measured.ageDays, method: METHOD_LABEL[state.measured.method] } : {}),
       occupants,

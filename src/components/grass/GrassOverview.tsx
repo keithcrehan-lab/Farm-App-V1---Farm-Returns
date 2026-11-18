@@ -35,6 +35,8 @@ import {
 export interface OverviewField extends WedgeField {
   /** Cover in the same field as of today, before the selected forecast horizon. */
   currentCoverKgDmHa?: number;
+  /** Raw recorded reading or scientifically labelled estimate brought forward to today. */
+  currentBasis?: "measured" | "estimated";
   basis?: string;
   ageDays?: number;
   method?: string;
@@ -201,7 +203,7 @@ export function GrassOverview({
       <section className="grid grid-cols-2 gap-x-5 gap-y-4 border-y border-fr-v2-cream-rule py-4 lg:grid-cols-4" aria-label="Grass summary">
         <Metric
           label="Average farm cover"
-          help={<HelpTip term="average farm cover">The grass on your fields, averaged by size, in kg of dry matter per hectare above about 4 cm. Unmeasured fields are left out, not counted as bare.</HelpTip>}
+          help={<HelpTip term="average farm cover">The grass on your fields, averaged by size, as recorded in kg of dry matter per hectare. The measurement basis is not stored for older readings; compare readings taken using the same method. Unmeasured fields are excluded, not treated as bare.</HelpTip>}
           value={averageCoverKgDmHa === undefined ? "Not measured" : kg(averageCoverKgDmHa)}
           unit={averageCoverKgDmHa === undefined ? undefined : "kg DM/ha"}
           detail={averageBasis ? `${averageBasis} basis` : undefined}
@@ -233,7 +235,7 @@ export function GrassOverview({
         />
         <p className="col-span-2 text-[11px] text-fr-v2-muted lg:col-span-4">
           {latestWalkAt ? `Last reading ${new Date(latestWalkAt).toLocaleDateString("en-IE", { day: "numeric", month: "short" })}` : "No readings yet"} · {measuredRecently} of {fields.length} fields measured in the last 2 weeks
-          <HelpTip term="measurement freshness">Covers older than a week are estimated forward from growth and cattle demand; after two weeks a field should be walked again.</HelpTip>
+          <HelpTip term="measurement freshness">With reliable growth and grazing evidence, an earlier reading can be estimated forward to today. Without that evidence, the recorded reading remains unchanged; after two weeks, walk the field again.</HelpTip>
         </p>
       </section>
       <RegionalGrowthStatus regional={regionalGrowth} />
@@ -272,7 +274,7 @@ export function GrassOverview({
         <div className={view === "wedge" ? undefined : "hidden"}>
           <p className="mb-2 text-xs text-fr-v2-muted">
             Fields by cover, tallest first{settings.widthMode === "area" ? ", each as wide as its area" : ""}{horizon > 0 ? `, projected +${horizon} days` : ""}.
-            <HelpTip term="the grass wedge">Each bar is a field. The solid portion is cover at the start of the forecast; the hatched portion is projected change over the selected days. Light teal means an increase, amber shows a projected decrease. The red line is your grazing target. Estimates are not new measurements.</HelpTip>
+            <HelpTip term="the grass wedge">Each bar is a field. A solid bar is a recorded reading (not necessarily taken today). A paler bar with a dotted top is an estimate brought forward to today using growth and grazing evidence. The hatched portion shows projected change: teal gain or amber loss. The red line is your grazing target. Estimates are not new measurements.</HelpTip>
           </p>
           <GrassWedgeChart
             bars={bars}
@@ -311,7 +313,7 @@ export function GrassOverview({
               ) : null}
               <div><dt className="text-fr-v2-muted">Cattle</dt><dd className="text-fr-v2-charcoal">{selected.occupants.length > 0 ? selected.occupants.join(", ") : "None recorded"}</dd></div>
             </dl>
-            <p className="mt-1 text-[11px] text-fr-v2-muted">Cover is measured above about 4 cm; total standing dry matter isn&apos;t measured.</p>
+            <p className="mt-1 text-[11px] text-fr-v2-muted">Cover is shown as recorded; the measurement basis for older readings is not stored and total standing dry matter is not measured.</p>
             <div className="mt-2 flex flex-wrap gap-x-4 text-xs font-semibold text-fr-v2-forest">
               <button type="button" onClick={() => setView(view === "wedge" ? "map" : "wedge")} className="min-h-9 underline decoration-fr-v2-rule underline-offset-2">{view === "wedge" ? "Show on farm map" : "Show on wedge"}</button>
               <Link href={`/fields?field=${encodeURIComponent(selected.fieldId)}&chapter=history`} className="min-h-9 content-center underline decoration-fr-v2-rule underline-offset-2">Measurement history</Link>

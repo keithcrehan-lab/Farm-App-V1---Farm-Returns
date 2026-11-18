@@ -598,5 +598,6 @@
     "domain": "src/domain/grass-wedge-target.ts (grass_wedge_target_v1.0.0)",
     "deferred": "per-user targets/guide storage (migration); scenario confirmation writing to Plan/silage; intake beyond Teagasc 2% liveweight",
     "field_use_source": "2026-11-13: field drawer production cycle (this season, then last), legacy planned use as fallback — PENDING_CI"
-  }
+  },
+  "grass_wedge_ci_baseline_reconciliation_20261118": {"status": "BASELINE_RECONCILED_PRODUCTION_RELEASE_STILL_REQUIRES_CI", "production_base": "83aa833fd80b7c4a175a9b79b5db7d1473c34a8f", "reference_runs": ["43608579641", "44357206392"], "newly_documented_preexisting_failure_names": 12, "new_grass_test_failures": 0, "typecheck_fixture_fix": "src/components/grass/GrassWedgeChart.test.tsx", "production_schema_changed": false, "release_gate_bypassed": false}
 }

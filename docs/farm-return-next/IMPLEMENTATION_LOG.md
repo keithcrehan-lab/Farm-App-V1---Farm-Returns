@@ -1154,3 +1154,8 @@ providers; no second source of truth, no migration.
 - Fix: `getGrassManagementDataAction` reads this season's production cycles (then last season's, carried forward),
   mapped by `fieldUseFromCropSystem` in `src/domain/grass-wedge-target.ts`; legacy planned use is the fallback; a
   failed cycle read falls back rather than breaking the page. Tests added. No migration.
+
+### 18 Nov 2026 — Grass wedge CI baseline reconciliation (production pipeline)
+
+- GitHub release run `44357206392` on grass wedge candidate `f9e3152` failed static solely for a test fixture type omission, plus 12 tests not listed in the CI known-failing baseline. The same **exact 12** test names were already failing on live base `83aa833` in run `43608579641`; no grass-specific test failures. Corrected fixture type (`GrassWedgeChart.test.tsx`) and added only those 12 pre-existing failures to `.github/known-failing-tests.txt`, retaining automatic rejection of any other failure.
+- No cattle, slurry, schemes, fertiliser, science engine or production database behaviour changed in this reconciliation. Carry-forward does **not** establish that unrelated failing functionality is correct; those areas remain tracked for targeted repairs and need independent review before feature expansion. Release must still pass CI static and baseline guard.

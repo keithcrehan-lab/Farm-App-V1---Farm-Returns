@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { GrassWedgeChart } from "./GrassWedgeChart";
 import type { WedgeBar } from "@/domain/grass-wedge-target";
 
-const bars: Array<WedgeBar & { currentCoverKgDmHa?: number }> = [
+const bars: Array<WedgeBar & { currentCoverKgDmHa?: number; currentBasis?: "measured" | "estimated" }> = [
   { fieldId: "gain", name: "Meadow", areaHa: 2, coverKgDmHa: 2000, currentCoverKgDmHa: 1700, x: 0, width: .33, centre: .165 },
   { fieldId: "loss", name: "Hill", areaHa: 2, coverKgDmHa: 1400, currentCoverKgDmHa: 1750, x: .33, width: .34, centre: .5 },
   { fieldId: "unknown", name: "Other", areaHa: 1, x: .67, width: .33, centre: .835 },

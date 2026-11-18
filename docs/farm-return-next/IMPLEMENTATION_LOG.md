@@ -1177,3 +1177,9 @@ providers; no second source of truth, no migration.
 - Verification: new tests were written (`grass-intake-preview.test.ts`, `GrassPageClient.test.tsx`), but **none were
   run**. Vitest, typecheck and lint were refused permission in this session. Status note:
   [GRASS_INTAKE_PREVIEW_STATUS.md](GRASS_INTAKE_PREVIEW_STATUS.md).
+
+### 18 Nov 2026 — Grass intake integration verification and privacy follow-up
+
+- `fac0266b`: connected source-gated suckler/dairy/time-interval intake engines to an owner-only on-demand research preview. Full focused integration test: 149/149 passed in 10 files, Next.js typegen, `tsc --noEmit`, and scoped ESLint passed. No SQL migration, writes or production flags.
+- Separate independent read-only review of the `8bf56ee8..fac0266b` range: BLOCKING=0. Addressed only the noted medium stale verification record and low browser payload provenance-id exposure; removed raw evidence and movement IDs from server-action view (retaining source, version, model limitations and status).
+- Still not activated: source evidence storage, persistent animal/feeding fields, and agronomic decision about planning allocation vs observed pasture disappearance. Feature flag stays OFF by default.

@@ -1,7 +1,6 @@
 # Grass intake research preview — scope and status (2026-11-18)
 
-Branch `integration/grass-intake-live-wiring-20261118`, base `8bf56ee8` (live Topaz). Local only: not committed,
-pushed, merged or deployed, and no SQL applied. **This is not a full activation and not a production release.**
+Branch `integration/grass-intake-live-wiring-20261118`, base `8bf56ee8` (live Topaz). Committed locally and independently reviewed; release branch/deployment not yet updated, and no SQL applied. **This is not a full activation and not a production release.**
 
 ## What is connected
 - **Engines, copied unchanged from `e4fce8a`** with their tests. Their dependencies are byte-identical to the base.
@@ -17,7 +16,7 @@ pushed, merged or deployed, and no SQL applied. **This is not a full activation 
 
   The window is fixed on the server: the 7 days to the request, rounded down to the minute. The browser can't
   pass a farm or dates. The result is reduced to these statuses: READY, HELD, NO_RECORDED_GRAZING, UNAVAILABLE or
-  DISABLED. It carries only versions, bounded reason families and own-farm provenance ids (capped). Raw reasons,
+  DISABLED. It carries only versions, source labels and bounded reason families, not raw record or session ids. Raw reasons,
   which contain ids and timestamps, never leave the server. A missing table (`42P01`/`PGRST205`) returns
   `EVIDENCE_SCHEMA_UNAVAILABLE`, and any other error returns `READ_FAILED`.
 - **UI** `GrassIntakePreview`. It's a collapsed "Grass intake — research preview" section at the foot of the Grass
@@ -35,7 +34,7 @@ pushed, merged or deployed, and no SQL applied. **This is not a full activation 
 4. Carried over from the source branch: GRASS-S3-ROWCAP, GRASS-S4-FEED, GRASS-S5-CHAIN.
 
 ## Verification
-The new and updated tests are `grass-intake-preview.test.ts` (flag-off zero SQL, authorisation, scope, READY/HELD,
-missing schema) and `GrassPageClient.test.tsx` (absent by default, live cover untouched). **Not yet run:** this
-session couldn't get approval to run vitest, `tsc` or ESLint. They are owed before any commit. The source branch's
-own results for the copied engines (199 integration / 373 pure tests, green) are reused, not re-run.
+- 149/149 focused grass domain, authenticated farm adapter and Grass UI tests passed across 10 test files (18 Nov).
+- Next.js route type generation passed; full TypeScript `tsc --noEmit` passed; changed-path ESLint passed.
+- Independent read-only review of exact `8bf56ee8..fac0266b` range returned `VERDICT: BLOCKING=0` with one medium documentation status mismatch (now corrected) and two low issues with raw provenance ids reaching the browser (now removed).
+- This integration is approved as OFF-by-default *code only* pending the protected release pipeline. The scientific preview is unavailable until the separate evidence table and owner-controlled inputs exist, and not approved for general farmer use.

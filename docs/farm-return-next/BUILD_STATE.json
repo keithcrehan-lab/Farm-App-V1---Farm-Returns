@@ -599,13 +599,25 @@
     "deferred": "per-user targets/guide storage (migration); scenario confirmation writing to Plan/silage; intake beyond Teagasc 2% liveweight",
     "field_use_source": "2026-11-13: field drawer production cycle (this season, then last), legacy planned use as fallback — PENDING_CI"
   },
-  "grass_wedge_ci_baseline_reconciliation_20261118": {"status": "BASELINE_RECONCILED_PRODUCTION_RELEASE_STILL_REQUIRES_CI", "production_base": "83aa833fd80b7c4a175a9b79b5db7d1473c34a8f", "reference_runs": ["43608579641", "44357206392"], "newly_documented_preexisting_failure_names": 12, "new_grass_test_failures": 0, "typecheck_fixture_fix": "src/components/grass/GrassWedgeChart.test.tsx", "production_schema_changed": false, "release_gate_bypassed": false},
+  "grass_wedge_ci_baseline_reconciliation_20261118": {
+    "status": "BASELINE_RECONCILED_PRODUCTION_RELEASE_STILL_REQUIRES_CI",
+    "production_base": "83aa833fd80b7c4a175a9b79b5db7d1473c34a8f",
+    "reference_runs": [
+      "43608579641",
+      "44357206392"
+    ],
+    "newly_documented_preexisting_failure_names": 12,
+    "new_grass_test_failures": 0,
+    "typecheck_fixture_fix": "src/components/grass/GrassWedgeChart.test.tsx",
+    "production_schema_changed": false,
+    "release_gate_bypassed": false
+  },
   "grass_intake_research_preview_20261118": {
     "requested": "2026-11-18 product owner: limited, science-safe, read-only, flag-gated grass intake preview on the Grass screen",
     "branch": "integration/grass-intake-live-wiring-20261118",
     "base_sha": "8bf56ee8",
     "engine_source_sha": "e4fce8a",
-    "status": "IMPLEMENTED_LOCAL_UNCOMMITTED_TESTS_NOT_RUN_PENDING_SUPERVISOR_VERIFICATION",
+    "status": "INTEGRATION_COMMITTED_FOCUSED_TESTS_TSC_LINT_PASSED_INDEPENDENT_REVIEW_BLOCKING_0_RELEASE_PENDING",
     "flag": "GRASS_INTAKE_RESEARCH_PREVIEW (private server env, exactly 'on'; OFF by default)",
     "access": "app-admin (confirmed owner email AND app_admins row) + farm bound by getFarmForCurrentUser",
     "window": "server-fixed 7 days to request",
@@ -613,7 +625,22 @@
     "mass_balance_deduction": false,
     "migration": "none (draft grass_intake_evidence migration NOT copied)",
     "evidence_write_interface": false,
-    "blockers": ["GRASS-INTAKE-PREVIEW-1", "GRASS-S3-ROWCAP", "GRASS-S4-FEED", "GRASS-S5-CHAIN"],
-    "status_note": "docs/farm-return-next/GRASS_INTAKE_PREVIEW_STATUS.md"
+    "blockers": [
+      "GRASS-INTAKE-PREVIEW-1",
+      "GRASS-S3-ROWCAP",
+      "GRASS-S4-FEED",
+      "GRASS-S5-CHAIN"
+    ],
+    "status_note": "docs/farm-return-next/GRASS_INTAKE_PREVIEW_STATUS.md",
+    "verification": {
+      "vitest_passed": 149,
+      "test_files_passed": 10,
+      "next_typegen": "PASS",
+      "tsc": "PASS",
+      "scoped_eslint": "PASS",
+      "independent_review": "BLOCKING=0",
+      "reviewed_commit": "fac0266b",
+      "low_followup": "Removed evidence and session ids from client preview; refreshed stale status records"
+    }
   }
 }

@@ -28,7 +28,6 @@ export const GRASS_INTAKE_PREVIEW_FLAG = "GRASS_INTAKE_RESEARCH_PREVIEW";
 export const GRASS_INTAKE_PREVIEW_WINDOW_DAYS = 7;
 const DAY_MS = 86_400_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_IDS = 50;
 
 /** Strict: only the exact value "on" enables it. Unset, "true", "1", " on" are all OFF. */
 export function isGrassIntakePreviewFlagOn(): boolean {
@@ -91,9 +90,6 @@ export type GrassIntakePreviewView =
       sources: string[];
       gateVersions: string[];
       limitations: string[];
-      /** Provenance ids (own farm only, capped). Not rendered as visible text. */
-      evidenceRecordIds: string[];
-      sourceSessionIds: string[];
     };
 
 const REASON_FAMILY: Record<string, GrassIntakePreviewHeldReason> = {
@@ -228,8 +224,6 @@ export async function getGrassIntakePreviewForCurrentFarm(
         sources: uniqSorted(units.map(u => u.source)),
         gateVersions: uniqSorted(units.map(u => u.gateVersion)),
         limitations: uniqSorted(units.flatMap(u => u.limitations)),
-        evidenceRecordIds: uniqSorted(units.flatMap(u => u.evidenceRecordIds), MAX_IDS),
-        sourceSessionIds: uniqSorted(units.flatMap(u => u.sourceSessionIds), MAX_IDS),
       };
     }
   }

@@ -211,7 +211,8 @@ describe("grass intake research preview — enabled, current farm", () => {
       version: "grass_session_segment_demand_v1.0.0", resolutionVersion: "grass_evidence_resolution_v1.0.0",
       models: ["suckler_pair"], gateVersions: ["grass_intake_evidence_gate_v1.0.0"],
     });
-    expect(view.evidenceRecordIds).toHaveLength(5);
+    expect(view).not.toHaveProperty("evidenceRecordIds");
+    expect(view).not.toHaveProperty("sourceSessionIds");
     expect(view).not.toHaveProperty("farmId");
     expect(view).not.toHaveProperty("intervals");
   });

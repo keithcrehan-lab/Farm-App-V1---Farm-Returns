@@ -1559,6 +1559,66 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     expect(within(rail).getByText("Cattle")).toBeTruthy();
     expect(within(rail).getByText("Sheds")).toBeTruthy();
     expect(within(rail).getByText("Not yet supported")).toBeTruthy();
+    // Mobile Overview (2026-11-19): the rail is desktop-only; on a phone the
+    // same counts live in the map's "Your Farm" panel, never both.
+    expect(rail.className).toContain("max-lg:hidden");
+  });
+
+  it("Your Farm: a compact map panel above the lens switcher with the store's real counts, mobile only", async () => {
+    renderTodayMap();
+    const map = await screen.findByTestId("map-hero-stub");
+    const yourFarm = within(map).getByRole("region", { name: "Your Farm" });
+    expect(yourFarm.parentElement!.className).toContain("lg:hidden");
+    // Real figures from the same store the rail reads — never a separate sum.
+    const rail = screen.getByRole("navigation", { name: "Farm objects" });
+    const railCattle = rail.querySelector("[data-rail-object='cattle'] .font-display")?.textContent;
+    const railSheds = rail.querySelector("[data-rail-object='sheds'] .font-display")?.textContent;
+    const summary = yourFarm.querySelector("[data-your-farm-summary]")!.textContent!;
+    expect(summary).toMatch(/^\d+ fields? · /);
+    if (railCattle) expect(summary).toContain(`${railCattle} cattle`);
+    else expect(summary).toContain("No cattle recorded");
+    if (railSheds) expect(summary).toMatch(new RegExp(`${railSheds} sheds?$`));
+    else expect(summary).toContain("No sheds recorded");
+    // It sits below the bottom stack's lens context, directly above the switcher.
+    const lensGroup = within(map).getByRole("group", { name: "Farm lens" });
+    expect(yourFarm.compareDocumentPosition(lensGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("Your Farm: Cattle opens the same real group detail as the rail; Fields and Grass go to their screens", async () => {
+    renderTodayMap();
+    const map = await screen.findByTestId("map-hero-stub");
+    const yourFarm = within(map).getByRole("region", { name: "Your Farm" });
+    fireEvent.click(within(yourFarm).getByRole("button", { name: /show farm summary/i }));
+    expect((yourFarm.querySelector("[data-your-farm-card='fields']") as HTMLElement).getAttribute("href")).toBe("/fields");
+    expect((yourFarm.querySelector("[data-your-farm-card='grass']") as HTMLElement).getAttribute("href")).toBe("/grass");
+    fireEvent.click(yourFarm.querySelector("[data-your-farm-card='cattle']") as HTMLElement);
+    const detail = within(yourFarm).getByRole("region", { name: "Cattle groups" });
+    expect(within(detail).getAllByRole("link").some((link) => link.getAttribute("href")!.startsWith("/cattle/groups/"))).toBe(true);
+    expect(screen.getByTestId("map-hero-stub")).toBeTruthy();
+  });
+
+  it("Your Farm and Farm Today stay separate panels, and only one is open at a time", async () => {
+    renderTodayMap();
+    const map = await screen.findByTestId("map-hero-stub");
+    const farmToday = map.querySelector("[data-farm-today]") as HTMLElement;
+    const yourFarm = within(map).getByRole("region", { name: "Your Farm" });
+    expect(farmToday.contains(yourFarm)).toBe(false);
+    fireEvent.click(within(farmToday).getByRole("button", { name: /show farm today actions/i }));
+    expect(farmToday.getAttribute("data-expanded")).toBe("true");
+    fireEvent.click(within(yourFarm).getByRole("button", { name: /show farm summary/i }));
+    expect(yourFarm.getAttribute("data-expanded")).toBe("true");
+    expect(farmToday.getAttribute("data-expanded")).toBe("false");
+    fireEvent.click(within(farmToday).getByRole("button", { name: /show farm today actions/i }));
+    expect(yourFarm.getAttribute("data-expanded")).toBe("false");
+  });
+
+  it("Your Farm steps aside with the lens caption while a field is selected", async () => {
+    renderTodayMap();
+    const map = await screen.findByTestId("map-hero-stub");
+    const yourFarm = within(map).getByRole("region", { name: "Your Farm" });
+    const field = capturedMapHeroProps!.fields!.find((f) => f.polygon)!;
+    act(() => capturedMapHeroProps!.onSelectField!(field.id));
+    expect(yourFarm.closest(".invisible")).toBeTruthy();
   });
 
   it("Phase 6: selecting Cattle inspects the store's real groups in place, without leaving the map", async () => {

@@ -33,7 +33,9 @@ import {
  * `calculateShedOccupancy`; Sheep explains why nothing is shown. Rows come
  * from `farm-spatial-object-rail.ts`, which derives nothing itself.
  * Desktop: the panel opens over the map's right edge beside the rail.
- * Mobile: it opens under the three-column band. Escape or the close
+ * Mobile (2026-11-19): the Farm page hides this rail below `lg` and the
+ * map's "Your Farm" panel (`FarmYourFarmPanel`) opens the same
+ * `FarmObjectPanel` for Cattle and Sheds instead. Escape or the close
  * button closes it; motion collapses under reduced motion.
  *
  * Asset strategy: no approved production silhouette asset exists yet
@@ -174,18 +176,26 @@ function RailObject({
 const PANEL_TITLE: Record<FarmObjectId, string> = { cattle: "Cattle groups", sheep: "Sheep", sheds: "Sheds" };
 const PANEL_RULE: Record<FarmObjectId, string> = { cattle: "bg-fr-v2-plum", sheep: "bg-fr-v2-plum/40", sheds: "bg-fr-v2-clay" };
 
-function FarmObjectPanel({
+/**
+ * One object's inspection panel. Exported so the mobile "Your Farm" map
+ * panel (`FarmYourFarmPanel`) opens exactly this real detail, never a copy.
+ * `className` lets an embedding surface drop the rail's own desktop
+ * positioning/border; the rows and wording are unchanged.
+ */
+export function FarmObjectPanel({
   id,
   objectId,
   livestockGroups,
   housing,
   onClose,
+  className,
 }: {
   id: string;
   objectId: FarmObjectId;
   livestockGroups: readonly LivestockGroup[];
   housing: readonly Housing[];
   onClose: () => void;
+  className?: string;
 }) {
   const groups = useMemo(() => cattleGroupRows(livestockGroups, housing), [livestockGroups, housing]);
   const sheds = useMemo(() => shedRows(housing, livestockGroups), [housing, livestockGroups]);
@@ -194,7 +204,10 @@ function FarmObjectPanel({
       id={id}
       aria-label={PANEL_TITLE[objectId]}
       data-object-panel={objectId}
-      className="flex border-t border-fr-v2-rule bg-fr-v2-stone transition-[opacity,translate] duration-[160ms] ease-out starting:-translate-y-1 starting:opacity-0 motion-reduce:transition-none lg:absolute lg:inset-y-0 lg:right-full lg:z-30 lg:w-80 lg:overflow-y-auto lg:border-t-0 lg:shadow-[var(--fr-v2-shadow-overlay)]"
+      className={cn(
+        "flex border-t border-fr-v2-rule bg-fr-v2-stone transition-[opacity,translate] duration-[160ms] ease-out starting:-translate-y-1 starting:opacity-0 motion-reduce:transition-none lg:absolute lg:inset-y-0 lg:right-full lg:z-30 lg:w-80 lg:overflow-y-auto lg:border-t-0 lg:shadow-[var(--fr-v2-shadow-overlay)]",
+        className,
+      )}
     >
       <span aria-hidden className={cn("w-[3px] shrink-0", PANEL_RULE[objectId])} />
       <div className="min-w-0 flex-1 px-4 pb-4 pt-3">

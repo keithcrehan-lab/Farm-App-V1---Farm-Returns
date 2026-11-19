@@ -642,5 +642,25 @@
       "reviewed_commit": "fac0266b",
       "low_followup": "Removed evidence and session ids from client preview; refreshed stale status records"
     }
+  },
+  "grass_ui_redesign_20261119": {
+    "branch": "design/grass-ui-redesign-20261119",
+    "base_sha": "68a878937821e55b9d6198931d83053a9607e041",
+    "status": "UI_VERIFIED_OWNER_APPROVED_FOR_RELEASE_PENDING_INDEPENDENT_GATE",
+    "scope": "presentation only: GrassOverview, GrassWedgeChart, RegionalGrowthStatus (light theme), GrassPageClient header and records disclosure",
+    "science_or_data_changed": false,
+    "intake_preview_flag_changed": false,
+    "deployed": false,
+    "note": "docs/farm-return-next/design/GRASS_UI_REDESIGN_NOTE_20261119.md",
+    "open_finding": "47 kg DM/ha target line = device-stored residual 5 kg DM/ha + low recorded demand per ha; formula consistent; needs owner/scientist decision",
+    "verification": {
+      "grass_overview_wedge_tests": "17/17 PASS",
+      "grass_page_interactions": "22/22 PASS",
+      "next_typegen": "PASS",
+      "tsc": "PASS",
+      "scoped_eslint": "PASS (empty lint log; all changed paths)",
+      "independent_ui_audit": "BLOCKING=0, 3 Medium addressed (projection temporal label, duplicate seasonal advice, stale status); Safari arrow and county badge low issues addressed",
+      "visual_responsive": "NOT YET INDEPENDENTLY CHECKED IN AUTHENTICATED BROWSER"
+    }
   }
 }

@@ -73,6 +73,19 @@ describe("Grass wedge projected portions", () => {
     expect(Number(marker?.getAttribute("y1"))).toBeCloseTo(12 + plotH - (1750 / yMax) * plotH, 5);
   });
 
+  it("redesign: labels the target line with its own end values and scrolls instead of crushing many fields", () => {
+    const line = { targetPreGrazingKgDmHa: 47, residualKgDmHa: 5 } as unknown as Parameters<typeof GrassWedgeChart>[0]["line"];
+    const many = Array.from({ length: 8 }, (_, i) => ({
+      fieldId: `f${i}`, name: `Field ${i}`, areaHa: 1, coverKgDmHa: 2600 - i * 100, targetKgDmHa: 47 - i * 6,
+      x: i / 8, width: 1 / 8, centre: i / 8 + 1 / 16,
+    }));
+    const { container } = render(<GrassWedgeChart bars={many} line={line} onSelect={selection} occupiedFieldIds={new Set()} />);
+    expect(container.querySelector('[data-wedge-line-label="start"]')!.textContent).toBe("47");
+    expect(container.querySelector('[data-wedge-line-label="end"]')!.textContent).toBe("5");
+    expect(container.querySelector('[style*="min-width"]')).toBeTruthy();
+    expect(screen.getByText("Field 0")).toBeInTheDocument();
+  });
+
   it("F20: an estimated 'today' cover is drawn and labelled differently from a reading taken today", () => {
     const { container } = renderChart(0, [
       { fieldId: "m", name: "Measured", areaHa: 1, coverKgDmHa: 1800, currentCoverKgDmHa: 1800, currentBasis: "measured", x: 0, width: .5, centre: .25 },

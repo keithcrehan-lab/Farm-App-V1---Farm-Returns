@@ -1183,3 +1183,25 @@ providers; no second source of truth, no migration.
 - `fac0266b`: connected source-gated suckler/dairy/time-interval intake engines to an owner-only on-demand research preview. Full focused integration test: 149/149 passed in 10 files, Next.js typegen, `tsc --noEmit`, and scoped ESLint passed. No SQL migration, writes or production flags.
 - Separate independent read-only review of the `8bf56ee8..fac0266b` range: BLOCKING=0. Addressed only the noted medium stale verification record and low browser payload provenance-id exposure; removed raw evidence and movement IDs from server-action view (retaining source, version, model limitations and status).
 - Still not activated: source evidence storage, persistent animal/feeding fields, and agronomic decision about planning allocation vs observed pasture disappearance. Feature flag stays OFF by default.
+
+### 19 Nov 2026 — Grass screen UI redesign (design preview, awaiting owner approval)
+
+- Branch `design/grass-ui-redesign-20261119` on `68a87893`. Owner brief: `design/GRASS_UI_REDESIGN_BRIEF_20261119.md`;
+  design note and target-line finding: `design/GRASS_UI_REDESIGN_NOTE_20261119.md`. Presentation only:
+  `GrassOverview.tsx`, `GrassWedgeChart.tsx`, `RegionalGrowthStatus.tsx` (light theme only), the
+  `GrassPageClient.tsx` header and records disclosure, and two targeted tests. No domain, data-layer, action,
+  schema, migration, flag or permission change. The intake preview stays gated and OFF.
+- 47 kg DM/ha target line: traced to `buildDemandLine` inputs (a device-stored 5 kg DM/ha residual and very low
+  recorded demand per hectare). The formula is unchanged. It is now made visible on screen and recorded as an open
+  owner/scientist decision.
+- Verification: **not run**. This session's permission system refused `npx vitest`, so typecheck, lint and the dev
+  server were not attempted. Commands for a supervisor:
+  `npx vitest run src/components/grass "src/app/(app)/grass"`, `npx tsc --noEmit`,
+  `npx eslint src/components/grass "src/app/(app)/grass"`, then `npm run dev` and visit `/grass` at 360/390/430 px
+  and desktop. Not committed, not deployed, not pushed.
+
+### 19 Nov 2026 — Grass UI redesign owner-approved for production release
+
+- Owner explicitly authorised release after Claude completed presentation-only redesign. Verified 17/17 GrassOverview/GrassWedgeChart component tests and 22/22 GrassPageClient workflow tests; Next.js type generation and project-wide TypeScript check passed. Changed-file ESLint log was empty.
+- Independent read-only UI review of entire code delta found BLOCKING=0. Addressed medium findings before release: summary explicitly distinguishes average cover Today from +3/+7 projected line position; removed separately hard-coded Teagasc seasonal advice (full source-backed `insight.why` remains in expanded details); verification state refreshed. Also resolved duplicate Safari disclosure markers and the misleading county-figure badge for missing data. No scientific formula, action or data migration changed.
+- Deployment still requires final targeted checks on these remediations plus the normal audited release pipeline. Authenticated mobile visual approval not independently performed. The unusual 5 kg DM/ha residual remains a separately flagged owner/agronomist issue; no scientific defaults changed.

@@ -31,11 +31,19 @@ export function RegionalGrowthStatus({
       aria-label="Regional grass growth"
       className={dark
         ? "border-t border-white/10 px-3.5 py-2 text-white lg:px-0"
-        : "mt-3 rounded-[14px] border border-fr-v2-cream-rule bg-fr-v2-cream px-4 py-3"}
+        : "mt-3 rounded-[16px] border border-dashed border-fr-v2-cream-rule bg-fr-v2-paper px-4 py-3"}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <div className={dark ? "text-[11px] font-semibold text-white/80" : "text-xs font-semibold text-fr-v2-charcoal"}>
+        <div className={dark ? "text-[11px] font-semibold text-white/80" : "flex flex-wrap items-center gap-2 text-xs font-semibold text-fr-v2-charcoal"}>
           Regional growth · {county}
+          {!dark && published ? (
+            <span className={published && !regional.current
+              ? "rounded-full bg-fr-v2-harvest-tint px-2 py-0.5 text-[10px] font-semibold text-fr-v2-harvest-ink"
+              : "rounded-full bg-fr-v2-stone px-2 py-0.5 text-[10px] font-semibold text-fr-v2-muted"}
+            >
+              {published && !regional.current ? "Out of date" : "County figure"}
+            </span>
+          ) : null}
         </div>
         <div className={dark ? "text-[12px] font-semibold text-white" : "font-mono text-[17px] font-semibold tabular-nums text-fr-v2-graphite"}>
           {published

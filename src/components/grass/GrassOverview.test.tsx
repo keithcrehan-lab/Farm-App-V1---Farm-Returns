@@ -128,6 +128,24 @@ describe("Grass V2 overview", () => {
     expect(screen.getByRole("dialog", { name: "Grass guide" })).toBeInTheDocument();
   });
 
+  it("redesign: shows the line comparison as a qualified stock comparison, not a days-of-grazing headline", () => {
+    window.localStorage.setItem(GRASS_SETTINGS_KEY, JSON.stringify({ targets: { rotationDays: 21, residualKgDmHa: 150 }, guideDone: true }));
+    resetGrassSettingsForTest();
+    renderOverview();
+    const summary = screen.getByRole("region", { name: "Grass summary" });
+    // Engine values unchanged: avg 790 vs line average 412.5 over 10 ha = 3,775 kg DM; ÷ 250 kg DM/day = 15.1 days.
+    expect(summary.textContent).toContain("Above");
+    expect(summary.textContent).toContain("3,775 kg DM");
+    expect(summary.textContent).toContain("≈15 days of recorded demand");
+    expect(summary.textContent).toContain("not a grazing forecast");
+    expect(summary.textContent).not.toContain("+15 days of demand");
+    // Full engine wording and working stay one tap away.
+    const decisions = screen.getByRole("region", { name: "What to do next" });
+    expect(within(decisions).getByText("More grass than your cattle need")).toBeInTheDocument();
+    expect(within(decisions).getByText("Recent readings")).toBeInTheDocument();
+    expect(within(decisions).getByText(/Your covers are about 3\.8 t DM above the target line/)).toBeInTheDocument();
+  });
+
   it("previews taking a field out without changing anything", () => {
     window.localStorage.setItem(GRASS_SETTINGS_KEY, JSON.stringify({ targets: { rotationDays: 21, residualKgDmHa: 150 }, guideDone: true }));
     resetGrassSettingsForTest();

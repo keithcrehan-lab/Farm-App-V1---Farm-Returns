@@ -53,10 +53,16 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
 
   if (bars.length === 0) return <p className="py-10 text-center text-sm text-fr-v2-muted">Map a field to begin your grass wedge.</p>;
 
+  // Many fields on a phone: let the plot scroll sideways rather than crush the bars and names.
+  const scrollMinWidth = bars.length > 6 ? `${bars.length * 64}px` : undefined;
+
   return (
     <figure aria-label="Grass wedge">
+      <div className={cn("-mx-1 px-1", scrollMinWidth && "overflow-x-auto overscroll-x-contain [scrollbar-width:thin]")}>
+      <div style={scrollMinWidth ? { minWidth: scrollMinWidth } : undefined}>
+      <p aria-hidden className="mb-1 font-mono text-[10px] text-fr-v2-muted">kg DM/ha</p>
       <div className="relative">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-52 w-full select-none sm:h-64" role="img" aria-label={`Grass wedge of ${bars.length} fields${showForecast ? `, projected ${horizonDays} days with today's cover and forecast change distinguished` : ""}${line ? ", with the target line" : ""}`}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-60 w-full select-none sm:h-72" role="img" aria-label={`Grass wedge of ${bars.length} fields${showForecast ? `, projected ${horizonDays} days with today's cover and forecast change distinguished` : ""}${line ? ", with the target line" : ""}`}>
         <defs>
           <pattern id="grass-wedge-gain-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
             <line x1="1" y1="0" x2="1" y2="7" stroke="#ffffff" strokeOpacity="0.53" strokeWidth="2" />
@@ -131,6 +137,29 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
           {t === 0 ? "0" : `${t / 1000}k`}
         </span>
       ))}
+      {/* The line's own end values, so its scale against the bars is never hidden. */}
+      {line && first && last ? (
+        <>
+          <span
+            data-wedge-line-label="start"
+            aria-hidden
+            className="pointer-events-none absolute -translate-y-full whitespace-nowrap rounded-[4px] bg-white/90 px-1 font-mono text-[10px] font-semibold text-[#C0362C]"
+            style={{ left: `${(xOf(first.centre) / W) * 100}%`, top: `calc(${(y(line.targetPreGrazingKgDmHa) / H) * 100}% - 3px)` }}
+          >
+            {formatNumber(line.targetPreGrazingKgDmHa, 0)}
+          </span>
+          {last !== first ? (
+            <span
+              data-wedge-line-label="end"
+              aria-hidden
+              className="pointer-events-none absolute -translate-x-full -translate-y-full whitespace-nowrap rounded-[4px] bg-white/90 px-1 font-mono text-[10px] font-semibold text-[#C0362C]"
+              style={{ left: `${(xOf(last.centre) / W) * 100}%`, top: `calc(${(y(line.residualKgDmHa) / H) * 100}% - 3px)` }}
+            >
+              {formatNumber(line.residualKgDmHa, 0)}
+            </span>
+          ) : null}
+        </>
+      ) : null}
       {bars.map((b) => occupiedFieldIds.has(b.fieldId) ? (
         <span
           key={b.fieldId}
@@ -160,37 +189,44 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
       </div>
       </div>
       {/* Field names under the bars, in HTML at a readable size; bars too narrow for a name stay unlabelled (tap to see). */}
-      <div aria-hidden className="relative h-5" style={{ marginLeft: `${(LEFT / W) * 100}%` }}>
+      <div aria-hidden className="relative h-6" style={{ marginLeft: `${(LEFT / W) * 100}%` }}>
         {bars.map((b) => (
           <span
             key={b.fieldId}
-            className={cn("absolute top-0.5 truncate px-0.5 text-center text-[11px] text-fr-v2-charcoal", b.fieldId === selectedFieldId && "font-semibold", b.coverKgDmHa === undefined && "text-fr-v2-muted")}
+            title={b.name}
+            className={cn("absolute top-1 truncate px-0.5 text-center text-[11px] leading-4 text-fr-v2-charcoal", b.fieldId === selectedFieldId && "font-semibold text-fr-v2-forest", b.coverKgDmHa === undefined && "text-fr-v2-muted")}
             style={{ left: `${b.x * 100}%`, width: `${b.width * 100}%` }}
           >
-            {b.width >= 0.07 ? b.name : ""}
+            {b.width >= (scrollMinWidth ? Math.min(0.07, 44 / (bars.length * 64)) : 0.07) ? b.name : ""}
           </span>
         ))}
       </div>
-      <figcaption className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-fr-v2-muted">
-        {splitExists ? (
-          <>
-            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-fr-v2-forest" aria-hidden />Solid cover (base or remainder)</span>
-            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border border-[#639d8d]" style={{ background: "repeating-linear-gradient(135deg, #8ebeb2, #8ebeb2 3px, #d9eae5 3px, #d9eae5 5px)" }} aria-hidden />Projected gain</span>
-            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border border-dashed border-[#ae844b]" style={{ background: "repeating-linear-gradient(135deg, #d8b06f, #d8b06f 3px, #f5e6ca 3px, #f5e6ca 5px)" }} aria-hidden />Projected loss</span>
-          </>
-        ) : null}
-        {anyRecorded ? <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-fr-v2-forest" aria-hidden />Recorded reading</span> : null}
-        {anyEstimated ? <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border-t-2 border-dotted border-fr-v2-charcoal bg-fr-v2-forest/60" aria-hidden />Estimated for today (not a new reading)</span> : null}
-        <span className="inline-flex items-center gap-1.5"><span className="h-[3px] w-4 rounded-full bg-[#C0362C]" aria-hidden />Target line</span>
-        {line ? (
-          <>
-            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-fr-v2-forest" aria-hidden />Above the line</span>
-            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-fr-v2-harvest" aria-hidden />Below</span>
-          </>
-        ) : null}
-        <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-fr-v2-graphite" aria-hidden />Cattle in field</span>
-        {bars.some((b) => b.coverKgDmHa === undefined) ? <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-3 border border-dashed border-fr-v2-muted" aria-hidden />Not measured</span> : null}
-        <span>kg DM/ha</span>
+      </div>
+      </div>
+      {scrollMinWidth ? <p className="mt-1 text-[11px] text-fr-v2-muted sm:hidden">Swipe the chart to see every field · tap a bar for its details</p> : null}
+      {/* Grouped key: what the bars mean, then the line and markers. Only what's on the chart is listed. */}
+      <figcaption className="mt-3 space-y-1.5 rounded-[12px] bg-fr-v2-paper px-3 py-2.5 text-[11px] text-fr-v2-muted">
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em]">Bars</span>
+          {splitExists ? (
+            <>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-fr-v2-forest" aria-hidden />Solid cover (base or remainder)</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border border-[#639d8d]" style={{ background: "repeating-linear-gradient(135deg, #8ebeb2, #8ebeb2 3px, #d9eae5 3px, #d9eae5 5px)" }} aria-hidden />Projected gain</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border border-dashed border-[#ae844b]" style={{ background: "repeating-linear-gradient(135deg, #d8b06f, #d8b06f 3px, #f5e6ca 3px, #f5e6ca 5px)" }} aria-hidden />Projected loss</span>
+            </>
+          ) : null}
+          {anyRecorded ? <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-fr-v2-forest" aria-hidden />Recorded reading</span> : null}
+          {anyEstimated ? <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border-t-2 border-dotted border-fr-v2-charcoal bg-fr-v2-forest/60" aria-hidden />Estimated for today (not a new reading)</span> : null}
+          {bars.some((b) => b.coverKgDmHa === undefined) ? <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-3 border border-dashed border-fr-v2-muted" aria-hidden />Not measured</span> : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em]">Marks</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-[3px] w-4 rounded-full bg-[#C0362C]" aria-hidden />
+            Target line{line ? <> ({formatNumber(line.targetPreGrazingKgDmHa, 0)} → {formatNumber(line.residualKgDmHa, 0)}) · bars <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm bg-fr-v2-forest" aria-hidden />above</span> / <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm bg-fr-v2-harvest" aria-hidden />below</span></> : null}
+          </span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-fr-v2-graphite" aria-hidden />Cattle in field</span>
+        </div>
       </figcaption>
     </figure>
   );

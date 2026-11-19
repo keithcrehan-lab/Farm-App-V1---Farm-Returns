@@ -75,7 +75,6 @@ import { FarmLensContext } from "@/components/farm-spatial/FarmLensContext";
 import { FarmTodayPanel } from "@/components/farm-spatial/FarmTodayPanel";
 import { buildFarmTodayView, farmTodayBadgeSignature } from "@/lib/farm-today-overview";
 import { FarmObjectRail } from "@/components/farm-spatial/FarmObjectRail";
-import { FarmYourFarmPanel } from "@/components/farm-spatial/FarmYourFarmPanel";
 import { FarmGrassMapOverlay } from "@/components/farm-spatial/FarmGrassMapOverlay";
 import { FarmFieldDrawer } from "@/components/farm-spatial/FarmFieldDrawer";
 import { FarmCattleMoves } from "@/components/farm-spatial/FarmCattleMoves";
@@ -454,17 +453,6 @@ export default function TodayPage() {
     [mounted, fields, allPrompts, todayOpportunities],
   );
   const [farmTodayExpanded, setFarmTodayExpanded] = useState(false);
-  // Mobile "Your Farm" summary. On a phone only one of the two map panels is
-  // open at a time, so together they never crowd the map off a small screen.
-  const [yourFarmExpanded, setYourFarmExpanded] = useState(false);
-  function expandFarmToday(next: boolean) {
-    setFarmTodayExpanded(next);
-    if (next) setYourFarmExpanded(false);
-  }
-  function expandYourFarm(next: boolean) {
-    setYourFarmExpanded(next);
-    if (next) setFarmTodayExpanded(false);
-  }
   // A farm-wide topic opens its existing opportunity sheet only: no field
   // focus and no camera move (it is not about any one field).
   function openFarmTodayTopic(opportunity: TodayOpportunity) {
@@ -683,7 +671,7 @@ export default function TodayPage() {
       <FarmTodayPanel
         view={farmTodayView}
         expanded={farmTodayExpanded}
-        onExpandedChange={expandFarmToday}
+        onExpandedChange={setFarmTodayExpanded}
         selectedFieldId={selectedField?.id}
         selectedFieldName={selectedField?.name}
         onSelectField={selectFarmTodayField}
@@ -764,8 +752,7 @@ export default function TodayPage() {
           selected-field panel rising above the lens switcher, and the
           lens switcher (bottom-centre). Two local scrims carry legibility
           so the aerial imagery stays clear across the farm. Desktop keeps
-          the quiet object rail beside the map; on a phone its counts and
-          detail live in the map's collapsible "Your Farm" panel instead.
+          the quiet object rail beside the map; mobile places it under it.
           `data-farm-workspace` runs the map edge to edge beside the
           navigation (see `AppShell`). */}
       <section data-farm-workspace className="-mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:grid lg:grid-cols-[minmax(0,1fr)_112px] lg:overflow-hidden">
@@ -817,7 +804,7 @@ export default function TodayPage() {
             plain
             // Keep the whole farm clear of the identity, utilities and
             // lens switcher: a wide left margin beside the desktop identity.
-            fitPadding={(width) => (width >= 860 ? { top: 96, bottom: 88, left: 320, right: lens === "current" ? 400 : 44 } : { top: 220, bottom: 210, left: 20, right: 96 })}
+            fitPadding={(width) => (width >= 860 ? { top: 96, bottom: 88, left: 320, right: lens === "current" ? 400 : 44 } : { top: 220, bottom: 160, left: 20, right: 96 })}
             className="h-[calc(100dvh-0.5rem)] min-h-[600px] lg:h-dvh lg:min-h-[640px]"
           >
             <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between">
@@ -935,22 +922,6 @@ export default function TodayPage() {
                       <p className="mt-2 max-w-md text-[11px] text-white/70">Grass records could not be loaded just now. No cover has been assumed.</p>
                     ) : null}
                   </div>
-                  {/* Mobile "Your Farm": real field/cattle/shed counts just
-                      above the lens switcher, replacing the object strip that
-                      sat below the map. Desktop keeps the object rail. */}
-                  <div className={cn("pointer-events-auto max-w-md lg:hidden", (lens !== "current" || !mounted) && "hidden", selectedField && "invisible pointer-events-none")}>
-                    <FarmYourFarmPanel
-                      counts={objectRailCounts}
-                      fieldCount={fields.length}
-                      mappedFieldCount={mappedFieldCount}
-                      farmAreaHa={farmAreaHa}
-                      livestockGroups={livestockGroups}
-                      housing={housingList}
-                      grassAverageCoverKgDmHa={undefined}
-                      expanded={yourFarmExpanded}
-                      onExpandedChange={expandYourFarm}
-                    />
-                  </div>
                 </div>
                 <div className="relative">
                   {/* The selected field comes forward, attached to the map
@@ -970,9 +941,6 @@ export default function TodayPage() {
         </div>
 
         <FarmObjectRail
-          // Desktop only: on a phone the same counts and detail live in the
-          // map's "Your Farm" panel, so the strip under the map would only duplicate it.
-          className="max-lg:hidden"
           counts={objectRailCounts}
           livestockGroups={livestockGroups}
           housing={housingList}

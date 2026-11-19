@@ -1,7 +1,6 @@
 import {
   Home,
   Map,
-  Leaf,
   Wheat,
   Tractor,
   Gauge,
@@ -22,6 +21,7 @@ import {
   Sprout,
 } from "lucide-react";
 import { CowIcon } from "./CowIcon";
+import { GrassIcon } from "./GrassIcon";
 import { FertiliserBagIcon } from "./FertiliserBagIcon";
 
 export interface NavItem {
@@ -71,7 +71,7 @@ export const primaryNavItems: NavItem[] = [
   { href: "/inputs-market", label: "Inputs Market", icon: ShoppingBasket },
   { href: "/plan", label: "Plan", icon: CalendarDays },
   { href: "/cattle", label: "Cattle", icon: CowIcon },
-  { href: "/grass", label: "Grass", icon: Leaf },
+  { href: "/grass", label: "Grass", icon: GrassIcon },
   { href: "/housing", label: "Housing", icon: Warehouse },
   { href: "/finance", label: "Finance", icon: BarChart3 },
   { href: "/records", label: "Records", icon: Folder },

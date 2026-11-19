@@ -629,13 +629,19 @@ export function GrassPageClient({ initialFieldId, intakePreview = false }: { ini
         )}
       />
 
-      <details className="group border-y border-fr-v2-cream-rule" open={recordsOpen} onToggle={(event) => setRecordsOpen((event.currentTarget as HTMLDetailsElement).open)}>
-        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 marker:hidden [&::-webkit-details-marker]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-forest">
-          <span>
-            <span className="block text-sm font-semibold text-fr-v2-charcoal">Growth, cattle and records</span>
-            <span className="block text-xs text-fr-v2-muted">Record a reading or growth rate, cattle on grass, data confidence and every field&apos;s latest reading</span>
+      {/* 21st.dev design trial: chapter IV of the Grass fieldbook (presentation only). */}
+      <details className="group mt-12 border-y border-fr-v2-graphite/80" open={recordsOpen} onToggle={(event) => setRecordsOpen((event.currentTarget as HTMLDetailsElement).open)}>
+        <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-3 py-2 marker:hidden [&::-webkit-details-marker]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fr-v2-forest">
+          <span className="flex items-end gap-3">
+            <span aria-hidden className="font-display text-[34px] leading-[0.85] text-fr-v2-forest/35 sm:text-[42px]">IV</span>
+            <span>
+              <span className="block font-display text-[22px] leading-tight text-fr-v2-graphite sm:text-[26px]">Growth, cattle and records</span>
+              <span className="block text-xs text-fr-v2-muted">Record a reading or growth rate, cattle on grass, data confidence and every field&apos;s latest reading</span>
+            </span>
           </span>
-          <ChevronDown className="size-4 shrink-0 text-fr-v2-forest transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden />
+          <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-full border border-fr-v2-rule text-fr-v2-forest">
+            <ChevronDown className="size-4 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+          </span>
         </summary>
         <div className="mt-2 pb-8">
           <GrowthInsights forecasts={okData.growthForecasts} />

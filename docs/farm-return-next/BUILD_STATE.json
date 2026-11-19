@@ -662,5 +662,32 @@
       "independent_ui_audit": "BLOCKING=0, 3 Medium addressed (projection temporal label, duplicate seasonal advice, stale status); Safari arrow and county badge low issues addressed",
       "visual_responsive": "NOT YET INDEPENDENTLY CHECKED IN AUTHENTICATED BROWSER"
     }
+  },
+  "grass_21st_design_trial_20261119": {
+    "branch": "design/grass-21st-trial-20261119",
+    "base_sha": "71fab715",
+    "status": "UI_TESTED_OWNER_AUTHORISED_LIVE_RELEASE_PENDING_CI",
+    "scope": "presentation only: GrassOverview (cover hero, Plate I wedge frame, editorial decision list, line-provenance strip), GrassPageClient records disclosure styling",
+    "references_21st": [
+      "Editorial service list — ibrandify, component 37530 (adapted: numbered accordion decisions)",
+      "Segmented Tabs — micka_design, component 26923 (adapted: sliding indicator, hover ghost, bold sizer; no new dependencies)"
+    ],
+    "science_or_data_changed": false,
+    "grass_wedge_chart_changed": false,
+    "intake_preview_flag_changed": false,
+    "new_dependencies": false,
+    "committed": false,
+    "deployed": false,
+    "note": "docs/farm-return-next/design/GRASS_21ST_TRIAL_NOTE_20261119.md",
+    "open_finding": "47 kg DM/ha target line (device-stored 5 kg DM/ha residual) still needs owner/scientist decision; trial now shows the line inputs beside the Teagasc ≈150 guide with a not-reviewed caveat, no formula change",
+    "verification": {
+      "focused_grass_tests": "PASS 39/39 in 3 files on 19 Nov 2026",
+      "next_route_typegen": "PASS",
+      "typescript": "No diagnostics in prior check; full project static CI also required",
+      "scoped_eslint": "PASS, exit 0, zero warnings",
+      "independent_readonly_release_audit": "VERDICT: BLOCKING=0 in /tmp/fr-21st-grass-independent-audit-20261119.log",
+      "visual_responsive": "NOT VERIFIED with authenticated mobile browser; owner explicitly requested live rollout",
+      "production_pipeline": "PENDING"
+    }
   }
 }

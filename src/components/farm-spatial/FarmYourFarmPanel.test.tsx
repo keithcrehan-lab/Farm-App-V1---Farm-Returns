@@ -163,7 +163,7 @@ describe("FarmYourFarmPanel", () => {
     expect(panel().className).toContain("bg-fr-v2-forest-deep/88");
     expect(panel().className).toContain("backdrop-blur-md");
     const body = panel().querySelector("[data-your-farm-body]") as HTMLElement;
-    expect(body.className).toContain("max-h-[min(50dvh,420px)]");
+    expect(body.className).toContain("max-h-[min(28dvh,230px)]");
     expect(body.className).toContain("overflow-y-auto");
     for (const card of Array.from(panel().querySelectorAll("[data-your-farm-card]"))) {
       expect(card.className).toContain("motion-reduce:transition-none");

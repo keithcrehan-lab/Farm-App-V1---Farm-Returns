@@ -938,7 +938,7 @@ export default function TodayPage() {
                   {/* Mobile "Your Farm": real field/cattle/shed counts just
                       above the lens switcher, replacing the object strip that
                       sat below the map. Desktop keeps the object rail. */}
-                  <div className={cn("pointer-events-auto max-w-md lg:hidden", lens !== "current" && "hidden", selectedField && "invisible pointer-events-none")}>
+                  <div className={cn("pointer-events-auto max-w-md lg:hidden", (lens !== "current" || !mounted) && "hidden", selectedField && "invisible pointer-events-none")}>
                     <FarmYourFarmPanel
                       counts={objectRailCounts}
                       fieldCount={fields.length}

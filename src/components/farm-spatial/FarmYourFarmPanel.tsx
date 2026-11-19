@@ -145,7 +145,7 @@ export function FarmYourFarmPanel({
       <div
         id={bodyId}
         hidden={!expanded}
-        className="max-h-[min(50dvh,420px)] overflow-y-auto overscroll-contain border-t border-white/10"
+        className="max-h-[min(28dvh,230px)] overflow-y-auto overscroll-contain border-t border-white/10"
         data-your-farm-body
       >
         {expanded ? (

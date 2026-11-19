@@ -37,10 +37,13 @@ export interface FarmLens {
 
 export const FARM_LENSES: readonly FarmLens[] = [
   {
+    // Farm Overview Phase 1 (2026-11-19): the internal `current` id is kept
+    // (selection views, field lens views and old links all key on it) and
+    // presented as Overview — the map's default view with Farm Today.
     id: "current",
-    label: "Current",
-    caption: "Field use · livestock · recent and planned work",
-    unavailableNote: "Livestock field locations aren't recorded yet, so groups stay in the rail.",
+    label: "Overview",
+    caption: "Farm Today · field-linked actions · planned work",
+    unavailableNote: "Farm-wide topics stay in Farm Today. A field is only marked when its own record carries an action.",
     links: [{ href: "/plan", label: "Planned work" }],
     accentClassName: "bg-white",
     kickerClassName: "text-white/80",
@@ -78,24 +81,27 @@ export const FARM_LENSES: readonly FarmLens[] = [
 ];
 
 /**
- * The map views the farmer can switch between (product owner, 2026-11-12):
- * grass cover is the map's normal view, and soil P & K is the other. Current
- * and Conditions are no longer offered: planned use sits in the field panel,
- * the spreading calendar in the conditions chip, and cattle groups are shown
- * on the map itself. Their definitions stay above so older links still open.
+ * The map views the farmer can switch between, in order: Overview | Grass |
+ * Soil (product owner, 2026-11-19; previously Grass | Soil, 2026-11-12).
+ * Overview (internal id `current`) is the map's default view on every new
+ * Farm entry; Grass and Soil open only when chosen or deep-linked.
+ * Conditions is still not offered (the spreading calendar lives in the
+ * conditions chip); its definition stays above so older links still open.
  */
-export const MAP_LENS_IDS: readonly FarmLensId[] = ["grass", "nutrients"];
+export const MAP_LENS_IDS: readonly FarmLensId[] = ["current", "grass", "nutrients"];
 /** The switch's own wording for each map view. */
-export const MAP_LENS_LABEL: Partial<Record<FarmLensId, string>> = { grass: "Grass", nutrients: "Soil" };
+export const MAP_LENS_LABEL: Partial<Record<FarmLensId, string>> = { current: "Overview", grass: "Grass", nutrients: "Soil" };
 
-export const DEFAULT_FARM_LENS: FarmLensId = "grass";
+export const DEFAULT_FARM_LENS: FarmLensId = "current";
 
-/** Links written before Soil joined Nutrients (`?lens=soil`) open the
- * Nutrients lens, and links to the retired Current and Conditions views open
- * the map's normal (Grass) view; anything else unknown is ignored by the caller. */
+/** Deep-link aliases: `?lens=overview` and `?lens=current` open Overview;
+ * links written before Soil joined Nutrients (`?lens=soil`) open the
+ * Nutrients lens; links to the retired Conditions view open the map's
+ * default view. Anything else unknown is ignored by the caller. */
 export function resolveFarmLensId(id: string | null | undefined): FarmLensId | undefined {
+  if (id === "overview") return "current";
   if (id === "soil") return "nutrients";
-  if (id === "current" || id === "conditions") return DEFAULT_FARM_LENS;
+  if (id === "conditions") return DEFAULT_FARM_LENS;
   return MAP_LENS_IDS.some((l) => l === id) ? (id as FarmLensId) : undefined;
 }
 

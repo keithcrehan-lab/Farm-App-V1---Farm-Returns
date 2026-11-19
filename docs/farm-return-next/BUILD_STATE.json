@@ -689,5 +689,42 @@
       "visual_responsive": "NOT VERIFIED with authenticated mobile browser; owner explicitly requested live rollout",
       "production_pipeline": "PENDING"
     }
+  },
+  "farm_overview_p1_20261119": {
+    "branch": "feature/farm-overview-p1-20261119",
+    "base_sha": "4505abd6",
+    "brief": "docs/farm-return-next/design/FARM_OVERVIEW_SMART_HYBRID_PHASE1_BRIEF_20261119.md",
+    "note": "docs/farm-return-next/design/FARM_OVERVIEW_P1_NOTE_20261119.md",
+    "status": "PHASE1_VERIFIED_READY_FOR_OWNER_PREVIEW_NOT_RELEASED",
+    "owner_authorisation": "build working prototype for review; NO production deploy, NO release push",
+    "scope": "Farm map (/today) lens switch Overview | Grass | Soil with Overview default; Farm Today compact/expanded panel; neutral field action badges (max 3 labels); bidirectional panel/map selection",
+    "files_changed": [
+      "src/lib/farm-spatial-lenses.ts",
+      "src/components/farm-spatial/FarmLensControl.tsx",
+      "src/lib/farm-today-overview.ts (new, presentation adapter)",
+      "src/components/farm-spatial/FarmTodayPanel.tsx (new)",
+      "src/components/farm/MapHero.tsx (additive optional getActionBadge prop)",
+      "src/app/(app)/today/page.tsx",
+      "src/lib/farm-today-overview.test.ts (new)",
+      "src/components/farm-spatial/farm-spatial-shell.test.tsx",
+      "src/app/(app)/today/page.test.tsx"
+    ],
+    "science_or_data_changed": false,
+    "schema_auth_api_changed": false,
+    "grass_screen_changed": false,
+    "grass_47kg_anomaly_touched": false,
+    "new_dependencies": false,
+    "committed": true,
+    "deployed": false,
+    "field_action_rule": "soil_test_age OK/DISREGARD; fertiliser_recommendation OK only while the same field's chemical spreading-window Prompt is OK. Farm-topic affectedFieldIds never mark a field.",
+    "verification": {
+      "focused_and_expanded_tests": "144 of 144 PASS in six test files, after legal-prohibition preservation and desktop padding fix",
+      "next_typegen": "PASS",
+      "typescript_tsc_no_emit": "PASS exit 0",
+      "changed_path_eslint": "PASS exit 0",
+      "independent_readonly_review": "VERDICT: BLOCKING=0; medium UX findings documented and legal prohibition/desktop panel padding improved",
+      "mobile_authenticated_visual": "NOT VERIFIED; preview/review required at 360/390/430px",
+      "production": "NOT DEPLOYED; owner review required"
+    }
   }
 }

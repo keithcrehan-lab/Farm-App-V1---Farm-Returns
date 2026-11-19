@@ -11,7 +11,9 @@ afterEach(cleanup);
 
 describe("Farm lenses (Farm + Fields redesign)", () => {
   it("defines exactly the four approved lenses in order — no separate Soil lens", () => {
-    expect(FARM_LENSES.map((l) => l.label)).toEqual(["Current", "Grass", "Nutrients", "Conditions"]);
+    // Farm Overview Phase 1: the internal `current` lens is presented as Overview.
+    expect(FARM_LENSES.map((l) => l.id)).toEqual(["current", "grass", "nutrients", "conditions"]);
+    expect(FARM_LENSES.map((l) => l.label)).toEqual(["Overview", "Grass", "Nutrients", "Conditions"]);
     expect(FARM_LENSES.map((l) => l.id)).not.toContain("soil");
   });
 
@@ -34,15 +36,26 @@ describe("Farm lenses (Farm + Fields redesign)", () => {
 });
 
 describe("FarmLensControl", () => {
-  it("offers only the two map views, Grass and Soil, and reports a selection", () => {
+  it("offers the three map views in order — Overview | Grass | Soil — and reports a selection (owner, 2026-11-19)", () => {
     const onChange = vi.fn();
     render(<FarmLensControl value="grass" onChange={onChange} />);
     const group = screen.getByRole("group", { name: "Farm lens" });
-    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["Grass", "Soil"]);
+    expect(group.className).toContain("grid-cols-3");
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["Overview", "Grass", "Soil"]);
+    expect(within(group).getByRole("button", { name: "Overview" }).getAttribute("aria-pressed")).toBe("false");
     expect(within(group).getByRole("button", { name: "Grass" }).getAttribute("aria-pressed")).toBe("true");
     expect(within(group).getByRole("button", { name: "Soil" }).getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(within(group).getByRole("button", { name: "Soil" }));
-    expect(onChange).toHaveBeenCalledWith("nutrients");
+    expect(onChange).toHaveBeenLastCalledWith("nutrients");
+    fireEvent.click(within(group).getByRole("button", { name: "Overview" }));
+    expect(onChange).toHaveBeenLastCalledWith("current");
+  });
+
+  it("keeps a ≥44px touch target on every segment", () => {
+    render(<FarmLensControl value="current" onChange={() => {}} />);
+    for (const button of within(screen.getByRole("group", { name: "Farm lens" })).getAllByRole("button")) {
+      expect(button.className).toContain("min-h-11");
+    }
   });
 
   it("marks the active view with its domain-colour rule, not a filled button (Phase 02B)", () => {
@@ -57,13 +70,18 @@ describe("FarmLensControl", () => {
     }
   });
 
-  it("opens the Grass view by default, and older links to Current or Conditions open it too", () => {
-    expect(DEFAULT_FARM_LENS).toBe("grass");
-    expect(resolveFarmLensId("current")).toBe("grass");
-    expect(resolveFarmLensId("conditions")).toBe("grass");
+  it("opens Overview by default; deep links to Grass, Soil and older lens names still resolve", () => {
+    expect(DEFAULT_FARM_LENS).toBe("current");
+    expect(MAP_LENS_IDS).toEqual(["current", "grass", "nutrients"]);
+    expect(MAP_LENS_LABEL.current).toBe("Overview");
+    expect(resolveFarmLensId("overview")).toBe("current");
+    expect(resolveFarmLensId("current")).toBe("current");
+    expect(resolveFarmLensId("grass")).toBe("grass");
+    expect(resolveFarmLensId("conditions")).toBe("current");
     expect(resolveFarmLensId("soil")).toBe("nutrients");
     expect(resolveFarmLensId("nutrients")).toBe("nutrients");
     expect(resolveFarmLensId("bogus")).toBeUndefined();
+    expect(resolveFarmLensId(null)).toBeUndefined();
   });
 });
 

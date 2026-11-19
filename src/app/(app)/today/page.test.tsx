@@ -86,6 +86,7 @@ interface CapturedMapHeroProps {
   highlightedFieldIds?: string[];
   dimUnhighlighted?: boolean;
   fitHighlightedFields?: boolean;
+  getActionBadge?: (field: { id: string }) => { count: number; label?: string } | undefined;
   children?: React.ReactNode;
 }
 let capturedMapHeroProps: CapturedMapHeroProps | undefined;
@@ -662,9 +663,17 @@ describe("TodayPage — Today Map Priority Semantics Correction (2026-09-19)", (
     // `MapHero` above — must not colour/label any of the ten real,
     // affected fields as if Farm Return had individually ranked them.
     expect(capturedMapHeroProps).toBeDefined();
+    // The map opens on Overview (2026-11-19): a farm-wide topic's membership
+    // never becomes a field marker, label or badge.
     for (const fieldId of fieldIds) {
       expect(capturedMapHeroProps!.getTone({ id: fieldId })).toBe("neutral");
-      // The map opens on Grass: an unmeasured field says so, and never carries the farm-level priority.
+      expect(capturedMapHeroProps!.getStatusLabel({ id: fieldId })).toBeUndefined();
+      expect(capturedMapHeroProps!.getActionBadge!({ id: fieldId })).toBeUndefined();
+    }
+    // On Grass, an unmeasured field says so, and never carries the farm-level priority.
+    fireEvent.click(screen.getByRole("button", { name: "Grass" }));
+    for (const fieldId of fieldIds) {
+      expect(capturedMapHeroProps!.getTone({ id: fieldId })).toBe("neutral");
       expect(capturedMapHeroProps!.getStatusLabel({ id: fieldId })).toBe("No cover");
     }
     // Also true for a field with no real opportunity at all — no field
@@ -1408,12 +1417,17 @@ describe("TodayPage — slurry planning entry for zero-allocation farms", () => 
 });
 
 describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
-  it("leads with the farm's own identity and the Grass view (the map's normal view)", async () => {
+  it("leads with the farm's own identity and the Overview view (the map's default view, 2026-11-19)", async () => {
     renderTodayMap();
     await screen.findByTestId("map-hero-stub");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBeTruthy();
-    expect(screen.getByText(/farm return · grass/i)).toBeTruthy();
+    expect(screen.getByText(/farm return · overview/i)).toBeTruthy();
     expect(screen.getByText(/fields? mapped/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Overview" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Grass" }).getAttribute("aria-pressed")).toBe("false");
+    // Grass stays one tap away, unchanged.
+    fireEvent.click(screen.getByRole("button", { name: "Grass" }));
+    expect(screen.getByText(/farm return · grass/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Grass" }).getAttribute("aria-pressed")).toBe("true");
   });
 
@@ -1479,7 +1493,7 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
 
     act(() => capturedMapHeroProps!.onSelectField!("field-home"));
     // Soil evidence (lime, P and K) is the map's Soil view; there is no separate soil lens beside it.
-    expect(within(screen.getByRole("group", { name: "Farm lens" })).getAllByRole("button")).toHaveLength(2);
+    expect(within(screen.getByRole("group", { name: "Farm lens" })).getAllByRole("button")).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: "Soil" }));
     expect(Array.from(drawer().querySelectorAll("[data-selection-context] dt")).map((dt) => dt.textContent)).toContain("P");
     fireEvent.click(screen.getByRole("button", { name: "Grass" }));
@@ -1502,6 +1516,9 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     act(() => capturedMapHeroProps!.onSelectField!("field-home"));
     const drawer = () => document.querySelector("[data-field-drawer]") as HTMLElement;
     const primary = () => drawer().querySelectorAll("[data-primary-action]");
+    // Switching to Grass keeps the selection (the map opens on Overview).
+    fireEvent.click(screen.getByRole("button", { name: "Grass" }));
+    expect(capturedMapHeroProps!.selectedFieldId).toBe("field-home");
     expect(primary()).toHaveLength(1);
     expect(primary()[0].textContent).toBe("Open Grass analysis");
     expect(primary()[0].getAttribute("href")).toBe("/grass");
@@ -1626,10 +1643,10 @@ describe("TodayPage — Farm + Fields redesign (2026-10-27)", () => {
     expect(within(brief).getByText("Farm topics")).toBeTruthy();
   });
 
-  it("offers two map views, Grass and Soil (product owner, 2026-11-12)", async () => {
+  it("offers three map views, Overview | Grass | Soil (product owner, 2026-11-19)", async () => {
     renderTodayMap();
     const group = await screen.findByRole("group", { name: "Farm lens" });
-    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["Grass", "Soil"]);
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["Overview", "Grass", "Soil"]);
   });
 
   it("passes the real fields to the map and emphasises selection in straw, keyed by the real field id", async () => {
@@ -1656,5 +1673,137 @@ describe("TodayPage — Farm + Fields redesign (2026-10-27)", () => {
     await screen.findByTestId("map-hero-stub");
     expect(screen.queryByRole("link", { name: "Fields list" })).toBeNull();
     expect(screen.queryByRole("button", { name: /What matters/i })).toBeNull();
+  });
+});
+
+/** A real `soil_test_age` OK/DISREGARD shape (`soil-test-age.ts`) for the
+ * mock farm's own mapped `field-home`. */
+function soilDisregardPrompt(): Prompt {
+  return {
+    id: "prompt-soil-disregard",
+    farmId: "farm-1",
+    kind: "soil_test_age",
+    title: "Soil test needs renewing — Home Field",
+    description: "Home Field's soil test is 4 years old or older and did not record P Index 4, so it can no longer be used for nutrient planning.",
+    basis: { status: "OK", value: "DISREGARD", evidenceState: "MEASURED" },
+    fieldId: "field-home",
+    regulatory: "compliance_value",
+    inputsSnapshot: { sampleDate: "2020-03-12" },
+    createdAt: "2026-11-19T09:00:00Z",
+  };
+}
+
+describe("TodayPage — Farm Overview Phase 1 (2026-11-19)", () => {
+  it("opens on Overview with a collapsed Farm Today panel; switching to Grass or Soil hides it and never moves the camera", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([]);
+    renderTodayMap();
+    const panel = await screen.findByRole("region", { name: "Farm Today" });
+    await waitFor(() => expect(within(panel).getByText("No outstanding actions identified from available records")).toBeTruthy());
+    expect(panel.getAttribute("data-state")).toBe("empty");
+    expect(within(panel).getByText(/not an all-clear/i)).toBeTruthy();
+    const toggle = within(panel).getByRole("button", { name: /show farm today actions/i });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    const before = { ...capturedMapHeroProps! };
+    fireEvent.click(screen.getByRole("button", { name: "Grass" }));
+    expect(screen.queryByRole("region", { name: "Farm Today" })).toBeNull();
+    expect(capturedMapHeroProps!.getActionBadge).toBeUndefined();
+    expect(capturedMapHeroProps!.flyToSelection).toBe(false);
+    expect(capturedMapHeroProps!.highlightedFieldIds).toEqual(before.highlightedFieldIds);
+    fireEvent.click(screen.getByRole("button", { name: "Soil" }));
+    expect(screen.queryByRole("region", { name: "Farm Today" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+    expect(screen.getByRole("region", { name: "Farm Today" })).toBeTruthy();
+    expect(capturedMapHeroProps!.flyToSelection).toBe(false);
+  });
+
+  it("marks only a field whose own record carries an action, and the panel and map selection stay in step both ways", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([soilDisregardPrompt()]);
+    renderTodayMap();
+    const panel = await screen.findByRole("region", { name: "Farm Today" });
+    // The same disregarded test is also the canonical farm-wide Soil topic
+    // (Medium priority), which leads; the field action is counted separately.
+    await waitFor(() => expect(within(panel).getByText("1 farm-wide topic to review · 1 field action")).toBeTruthy());
+    expect(within(panel).getByText("Medium priority · Farm-wide · Soil")).toBeTruthy();
+
+    // Map indicators: a neutral count badge + label on that field only, no tone.
+    expect(capturedMapHeroProps!.getActionBadge!({ id: "field-home" })).toEqual({ count: 1, label: "New soil test needed" });
+    expect(capturedMapHeroProps!.getActionBadge!({ id: "field-back" })).toBeUndefined();
+    expect(capturedMapHeroProps!.getTone({ id: "field-home" })).toBe("neutral");
+    expect(capturedMapHeroProps!.markerContentKey).toBe("overview:field-home=1:New soil test needed");
+
+    // Panel → map: choosing the action selects (and flies to) its field and
+    // the field panel leads with that action.
+    fireEvent.click(within(panel).getByRole("button", { name: /show farm today actions/i }));
+    expect(within(panel).getByText(/by field name, not ranked/)).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("button", { name: "Home Field · show on map" }));
+    expect(capturedMapHeroProps!.selectedFieldId).toBe("field-home");
+    expect(capturedMapHeroProps!.flyToSelection).toBe(true);
+    const drawer = document.querySelector("[data-field-drawer]") as HTMLElement;
+    expect(drawer.getAttribute("data-open")).toBe("true");
+    expect(drawer.querySelector("[data-selection-statement]")!.textContent).toContain("Soil test needs renewing — Home Field");
+    const row = () => panel.querySelector('[data-farm-today-field="field-home"]')!;
+    expect(row().getAttribute("aria-current")).toBe("true");
+
+    // Map → panel: deselecting and tapping the marker again follow through.
+    act(() => capturedMapHeroProps!.onMapBackgroundClick!());
+    expect(row().getAttribute("aria-current")).toBeNull();
+    act(() => capturedMapHeroProps!.onSelectField!("field-home"));
+    expect(row().getAttribute("aria-current")).toBe("true");
+
+    // The action's own evidence opens in the existing Prompt sheet.
+    fireEvent.click(within(panel).getByRole("button", { name: "View basis" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getAllByText(/soil test needs renewing/i).length).toBeGreaterThan(0);
+  });
+
+  it("a farm-wide topic is labelled Farm-wide, opens its existing sheet without zooming, and never marks a field", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt(), fertiliserRecommendationOkPrompt()]);
+    renderTodayRealModeMap();
+    const panel = await screen.findByRole("region", { name: "Farm Today" });
+    await waitFor(() => expect(within(panel).getByText("1 farm-wide topic to review")).toBeTruthy());
+    expect(within(panel).getByText("Medium priority · Farm-wide · Fertiliser")).toBeTruthy();
+    // The recommendation is in the closed period: not a field action today.
+    expect(capturedMapHeroProps!.getActionBadge!({ id: "field-home" })).toBeUndefined();
+
+    fireEvent.click(within(panel).getByRole("button", { name: /show farm today actions/i }));
+    const topic = panel.querySelector('[data-farm-today-topic="fertiliser"]') as HTMLElement;
+    expect(topic.textContent).toContain("Blocked now: Chemical fertiliser is currently in the statutory closed period");
+    fireEvent.click(topic);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getAllByText(/chemical fertiliser.*closed period/i).length).toBeGreaterThan(0);
+    expect(capturedMapHeroProps!.selectedFieldId).toBeUndefined();
+    expect(capturedMapHeroProps!.highlightedFieldIds).toBeUndefined();
+    expect(capturedMapHeroProps!.flyToSelection).toBe(false);
+  });
+
+  it("keeps the legacy What matters disclosure one tap away for details and all prompts", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([soilDisregardPrompt()]);
+    renderTodayMap();
+    const panel = await screen.findByRole("region", { name: "Farm Today" });
+    fireEvent.click(within(panel).getByRole("button", { name: /show farm today actions/i }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Details & all prompts" }));
+    expect(screen.getByRole("dialog", { name: "What matters" })).toBeTruthy();
+  });
+
+  it("an explicit deep link still opens Grass, and ?lens=overview opens Overview", async () => {
+    window.history.replaceState({}, "", "/today?lens=grass");
+    try {
+      renderTodayMap();
+      await waitFor(() => expect(screen.getByRole("button", { name: "Grass" }).getAttribute("aria-pressed")).toBe("true"));
+      expect(screen.queryByRole("region", { name: "Farm Today" })).toBeNull();
+    } finally {
+      cleanup();
+      window.history.replaceState({}, "", "/");
+    }
+    window.history.replaceState({}, "", "/today?lens=overview&field=field-home");
+    try {
+      renderTodayMap();
+      await waitFor(() => expect(capturedMapHeroProps!.selectedFieldId).toBe("field-home"));
+      expect(screen.getByRole("button", { name: "Overview" }).getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByRole("region", { name: "Farm Today" })).toBeTruthy();
+    } finally {
+      window.history.replaceState({}, "", "/");
+    }
   });
 });

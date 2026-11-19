@@ -73,6 +73,7 @@ export function MapHero({
   children,
   onMapReady,
   toneFillOpacity,
+  getActionBadge,
 }: {
   fields: Field[];
   getTone: (field: Field) => MapTone;
@@ -213,6 +214,14 @@ export function MapHero({
   onMapReady?: (map: mapboxgl.Map | null) => void;
   /** A stronger field tint, for a map view whose colours carry the meaning (the Farm map's Soil view). */
   toneFillOpacity?: number;
+  /** Farm Overview Phase 1 (2026-11-19): a field's own real, field-linked
+   * action count, drawn as a small neutral count badge on its pin, plus
+   * an optional short label shown under the field name at every zoom
+   * (the caller limits labels to a few fields). Never a colour or tone
+   * change: it states "this field's own record carries N actions", not a
+   * priority. Like `getStatusLabel`, change `markerContentKey` whenever
+   * its output changes. Omit for no badges (every other caller). */
+  getActionBadge?: (field: Field) => { count: number; label?: string } | undefined;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -576,7 +585,7 @@ export function MapHero({
     // never overlap one another, any pin, or the map edge. A label with no
     // free slot is hidden until the farmer zooms in; its pin, tap target and
     // accessible name stay. Placement re-runs whenever the camera moves.
-    type LabelLayoutItem = { lngLat: [number, number]; pinRadius: number; label: HTMLElement | null; detail?: HTMLElement; priority: number };
+    type LabelLayoutItem = { lngLat: [number, number]; pinRadius: number; label: HTMLElement | null; detail?: HTMLElement; persistentDetail?: boolean; priority: number };
     const layoutItems: LabelLayoutItem[] = [];
 
     markersRef.current = mappedFields.map((field) => {
@@ -585,14 +594,19 @@ export function MapHero({
       // Real category-focus membership only (never a colour change).
       const highlighted = Boolean(highlightedFieldIds?.includes(field.id));
       const dimmed = Boolean(highlightedFieldIds && highlightedFieldIds.length > 0 && dimUnhighlighted && !highlighted && !selected);
-      const statusLabel = getStatusLabel?.(field);
+      const actionBadge = getActionBadge?.(field);
+      const hasActionBadge = Boolean(actionBadge && actionBadge.count > 0);
+      // An action label takes the detail line's place, at every zoom.
+      const statusLabel = (hasActionBadge ? actionBadge!.label : undefined) ?? getStatusLabel?.(field);
+      const persistentDetail = Boolean(hasActionBadge && actionBadge!.label);
       const shortName = field.name.replace(" Field", "");
 
       // The marker root is exactly the pin; the label is positioned
       // absolutely from the pin centre by `layoutLabels` below.
       const el = document.createElement("button");
       el.type = "button";
-      el.setAttribute("aria-label", statusLabel ? `${field.name} — ${statusLabel}` : field.name);
+      const actionSuffix = hasActionBadge ? ` · ${actionBadge!.count} field ${actionBadge!.count === 1 ? "action" : "actions"}` : "";
+      el.setAttribute("aria-label", `${statusLabel ? `${field.name} — ${statusLabel}` : field.name}${actionSuffix}`);
       el.className = "relative block";
       // Dimmed markers stay present and clickable, just visually secondary.
       if (dimmed) el.style.opacity = "0.45";
@@ -608,6 +622,16 @@ export function MapHero({
       pinShape.style.backgroundColor = selected && selectionColor ? selectionColor : (markerAccentColor ?? toneBg[tone]);
       pinShape.style.transform = "rotate(-45deg)";
       pin.appendChild(pinShape);
+      if (hasActionBadge) {
+        // Neutral (white on deep green) count badge: a field-linked action
+        // exists, with no priority colour.
+        const badge = document.createElement("span");
+        badge.dataset.fieldActionBadge = String(actionBadge!.count);
+        badge.setAttribute("aria-hidden", "true");
+        badge.className = "absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full border border-white bg-[#163324] px-1 text-[9.5px] font-bold leading-none text-white shadow";
+        badge.textContent = String(actionBadge!.count);
+        pin.appendChild(badge);
+      }
       el.appendChild(pin);
 
       const textShadow = "0 1px 2px rgba(0,0,0,0.85), 0 0 6px rgba(0,0,0,0.45)";
@@ -648,8 +672,11 @@ export function MapHero({
           const stack = document.createElement("span");
           stack.className = "flex flex-col items-start gap-0.5";
           const detail = document.createElement("span");
-          detail.className = "whitespace-nowrap text-[11px] font-medium leading-none text-white/90 tabular-nums";
-          detail.style.textShadow = textShadow;
+          detail.className = persistentDetail
+            ? "whitespace-nowrap rounded-[5px] bg-[#163324]/85 px-1.5 py-[3px] text-[10.5px] font-semibold leading-none text-white"
+            : "whitespace-nowrap text-[11px] font-medium leading-none text-white/90 tabular-nums";
+          if (persistentDetail) detail.dataset.fieldActionLabel = "true";
+          else detail.style.textShadow = textShadow;
           detail.textContent = statusLabel;
           detailEl = detail;
           stack.append(name, detail);
@@ -672,7 +699,10 @@ export function MapHero({
         pinRadius: (pinSize * pinScale) / 2 + 1,
         label: labelEl,
         detail: detailEl,
-        priority: selected ? 0 : highlighted ? 1 : 2,
+        persistentDetail,
+        // A labelled field action is placed ahead of plain names so its
+        // label isn't the one crowded out.
+        priority: selected ? 0 : highlighted || persistentDetail ? 1 : 2,
       });
 
       if (onSelectField) el.addEventListener("click", () => onSelectField(field.id));
@@ -684,7 +714,7 @@ export function MapHero({
       // not a full metric under every neighbouring field name.
       const overview = typeof map.getZoom === "function" && map.getZoom() < 16;
       for (const item of layoutItems) {
-        if (item.detail) item.detail.style.display = overview ? "none" : "";
+        if (item.detail) item.detail.style.display = overview && !item.persistentDetail ? "none" : "";
       }
       const labelled = layoutItems.filter((item) => item.label);
       if (typeof map.project !== "function") {

@@ -1,6 +1,16 @@
 "use client";
 
 /**
+ * Farm Overview Phase 1 (2026-11-19,
+ * `docs/farm-return-next/design/FARM_OVERVIEW_SMART_HYBRID_PHASE1_BRIEF_20261119.md`):
+ * the map switch is Overview | Grass | Soil and every new Farm entry opens
+ * on Overview (internal lens id `current`) unless a deep link names a lens.
+ * Overview shows the compact, expandable Farm Today panel and neutral
+ * count badges / up to three labels on fields whose OWN real Prompts carry
+ * an action (`farm-today-overview.ts`) — built from this page's existing
+ * `allPrompts` and `todayOpportunities`, never a second engine. Farm-wide
+ * topics never mark a field. Grass and Soil are unchanged.
+ *
  * Farm — Farm + Fields redesign (2026-10-27,
  * `docs/design/farm-fields-high-fidelity-reference.md`). The real map is
  * the page: farm identity top-left, compact utilities top-right, the four
@@ -62,6 +72,8 @@ import Link from "next/link";
 import { MapHero } from "@/components/farm/MapHero";
 import { FarmLensControl } from "@/components/farm-spatial/FarmLensControl";
 import { FarmLensContext } from "@/components/farm-spatial/FarmLensContext";
+import { FarmTodayPanel } from "@/components/farm-spatial/FarmTodayPanel";
+import { buildFarmTodayView, farmTodayBadgeSignature } from "@/lib/farm-today-overview";
 import { FarmObjectRail } from "@/components/farm-spatial/FarmObjectRail";
 import { FarmGrassMapOverlay } from "@/components/farm-spatial/FarmGrassMapOverlay";
 import { FarmFieldDrawer } from "@/components/farm-spatial/FarmFieldDrawer";
@@ -434,6 +446,27 @@ export default function TodayPage() {
     setFocusedCategory(undefined);
   }
 
+  // Farm Overview Phase 1 — Farm Today, from the same `allPrompts` and
+  // `todayOpportunities` as the rail above (presentation adapter only).
+  const farmTodayView = useMemo(
+    () => buildFarmTodayView({ ready: mounted, fields, prompts: allPrompts, opportunities: todayOpportunities }),
+    [mounted, fields, allPrompts, todayOpportunities],
+  );
+  const [farmTodayExpanded, setFarmTodayExpanded] = useState(false);
+  // A farm-wide topic opens its existing opportunity sheet only: no field
+  // focus and no camera move (it is not about any one field).
+  function openFarmTodayTopic(opportunity: TodayOpportunity) {
+    setSelectedFieldId(undefined);
+    setFocusedCategory(undefined);
+    setOpenOpportunity(opportunity);
+  }
+  // A field action selects its own mapped field — the farmer's intent, so
+  // the existing `flyToSelection` brings it into view and opens its panel.
+  function selectFarmTodayField(fieldId: string) {
+    setFocusedCategory(undefined);
+    setSelectedFieldId(fieldId);
+  }
+
   // Today Map Priority Semantics Correction (2026-09-19): a farm-topic
   // opportunity's own priority answers "how important is Slurry for the
   // farm today?" — a genuinely different question from "which specific
@@ -621,7 +654,32 @@ export default function TodayPage() {
   const selectedNutrientPlanView = selectedNutrientPlanResult && selectedField ? fieldNutrientPlanView(selectedNutrientPlanResult, selectedField) : undefined;
   // The field's own leading Prompt from the same real producers — the one
   // current-state statement on the Current lens, never a new ranking.
-  const selectedFieldPrompt = selectedField ? selectPrimaryPrompt(allPrompts.filter((p) => p.fieldId === selectedField.id)) : undefined;
+  // On Overview, a field whose own record carries a Farm Today action leads
+  // with that action (panel and map stay in step); otherwise unchanged.
+  const selectedFarmTodayGroup = lens === "current" && selectedField ? farmTodayView.fieldGroups.find((g) => g.fieldId === selectedField.id) : undefined;
+  // A statutory prohibition must never be displaced by the new overview
+  // action badge in the field drawer. Farm Today keeps the action visible in
+  // the panel, while the canonical primary prompt leads when it is a legal gate.
+  const selectedFieldCanonicalPrompt = selectedField
+    ? selectPrimaryPrompt(allPrompts.filter((p) => p.fieldId === selectedField.id))
+    : undefined;
+  const selectedFieldPrompt = selectedFieldCanonicalPrompt?.basis.status === "LEGAL_PROHIBITION"
+    ? selectedFieldCanonicalPrompt
+    : (selectedFarmTodayGroup?.actions[0]?.prompt ?? selectedFieldCanonicalPrompt);
+  const farmTodayPanel =
+    lens === "current" ? (
+      <FarmTodayPanel
+        view={farmTodayView}
+        expanded={farmTodayExpanded}
+        onExpandedChange={setFarmTodayExpanded}
+        selectedFieldId={selectedField?.id}
+        selectedFieldName={selectedField?.name}
+        onSelectField={selectFarmTodayField}
+        onOpenTopic={openFarmTodayTopic}
+        onViewBasis={setOpenPrompt}
+        onOpenDetails={() => setBriefOpen(true)}
+      />
+    ) : null;
   const selection =
     selectedField && selectedFieldView
       ? farmFieldSelectionView({
@@ -716,7 +774,7 @@ export default function TodayPage() {
             // change. Bottom padding keeps the field clear of the rising
             // panel, and the zoom cap keeps neighbours in frame.
             flyToSelection={Boolean(selectedField)}
-            flyToPadding={isDesktop ? { top: 118, bottom: 96, left: 360, right: 48 } : { top: 130, bottom: 390, left: 28, right: 28 }}
+            flyToPadding={isDesktop && lens === "current" ? { top: 118, bottom: 96, left: 360, right: 400 } : isDesktop ? { top: 118, bottom: 96, left: 360, right: 48 } : { top: 130, bottom: 390, left: 28, right: 28 }}
             flyToMaxZoom={18}
             flyToDuration={reducedMotion ? 0 : 320}
             compactNeighbourLabels
@@ -727,7 +785,11 @@ export default function TodayPage() {
             neighbourDetailLabels
             markerAccentColor={lens === "grass" || lens === "nutrients" ? undefined : FARM_LENS_MARKER_COLOR[lens]}
             toneFillOpacity={lens === "nutrients" ? 0.32 : undefined}
-            markerContentKey={lens === "nutrients" ? `soil:${soilViews.map((view) => `${view.fieldId}=${view.need}${view.limeTHa ? "+lime" : ""}`).join(",")}` : lens === "grass" ? `grass:${grassOkData?.coverObservations.length ?? 0}:${grassOkData?.growthObservations.length ?? 0}:${grassOkData?.grazingSessions.length ?? 0}:${grassOkData?.growthForecasts.length ?? 0}` : lens}
+            markerContentKey={lens === "nutrients" ? `soil:${soilViews.map((view) => `${view.fieldId}=${view.need}${view.limeTHa ? "+lime" : ""}`).join(",")}` : lens === "grass" ? `grass:${grassOkData?.coverObservations.length ?? 0}:${grassOkData?.growthObservations.length ?? 0}:${grassOkData?.grazingSessions.length ?? 0}:${grassOkData?.growthForecasts.length ?? 0}` : lens === "current" ? `overview:${farmTodayBadgeSignature(farmTodayView)}` : lens}
+            // Overview only: neutral count badges (and up to three labels) on
+            // fields whose own record carries a Farm Today action. Never a
+            // tone/colour, never from a farm-wide topic's membership.
+            getActionBadge={lens === "current" ? (field) => farmTodayView.badgeByField.get(field.id) : undefined}
             // Real category-focus membership only (see `MapHero.tsx`): the
             // focused farm topic's own real `affectedFieldIds`, softening
             // every other mapped field and fitting the camera to that set.
@@ -742,12 +804,17 @@ export default function TodayPage() {
             plain
             // Keep the whole farm clear of the identity, utilities and
             // lens switcher: a wide left margin beside the desktop identity.
-            fitPadding={(width) => (width >= 860 ? { top: 96, bottom: 88, left: 320, right: 44 } : { top: 220, bottom: 160, left: 20, right: 96 })}
+            fitPadding={(width) => (width >= 860 ? { top: 96, bottom: 88, left: 320, right: lens === "current" ? 400 : 44 } : { top: 220, bottom: 160, left: 20, right: 96 })}
             className="h-[calc(100dvh-0.5rem)] min-h-[600px] lg:h-dvh lg:min-h-[640px]"
           >
             <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between">
               <div aria-hidden className="absolute left-0 top-0 h-56 w-[62%] bg-[radial-gradient(ellipse_72%_96%_at_0%_0%,rgba(10,14,11,0.34),transparent_76%)]" />
               <div aria-hidden className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/28 via-black/7 to-transparent" />
+              {lens === "current" && isDesktop ? (
+                <div className="pointer-events-auto absolute right-6 top-28 w-[340px] max-w-[calc(100%-3rem)]" data-farm-today-desktop>
+                  {farmTodayPanel}
+                </div>
+              ) : null}
 
               <div className="relative flex flex-col gap-4 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] sm:flex-row sm:items-start sm:justify-between lg:px-9 lg:pt-8">
                 <div className="pointer-events-auto min-w-0 max-sm:pr-16 [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]">
@@ -843,6 +910,10 @@ export default function TodayPage() {
                     ) : (
                       lens === "nutrients" ? (
                         <FarmSoilSummary lines={soilLines} focusedKey={soilFocus?.key} onFocus={setSoilFocusKey} />
+                      ) : lens === "current" ? (
+                        // Overview: Farm Today sits here on a phone; on desktop it
+                        // stays at the map's right edge (below), beside a selection.
+                        isDesktop ? null : <div className="max-w-md">{farmTodayPanel}</div>
                       ) : (
                         <FarmLensContext lensId={lens} facts={lens === "conditions" ? conditionsFacts : undefined} />
                       )

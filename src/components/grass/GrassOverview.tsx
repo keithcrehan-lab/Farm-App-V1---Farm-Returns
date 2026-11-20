@@ -13,7 +13,7 @@
  */
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, Footprints, History } from "lucide-react";
+import { ChevronDown, ChevronUp, Footprints, History, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { GrassWedgeChart } from "@/components/grass/GrassWedgeChart";
@@ -430,21 +430,21 @@ export function GrassOverview({
           {view === "wedge" && okLine ? <Working lines={okLine.working} source={okLine.source} /> : null}
 
           {selected ? (
-            <div className="mt-3 rounded-[16px] bg-fr-v2-paper px-4 py-3.5 ring-1 ring-fr-v2-cream-rule" data-grass-selected>
+            <div className="mt-4 border-l-[3px] border-fr-v2-forest bg-fr-v2-paper/60 px-4 py-4 sm:px-5" data-grass-selected role="region" aria-label="Selected field details">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className={KICKER}>Selected field</p>
+                  <p className={KICKER}>FIELD / {fields.findIndex((f) => f.fieldId === selected.fieldId) + 1} OF {fields.length}</p>
                   <p className="mt-1 font-display text-[22px] leading-tight text-fr-v2-graphite">{selected.name}</p>
                   <p className="mt-1 text-xs text-fr-v2-muted">
                     {formatNumber(selected.areaHa, 2)} ha · {selected.ageDays === undefined ? "Not measured" : selected.ageDays < 1 ? "Measured today" : `${Math.floor(selected.ageDays)} days since measured`}{selected.method ? ` · ${selected.method}` : ""} · {selected.historyCount} {selected.historyCount === 1 ? "reading" : "readings"}
                   </p>
                 </div>
-                <div className="text-right">
+                <div className="flex items-start gap-3"><div className="text-right">
                   <p className="font-display text-[28px] leading-none tabular-nums text-fr-v2-graphite">{selected.coverKgDmHa === undefined ? "—" : kg(selected.coverKgDmHa)}</p>
                   <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-fr-v2-muted">kg DM/ha · {selected.basis ?? "unknown"}</p>
-                </div>
+                </div><button type="button" aria-label="Close field details" onClick={() => onSelectField(undefined)} className="flex size-10 shrink-0 items-center justify-center rounded-full text-fr-v2-muted hover:bg-white focus-visible:outline-2 focus-visible:outline-fr-v2-forest"><X className="size-4" aria-hidden /></button></div>
               </div>
-              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
+              <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-fr-v2-cream-rule pt-3 text-xs sm:grid-cols-3">
                 {selectedBar?.targetKgDmHa !== undefined ? <div><dt className="text-fr-v2-muted">Target line here</dt><dd className="font-semibold tabular-nums text-fr-v2-charcoal">{kg(selectedBar.targetKgDmHa)} kg DM/ha</dd></div> : null}
                 {selectedBar?.aboveResidualKgDm !== undefined ? (
                   <div>
@@ -455,10 +455,10 @@ export function GrassOverview({
                 <div><dt className="text-fr-v2-muted">Cattle</dt><dd className="text-fr-v2-charcoal">{selected.occupants.length > 0 ? selected.occupants.join(", ") : "None recorded"}</dd></div>
               </dl>
               <p className="mt-2 text-[11px] text-fr-v2-muted">Cover is shown as recorded; the measurement basis for older readings is not stored and total standing dry matter is not measured.</p>
-              <div className="mt-2 flex flex-wrap gap-x-4 text-xs font-semibold text-fr-v2-forest">
+              <div className="mt-3 flex flex-wrap gap-x-4 border-t border-fr-v2-cream-rule pt-2 text-xs font-semibold text-fr-v2-forest">
                 <button type="button" onClick={() => setView(view === "wedge" ? "map" : "wedge")} className="min-h-10 underline decoration-fr-v2-rule underline-offset-4">{view === "wedge" ? "Show on farm map" : "Show on wedge"}</button>
                 <Link href={`/fields?field=${encodeURIComponent(selected.fieldId)}&chapter=history`} className="min-h-10 content-center underline decoration-fr-v2-rule underline-offset-4">Measurement history</Link>
-                <button type="button" onClick={() => { setRemoved([selected.fieldId]); setScenarioOpen(true); }} className="min-h-10 underline decoration-fr-v2-rule underline-offset-4">What if it&apos;s taken out?</button>
+                <button type="button" onClick={() => { setRemoved([selected.fieldId]); setScenarioOpen(true); setView("insights"); }} className="min-h-10 underline decoration-fr-v2-rule underline-offset-4">What if it&apos;s taken out?</button>
               </div>
             </div>
           ) : null}

@@ -79,6 +79,15 @@ describe("Grass V2 overview", () => {
     expect(screen.getByRole("link", { name: "Set the use of Bottom" })).toHaveAttribute("href", "/fields?field=u&focus=field-use");
   });
 
+  it("flags implausibly low user targets without silently replacing the scientific engine line", () => {
+    window.localStorage.setItem(GRASS_SETTINGS_KEY, JSON.stringify({ targets: { rotationDays: 21, residualKgDmHa: 5 }, guideDone: true }));
+    resetGrassSettingsForTest();
+    renderOverview();
+    expect(screen.getByText("Check your grazing target settings")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Review grazing targets" }));
+    expect(screen.getByRole("button", { name: "Save targets" })).toBeInTheDocument();
+  });
+
   it("only offers the mid-season preset in the main grazing season", () => {
     renderOverview({ asOf: "2026-11-12T12:00:00Z" });
     fireEvent.click(screen.getByRole("button", { name: "Insights" }));

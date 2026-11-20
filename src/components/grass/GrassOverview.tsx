@@ -323,6 +323,9 @@ export function GrassOverview({
     [groups, grazingAreaHa, settings.targets, platform],
   );
   const okLine = line.status === "OK" ? line.line : undefined;
+  // Presentation-only plausibility flag: retain the engine output and provenance.
+  // Very low residuals or pre-grazing targets must not silently appear as sound advice.
+  const lowTargetNeedsReview = !!okLine && (okLine.residualKgDmHa < 100 || okLine.targetPreGrazingKgDmHa < 300);
   const wedgeFields = platform.unknownUse.length > 0 ? fields : platform.fields;
   const bars = useMemo(() => layoutWedge(wedgeFields, settings.widthMode, okLine), [wedgeFields, settings.widthMode, okLine]);
   const position = okLine ? wedgePosition(platform.fields, okLine) : undefined;
@@ -422,6 +425,7 @@ export function GrassOverview({
                 ))}
               </div>
             ) : null}</details>
+            {lowTargetNeedsReview && okLine ? <div role="status" className="mt-3 border-l-[3px] border-fr-v2-harvest bg-fr-v2-harvest-tint/40 px-3 py-3 text-xs text-fr-v2-charcoal"><p className="font-semibold">Check your grazing target settings</p><p className="mt-1">The calculated line runs from {kg(okLine.targetPreGrazingKgDmHa)} to {kg(okLine.residualKgDmHa)} kg DM/ha. These values are unusually low for a grazing cover target. Confirm the residual, rotation length and cattle demand before using this line to plan grazing.</p><button type="button" onClick={() => { setView("insights"); openSettings(); }} className="mt-2 min-h-10 font-semibold text-fr-v2-forest underline underline-offset-4">Review grazing targets</button></div> : null}
             {!okLine && line.status === "BLOCKED" ? <p className="mt-3 rounded-[12px] bg-fr-v2-harvest-tint/60 px-3 py-2 text-xs text-fr-v2-charcoal">No target line yet: {line.block.message}</p> : null}
           </div>
           <div className={view === "map" ? undefined : "hidden"}>{mapMounted ? map : null}</div>

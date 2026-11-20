@@ -377,30 +377,25 @@ export function GrassOverview({
 
   return (
     <div>
-      <GrassGuide />
-
-      {/* A — actions: one primary (walk), two quiet supporting controls. */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* A — primary walk action and quiet history link. */}
+      <div className="flex flex-wrap items-center gap-2" aria-label="Grass actions">
         <Link href="/grass/walk" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-[14px] bg-fr-v2-forest px-5 text-[15px] font-semibold text-white shadow-[0_1px_0_rgba(255,255,255,0.08)_inset,0_6px_16px_-8px_rgba(23,63,45,0.6)] hover:bg-fr-v2-forest-deep-2">
           <Footprints className="size-[18px]" aria-hidden />Start grass walk
         </Link>
-        <Link href="/grass/walks" className="inline-flex min-h-11 items-center gap-1.5 rounded-[12px] border border-fr-v2-rule bg-white px-3.5 text-[13px] font-semibold text-fr-v2-charcoal hover:border-fr-v2-forest/40">
-          <History className="size-4 text-fr-v2-muted" aria-hidden />Past walks
+        <Link href="/grass/walks" className="inline-flex min-h-10 items-center gap-1.5 px-2 text-[12px] font-semibold text-fr-v2-forest underline underline-offset-4">
+          <History className="size-4" aria-hidden />Past walks
         </Link>
-        <button type="button" onClick={openGrassGuide} aria-label="Show grass guide" className="inline-flex min-h-11 items-center gap-1.5 rounded-[12px] border border-fr-v2-rule bg-white px-3.5 text-[13px] font-semibold text-fr-v2-charcoal hover:border-fr-v2-forest/40">
-          <BookOpen className="size-4 text-fr-v2-muted" aria-hidden />Grass guide
-        </button>
       </div>
 
       {/* B — farm snapshot: hero cover, then a ledger of supporting figures. */}
-      <section className="mt-5 overflow-hidden rounded-[22px] border border-fr-v2-rule bg-white lg:grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,2fr)]" aria-label="Grass summary">
-        <div className="px-5 pb-5 pt-5 lg:border-r lg:border-fr-v2-cream-rule lg:py-6">
+      <section className="mt-3 overflow-hidden rounded-[18px] border border-fr-v2-rule bg-white lg:grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,2fr)]" aria-label="Grass summary">
+        <div className="px-4 pb-3 pt-3 lg:border-r lg:border-fr-v2-cream-rule lg:py-6">
           <p className={KICKER}>
             Average farm cover · Today
             <HelpTip term="average farm cover">The grass on your fields, averaged by size, as recorded in kg of dry matter per hectare. The measurement basis is not stored for older readings; compare readings taken using the same method. Unmeasured fields are excluded, not treated as bare.</HelpTip>
           </p>
           <p className="mt-2 flex flex-wrap items-baseline gap-x-2">
-            <span className="font-display text-[54px] leading-[0.9] tracking-[-0.01em] tabular-nums text-fr-v2-graphite">{averageCoverKgDmHa === undefined ? "—" : kg(averageCoverKgDmHa)}</span>
+            <span className="font-display text-[40px] leading-[0.95] sm:text-[54px] tracking-[-0.01em] tabular-nums text-fr-v2-graphite">{averageCoverKgDmHa === undefined ? "—" : kg(averageCoverKgDmHa)}</span>
             <span className="text-sm text-fr-v2-muted">{averageCoverKgDmHa === undefined ? "Not measured" : "kg DM/ha"}</span>
           </p>
           <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-fr-v2-muted">
@@ -409,7 +404,7 @@ export function GrassOverview({
             ) : null}
             <span>{lastReading ? `Last reading ${lastReading}` : "No readings yet"}</span>
           </p>
-          <div className="mt-4">
+          <div className="mt-2">
             <div className="flex items-baseline justify-between text-[12px]">
               <span className="text-fr-v2-charcoal"><span className="font-semibold tabular-nums">{measuredRecently} of {fields.length}</span> fields measured in the last 2 weeks</span>
               <HelpTip term="measurement freshness">With reliable growth and grazing evidence, an earlier reading can be estimated forward to today. Without that evidence, the recorded reading remains unchanged; after two weeks, walk the field again.</HelpTip>
@@ -420,6 +415,8 @@ export function GrassOverview({
           </div>
         </div>
 
+        <details className="group border-t border-fr-v2-cream-rule lg:border-t-0">
+          <summary className="flex min-h-10 cursor-pointer items-center justify-between px-4 text-xs font-semibold text-fr-v2-forest lg:hidden">Growth, demand and targets <span aria-hidden>⌄</span></summary>
         <dl className="divide-y divide-fr-v2-cream-rule border-t border-fr-v2-cream-rule lg:grid lg:grid-cols-3 lg:divide-x lg:divide-y-0 lg:border-t-0">
           <LedgerRow
             label="Growth in use"
@@ -460,11 +457,12 @@ export function GrassOverview({
             {okLine && position ? <p className="text-[11px]">A comparison with today&apos;s demand, not a grazing forecast.</p> : null}
           </LedgerRow>
         </dl>
+        </details>
       </section>
-      <RegionalGrowthStatus regional={regionalGrowth} />
+      <details className="mt-2 text-xs text-fr-v2-muted"><summary className="cursor-pointer py-2 font-semibold text-fr-v2-forest">Regional growth information</summary><RegionalGrowthStatus regional={regionalGrowth} /></details>
 
       {/* C — wedge & map. */}
-      <section className="mt-6 overflow-hidden rounded-[22px] border border-fr-v2-rule bg-white" aria-label={view === "wedge" ? "Grass wedge" : "Farm map"}>
+      <section className="mt-3 overflow-hidden rounded-[22px] border border-fr-v2-rule bg-white" aria-label={view === "wedge" ? "Grass wedge" : "Farm map"}>
         <div className="px-4 pt-4 sm:px-5">
           <Segmented
             role="group"
@@ -496,6 +494,7 @@ export function GrassOverview({
         </div>
 
         <div className="px-4 pb-4 pt-3 sm:px-5">
+          {view === "wedge" ? <div className="mb-2"><GrassGuide /><div className="flex items-center justify-between gap-3"><p className="text-xs text-fr-v2-muted">Each bar is a field. Taller means more grass; wider means a larger field. Tap a bar for details.</p><button type="button" onClick={openGrassGuide} aria-label="Show grass guide" className="inline-flex min-h-10 shrink-0 items-center gap-1 text-xs font-semibold text-fr-v2-forest"><BookOpen className="size-4" aria-hidden />Help</button></div></div> : null}
           <div className={view === "wedge" ? undefined : "hidden"}>
             <p className="mb-2 text-[12px] text-fr-v2-muted">
               Fields by cover, tallest first{settings.widthMode === "area" ? ", each as wide as its area" : ""}{horizon > 0 ? `, projected +${horizon} days` : ""}.

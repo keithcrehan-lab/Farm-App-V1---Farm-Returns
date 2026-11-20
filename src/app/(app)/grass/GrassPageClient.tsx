@@ -562,10 +562,9 @@ export function GrassPageClient({ initialFieldId, intakePreview = false }: { ini
   return (
     <div className="pb-12">
       <PageHeader title="Grass" subtitle="Measure the farm, see the wedge and keep forecasts grounded in real field walks." />
-      <div className="mb-5 pt-2 lg:hidden">
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-fr-v2-muted">Farm Return · Grass</p>
-        <h1 className="mt-1.5 font-display text-[40px] leading-none tracking-[-0.01em] text-fr-v2-graphite">Grass</h1>
-        <p className="mt-2 max-w-sm text-[13px] leading-5 text-fr-v2-muted">Your cover, the wedge and what to do next — from your own field walks.</p>
+      <div className="mb-2 flex items-baseline justify-between pt-1 lg:hidden">
+        <h1 className="font-display text-[27px] leading-none text-fr-v2-graphite">Grass</h1>
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-fr-v2-muted">Farm intelligence</span>
       </div>
 
       <GrassOverview

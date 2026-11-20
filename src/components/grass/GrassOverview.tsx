@@ -13,7 +13,7 @@
  */
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { BookOpen, ChevronDown, ChevronUp, Footprints, History } from "lucide-react";
+import { ChevronDown, ChevronUp, Footprints, History } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { GrassWedgeChart } from "@/components/grass/GrassWedgeChart";
@@ -377,8 +377,96 @@ export function GrassOverview({
 
   return (
     <div>
+      <div className="flex items-end justify-between gap-3 border-b border-fr-v2-cream-rule pb-3 pt-1" aria-label="Grass position today"><div><p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-fr-v2-muted">Average farm cover · Today</p><p className="mt-1 font-display text-[40px] leading-none tabular-nums text-fr-v2-graphite">{averageCoverKgDmHa === undefined ? "—" : kg(averageCoverKgDmHa)} <span className="font-sans text-[12px] font-normal text-fr-v2-muted">kg DM/ha</span></p></div><div className="text-right text-[11px] text-fr-v2-muted"><p>{averageBasis ? `${averageBasis} basis` : "Not measured"}</p><p>{measuredRecently}/{fields.length} fields recent</p></div></div>\n      {/* C — wedge & map. */}
+      <section className="mt-1 overflow-hidden border-b border-fr-v2-cream-rule bg-transparent pb-5" aria-label={view === "wedge" ? "Grass wedge" : view === "map" ? "Farm map" : "Grass insights"}>
+        <div className="pt-2 sm:px-1">
+          <Segmented
+            role="group"
+            label="Grass view"
+            value={view}
+            onChange={setView}
+            options={[{ value: "wedge", label: "Wedge" }, { value: "map", label: "Map" }, { value: "insights", label: "Insights" }]}
+          />
+          {view !== "insights" ? <div className="mt-3 flex items-center justify-between gap-3">
+            <Segmented
+              label="Grass forecast horizon"
+              size="sm"
+              value={horizon}
+              onChange={onHorizon}
+              disabled={(d) => !horizonAvailable(d)}
+              options={horizons.map((days) => ({ value: days, label: days === 0 ? "Now" : `+${days} days` }))}
+            />
+
+          </div> : null}
+        </div>
+
+        {view !== "insights" ? <div className="pb-2 pt-3 sm:px-1">
+          {view === "wedge" ? <GrassGuide /> : null}
+          <div className={view === "wedge" ? undefined : "hidden"}>
+            <div className="mb-2 flex items-end justify-between gap-2"><div><h2 className="font-display text-[24px] leading-none text-fr-v2-graphite">Grass by field</h2><p className="mt-1 text-[11px] text-fr-v2-muted">Highest cover first · select a field to explore</p></div><button type="button" onClick={openGrassGuide} aria-label="Show grass guide" className="min-h-10 text-xs font-semibold text-fr-v2-forest">How to read this ↗</button></div>
+            <GrassWedgeChart
+              bars={bars}
+              line={okLine}
+              horizonDays={horizon}
+              selectedFieldId={selectedFieldId}
+              onSelect={(id) => onSelectField(id === selectedFieldId ? undefined : id)}
+              occupiedFieldIds={occupied}
+            />
+            <details className="mt-2 border-t border-fr-v2-cream-rule pt-2"><summary className="cursor-pointer py-2 text-xs font-semibold text-fr-v2-forest">Chart display settings</summary>            {view === "wedge" ? (
+              <div role="group" aria-label="Bar width" className="flex items-center gap-1 text-xs">
+                <span className="mr-1 text-fr-v2-muted">Width</span>
+                {(["area", "equal"] as const).map((m) => (
+                  <button key={m} type="button" aria-pressed={settings.widthMode === m} onClick={() => setWedgeWidthMode(m)} className={cn("min-h-9 rounded-[8px] px-2.5 font-semibold", settings.widthMode === m ? "bg-fr-v2-teal-tint text-fr-v2-forest" : "text-fr-v2-muted hover:text-fr-v2-charcoal")}>
+                    {m === "area" ? "By area" : "Equal"}
+                  </button>
+                ))}
+              </div>
+            ) : null}</details>
+            {!okLine && line.status === "BLOCKED" ? <p className="mt-3 rounded-[12px] bg-fr-v2-harvest-tint/60 px-3 py-2 text-xs text-fr-v2-charcoal">No target line yet: {line.block.message}</p> : null}
+          </div>
+          <div className={view === "map" ? undefined : "hidden"}>{mapMounted ? map : null}</div>
+
+          {horizonNote ? <div className="mt-3 border-t border-fr-v2-cream-rule pt-1 [&_p]:mt-1">{horizonNote}</div> : null}
+          {view === "wedge" && okLine ? <Working lines={okLine.working} source={okLine.source} /> : null}
+
+          {selected ? (
+            <div className="mt-3 rounded-[16px] bg-fr-v2-paper px-4 py-3.5 ring-1 ring-fr-v2-cream-rule" data-grass-selected>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className={KICKER}>Selected field</p>
+                  <p className="mt-1 font-display text-[22px] leading-tight text-fr-v2-graphite">{selected.name}</p>
+                  <p className="mt-1 text-xs text-fr-v2-muted">
+                    {formatNumber(selected.areaHa, 2)} ha · {selected.ageDays === undefined ? "Not measured" : selected.ageDays < 1 ? "Measured today" : `${Math.floor(selected.ageDays)} days since measured`}{selected.method ? ` · ${selected.method}` : ""} · {selected.historyCount} {selected.historyCount === 1 ? "reading" : "readings"}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-display text-[28px] leading-none tabular-nums text-fr-v2-graphite">{selected.coverKgDmHa === undefined ? "—" : kg(selected.coverKgDmHa)}</p>
+                  <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-fr-v2-muted">kg DM/ha · {selected.basis ?? "unknown"}</p>
+                </div>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
+                {selectedBar?.targetKgDmHa !== undefined ? <div><dt className="text-fr-v2-muted">Target line here</dt><dd className="font-semibold tabular-nums text-fr-v2-charcoal">{kg(selectedBar.targetKgDmHa)} kg DM/ha</dd></div> : null}
+                {selectedBar?.aboveResidualKgDm !== undefined ? (
+                  <div>
+                    <dt className="text-fr-v2-muted">Grass above residual<HelpTip term="grass above the residual">What there is to graze: cover above the level you graze down to, times the field&apos;s area. Not all of it is eaten.</HelpTip></dt>
+                    <dd className="font-semibold tabular-nums text-fr-v2-charcoal">{kg(selectedBar.aboveResidualKgDm)} kg DM</dd>
+                  </div>
+                ) : null}
+                <div><dt className="text-fr-v2-muted">Cattle</dt><dd className="text-fr-v2-charcoal">{selected.occupants.length > 0 ? selected.occupants.join(", ") : "None recorded"}</dd></div>
+              </dl>
+              <p className="mt-2 text-[11px] text-fr-v2-muted">Cover is shown as recorded; the measurement basis for older readings is not stored and total standing dry matter is not measured.</p>
+              <div className="mt-2 flex flex-wrap gap-x-4 text-xs font-semibold text-fr-v2-forest">
+                <button type="button" onClick={() => setView(view === "wedge" ? "map" : "wedge")} className="min-h-10 underline decoration-fr-v2-rule underline-offset-4">{view === "wedge" ? "Show on farm map" : "Show on wedge"}</button>
+                <Link href={`/fields?field=${encodeURIComponent(selected.fieldId)}&chapter=history`} className="min-h-10 content-center underline decoration-fr-v2-rule underline-offset-4">Measurement history</Link>
+                <button type="button" onClick={() => { setRemoved([selected.fieldId]); setScenarioOpen(true); }} className="min-h-10 underline decoration-fr-v2-rule underline-offset-4">What if it&apos;s taken out?</button>
+              </div>
+            </div>
+          ) : null}
+        </div> : null}
+      </section>
+
       {/* A — primary walk action and quiet history link. */}
-      <div className="flex flex-wrap items-center gap-2" aria-label="Grass actions">
+      <div className="mt-4 flex flex-wrap items-center gap-2" aria-label="Grass actions">
         <Link href="/grass/walk" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-[14px] bg-fr-v2-forest px-5 text-[15px] font-semibold text-white shadow-[0_1px_0_rgba(255,255,255,0.08)_inset,0_6px_16px_-8px_rgba(23,63,45,0.6)] hover:bg-fr-v2-forest-deep-2">
           <Footprints className="size-[18px]" aria-hidden />Start grass walk
         </Link>
@@ -388,8 +476,8 @@ export function GrassOverview({
       </div>
 
       {/* B — farm snapshot: hero cover, then a ledger of supporting figures. */}
-      <section className="mt-3 overflow-hidden rounded-[18px] border border-fr-v2-rule bg-white lg:grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,2fr)]" aria-label="Grass summary">
-        <div className="px-4 pb-3 pt-3 lg:border-r lg:border-fr-v2-cream-rule lg:py-6">
+      <section className="mt-2 border-t border-fr-v2-cream-rule bg-transparent lg:grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,2fr)]" aria-label="Grass summary">
+        <div className="px-1 pb-3 pt-3 lg:border-r lg:border-fr-v2-cream-rule lg:py-6">
           <p className={KICKER}>
             Average farm cover · Today
             <HelpTip term="average farm cover">The grass on your fields, averaged by size, as recorded in kg of dry matter per hectare. The measurement basis is not stored for older readings; compare readings taken using the same method. Unmeasured fields are excluded, not treated as bare.</HelpTip>
@@ -461,95 +549,6 @@ export function GrassOverview({
       </section>
       <details className="mt-2 text-xs text-fr-v2-muted"><summary className="cursor-pointer py-2 font-semibold text-fr-v2-forest">Regional growth information</summary><RegionalGrowthStatus regional={regionalGrowth} /></details>
 
-      {/* C — wedge & map. */}
-      <section className="mt-3 overflow-hidden rounded-[22px] border border-fr-v2-rule bg-white" aria-label={view === "wedge" ? "Grass wedge" : "Farm map"}>
-        <div className="px-4 pt-4 sm:px-5">
-          <Segmented
-            role="group"
-            label="Grass view"
-            value={view}
-            onChange={setView}
-            options={[{ value: "wedge", label: "Wedge" }, { value: "map", label: "Map" }, { value: "insights", label: "Insights" }]}
-          />
-          {view !== "insights" ? <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-            <Segmented
-              label="Grass forecast horizon"
-              size="sm"
-              value={horizon}
-              onChange={onHorizon}
-              disabled={(d) => !horizonAvailable(d)}
-              options={horizons.map((days) => ({ value: days, label: days === 0 ? "Now" : `+${days} days` }))}
-            />
-            {view === "wedge" ? (
-              <div role="group" aria-label="Bar width" className="flex items-center gap-1 text-xs">
-                <span className="mr-1 text-fr-v2-muted">Width</span>
-                {(["area", "equal"] as const).map((m) => (
-                  <button key={m} type="button" aria-pressed={settings.widthMode === m} onClick={() => setWedgeWidthMode(m)} className={cn("min-h-9 rounded-[8px] px-2.5 font-semibold", settings.widthMode === m ? "bg-fr-v2-teal-tint text-fr-v2-forest" : "text-fr-v2-muted hover:text-fr-v2-charcoal")}>
-                    {m === "area" ? "By area" : "Equal"}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div> : null}
-        </div>
-
-        {view !== "insights" ? <div className="px-4 pb-4 pt-3 sm:px-5">
-          {view === "wedge" ? <div className="mb-2"><GrassGuide /><div className="flex items-center justify-between gap-3"><p className="text-xs text-fr-v2-muted">Each bar is a field. Taller means more grass; wider means a larger field. Tap a bar for details.</p><button type="button" onClick={openGrassGuide} aria-label="Show grass guide" className="inline-flex min-h-10 shrink-0 items-center gap-1 text-xs font-semibold text-fr-v2-forest"><BookOpen className="size-4" aria-hidden />Help</button></div></div> : null}
-          <div className={view === "wedge" ? undefined : "hidden"}>
-            <p className="mb-2 text-[12px] text-fr-v2-muted">
-              Fields by cover, tallest first{settings.widthMode === "area" ? ", each as wide as its area" : ""}{horizon > 0 ? `, projected +${horizon} days` : ""}.
-              <HelpTip term="the grass wedge">Each bar is a field. At Now, solid bars show recorded readings (not necessarily taken today); paler bars with a dotted edge are estimates updated to today. In a forecast, the solid portion is retained cover, while teal hatching shows projected gain and amber hatching shows projected loss. The red line is your grazing target. Estimates are not new measurements.</HelpTip>
-            </p>
-            <GrassWedgeChart
-              bars={bars}
-              line={okLine}
-              horizonDays={horizon}
-              selectedFieldId={selectedFieldId}
-              onSelect={(id) => onSelectField(id === selectedFieldId ? undefined : id)}
-              occupiedFieldIds={occupied}
-            />
-            {!okLine && line.status === "BLOCKED" ? <p className="mt-3 rounded-[12px] bg-fr-v2-harvest-tint/60 px-3 py-2 text-xs text-fr-v2-charcoal">No target line yet: {line.block.message}</p> : null}
-          </div>
-          <div className={view === "map" ? undefined : "hidden"}>{mapMounted ? map : null}</div>
-
-          {horizonNote ? <div className="mt-3 border-t border-fr-v2-cream-rule pt-1 [&_p]:mt-1">{horizonNote}</div> : null}
-          {view === "wedge" && okLine ? <Working lines={okLine.working} source={okLine.source} /> : null}
-
-          {selected ? (
-            <div className="mt-3 rounded-[16px] bg-fr-v2-paper px-4 py-3.5 ring-1 ring-fr-v2-cream-rule" data-grass-selected>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className={KICKER}>Selected field</p>
-                  <p className="mt-1 font-display text-[22px] leading-tight text-fr-v2-graphite">{selected.name}</p>
-                  <p className="mt-1 text-xs text-fr-v2-muted">
-                    {formatNumber(selected.areaHa, 2)} ha · {selected.ageDays === undefined ? "Not measured" : selected.ageDays < 1 ? "Measured today" : `${Math.floor(selected.ageDays)} days since measured`}{selected.method ? ` · ${selected.method}` : ""} · {selected.historyCount} {selected.historyCount === 1 ? "reading" : "readings"}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="font-display text-[28px] leading-none tabular-nums text-fr-v2-graphite">{selected.coverKgDmHa === undefined ? "—" : kg(selected.coverKgDmHa)}</p>
-                  <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-fr-v2-muted">kg DM/ha · {selected.basis ?? "unknown"}</p>
-                </div>
-              </div>
-              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
-                {selectedBar?.targetKgDmHa !== undefined ? <div><dt className="text-fr-v2-muted">Target line here</dt><dd className="font-semibold tabular-nums text-fr-v2-charcoal">{kg(selectedBar.targetKgDmHa)} kg DM/ha</dd></div> : null}
-                {selectedBar?.aboveResidualKgDm !== undefined ? (
-                  <div>
-                    <dt className="text-fr-v2-muted">Grass above residual<HelpTip term="grass above the residual">What there is to graze: cover above the level you graze down to, times the field&apos;s area. Not all of it is eaten.</HelpTip></dt>
-                    <dd className="font-semibold tabular-nums text-fr-v2-charcoal">{kg(selectedBar.aboveResidualKgDm)} kg DM</dd>
-                  </div>
-                ) : null}
-                <div><dt className="text-fr-v2-muted">Cattle</dt><dd className="text-fr-v2-charcoal">{selected.occupants.length > 0 ? selected.occupants.join(", ") : "None recorded"}</dd></div>
-              </dl>
-              <p className="mt-2 text-[11px] text-fr-v2-muted">Cover is shown as recorded; the measurement basis for older readings is not stored and total standing dry matter is not measured.</p>
-              <div className="mt-2 flex flex-wrap gap-x-4 text-xs font-semibold text-fr-v2-forest">
-                <button type="button" onClick={() => setView(view === "wedge" ? "map" : "wedge")} className="min-h-10 underline decoration-fr-v2-rule underline-offset-4">{view === "wedge" ? "Show on farm map" : "Show on wedge"}</button>
-                <Link href={`/fields?field=${encodeURIComponent(selected.fieldId)}&chapter=history`} className="min-h-10 content-center underline decoration-fr-v2-rule underline-offset-4">Measurement history</Link>
-                <button type="button" onClick={() => { setRemoved([selected.fieldId]); setScenarioOpen(true); }} className="min-h-10 underline decoration-fr-v2-rule underline-offset-4">What if it&apos;s taken out?</button>
-              </div>
-            </div>
-          ) : null}
-        </div> : null}
-      </section>
 
       {/* D — decisions. */}
       {view === "insights" ? <section className="mt-3" aria-label="What to do next">

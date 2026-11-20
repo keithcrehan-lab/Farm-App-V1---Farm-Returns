@@ -58,11 +58,11 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
 
   return (
     <figure aria-label="Grass wedge">
-      <div className={cn("-mx-1 px-1", scrollMinWidth && "overflow-x-auto overscroll-x-contain [scrollbar-width:thin]")}>
+      <div className={cn("-mx-1 px-1", scrollMinWidth && "overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden")}>
       <div style={scrollMinWidth ? { minWidth: scrollMinWidth } : undefined}>
       <p aria-hidden className="mb-1 font-mono text-[10px] text-fr-v2-muted">kg DM/ha</p>
       <div className="relative">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-60 w-full select-none sm:h-72" role="img" aria-label={`Grass wedge of ${bars.length} fields${showForecast ? `, projected ${horizonDays} days with today's cover and forecast change distinguished` : ""}${line ? ", with the target line" : ""}`}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-52 w-full select-none sm:h-72" role="img" aria-label={`Grass wedge of ${bars.length} fields${showForecast ? `, projected ${horizonDays} days with today's cover and forecast change distinguished` : ""}${line ? ", with the target line" : ""}`}>
         <defs>
           <pattern id="grass-wedge-gain-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
             <line x1="1" y1="0" x2="1" y2="7" stroke="#ffffff" strokeOpacity="0.53" strokeWidth="2" />
@@ -205,7 +205,7 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
       </div>
       {scrollMinWidth ? <p className="mt-1 text-[11px] text-fr-v2-muted sm:hidden">Swipe the chart to see every field · tap a bar for its details</p> : null}
       {/* Grouped key: what the bars mean, then the line and markers. Only what's on the chart is listed. */}
-      <figcaption className="mt-3 space-y-1.5 rounded-[12px] bg-fr-v2-paper px-3 py-2.5 text-[11px] text-fr-v2-muted">
+      <figcaption className="mt-3 space-y-1.5 border-t border-fr-v2-cream-rule pt-3 text-[11px] text-fr-v2-muted">
         <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
           <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em]">Bars</span>
           {splitExists ? (

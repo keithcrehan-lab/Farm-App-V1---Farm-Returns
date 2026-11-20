@@ -83,7 +83,7 @@ describe("Grass wedge projected portions", () => {
     expect(container.querySelector('[data-wedge-line-label="start"]')!.textContent).toBe("47");
     expect(container.querySelector('[data-wedge-line-label="end"]')!.textContent).toBe("5");
     expect(container.querySelector('[style*="min-width"]')).toBeTruthy();
-    expect(screen.getByText("Field 0")).toBeInTheDocument();
+    expect(screen.getAllByText("Field 0").length).toBeGreaterThan(0);
   });
 
   it("F20: an estimated 'today' cover is drawn and labelled differently from a reading taken today", () => {

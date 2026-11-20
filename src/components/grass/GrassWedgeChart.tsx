@@ -203,9 +203,9 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
       </div>
       </div>
       </div>
-      {scrollMinWidth ? <p className="mt-1 text-[11px] text-fr-v2-muted sm:hidden">Swipe the chart to see every field · tap a bar for its details</p> : null}
+      {scrollMinWidth ? <p className="mt-1 text-[11px] text-fr-v2-muted sm:hidden">Swipe to browse fields, or choose a field below</p> : null}\n      <div className="mt-3 flex gap-1.5 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label="Choose a field on the grass wedge">\n        {bars.map((b) => <button key={b.fieldId} type="button" onClick={() => onSelect(b.fieldId)} aria-pressed={selectedFieldId === b.fieldId} className={cn("min-h-9 max-w-40 shrink-0 truncate border-b-2 px-2 text-[12px] transition-colors focus-visible:outline-2 focus-visible:outline-fr-v2-forest", selectedFieldId === b.fieldId ? "border-fr-v2-forest font-semibold text-fr-v2-forest" : "border-transparent text-fr-v2-muted hover:border-fr-v2-cream-rule hover:text-fr-v2-charcoal")}>{b.name}</button>)}\n      </div>
       {/* Grouped key: what the bars mean, then the line and markers. Only what's on the chart is listed. */}
-      <figcaption className="mt-3 space-y-1.5 border-t border-fr-v2-cream-rule pt-3 text-[11px] text-fr-v2-muted">
+      <figcaption className="mt-2 text-[11px] text-fr-v2-muted"><details className="border-t border-fr-v2-cream-rule pt-2"><summary className="cursor-pointer py-2 font-semibold text-fr-v2-forest">Reading the chart · legend and target line</summary><div className="space-y-1.5 pt-2">
         <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
           <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em]">Bars</span>
           {splitExists ? (
@@ -226,7 +226,7 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
             Target line{line ? <> ({formatNumber(line.targetPreGrazingKgDmHa, 0)} → {formatNumber(line.residualKgDmHa, 0)}) · bars <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm bg-fr-v2-forest" aria-hidden />above</span> / <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm bg-fr-v2-harvest" aria-hidden />below</span></> : null}
           </span>
           <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-fr-v2-graphite" aria-hidden />Cattle in field</span>
-        </div>
+        </div></div></details>
       </figcaption>
     </figure>
   );

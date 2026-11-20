@@ -53,6 +53,41 @@ describe("grass wedge target line (Teagasc manual wedge)", () => {
   });
 });
 
+describe("realistic farm grazing-line regression scenarios", () => {
+  it("calculates a 20 ha beef platform with 30 cattle and a 21-day rotation", () => {
+    const result = buildDemandLine({
+      groups: [{ groupId: "beef", label: "Growing cattle", headCount: 30, fieldId: "a", dailyDemandKgDm: 300, kgDmPerHeadDay: 10 }],
+      grazingAreaHa: 20,
+      targets: { rotationDays: 21, residualKgDmHa: 150 },
+    });
+    expect(result.status).toBe("OK");
+    if (result.status !== "OK") return;
+    expect(result.line.demandKgDmHaDay).toBe(15);
+    expect(result.line.targetPreGrazingKgDmHa).toBe(465);
+    expect(result.line.targetAverageCoverKgDmHa).toBe(307.5);
+  });
+
+  it("calculates a higher-demand 12 ha platform without imposing a target cap", () => {
+    const result = buildDemandLine({
+      groups: [{ groupId: "stores", label: "Stores", headCount: 40, fieldId: "a", dailyDemandKgDm: 480, kgDmPerHeadDay: 12 }],
+      grazingAreaHa: 12,
+      targets: { rotationDays: 28, residualKgDmHa: 150 },
+    });
+    expect(result.status).toBe("OK");
+    if (result.status !== "OK") return;
+    expect(result.line.targetPreGrazingKgDmHa).toBe(1270);
+    expect(result.line.targetAverageCoverKgDmHa).toBe(710);
+  });
+
+  it("retains an anomalously low residual as entered, for the UI to flag rather than alter", () => {
+    const result = buildDemandLine({ groups, grazingAreaHa: 10, targets: { rotationDays: 21, residualKgDmHa: 5 } });
+    expect(result.status).toBe("OK");
+    if (result.status !== "OK") return;
+    expect(result.line.targetPreGrazingKgDmHa).toBe(530);
+    expect(result.line.residualKgDmHa).toBe(5);
+  });
+});
+
 describe("wedge layout", () => {
   it("orders by cover with unknown fields last, and sizes bars by area or equally", () => {
     const area = layoutWedge(fields, "area");

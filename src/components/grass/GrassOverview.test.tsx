@@ -59,11 +59,11 @@ describe("Grass V2 overview", () => {
   it("opens on the wedge, mounts the map when first shown, and keeps it while switching back", () => {
     renderOverview();
     const view = screen.getByRole("group", { name: "Grass view" });
-    expect(within(view).getByRole("button", { name: "Grass wedge" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(view).getByRole("button", { name: "Wedge" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByTestId("the-map")).not.toBeInTheDocument();
-    fireEvent.click(within(view).getByRole("button", { name: "Farm map" }));
+    fireEvent.click(within(view).getByRole("button", { name: "Map" }));
     expect(screen.getByTestId("the-map").parentElement).not.toHaveClass("hidden");
-    fireEvent.click(within(view).getByRole("button", { name: "Grass wedge" }));
+    fireEvent.click(within(view).getByRole("button", { name: "Wedge" }));
     expect(screen.getByTestId("the-map").parentElement).toHaveClass("hidden");
   });
 
@@ -75,11 +75,13 @@ describe("Grass V2 overview", () => {
     expect(screen.getByText("Target pre-grazing 675 kg DM/ha")).toBeInTheDocument();
     cleanup();
     renderOverview({ fields: [...FIELDS, { fieldId: "u", name: "Bottom", areaHa: 4, occupants: [], historyCount: 0 }] });
+    fireEvent.click(screen.getByRole("button", { name: "Insights" }));
     expect(screen.getByRole("link", { name: "Set the use of Bottom" })).toHaveAttribute("href", "/fields?field=u&focus=field-use");
   });
 
   it("only offers the mid-season preset in the main grazing season", () => {
     renderOverview({ asOf: "2026-11-12T12:00:00Z" });
+    fireEvent.click(screen.getByRole("button", { name: "Insights" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Set rotation length" })[0]);
     expect(screen.queryByRole("button", { name: "Fill in the Teagasc mid-season guide" })).not.toBeInTheDocument();
     expect(screen.getByText(/enter the longer rotation you're running now/)).toBeInTheDocument();
@@ -94,6 +96,7 @@ describe("Grass V2 overview", () => {
   it("asks for grazing targets before drawing the line, then draws it once they're saved", () => {
     renderOverview();
     expect(screen.getAllByText(/Set your rotation length and grazing residual/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Insights" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Set rotation length" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Fill in the Teagasc mid-season guide" }));
     fireEvent.click(screen.getByRole("button", { name: "Save targets" }));
@@ -108,6 +111,7 @@ describe("Grass V2 overview", () => {
     cleanup();
     resetGrassSettingsForTest();
     renderOverview({ groups: [{ groupId: "g9", label: "weanlings", headCount: 12, fieldId: "a", missingReason: "we need their average liveweight before working out their grass demand" }] });
+    fireEvent.click(screen.getByRole("button", { name: "Insights" }));
     expect(screen.getByText("Complete your grazing demand")).toBeInTheDocument();
     expect(screen.getByText(/weanlings: 12 animals are recorded on grass/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Add cattle liveweight" })).toHaveAttribute("href", "/cattle/groups/g9");
@@ -140,6 +144,7 @@ describe("Grass V2 overview", () => {
     expect(summary.textContent).toContain("not a grazing forecast");
     expect(summary.textContent).not.toContain("+15 days of demand");
     // Full engine wording and working stay one tap away.
+    fireEvent.click(screen.getByRole("button", { name: "Insights" }));
     const decisions = screen.getByRole("region", { name: "What to do next" });
     expect(within(decisions).getByText("More grass than your cattle need")).toBeInTheDocument();
     expect(within(decisions).getByText("Recent readings")).toBeInTheDocument();

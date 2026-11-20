@@ -50,7 +50,7 @@ export interface OverviewField extends WedgeField {
   historyCount: number;
 }
 
-type View = "wedge" | "map";
+type View = "wedge" | "map" | "insights";
 const kg = (n: number) => formatNumber(n, 0);
 
 /** Small uppercase label used across the screen (existing Farm Return kicker style). */
@@ -469,9 +469,9 @@ export function GrassOverview({
             label="Grass view"
             value={view}
             onChange={setView}
-            options={[{ value: "wedge", label: "Grass wedge" }, { value: "map", label: "Farm map" }]}
+            options={[{ value: "wedge", label: "Wedge" }, { value: "map", label: "Map" }, { value: "insights", label: "Insights" }]}
           />
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          {view !== "insights" ? <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <Segmented
               label="Grass forecast horizon"
               size="sm"
@@ -490,10 +490,10 @@ export function GrassOverview({
                 ))}
               </div>
             ) : null}
-          </div>
+          </div> : null}
         </div>
 
-        <div className="px-4 pb-4 pt-3 sm:px-5">
+        {view !== "insights" ? <div className="px-4 pb-4 pt-3 sm:px-5">
           {view === "wedge" ? <div className="mb-2"><GrassGuide /><div className="flex items-center justify-between gap-3"><p className="text-xs text-fr-v2-muted">Each bar is a field. Taller means more grass; wider means a larger field. Tap a bar for details.</p><button type="button" onClick={openGrassGuide} aria-label="Show grass guide" className="inline-flex min-h-10 shrink-0 items-center gap-1 text-xs font-semibold text-fr-v2-forest"><BookOpen className="size-4" aria-hidden />Help</button></div></div> : null}
           <div className={view === "wedge" ? undefined : "hidden"}>
             <p className="mb-2 text-[12px] text-fr-v2-muted">
@@ -548,11 +548,11 @@ export function GrassOverview({
               </div>
             </div>
           ) : null}
-        </div>
+        </div> : null}
       </section>
 
       {/* D — decisions. */}
-      <section className="mt-8" aria-label="What to do next">
+      {view === "insights" ? <section className="mt-3" aria-label="What to do next">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <h2 className="font-display text-[28px] leading-none text-fr-v2-graphite">What to do next</h2>
           {horizon > 0 ? <p className="text-xs text-fr-v2-muted">Based on covers projected +{horizon} days, not today&apos;s measurements.</p> : null}
@@ -575,10 +575,10 @@ export function GrassOverview({
             ))}
           </ul>
         )}
-      </section>
+      </section> : null}
 
       {/* E — targets, scenarios. */}
-      {settingsOpen ? (
+      {view === "insights" && settingsOpen ? (
         <section className="mt-5 rounded-[18px] border border-fr-v2-rule bg-white p-5" aria-label="Grazing targets">
           <p className="font-display text-[20px] leading-tight text-fr-v2-graphite">Your grazing targets</p>
           <p className="mt-1 text-xs text-fr-v2-muted">Teagasc beef guide: rotation 18–21 days in mid-season, longer in autumn; graze out to about 4 cm (≈150 kg DM/ha on the wedge).</p>
@@ -602,7 +602,7 @@ export function GrassOverview({
           </div>
           <p className="mt-2 text-[11px] text-fr-v2-muted">Saved on this device.</p>
         </section>
-      ) : (
+      ) : view === "insights" ? (
         <div className="mt-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-fr-v2-cream-rule pt-4">
           <div className="min-w-0 text-xs text-fr-v2-muted">
             <p className={KICKER}>Your targets</p>
@@ -613,9 +613,9 @@ export function GrassOverview({
           </div>
           <button type="button" onClick={openSettings} className="min-h-11 rounded-[12px] border border-fr-v2-rule bg-white px-3.5 text-xs font-semibold text-fr-v2-forest">{settings.targets.rotationDays !== undefined ? "Change" : "Set rotation length"}</button>
         </div>
-      )}
+      ) : null}
 
-      <section id="grass-scenario" className="mt-3 scroll-mt-4 border-t border-fr-v2-cream-rule" aria-label="Try a change">
+      {view === "insights" || scenarioOpen ? <section id="grass-scenario" className="mt-3 scroll-mt-4 border-t border-fr-v2-cream-rule" aria-label="Try a change">
         <button type="button" onClick={() => setScenarioOpen((o) => !o)} aria-expanded={scenarioOpen} className="flex min-h-14 w-full items-center justify-between gap-3 text-left">
           <span>
             <span className="block text-sm font-semibold text-fr-v2-charcoal">Try a change</span>
@@ -655,7 +655,7 @@ export function GrassOverview({
             {scenario.line.status === "OK" ? <Working lines={[...scenario.line.line.working, ...(scenario.position?.working ?? [])]} source={scenario.line.line.source} /> : null}
           </div>
         ) : null}
-      </section>
+      </section> : null}
     </div>
   );
 }

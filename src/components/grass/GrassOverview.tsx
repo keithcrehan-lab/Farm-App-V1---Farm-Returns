@@ -380,7 +380,7 @@ export function GrassOverview({
 
   return (
     <div>
-      <div className="flex items-end justify-between gap-3 border-b border-fr-v2-cream-rule pb-3 pt-1" aria-label="Grass position today"><div><p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-fr-v2-muted">Average farm cover · Today</p><p className="mt-1 font-display text-[40px] leading-none tabular-nums text-fr-v2-graphite">{averageCoverKgDmHa === undefined ? "—" : kg(averageCoverKgDmHa)} <span className="font-sans text-[12px] font-normal text-fr-v2-muted">kg DM/ha</span></p></div><div className="text-right text-[11px] text-fr-v2-muted"><p>{averageBasis ? `${averageBasis} basis` : "Not measured"}</p><p>{measuredRecently}/{fields.length} fields recent</p></div></div>\n      {/* C — wedge & map. */}
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 border-b border-fr-v2-cream-rule pb-3 pt-1" aria-label="Grass position today"><div><p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-fr-v2-muted">Average farm cover · Today</p><p className="mt-1 font-display text-[clamp(2rem,9vw,2.5rem)] leading-none tabular-nums text-fr-v2-graphite">{averageCoverKgDmHa === undefined ? "—" : kg(averageCoverKgDmHa)} <span className="font-sans text-[12px] font-normal text-fr-v2-muted">kg DM/ha</span></p></div><div className="text-right text-[11px] text-fr-v2-muted"><p>{averageBasis ? `${averageBasis} basis` : "Not measured"}</p><p>{measuredRecently}/{fields.length} fields recent</p></div></div>\n      {/* C — wedge & map. */}
       <section className="mt-1 overflow-hidden border-b border-fr-v2-cream-rule bg-transparent pb-5" aria-label={view === "wedge" ? "Grass wedge" : view === "map" ? "Farm map" : "Grass insights"}>
         <div className="pt-2 sm:px-1">
           <Segmented
@@ -406,7 +406,7 @@ export function GrassOverview({
         {view !== "insights" ? <div className="pb-2 pt-3 sm:px-1">
           {view === "wedge" ? <GrassGuide /> : null}
           <div className={view === "wedge" ? undefined : "hidden"}>
-            <div className="mb-2 flex items-end justify-between gap-2"><div><h2 className="font-display text-[24px] leading-none text-fr-v2-graphite">Grass by field</h2><p className="mt-1 text-[11px] text-fr-v2-muted">Highest cover first · select a field to explore</p></div><button type="button" onClick={openGrassGuide} aria-label="Show grass guide" className="min-h-10 text-xs font-semibold text-fr-v2-forest">How to read this ↗</button></div>
+            <div className="mb-2 flex flex-wrap items-end justify-between gap-x-3 gap-y-1"><div><h2 className="font-display text-[24px] leading-none text-fr-v2-graphite">Grass by field</h2><p className="mt-1 text-[11px] text-fr-v2-muted">Highest cover first · select a field to explore</p></div><button type="button" onClick={openGrassGuide} aria-label="Show grass guide" className="min-h-11 text-xs font-semibold text-fr-v2-forest">How to read this ↗</button></div>
             <GrassWedgeChart
               bars={bars}
               line={okLine}

@@ -54,7 +54,7 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
   if (bars.length === 0) return <p className="py-10 text-center text-sm text-fr-v2-muted">Map a field to begin your grass wedge.</p>;
 
   // Many fields on a phone: let the plot scroll sideways rather than crush the bars and names.
-  const scrollMinWidth = bars.length > 6 ? `${bars.length * 64}px` : undefined;
+  const scrollMinWidth = bars.length > 4 ? `${bars.length * 76}px` : undefined;
 
   return (
     <figure aria-label="Grass wedge">
@@ -62,7 +62,7 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
       <div style={scrollMinWidth ? { minWidth: scrollMinWidth } : undefined}>
       <p aria-hidden className="mb-1 font-mono text-[10px] text-fr-v2-muted">kg DM/ha</p>
       <div className="relative">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-52 w-full select-none sm:h-72" role="img" aria-label={`Grass wedge of ${bars.length} fields${showForecast ? `, projected ${horizonDays} days with today's cover and forecast change distinguished` : ""}${line ? ", with the target line" : ""}`}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-56 w-full select-none sm:h-72" role="img" aria-label={`Grass wedge of ${bars.length} fields${showForecast ? `, projected ${horizonDays} days with today's cover and forecast change distinguished` : ""}${line ? ", with the target line" : ""}`}>
         <defs>
           <pattern id="grass-wedge-gain-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
             <line x1="1" y1="0" x2="1" y2="7" stroke="#ffffff" strokeOpacity="0.53" strokeWidth="2" />
@@ -203,7 +203,7 @@ export function GrassWedgeChart({ bars, line, horizonDays = 0, selectedFieldId, 
       </div>
       </div>
       </div>
-      {scrollMinWidth ? <p className="mt-1 text-[11px] text-fr-v2-muted sm:hidden">Swipe to browse fields, or choose a field below</p> : null}\n      <div className="mt-3 flex gap-1.5 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label="Choose a field on the grass wedge">\n        {bars.map((b) => <button key={b.fieldId} type="button" onClick={() => onSelect(b.fieldId)} aria-pressed={selectedFieldId === b.fieldId} className={cn("min-h-9 max-w-40 shrink-0 truncate border-b-2 px-2 text-[12px] transition-colors focus-visible:outline-2 focus-visible:outline-fr-v2-forest", selectedFieldId === b.fieldId ? "border-fr-v2-forest font-semibold text-fr-v2-forest" : "border-transparent text-fr-v2-muted hover:border-fr-v2-cream-rule hover:text-fr-v2-charcoal")}>{b.name}</button>)}\n      </div>
+      {scrollMinWidth ? <p className="mt-1 text-[11px] text-fr-v2-muted sm:hidden">Swipe to browse fields, or choose a field below</p> : null}\n      <div className="mt-3 flex gap-1.5 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label="Choose a field on the grass wedge">\n        {bars.map((b) => <button key={b.fieldId} type="button" onClick={() => onSelect(b.fieldId)} aria-pressed={selectedFieldId === b.fieldId} className={cn("min-h-11 max-w-40 shrink-0 truncate border-b-2 px-3 text-[12px] transition-colors focus-visible:outline-2 focus-visible:outline-fr-v2-forest", selectedFieldId === b.fieldId ? "border-fr-v2-forest font-semibold text-fr-v2-forest" : "border-transparent text-fr-v2-muted hover:border-fr-v2-cream-rule hover:text-fr-v2-charcoal")}>{b.name}</button>)}\n      </div>
       {/* Grouped key: what the bars mean, then the line and markers. Only what's on the chart is listed. */}
       <figcaption className="mt-2 text-[11px] text-fr-v2-muted"><details className="border-t border-fr-v2-cream-rule pt-2"><summary className="cursor-pointer py-2 font-semibold text-fr-v2-forest">Reading the chart · legend and target line</summary><div className="space-y-1.5 pt-2">
         <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">

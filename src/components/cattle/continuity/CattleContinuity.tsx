@@ -158,13 +158,13 @@ function AnimalRow({ a }: { a: ContinuityAnimalVM }) {
   );
 }
 
-function HerdMetric({ label, value, unit }: { label: string; value: string; unit: string }) {
+function HerdMetric({ label, value, unit, href }: { label: string; value: string; unit: string; href: string }) {
   return (
-    <div className="bg-[var(--cc-paper)] px-4 py-4">
+    <Link href={href} aria-label={`${label}: ${value} ${unit}. Open details`} className="block bg-[var(--cc-paper)] px-4 py-4 transition-colors hover:bg-[var(--cc-sand)] active:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[var(--cc-ink)]">
       <p className={s.quietLabel}>{label}</p>
       <p className={`mt-2 font-display text-[27px] leading-none text-[var(--cc-ink)] ${s.mono}`}>{value}</p>
-      <p className="mt-1 text-[10.5px] text-[var(--cc-muted)]">{unit}</p>
-    </div>
+      <p className="mt-1 text-[10.5px] text-[var(--cc-muted)]">{unit} <span aria-hidden="true">↗</span></p>
+    </Link>
   );
 }
 
@@ -188,22 +188,24 @@ export function RealHerdScreen({ view }: { view: RealHerdView }) {
 
       <div className="px-4 pb-8 pt-6 lg:px-8">
         <section className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-[14px] border border-[var(--cc-rule)] bg-[var(--cc-rule)] lg:grid-cols-5" aria-label="Herd status">
-          <HerdMetric label="Cattle" value={c.headline.value} unit={c.headline.unit} />
-          <HerdMetric label="Groups" value={c.groupsCount.value} unit={c.groupsCount.unit} />
+          <HerdMetric label="Cattle" value={c.headline.value} unit={c.headline.unit} href="/cattle/manage" />
+          <HerdMetric label="Groups" value={c.groupsCount.value} unit={c.groupsCount.unit} href="#cattle-groups" />
           <HerdMetric
             label={view.operations.fieldsOccupied.label}
+            href="/fields"
             value={view.operations.fieldsOccupied.value ?? view.operations.fieldsOccupied.state.label}
             unit={view.operations.fieldsOccupied.unit ?? view.operations.fieldsOccupied.caption ?? view.operations.fieldsOccupied.state.detail ?? view.operations.fieldsOccupied.state.label}
           />
-          <HerdMetric label="Individually tracked" value={String(view.herd.animalCount)} unit={view.herd.animalCount === 1 ? "animal" : "animals"} />
+          <HerdMetric label="Individually tracked" value={String(view.herd.animalCount)} unit={view.herd.animalCount === 1 ? "animal" : "animals"} href="#cattle-groups" />
           <HerdMetric
             label="Open jobs"
+            href="/plan"
             value={view.herd.openWorkCount.state === "KNOWN" ? String(view.herd.openWorkCount.value) : "—"}
             unit={view.herd.openWorkCount.state === "KNOWN" ? "supported" : "not checked"}
           />
         </section>
 
-        <div className="mb-4 flex items-center justify-between gap-4">
+        <div id="cattle-groups" className="mb-4 flex scroll-mt-24 items-center justify-between gap-4">
           <div className="min-w-0">
             <div className={s.quietLabel}>Living herd</div>
             <p className="mt-1 text-[14px] text-[var(--cc-muted)]">{c.intro}</p>
